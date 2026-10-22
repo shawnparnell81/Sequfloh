@@ -280,6 +280,76 @@ public sealed class ImportTests(TestApp app)
     }
 
     [Fact]
+    public async Task Blank_forms_stay_blank_and_filled_copies_and_saved_copies_are_linked_and_audited()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, editor) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewImportedFiles, Permissions.SequflohImportFiles], site);
+        var (_, viewer) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewImportedFiles], site);
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(InspectionWorkbook()), "file", "Torque checks.xlsx");
+        form.Add(new StringContent(site.ToString()), "siteId");
+        form.Add(new StringContent("true"), "blankForm");
+        var blankId = (await (await editor.Http.PostAsync("/api/imported-files", form)).JsonAsync()).Id();
+        var blank = await editor.GetElAsync($"/api/imported-files/{blankId}");
+        Assert.True(blank.GetProperty("isBlankForm").GetBoolean());
+
+        // protected unless Edit blank is on
+        var edit = new { baseVersion = 1, edits = new[] { new { sheet = "Checks", r = 3, c = 2, value = "11" } } };
+        Assert.Equal(HttpStatusCode.BadRequest, (await editor.PutAsync($"/api/imported-files/{blankId}/cells", edit)).StatusCode);
+        Assert.Equal(2, (await (await editor.PutAsync($"/api/imported-files/{blankId}/cells", new { edit.baseVersion, edit.edits, editBlank = true })).JsonAsync()).Int("version"));
+
+        // a viewer cannot fill out; an editor gets a new file from the current blank version
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsync($"/api/imported-files/{blankId}/fill-out", new { title = "x" })).StatusCode);
+        var filled = await (await editor.PostAsync($"/api/imported-files/{blankId}/fill-out", new { title = "Torque checks – line 2" })).JsonAsync();
+        var filledId = filled.Id();
+        var fd = await editor.GetElAsync($"/api/imported-files/{filledId}");
+        Assert.False(fd.GetProperty("isBlankForm").GetBoolean());
+        Assert.Equal(blankId, fd.GetProperty("blankForm").Id());
+        Assert.Equal(2, fd.GetProperty("blankForm").Int("version"));
+        Assert.Equal("Torque checks – line 2", fd.Str("title"));
+        var grid = await editor.GetElAsync($"/api/imported-files/{filledId}/sheet");
+        Assert.Equal("31", CellAt(grid, 5, 2).Str("cached"));
+
+        // the copy edits normally and the blank does not change
+        var saved = await editor.PutAsync($"/api/imported-files/{filledId}/cells", new { baseVersion = 1, edits = new[] { new { sheet = "Checks", r = 4, c = 2, value = "30" } } });
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        Assert.Equal("31", CellAt(await editor.GetElAsync($"/api/imported-files/{blankId}/sheet"), 5, 2).Str("cached"));
+
+        // save as new copy from the filled copy: the filled copy stays as it is, the new one links to the same blank
+        var copy = await (await editor.PostAsync($"/api/imported-files/{filledId}/save-as-copy", new { baseVersion = 2, title = "Retest", cells = new[] { new { sheet = "Checks", r = 3, c = 2, value = "1" } } })).JsonAsync();
+        Assert.Equal("41", CellAt(await editor.GetElAsync($"/api/imported-files/{filledId}/sheet"), 5, 2).Str("cached"));
+        Assert.Equal("31", CellAt(await editor.GetElAsync($"/api/imported-files/{copy.Id()}/sheet"), 5, 2).Str("cached"));
+        Assert.Equal(blankId, (await editor.GetElAsync($"/api/imported-files/{copy.Id()}")).GetProperty("blankForm").Id());
+
+        // updating the blank with a new upload leaves copies alone
+        var up = new MultipartFormDataContent();
+        up.Add(new ByteArrayContent(InspectionWorkbook()), "file", "Torque checks v3.xlsx");
+        Assert.Equal(3, (await (await editor.Http.PostAsync($"/api/imported-files/{blankId}/versions", up)).JsonAsync()).Int("version"));
+        Assert.Equal("30", CellAt(await editor.GetElAsync($"/api/imported-files/{blankId}/sheet"), 5, 2).Str("cached"));
+        Assert.Equal("41", CellAt(await editor.GetElAsync($"/api/imported-files/{filledId}/sheet"), 5, 2).Str("cached"));
+
+        // the blank lists its copies newest first; list filters
+        var copies = (await editor.GetElAsync($"/api/imported-files/{blankId}")).GetProperty("copies").EnumerateArray().Select(c => c.Id()).ToList();
+        Assert.Equal([copy.Id(), filledId], copies);
+        var blanks = (await editor.GetElAsync("/api/imported-files?kind=blank")).GetProperty("items").EnumerateArray().Select(c => c.Id()).ToList();
+        Assert.Contains(blankId, blanks); Assert.DoesNotContain(filledId, blanks);
+        var filledList = (await editor.GetElAsync("/api/imported-files?kind=filled")).GetProperty("items").EnumerateArray().Select(c => c.Id()).ToList();
+        Assert.Contains(filledId, filledList); Assert.Contains(copy.Id(), filledList); Assert.DoesNotContain(blankId, filledList);
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var fromBlank = await db.AuditEntries.Where(a => a.Action == "Created from blank form" && a.EntityId == filledId).SingleAsync();
+        Assert.Contains("from blank form", fromBlank.Description);
+        Assert.False(string.IsNullOrEmpty(fromBlank.UserName));
+        Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == "Created from blank form" && a.EntityId == blankId));
+        var asCopy = await db.AuditEntries.Where(a => a.Action == "Saved as copy" && a.EntityId == copy.Id()).SingleAsync();
+        Assert.Contains("was left as it is", asCopy.Description);
+        Assert.Contains("Checks!B3", asCopy.Description);
+        Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == "Saved as copy" && a.EntityId == blankId));
+        Assert.True(await db.AuditEntries.AnyAsync(a => a.Action == "Saved as copy" && a.EntityId == filledId));
+    }
+
+    [Fact]
     public async Task Csv_becomes_a_workbook_with_typed_cells_and_formula_like_text_stays_text()
     {
         var (_, editor) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewImportedFiles, Permissions.SequflohImportFiles]);

@@ -10,6 +10,7 @@ test.describe('imported files', () => {
     await section(page, 'Imported Files');
     await view(page).getByTestId('import-file').click();
     await page.getByTestId('import-input').setInputFiles(path.resolve(process.env.E2E_XLSX!));
+    await page.getByTestId('import-blank').uncheck();
     await page.getByTestId('import-upload').click();
     await expect(page).toHaveURL(/\/sequfloh\/imported-files\/[0-9a-f-]{36}$/);
     const g8 = view(page).locator('td[data-cell="G8"]');
@@ -29,6 +30,7 @@ test.describe('imported files', () => {
     await section(page, 'Imported Files');
     await view(page).getByTestId('import-file').click();
     await page.getByTestId('import-input').setInputFiles(path.resolve(process.env.E2E_DOCX!));
+    await page.getByTestId('import-blank').uncheck();
     await page.getByTestId('import-upload').click();
     const para = view(page).locator('p[data-editable]').last();
     await para.click();
