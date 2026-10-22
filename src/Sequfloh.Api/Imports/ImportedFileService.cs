@@ -53,14 +53,17 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (!string.IsNullOrWhiteSpace(q)) { var t = "%" + q.Trim() + "%"; query = query.Where(f => EF.Functions.ILike(f.Title, t) || EF.Functions.ILike(f.Number, t) || EF.Functions.ILike(f.OriginalFileName, t)); }
         if (kind == "spreadsheet") query = query.Where(f => f.Kind == ImportedFileKind.Spreadsheet);
         if (kind == "document") query = query.Where(f => f.Kind == ImportedFileKind.Document);
+        if (kind == "blank") query = query.Where(f => f.IsBlankForm);
+        if (kind == "filled") query = query.Where(f => f.BlankFormId != null);
         var rows = await query.OrderByDescending(f => f.UpdatedAt)
-            .Select(f => new { f.Id, f.Number, f.Title, f.Kind, f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.SiteId, f.DepartmentId, f.CreatedAt, f.UpdatedAt,
+            .Select(f => new { f.Id, f.Number, f.Title, f.Kind, f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.SiteId, f.DepartmentId, f.CreatedAt, f.UpdatedAt, f.IsBlankForm,
+                BlankForm = db.ImportedFiles.Where(b => b.Id == f.BlankFormId).Select(b => b.Title).FirstOrDefault(),
                 UpdatedBy = db.Users.Where(u => u.Id == f.UpdatedById).Select(u => u.DisplayName).FirstOrDefault() })
             .ToListAsync(ct);
         var allowed = rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).ToList();
         pageSize = Math.Clamp(pageSize, 1, 200); page = Math.Max(1, page);
         return new { total = allowed.Count, items = allowed.Skip((page - 1) * pageSize).Take(pageSize).Select(r => new { r.Id, r.Number, r.Title, Kind = r.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document",
-            r.SourceFormat, r.OriginalFileName, r.CurrentVersion, r.CreatedAt, r.UpdatedAt, r.UpdatedBy }) };
+            r.SourceFormat, r.OriginalFileName, r.CurrentVersion, r.CreatedAt, r.UpdatedAt, r.UpdatedBy, r.IsBlankForm, r.BlankForm }) };
     }
 
     public async Task<object> GetAsync(Guid id, CancellationToken ct)
@@ -69,13 +72,49 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var versions = await db.ImportedFileVersions.AsNoTracking().Where(v => v.ImportedFileId == id).OrderByDescending(v => v.Version)
             .Select(v => new { v.Version, v.FileName, v.SizeBytes, v.Note, v.CreatedAt, v.CreatedByName }).ToListAsync(ct);
         var canEdit = await access.CanAccessAsync(UserId, Permissions.SequflohImportFiles, f.SiteId, f.DepartmentId, ct);
+        var blank = f.BlankFormId is null ? null : await db.ImportedFiles.AsNoTracking().Where(b => b.Id == f.BlankFormId)
+            .Select(b => new { b.Id, b.Number, b.Title, Version = f.BlankFormVersion }).FirstOrDefaultAsync(ct);
+        var copies = !f.IsBlankForm ? null : await db.ImportedFiles.AsNoTracking().Where(c => c.BlankFormId == f.Id && !c.IsArchived).OrderByDescending(c => c.CreatedAt)
+            .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.CreatedAt, c.UpdatedAt,
+                CreatedBy = db.Users.Where(u => u.Id == c.CreatedById).Select(u => u.DisplayName).FirstOrDefault(),
+                UpdatedBy = db.Users.Where(u => u.Id == c.UpdatedById).Select(u => u.DisplayName).FirstOrDefault() })
+            .Take(500).ToListAsync(ct);
         return new { f.Id, f.Number, f.Title, Kind = f.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document", f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
-            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit };
+            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, BlankForm = blank, Copies = copies };
     }
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
 
-    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct)
+    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false)
+    {
+        var (name, ext, original, kind, working, workingExt, workingType, summary) = await PrepareAsync(content, fileName, ct);
+
+        var site = siteId ?? await db.Users.Where(u => u.Id == UserId).Select(u => u.DefaultSiteId).FirstOrDefaultAsync(ct) ?? await db.Sites.Select(s => (Guid?)s.Id).FirstOrDefaultAsync(ct)
+            ?? throw new AppException("Set up a site first.");
+        if (!await access.CanAccessAsync(UserId, Permissions.SequflohImportFiles, site, departmentId, ct)) throw new ForbiddenException();
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var f = new ImportedFile
+        {
+            Number = await numbers.NextAsync("SqfImportedFile", site, ct),
+            Title = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(name) : title.Trim(),
+            Kind = kind, SourceFormat = ext.TrimStart('.'), OriginalFileName = name, SiteId = site, DepartmentId = departmentId, Summary = summary, IsBlankForm = blankForm,
+        };
+        if (f.Title.Length > 300) f.Title = f.Title[..300];
+        f.OriginalStorageKey = $"imports/{f.Id:N}/original{ext}";
+        original.Position = 0;
+        await storage.PutAsync(f.OriginalStorageKey, original, ContentTypeOf(ext), ct);
+        db.ImportedFiles.Add(f);
+        db.ImportedFileVersions.Add(await StoreVersionAsync(f, 1, working, workingExt, workingType, ConvertedNote(ext), ct));
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return f;
+    }
+
+    static string ConvertedNote(string ext) => ext is ".csv" or ".xls" or ".doc" ? $"Converted from {ext.TrimStart('.').ToUpperInvariant()}" : "As uploaded";
+
+    /// <summary>Checks an upload and works out the working copy the app opens and edits (CSV and legacy formats are converted).</summary>
+    async Task<(string Name, string Ext, MemoryStream Original, ImportedFileKind Kind, byte[] Working, string WorkingExt, string WorkingType, string Summary)> PrepareAsync(Stream content, string fileName, CancellationToken ct)
     {
         var name = Path.GetFileName(fileName);
         var ext = Path.GetExtension(name).ToLowerInvariant();
@@ -86,10 +125,6 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (original.Length > MaxBytes) throw new AppException("Files are limited to 20 MB.");
         original.Position = 0;
         if (await ImportSecurity.InspectAsync(original, ext, ct) is { } problem) throw new AppException(problem);
-
-        var site = siteId ?? await db.Users.Where(u => u.Id == UserId).Select(u => u.DefaultSiteId).FirstOrDefaultAsync(ct) ?? await db.Sites.Select(s => (Guid?)s.Id).FirstOrDefaultAsync(ct)
-            ?? throw new AppException("Set up a site first.");
-        if (!await access.CanAccessAsync(UserId, Permissions.SequflohImportFiles, site, departmentId, ct)) throw new ForbiddenException();
 
         // the working copy that the app opens and edits
         byte[] working; string workingExt; string workingType; var kind = ext is ".docx" or ".doc" ? ImportedFileKind.Document : ImportedFileKind.Spreadsheet;
@@ -112,23 +147,18 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         catch (Exception e) when (e is not AppException and not OutOfMemoryException and not OperationCanceledException)
         { throw new FileUnreadableException($"This file could not be read ({e.GetType().Name}: {e.Message}). Open it in Excel or Word, save it again, and try once more.", e); }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var f = new ImportedFile
-        {
-            Number = await numbers.NextAsync("SqfImportedFile", site, ct),
-            Title = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(name) : title.Trim(),
-            Kind = kind, SourceFormat = ext.TrimStart('.'), OriginalFileName = name, SiteId = site, DepartmentId = departmentId, Summary = summary,
-        };
-        if (f.Title.Length > 300) f.Title = f.Title[..300];
-        f.OriginalStorageKey = $"imports/{f.Id:N}/original{ext}";
-        original.Position = 0;
-        await storage.PutAsync(f.OriginalStorageKey, original, ContentTypeOf(ext), ct);
-        db.ImportedFiles.Add(f);
-        db.ImportedFileVersions.Add(await StoreVersionAsync(f, 1, working, workingExt, workingType,
-            ext is ".csv" or ".xls" or ".doc" ? $"Converted from {ext.TrimStart('.').ToUpperInvariant()}" : "As uploaded", ct));
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        return f;
+        return (name, ext, original, kind, working, workingExt, workingType, summary);
+    }
+
+    /// <summary>Uploads a new version of an existing file (for example an updated blank form). The file must be the same kind; filled copies are not touched.</summary>
+    public async Task<object> UploadVersionAsync(Guid id, Stream content, string fileName, CancellationToken ct)
+    {
+        var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        if (f.IsArchived) throw new AppException("This imported file is archived.");
+        var (name, _, _, kind, working, workingExt, workingType, _) = await PrepareAsync(content, fileName, ct);
+        if (kind != f.Kind) throw new AppException(f.Kind == ImportedFileKind.Spreadsheet ? "Upload a spreadsheet to replace this spreadsheet." : "Upload a Word document to replace this document.");
+        var from = new ImportedFileVersion { FileName = "x" + workingExt, ContentType = workingType };
+        return await SaveVersionAsync(f, from, working, $"New file uploaded: {name}", null, ct);
     }
 
     static string ContentTypeOf(string ext) => ext switch
@@ -277,9 +307,10 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         catch (Exception e) when (e is not OutOfMemoryException) { return "#VALUE!"; }
     }
 
-    public async Task<object> SaveCellsAsync(Guid id, int baseVersion, IReadOnlyList<CellEdit> edits, CancellationToken ct)
+    public async Task<object> SaveCellsAsync(Guid id, int baseVersion, IReadOnlyList<CellEdit> edits, CancellationToken ct, bool editBlank = false)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        GuardBlank(f, editBlank);
         if (f.Kind != ImportedFileKind.Spreadsheet) throw new AppException("This imported file is a document.");
         if (f.IsArchived) throw new AppException("This imported file is archived.");
         if (baseVersion != f.CurrentVersion) throw new ConflictException($"Someone saved version {f.CurrentVersion} while you were editing. Reload the file and enter your changes again.");
@@ -359,19 +390,100 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         return new { Version = v.Version, d.Title, d.Blocks, d.Header, d.Footer, d.FinalSection, d.Images, d.Warnings, d.Security };
     }
 
-    public async Task<object> SaveDocumentAsync(Guid id, int baseVersion, IReadOnlyList<ParagraphEdit> edits, CancellationToken ct)
+    public async Task<object> SaveDocumentAsync(Guid id, int baseVersion, IReadOnlyList<ParagraphEdit> edits, CancellationToken ct, bool editBlank = false)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        GuardBlank(f, editBlank);
         if (f.Kind != ImportedFileKind.Document) throw new AppException("This imported file is a spreadsheet.");
         if (f.IsArchived) throw new AppException("This imported file is archived.");
         if (baseVersion != f.CurrentVersion) throw new ConflictException($"Someone saved version {f.CurrentVersion} while you were editing. Reload the file and enter your changes again.");
         if (edits.Count == 0) throw new AppException("There are no changes to save.");
         var (v, bytes) = await CurrentAsync(f, null, ct);
+        return await SaveVersionAsync(f, v, ApplyParagraphs(bytes, edits), $"Edited {edits.Count} paragraph{(edits.Count == 1 ? "" : "s")}", null, ct);
+    }
+
+    static byte[] ApplyParagraphs(byte[] bytes, IReadOnlyList<ParagraphEdit> edits)
+    {
+        if (edits.Count == 0) return bytes;
         var model = DocxReader.Read(new MemoryStream(bytes));
         var editable = AllParagraphs(model).Where(p => p.Editable).Select(p => p.Ref!.Value).ToHashSet();
         if (edits.Any(e => !editable.Contains(e.Ref))) throw new AppException("A paragraph with fields or form controls cannot be edited here; download the file to change it.");
-        var saved = DocxEditor.Apply(bytes, edits.GroupBy(e => e.Ref).ToDictionary(g => g.Key, g => g.Last().Text));
-        return await SaveVersionAsync(f, v, saved, $"Edited {edits.Count} paragraph{(edits.Count == 1 ? "" : "s")}", null, ct);
+        return DocxEditor.Apply(bytes, edits.GroupBy(e => e.Ref).ToDictionary(g => g.Key, g => g.Last().Text));
+    }
+
+    // ---- blank forms and copies ---------------------------------------------------------------------------------------------------
+
+    static void GuardBlank(ImportedFile f, bool editBlank)
+    {
+        if (f.IsBlankForm && !editBlank) throw new AppException("This is a blank form, so it is protected. Use Fill out a copy, or turn on Edit blank to change the blank itself.");
+    }
+
+    /// <summary>Starts a filled copy of a blank form from its current version and returns the new file.</summary>
+    public async Task<object> FillOutAsync(Guid id, string? title, CancellationToken ct)
+    {
+        var blank = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        if (!blank.IsBlankForm) throw new AppException("Only a blank form can be filled out. Use Save as new copy instead.");
+        if (blank.IsArchived) throw new AppException("This blank form is archived.");
+        var (v, bytes) = await CurrentAsync(blank, null, ct);
+        var copy = await CreateCopyAsync(blank, v, bytes, title, blank.Id, blank.CurrentVersion, $"Started from blank form {blank.Number} version {blank.CurrentVersion}", ct,
+            c => ("Created from blank form", $"Created {c.Number} {c.Title} from blank form {blank.Number} {blank.Title} (version {blank.CurrentVersion})"));
+        return new { copy.Id, copy.Number, copy.Title };
+    }
+
+    /// <summary>Saves edits to a new file and leaves the one being edited as it is. A copy of a blank form or of a filled copy is linked to the same blank form.</summary>
+    public async Task<object> SaveAsCopyAsync(Guid id, int baseVersion, string? title, IReadOnlyList<CellEdit>? cells, IReadOnlyList<ParagraphEdit>? paragraphs, CancellationToken ct)
+    {
+        var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        if (baseVersion != f.CurrentVersion) throw new ConflictException($"Someone saved version {f.CurrentVersion} while you were editing. Reload the file and enter your changes again.");
+        var (v, bytes) = await CurrentAsync(f, null, ct);
+        string note;
+        if (f.Kind == ImportedFileKind.Spreadsheet)
+        {
+            var list = cells ?? [];
+            if (list.Count > 5000) throw new AppException("Save at most 5000 cells at a time.");
+            if (list.Count > 0) bytes = ApplyCells(bytes, list).Bytes;
+            note = list.Count > 0 ? Describe(list) : "No changes";
+        }
+        else
+        {
+            var list = paragraphs ?? [];
+            bytes = ApplyParagraphs(bytes, list);
+            note = list.Count > 0 ? $"Edited {list.Count} paragraph{(list.Count == 1 ? "" : "s")}" : "No changes";
+        }
+        var blankId = f.IsBlankForm ? f.Id : f.BlankFormId;
+        var blankVersion = f.IsBlankForm ? f.CurrentVersion : f.BlankFormVersion;
+        var copy = await CreateCopyAsync(f, v, bytes, title, blankId, blankVersion, $"Saved as a copy of {f.Number} version {f.CurrentVersion}. {note}", ct,
+            c => ("Saved as copy", $"Saved {c.Number} {c.Title} as a new copy of {f.Number} {f.Title} (version {f.CurrentVersion}); {f.Number} was left as it is. {note}"));
+        return new { copy.Id, copy.Number, copy.Title };
+    }
+
+    async Task<ImportedFile> CreateCopyAsync(ImportedFile from, ImportedFileVersion v, byte[] bytes, string? title, Guid? blankId, int? blankVersion, string note, CancellationToken ct,
+        Func<ImportedFile, (string Action, string Text)> audit)
+    {
+        var ext = Path.GetExtension(v.FileName).ToLowerInvariant();
+        var t = string.IsNullOrWhiteSpace(title) ? $"{from.Title} – {DateTimeOffset.UtcNow:yyyy-MM-dd}" : title.Trim();
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var copy = new ImportedFile
+        {
+            Number = await numbers.NextAsync("SqfImportedFile", from.SiteId, ct), Title = t.Length > 300 ? t[..300] : t, Kind = from.Kind, SourceFormat = ext.TrimStart('.'),
+            OriginalFileName = Path.GetFileNameWithoutExtension(v.FileName) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = Summarize(from.Kind, bytes, ext),
+            BlankFormId = blankId, BlankFormVersion = blankVersion,
+        };
+        copy.OriginalStorageKey = $"imports/{copy.Id:N}/original{ext}";
+        await storage.PutAsync(copy.OriginalStorageKey, new MemoryStream(bytes), v.ContentType, ct);
+        db.ImportedFiles.Add(copy);
+        db.ImportedFileVersions.Add(await StoreVersionAsync(copy, 1, bytes, ext, v.ContentType, note.Length > 500 ? note[..497] + "..." : note, ct));
+        var (action, text) = audit(copy);
+        // recorded on the new file, the file it came from and the blank form it belongs to
+        foreach (var target in new[] { copy.Id, from.Id, blankId ?? from.Id }.Distinct())
+            db.AuditEntries.Add(new AuditEntry
+            {
+                OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = action, EntityType = nameof(ImportedFile), EntityId = target, SiteId = from.SiteId,
+                CorrelationId = me.CorrelationId, Description = AuditText.Fit(text),
+            });
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return copy;
     }
 
     static IEnumerable<WPara> AllParagraphs(DocModel m)

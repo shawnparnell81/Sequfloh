@@ -73,6 +73,8 @@ export const sequfloh: ModuleDef = {
         { label: 'All Imported Files', path: '/sequfloh/imported-files' },
         { label: 'Spreadsheets', path: '/sequfloh/imported-files?kind=spreadsheet' },
         { label: 'Word Documents', path: '/sequfloh/imported-files?kind=document' },
+        { label: 'Blank Forms', path: '/sequfloh/imported-files?kind=blank' },
+        { label: 'Filled Forms', path: '/sequfloh/imported-files?kind=filled' },
       ] },
       { label: 'Quality', path: '/sequfloh/quality', permission: 'sequfloh.view_quality_folder', icon: <VerifiedOutlined fontSize="small" />, match: ['/sequfloh/quality'], children: [
         { label: 'Quality Dashboard', path: '/sequfloh/quality' },

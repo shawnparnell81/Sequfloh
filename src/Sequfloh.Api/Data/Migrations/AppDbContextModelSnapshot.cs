@@ -1358,6 +1358,12 @@ namespace Sequfloh.Data.Migrations
                     b.Property<DateTimeOffset?>("ArchivedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("BlankFormId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("BlankFormVersion")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1371,6 +1377,9 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsBlankForm")
                         .HasColumnType("boolean");
 
                     b.Property<int>("Kind")
@@ -1421,6 +1430,8 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BlankFormId");
 
                     b.HasIndex("Number")
                         .IsUnique();
@@ -2286,6 +2297,14 @@ namespace Sequfloh.Data.Migrations
                         .HasForeignKey("WorkInstructionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Imports.ImportedFile", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Imports.ImportedFile", null)
+                        .WithMany()
+                        .HasForeignKey("BlankFormId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Sequfloh.Domain.Imports.ImportedFileVersion", b =>

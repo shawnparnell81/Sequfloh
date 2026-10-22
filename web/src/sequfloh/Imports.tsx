@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Menu, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
+import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Alert, Box, Button, Checkbox, Chip, Link, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Menu, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,15 +15,50 @@ const A = '/api/imported-files';
 const GREEN = '#0E8550';
 const crumbs = (label: string, extra?: { label: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Imported Files', to: '/sequfloh/imported-files' }, { label }, ...(extra ? [extra] : [])];
 
-interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; updatedBy?: string }
+interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; updatedBy?: string; isBlankForm: boolean; blankForm?: string | null }
 interface Detail {
   id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; createdAt: string; updatedAt: string; canEdit: boolean;
+  isBlankForm: boolean; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
+  copies?: { id: string; number: string; title: string; blankFormVersion?: number | null; createdAt: string; updatedAt: string; createdBy?: string; updatedBy?: string }[] | null;
   summary: { formulaTotal?: number; formulaClasses?: Record<string, number>; warnings?: string[]; security?: string[]; sheets?: { name: string; charts: number; pivots: number }[]; paragraphs?: number; tables?: number; controls?: number };
   versions: { version: number; fileName: string; sizeBytes: number; note?: string; createdAt: string; createdByName: string }[];
 }
 
 const kindLabel = (k: string) => (k === 'spreadsheet' ? 'Spreadsheet' : 'Word document');
 const formatLabel = (f: string) => f.toUpperCase();
+const today = () => new Date().toLocaleDateString('en-CA');
+const listTitles: Record<string, string> = { spreadsheet: 'Spreadsheets', document: 'Word Documents', blank: 'Blank Forms', filled: 'Filled Forms' };
+
+/** Asks for the title of a new file made from this one (a filled copy of a blank form, or a saved copy). */
+function CopyDialog({ open, heading, initial, action, busy, error, onClose, onConfirm }: { open: boolean; heading: string; initial: string; action: string; busy: boolean; error?: string | null; onClose: () => void; onConfirm: (title: string) => void }) {
+  const [title, setTitle] = useState(initial);
+  return (
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => setTitle(initial) }}>
+      <DialogTitle>{heading}</DialogTitle>
+      <DialogContent>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <TextField autoFocus fullWidth label="Title" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ mt: 1 }} inputProps={{ 'data-testid': 'copy-title' }} />
+      </DialogContent>
+      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!title.trim() || busy} onClick={() => onConfirm(title.trim())} data-testid="copy-confirm">{busy ? 'Working…' : action}</Button></DialogActions>
+    </Dialog>
+  );
+}
+
+/** "Save as new copy": saves the pending edits into a new file and opens it; the file being edited stays as it is. */
+function useSaveAsCopy(file: Detail, body: () => object) {
+  const nav = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirm = async (title: string, after: () => void) => {
+    setBusy(true); setError(null);
+    try { const r = await post<{ id: string }>(`${A}/${file.id}/save-as-copy`, { baseVersion: file.currentVersion, title, ...body() }); after(); setOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  const base = file.blankForm?.title ?? file.title;
+  return { open: () => { setError(null); setOpen(true); }, dialog: (after: () => void) => <CopyDialog open={open} heading="Save as new copy" initial={`${base} – ${today()}`} action="Save copy" busy={busy} error={error}
+    onClose={() => setOpen(false)} onConfirm={(t) => confirm(t, after)} /> };
+}
 
 /** The list of imported files, with upload. */
 export function ImportedFilesPage() {
@@ -35,14 +70,15 @@ export function ImportedFilesPage() {
   const [page, setPage] = useState(1); const [size, setSize] = useState(25);
   const q = useQuery({ queryKey: ['imported-files', kind, search, page, size], queryFn: () => get<Paged<FileRow>>(`${A}?${qs({ q: search, kind, page, pageSize: size })}`) });
   const [open, setOpen] = useState(false);
-  const title = kind === 'spreadsheet' ? 'Spreadsheets' : kind === 'document' ? 'Word Documents' : 'All Imported Files';
+  const title = listTitles[kind] ?? 'All Imported Files';
   return (
     <SqfPage title={title} crumbs={crumbs(title)} permission="sequfloh.view_imported_files"
       description="Excel, CSV and Word files brought into the app exactly as they are, with formulas, merged cells and formatting. Open one to view and edit it; every save keeps a new version."
       actions={can('sequfloh.import_files') && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setOpen(true)} data-testid="import-file">Import a file</Button>}>
       <Filters search={search} onSearch={(s) => { setSearch(s); setPage(1); }} values={{}} onChange={() => undefined} onClear={() => setSearch('')} filters={[]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty="No files imported yet."
-        cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title' }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
+        cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', render: (r) => <Stack direction="row" gap={1} alignItems="center"><span>{r.title}</span>
+            {r.isBlankForm && <Chip size="small" color="primary" variant="outlined" label="Blank form" />}{r.blankForm && <Chip size="small" variant="outlined" label={`Filled from ${r.blankForm}`} />}</Stack> }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
           { key: 'sourceFormat', label: 'Imported from', render: (r) => <Chip size="small" variant="outlined" label={formatLabel(r.sourceFormat)} /> }, { key: 'currentVersion', label: 'Version' },
           { key: 'updatedAt', label: 'Last saved', render: (r) => fmtDateTime(r.updatedAt) }, { key: 'updatedBy', label: 'Saved by', render: (r) => r.updatedBy ?? '—' }]} />
       <UploadDialog open={open} onClose={() => setOpen(false)} onDone={(id) => nav(`/sequfloh/imported-files/${id}`)} />
@@ -55,6 +91,7 @@ function UploadDialog({ open, onClose, onDone }: { open: boolean; onClose: () =>
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [site, setSite] = useState('');
+  const [blank, setBlank] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const upload = async () => {
@@ -64,10 +101,11 @@ function UploadDialog({ open, onClose, onDone }: { open: boolean; onClose: () =>
     fd.append('file', file);
     if (title.trim()) fd.append('title', title.trim());
     if (site) fd.append('siteId', site);
+    fd.append('blankForm', blank ? 'true' : 'false');
     try { const r = await api<{ id: string }>('POST', A, fd); onClose(); onDone(r.id); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setFile(null); setTitle(''); setError(null); } }}>
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setFile(null); setTitle(''); setError(null); setBlank(true); } }}>
       <DialogTitle>Import a file</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Excel (.xlsx, .xlsm, .xls), CSV or Word (.docx, .doc), up to 20 MB. The file is kept exactly as uploaded; macros are never run.</Typography>
@@ -79,6 +117,10 @@ function UploadDialog({ open, onClose, onDone }: { open: boolean; onClose: () =>
           <TextField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
           {(sites.data?.length ?? 0) > 1 && <TextField select label="Site" value={site} onChange={(e) => setSite(e.target.value)}>
             <MenuItem value="">My default site</MenuItem>{sites.data!.filter((s) => !s.isArchived).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}</TextField>}
+          <Box>
+            <FormControlLabel control={<Checkbox checked={blank} onChange={(e) => setBlank(e.target.checked)} inputProps={{ 'data-testid': 'import-blank' } as object} />} label="Keep as a blank form" />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4 }}>The file stays empty and protected. People use Fill out a copy to fill it in; the blank never changes.</Typography>
+          </Box>
         </Stack>
       </DialogContent>
       <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!file || busy} onClick={upload} data-testid="import-upload">{busy ? 'Importing…' : 'Import'}</Button></DialogActions>
@@ -94,15 +136,45 @@ export function ImportedFilePage() {
   const [tab, setTab] = useState('file');
   const [version, setVersion] = useState<number | null>(null);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const [editBlank, setEditBlank] = useState(false);
+  const [fillOpen, setFillOpen] = useState(false);
+  const [fillBusy, setFillBusy] = useState(false);
+  const [fillError, setFillError] = useState<string | null>(null);
+  const [upBusy, setUpBusy] = useState(false);
+  const [upMsg, setUpMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const nav = useNavigate();
+  useEffect(() => { setEditBlank(false); setTab('file'); setVersion(null); }, [id]);
   const d = q.data;
   const shown = version ?? d?.currentVersion ?? 1;
   const latest = !d || shown === d.currentVersion;
   const refresh = () => { q.refetch(); history.refetch(); };
+  const qc = useQueryClient();
+  const fillOut = async (title: string) => {
+    setFillBusy(true); setFillError(null);
+    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
+    catch (e) { setFillError((e as Error).message); } finally { setFillBusy(false); }
+  };
+  const uploadVersion = async (f: File) => {
+    setUpBusy(true); setUpMsg(null);
+    const fd = new FormData(); fd.append('file', f);
+    try {
+      const r = await api<{ version: number }>('POST', `${A}/${d!.id}/versions`, fd);
+      await qc.invalidateQueries({ queryKey: ['imported-sheet', d!.id] }); await qc.invalidateQueries({ queryKey: ['imported-doc', d!.id] });
+      setVersion(null); refresh();
+      setUpMsg({ kind: 'success', text: `Uploaded as version ${r.version}. Filled copies made earlier are not changed.` });
+    } catch (e) { setUpMsg({ kind: 'error', text: (e as Error).message }); } finally { setUpBusy(false); }
+  };
+  const protectedBlank = !!d?.isBlankForm && !editBlank;
+  const editable = !!d && d.canEdit && latest && !protectedBlank;
   return (
     <SqfPage title={d ? `${d.number} · ${d.title}` : 'Imported file'} crumbs={crumbs(d?.number ?? 'File')} permission="sequfloh.view_imported_files"
       recent={d ? { label: `${d.number} ${d.title}`, itemType: 'ImportedFile', recordId: d.id } : null}
-      tabs={[{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' }, { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
+      tabs={[{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' },
+        ...(d?.isBlankForm ? [{ label: `Filled copies (${d.copies?.length ?? 0})`, value: 'copies' }] : []), { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
       actions={d && <>
+        {d.isBlankForm && d.canEdit && <Button variant="contained" onClick={() => { setFillError(null); setFillOpen(true); }} data-testid="fill-out">Fill out a copy</Button>}
+        {d.canEdit && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
+          <input hidden type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc" data-testid="upload-version-input" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadVersion(f); }} /></Button>}
         <Button startIcon={<DownloadOutlined />} onClick={(e) => setMenu(e.currentTarget)}>Download</Button>
         <Menu open={!!menu} anchorEl={menu} onClose={() => setMenu(null)}>
           <MenuItem component="a" href={`${A}/${d.id}/download${latest ? '' : `?version=${shown}`}`} onClick={() => setMenu(null)}>{latest ? 'Current version' : `Version ${shown}`} ({d.kind === 'spreadsheet' ? 'Excel' : 'Word'})</MenuItem>
@@ -115,13 +187,30 @@ export function ImportedFilePage() {
           <Chip size="small" variant="outlined" label={`Imported from ${formatLabel(d.sourceFormat)}`} />
           <Chip size="small" variant="outlined" color={latest ? 'primary' : 'warning'} label={latest ? `Version ${d.currentVersion}` : `Viewing version ${shown} of ${d.currentVersion}`} />
           {!latest && <Button size="small" onClick={() => setVersion(null)}>Back to the current version</Button>}
+          {d.isBlankForm && <Chip size="small" color="primary" label="Blank form" data-testid="blank-chip" />}
+          {d.blankForm && <Typography variant="body2" data-testid="blank-link">Filled from blank form{' '}
+            <Link component={RouterLink} to={`/sequfloh/imported-files/${d.blankForm.id}`}>{d.blankForm.number} · {d.blankForm.title}</Link>{d.blankForm.version ? ` (version ${d.blankForm.version})` : ''}</Typography>}
+          {d.isBlankForm && d.canEdit && <FormControlLabel sx={{ ml: 'auto' }} control={<Switch size="small" checked={editBlank} onChange={(e) => setEditBlank(e.target.checked)} inputProps={{ 'data-testid': 'edit-blank' } as object} />} label="Edit blank" />}
           {d.kind === 'spreadsheet' && (d.summary.formulaTotal ?? 0) > 0 && <Chip size="small" variant="outlined" sx={{ borderColor: GREEN, color: GREEN }} label={`${d.summary.formulaTotal} formulas`} />}
           {d.kind === 'document' && <Chip size="small" variant="outlined" label={`${d.summary.paragraphs ?? 0} paragraphs · ${d.summary.tables ?? 0} tables`} />}
         </Stack>
+        {upMsg && <Alert severity={upMsg.kind} sx={{ mb: 1 }} onClose={() => setUpMsg(null)}>{upMsg.text}</Alert>}
+        {d.isBlankForm && tab === 'file' && <Alert severity={editBlank ? 'warning' : 'info'} sx={{ mb: 1 }}>{editBlank
+          ? 'You are editing the blank form itself. Saved changes become a new version of the blank; filled copies made earlier stay as they are.'
+          : 'This is a blank form, so it is protected. Use Fill out a copy to start a filled one; turn on Edit blank to change the blank itself.'}</Alert>}
         {[...(d.summary.security ?? []), ...(d.summary.warnings ?? [])].slice(0, 4).map((w) => <Alert key={w} severity="info" sx={{ mb: 1 }}>{w}</Alert>)}
         {tab === 'file' && (d.kind === 'spreadsheet'
-          ? <SheetEditor file={d} version={shown} editable={d.canEdit && latest} onSaved={refresh} />
-          : <DocumentEditor file={d} version={shown} editable={d.canEdit && latest} onSaved={refresh} />)}
+          ? <SheetEditor key={d.id} file={d} version={shown} editable={editable} editBlank={editBlank} onSaved={refresh} />
+          : <DocumentEditor key={d.id} file={d} version={shown} editable={editable} editBlank={editBlank} onSaved={refresh} />)}
+        {tab === 'copies' && (d.copies?.length ? <Paper variant="outlined" data-testid="copies">
+          {d.copies.map((c) => <Stack key={c.id} direction="row" gap={2} alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: 1, borderColor: 'divider', cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+            onClick={() => nav(`/sequfloh/imported-files/${c.id}`)}>
+            <Mono>{c.number}</Mono>
+            <Box sx={{ flex: 1 }}><Typography variant="body2" sx={{ fontWeight: 600 }}>{c.title}</Typography>
+              <Typography variant="caption" color="text.secondary">Started {fmtDateTime(c.createdAt)} by {c.createdBy ?? '—'}{c.blankFormVersion ? ` from version ${c.blankFormVersion}` : ''}</Typography></Box>
+            <Box sx={{ textAlign: 'right' }}><Typography variant="body2">Saved {fmtDateTime(c.updatedAt)}</Typography><Typography variant="caption" color="text.secondary">{c.updatedBy ?? c.createdBy ?? '—'}</Typography></Box>
+          </Stack>)}
+        </Paper> : <Empty text="No filled copies yet. Use Fill out a copy to start one." />)}
         {tab === 'versions' && <Paper variant="outlined">
           {d.versions.map((v) => <Stack key={v.version} direction="row" gap={2} alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: 1, borderColor: 'divider' }}>
             <Typography sx={{ width: 90, fontWeight: 600 }}>Version {v.version}</Typography>
@@ -132,6 +221,7 @@ export function ImportedFilePage() {
         </Paper>}
         {tab === 'history' && <HistoryTable q={history} />}
       </>}
+      {d && <CopyDialog open={fillOpen} heading="Fill out a copy" initial={`${d.title} – ${today()}`} action="Create and open" busy={fillBusy} error={fillError} onClose={() => setFillOpen(false)} onConfirm={fillOut} />}
     </SqfPage>
   );
 }
@@ -175,7 +265,7 @@ function cellCss(s?: CellStyle | null): CSSProperties {
   };
 }
 
-function SheetEditor({ file, version, editable, onSaved }: { file: Detail; version: number; editable: boolean; onSaved: () => void }) {
+function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: Detail; version: number; editable: boolean; editBlank: boolean; onSaved: () => void }) {
   const qc = useQueryClient();
   const [sheet, setSheet] = useState<string | undefined>(undefined);
   const q = useQuery({ queryKey: ['imported-sheet', file.id, version, sheet], queryFn: () => get<Sheet>(`${A}/${file.id}/sheet?${qs({ name: sheet, version })}`) });
@@ -223,13 +313,14 @@ function SheetEditor({ file, version, editable, onSaved }: { file: Detail; versi
     setBusy(true); setMsg(null);
     const list = Object.entries(edits).flatMap(([s, m]) => Object.entries(m).map(([k, value]) => { const [r, c] = k.split(':').map(Number); return { sheet: s, r, c, value }; }));
     try {
-      const r = await put<{ version: number; notice?: string }>(`${A}/${file.id}/cells`, { baseVersion: file.currentVersion, edits: list });
+      const r = await put<{ version: number; notice?: string }>(`${A}/${file.id}/cells`, { baseVersion: file.currentVersion, edits: list, editBlank });
       setEdits({});
       await qc.invalidateQueries({ queryKey: ['imported-sheet', file.id] });
       onSaved();
       setMsg({ kind: 'success', text: `Saved as version ${r.version}.${r.notice ? ' ' + r.notice : ''}` });
     } catch (e) { setMsg({ kind: 'error', text: e instanceof ApiError ? e.message : 'The changes could not be saved.' }); } finally { setBusy(false); }
   };
+  const copy = useSaveAsCopy(file, () => ({ cells: allEdits }));
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorState error={q.error} retry={q.refetch} />;
   if (!g) return null;
@@ -278,6 +369,7 @@ function SheetEditor({ file, version, editable, onSaved }: { file: Detail; versi
             onChange={(e) => setBar(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && sel) commit(sel.r, sel.c, bar); }} onBlur={() => { if (sel && editable && bar !== raw(sel.r, sel.c)) commit(sel.r, sel.c, bar); }} />
           <FormControlLabel sx={{ whiteSpace: 'nowrap', ml: 1 }} control={<Switch size="small" checked={showFormulas} onChange={(e) => setShowFormulas(e.target.checked)} />} label="Show formulas" />
           {editable && <Button variant="contained" disabled={!pendingCount || busy} onClick={save} data-testid="save-cells" sx={{ whiteSpace: 'nowrap' }}>{busy ? 'Saving…' : pendingCount ? `Save ${pendingCount} change${pendingCount === 1 ? '' : 's'}` : 'Saved'}</Button>}
+          {editable && pendingCount > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-as-copy" sx={{ whiteSpace: 'nowrap' }}>Save as new copy</Button>}
           {pendingCount > 0 && <Button onClick={() => setEdits({})} disabled={busy}>Discard</Button>}
         </Stack>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5, ml: 1, minHeight: 20 }}>
@@ -291,6 +383,7 @@ function SheetEditor({ file, version, editable, onSaved }: { file: Detail; versi
         </table>
       </Paper>
       {g.truncated && <Typography variant="caption" color="text.secondary">Only the first rows and columns are shown here; download the file to see all of it.</Typography>}
+      {copy.dialog(() => setEdits({}))}
       {g.sheets.length > 1 && <Tabs value={g.sheet} onChange={(_, v) => { setSheet(v); setSel(null); }} variant="scrollable" sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, textTransform: 'none' } }}>
         {g.sheets.map((s) => <Tab key={s} value={s} label={`${s}${Object.keys(edits[s] ?? {}).length ? ' •' : ''}`} />)}
       </Tabs>}
@@ -315,7 +408,7 @@ const hl: Record<string, string> = { yellow: '#FFF59D', green: '#C8E6C9', cyan: 
 const segCss = (s?: WStyle): CSSProperties => !s ? {} : ({ fontWeight: s.bold ? 700 : undefined, fontStyle: s.italic ? 'italic' : undefined, textDecoration: s.underline ? 'underline' : undefined,
   color: s.colour, background: s.highlight ? (s.highlight.startsWith('#') ? s.highlight : hl[s.highlight] ?? undefined) : undefined, fontSize: s.size ? `${s.size}pt` : undefined });
 
-function DocumentEditor({ file, version, editable, onSaved }: { file: Detail; version: number; editable: boolean; onSaved: () => void }) {
+function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file: Detail; version: number; editable: boolean; editBlank: boolean; onSaved: () => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['imported-doc', file.id, version], queryFn: () => get<Doc>(`${A}/${file.id}/document?${qs({ version })}`) });
   const [edits, setEdits] = useState<Record<number, string>>({});
@@ -327,13 +420,14 @@ function DocumentEditor({ file, version, editable, onSaved }: { file: Detail; ve
   const save = async () => {
     setBusy(true); setMsg(null);
     try {
-      const r = await put<{ version: number }>(`${A}/${file.id}/document`, { baseVersion: file.currentVersion, edits: Object.entries(edits).map(([ref, text]) => ({ ref: Number(ref), text })) });
+      const r = await put<{ version: number }>(`${A}/${file.id}/document`, { baseVersion: file.currentVersion, edits: Object.entries(edits).map(([ref, text]) => ({ ref: Number(ref), text })), editBlank });
       setEdits({}); setEditing(null);
       await qc.invalidateQueries({ queryKey: ['imported-doc', file.id] });
       onSaved();
       setMsg({ kind: 'success', text: `Saved as version ${r.version}.` });
     } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }); } finally { setBusy(false); }
   };
+  const copy = useSaveAsCopy(file, () => ({ paragraphs: Object.entries(edits).map(([ref, text]) => ({ ref: Number(ref), text })) }));
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorState error={q.error} retry={q.refetch} />;
   const d = q.data;
@@ -396,6 +490,7 @@ function DocumentEditor({ file, version, editable, onSaved }: { file: Detail; ve
       {editable && <Paper variant="outlined" sx={{ p: 1 }}><Stack direction="row" gap={1} alignItems="center">
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1, px: 1 }}>Click a paragraph or table cell to change its text. Fields, form controls and pictures stay as they are in the file.</Typography>
         {count > 0 && <Button onClick={() => { setEdits({}); setEditing(null); }} disabled={busy}>Discard</Button>}
+        {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy">Save as new copy</Button>}
         <Button variant="contained" disabled={!count || busy} onClick={save} data-testid="save-document">{busy ? 'Saving…' : count ? `Save ${count} change${count === 1 ? '' : 's'}` : 'Saved'}</Button>
       </Stack></Paper>}
       <Box sx={{ bgcolor: '#E9EDF2', p: 3, borderRadius: 1, overflow: 'auto', maxHeight: 'calc(100vh - 300px)', '& .sqf-editable:hover': { background: '#EEF4FD' } }}>
@@ -406,6 +501,7 @@ function DocumentEditor({ file, version, editable, onSaved }: { file: Detail; ve
           {d.footer.length > 0 && <Box sx={{ borderTop: '1px solid #E3E7ED', mt: 2, pt: 0.5, color: '#5E6A7A', fontSize: '9pt' }}>{d.footer.map((p, i) => para(p, `f${i}`, true))}</Box>}
         </Paper>
       </Box>
+      {copy.dialog(() => { setEdits({}); setEditing(null); })}
       {d.blocks.length === 0 && <Empty text="The document is empty." />}
     </Stack>
   );

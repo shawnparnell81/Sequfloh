@@ -25,6 +25,11 @@ public class ImportedFile : Entity, IAudited, IArchivable, ISiteScoped
     public string Summary { get; set; } = "{}";
     public bool IsArchived { get; set; }
     public DateTimeOffset? ArchivedAt { get; set; }
+    /// <summary>A blank form: kept empty and protected from edits; people fill out copies of it.</summary>
+    public bool IsBlankForm { get; set; }
+    /// <summary>For a filled copy: the blank form it came from and the version of that blank it started from.</summary>
+    public Guid? BlankFormId { get; set; }
+    public int? BlankFormVersion { get; set; }
     public List<ImportedFileVersion> Versions { get; set; } = [];
     public string AuditLabel => $"imported file {Number} {Title}";
 }
