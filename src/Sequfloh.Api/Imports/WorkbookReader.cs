@@ -102,6 +102,9 @@ public static class WorkbookReader
         catch (Exception e) when (e is not OutOfMemoryException) { throw new AppException($"The workbook could not be read: {e.Message}"); }
         using (wb)
         {
+            // files written by scripts or some exporters carry no stored formula results; work them out so the sheet is not blank
+            if (wb.Worksheets.Any(w => w.CellsUsed(c => c.HasFormula && c.CachedValue.IsBlank || c.HasFormula && c.CachedValue.IsText && c.CachedValue.GetText().Length == 0).Any()))
+                try { wb.RecalculateAllFormulas(); } catch (Exception e) when (e is not OutOfMemoryException) { data.Warnings.Add("Some formula results could not be worked out until the file is opened in Excel."); }
             data.CalcMode = wb.CalculateMode switch { XLCalculateMode.Manual => "manual", XLCalculateMode.AutoNoTable => "auto-except-tables", _ => "auto" };
             foreach (var dn in wb.DefinedNames)
                 data.Names.Add(new XlName(dn.Name, dn.RefersTo ?? "", null, dn.Visible));
@@ -179,9 +182,6 @@ public static class WorkbookReader
                 if (string.IsNullOrEmpty(formula) && cell.HasArrayFormula) formula = cell.FormulaA1;
                 kind = "formula";
                 cached = Show(cell.CachedValue);
-                // files written by scripts or some exporters carry no stored result; work it out so the sheet is not blank
-                if (string.IsNullOrEmpty(cached) && !FormulaTranslator.PreservedOnly.Any(f => formula.Contains(f + "(", StringComparison.OrdinalIgnoreCase)))
-                    try { cached = Show(cell.Value); } catch (Exception ex) when (ex is not OutOfMemoryException) { }
             }
             else
             {
