@@ -22,6 +22,7 @@ public partial class AppDbContext
             e.Property(x => x.Summary).HasColumnType("jsonb");
             e.HasIndex(x => new { x.SiteId, x.DepartmentId });
             e.HasIndex(x => x.BlankFormId);
+            e.Property(x => x.PartNumber).HasMaxLength(100);
             e.HasOne<ImportedFile>().WithMany().HasForeignKey(x => x.BlankFormId).OnDelete(DeleteBehavior.SetNull);
             e.HasMany(x => x.Versions).WithOne().HasForeignKey(v => v.ImportedFileId).OnDelete(DeleteBehavior.Cascade);
         });

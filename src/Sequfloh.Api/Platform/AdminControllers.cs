@@ -279,6 +279,8 @@ public static class PermissionText
             "sequfloh.access" => "Open job tracking",
             "sequfloh.view_imported_files" => "View imported Excel and Word files",
             "sequfloh.import_files" => "Import and edit Excel and Word files",
+            "sequfloh.view_drawings" => "View drawings",
+            "sequfloh.manage_drawings" => "Add drawings, revisions and drawing folders",
             _ => char.ToUpperInvariant(words[0]) + words[1..],
         };
     }

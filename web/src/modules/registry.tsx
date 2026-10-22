@@ -85,6 +85,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Engineering Dashboard', path: '/sequfloh/engineering' },
         { label: 'Validation', path: '/sequfloh/engineering/validation' },
         { label: 'Development', path: '/sequfloh/engineering/development' },
+        { label: 'Drawings', path: '/sequfloh/engineering/drawings', permission: 'sequfloh.view_drawings' },
       ] },
       { label: 'Reports', path: '/sequfloh/reports/task-performance', permission: 'sequfloh.view_reports', icon: <AssessmentOutlined fontSize="small" />, match: ['/sequfloh/reports'], children: [
         { label: 'Task Performance', path: '/sequfloh/reports/task-performance' },

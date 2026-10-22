@@ -10,6 +10,7 @@ import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
 import { HistoryTable, type AuditRow } from './Parts';
+import { PartDrawingLinks } from './Drawings';
 
 const A = '/api/imported-files';
 const GREEN = '#0E8550';
@@ -18,7 +19,7 @@ const crumbs = (label: string, extra?: { label: string }) => [{ label: 'SEQUFLOH
 interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; updatedBy?: string; isBlankForm: boolean; blankForm?: string | null }
 interface Detail {
   id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; createdAt: string; updatedAt: string; canEdit: boolean;
-  isBlankForm: boolean; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
+  isBlankForm: boolean; partNumber?: string | null; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
   copies?: { id: string; number: string; title: string; blankFormVersion?: number | null; createdAt: string; updatedAt: string; createdBy?: string; updatedBy?: string }[] | null;
   summary: { formulaTotal?: number; formulaClasses?: Record<string, number>; warnings?: string[]; security?: string[]; sheets?: { name: string; charts: number; pivots: number }[]; paragraphs?: number; tables?: number; controls?: number };
   versions: { version: number; fileName: string; sizeBytes: number; note?: string; createdAt: string; createdByName: string }[];
@@ -30,18 +31,42 @@ const today = () => new Date().toLocaleDateString('en-CA');
 const listTitles: Record<string, string> = { spreadsheet: 'Spreadsheets', document: 'Word Documents', blank: 'Blank Forms', filled: 'Filled Forms' };
 
 /** Asks for the title of a new file made from this one (a filled copy of a blank form, or a saved copy). */
-function CopyDialog({ open, heading, initial, action, busy, error, onClose, onConfirm }: { open: boolean; heading: string; initial: string; action: string; busy: boolean; error?: string | null; onClose: () => void; onConfirm: (title: string) => void }) {
+function CopyDialog({ open, heading, initial, action, busy, error, onClose, onConfirm, partNumber }: { open: boolean; heading: string; initial: string; action: string; busy: boolean; error?: string | null; onClose: () => void; onConfirm: (title: string, partNumber?: string) => void; partNumber?: boolean }) {
   const [title, setTitle] = useState(initial);
+  const [pn, setPn] = useState('');
+  const [typed, setTyped] = useState('');
+  useEffect(() => { const t = setTimeout(() => setTyped(pn), 400); return () => clearTimeout(t); }, [pn]);
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => setTitle(initial) }}>
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setTitle(initial); setPn(''); setTyped(''); } }}>
       <DialogTitle>{heading}</DialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         <TextField autoFocus fullWidth label="Title" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ mt: 1 }} inputProps={{ 'data-testid': 'copy-title' }} />
+        {partNumber && <>
+          <TextField fullWidth label="Part number (optional)" value={pn} onChange={(e) => setPn(e.target.value)} sx={{ mt: 2 }} inputProps={{ 'data-testid': 'copy-part-number' }}
+            helperText="The part this copy is for. Its drawings can be opened from here and from the filled copy." />
+          {typed.trim() && <Box sx={{ mt: 1 }}><PartDrawingLinks partNumber={typed} checkboxes /></Box>}
+        </>}
       </DialogContent>
-      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!title.trim() || busy} onClick={() => onConfirm(title.trim())} data-testid="copy-confirm">{busy ? 'Working…' : action}</Button></DialogActions>
+      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!title.trim() || busy} onClick={() => onConfirm(title.trim(), pn.trim() || undefined)} data-testid="copy-confirm">{busy ? 'Working…' : action}</Button></DialogActions>
     </Dialog>
   );
+}
+
+/** The part number a filled copy is for, with a tick box (and button) to open each of its drawings in a new window. */
+function CopyPartNumber({ d, onSaved }: { d: Detail; onSaved: () => void }) {
+  const [edit, setEdit] = useState(false);
+  const [pn, setPn] = useState(d.partNumber ?? '');
+  const save = async () => { await put(`${A}/${d.id}/part-number`, { partNumber: pn }); setEdit(false); onSaved(); };
+  if (edit || (!d.partNumber && d.canEdit)) return <Stack direction="row" gap={1} alignItems="center">
+    <TextField size="small" label="Part number" value={pn} onChange={(e) => setPn(e.target.value)} inputProps={{ 'data-testid': 'copy-header-part' }} sx={{ width: 200 }} />
+    <Button size="small" onClick={save} disabled={pn.trim() === (d.partNumber ?? '')} data-testid="copy-header-part-save">Set</Button>
+    {edit && <Button size="small" onClick={() => { setPn(d.partNumber ?? ''); setEdit(false); }}>Cancel</Button>}</Stack>;
+  return <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap" data-testid="copy-part">
+    <Typography variant="body2">Part <Mono>{d.partNumber}</Mono></Typography>
+    {d.canEdit && <Button size="small" onClick={() => setEdit(true)}>Change</Button>}
+    <PartDrawingLinks partNumber={d.partNumber} checkboxes />
+  </Stack>;
 }
 
 /** "Save as new copy": saves the pending edits into a new file and opens it; the file being edited stays as it is. */
@@ -149,9 +174,9 @@ export function ImportedFilePage() {
   const latest = !d || shown === d.currentVersion;
   const refresh = () => { q.refetch(); history.refetch(); };
   const qc = useQueryClient();
-  const fillOut = async (title: string) => {
+  const fillOut = async (title: string, partNumber?: string) => {
     setFillBusy(true); setFillError(null);
-    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
+    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title, partNumber }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
     catch (e) { setFillError((e as Error).message); } finally { setFillBusy(false); }
   };
   const uploadVersion = async (f: File) => {
@@ -190,6 +215,7 @@ export function ImportedFilePage() {
           {d.isBlankForm && <Chip size="small" color="primary" label="Blank form" data-testid="blank-chip" />}
           {d.blankForm && <Typography variant="body2" data-testid="blank-link">Filled from blank form{' '}
             <Link component={RouterLink} to={`/sequfloh/imported-files/${d.blankForm.id}`}>{d.blankForm.number} · {d.blankForm.title}</Link>{d.blankForm.version ? ` (version ${d.blankForm.version})` : ''}</Typography>}
+          {!d.isBlankForm && (d.partNumber || d.canEdit) && <CopyPartNumber d={d} onSaved={refresh} />}
           {d.isBlankForm && d.canEdit && <FormControlLabel sx={{ ml: 'auto' }} control={<Switch size="small" checked={editBlank} onChange={(e) => setEditBlank(e.target.checked)} inputProps={{ 'data-testid': 'edit-blank' } as object} />} label="Edit blank" />}
           {d.kind === 'spreadsheet' && (d.summary.formulaTotal ?? 0) > 0 && <Chip size="small" variant="outlined" sx={{ borderColor: GREEN, color: GREEN }} label={`${d.summary.formulaTotal} formulas`} />}
           {d.kind === 'document' && <Chip size="small" variant="outlined" label={`${d.summary.paragraphs ?? 0} paragraphs · ${d.summary.tables ?? 0} tables`} />}
@@ -221,7 +247,7 @@ export function ImportedFilePage() {
         </Paper>}
         {tab === 'history' && <HistoryTable q={history} />}
       </>}
-      {d && <CopyDialog open={fillOpen} heading="Fill out a copy" initial={`${d.title} – ${today()}`} action="Create and open" busy={fillBusy} error={fillError} onClose={() => setFillOpen(false)} onConfirm={fillOut} />}
+      {d && <CopyDialog open={fillOpen} heading="Fill out a copy" initial={`${d.title} – ${today()}`} action="Create and open" busy={fillBusy} error={fillError} onClose={() => setFillOpen(false)} onConfirm={fillOut} partNumber />}
     </SqfPage>
   );
 }

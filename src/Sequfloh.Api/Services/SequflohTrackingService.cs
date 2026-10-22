@@ -180,6 +180,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         rec.Details = details.ToJsonString();
         rec.Number = await numbers.NextAsync(NumberingType(r.Type), null, ct);
         db.SequflohTrackingRecords.Add(rec);
+        if (r.Type == TrackingType.Validation && rec.PartId is { } attachFor) await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct);
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
         f.Audit("TrackingRecordCreated", EntityType, rec.Id, $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
             context: new { trackingType = r.Type.ToString(), workInstruction = wi.Number, revision = wi.Revision, part = rec.PartNumber });

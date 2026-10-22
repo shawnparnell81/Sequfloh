@@ -30,6 +30,8 @@ public class ImportedFile : Entity, IAudited, IArchivable, ISiteScoped
     /// <summary>For a filled copy: the blank form it came from and the version of that blank it started from.</summary>
     public Guid? BlankFormId { get; set; }
     public int? BlankFormVersion { get; set; }
+    /// <summary>The part number a filled copy is for, as typed (it need not be in Parts and Items).</summary>
+    public string? PartNumber { get; set; }
     public List<ImportedFileVersion> Versions { get; set; } = [];
     public string AuditLabel => $"imported file {Number} {Title}";
 }

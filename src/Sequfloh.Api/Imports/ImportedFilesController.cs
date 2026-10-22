@@ -8,7 +8,7 @@ namespace Sequfloh.Imports;
 public sealed class ImportedFilesController(ImportedFileService files) : ControllerBase
 {
     public sealed record SaveCellsRequest(int BaseVersion, List<CellEdit> Edits, bool EditBlank = false);
-    public sealed record FillOutRequest(string? Title);
+    public sealed record FillOutRequest(string? Title, string? PartNumber = null);
     public sealed record SaveCopyRequest(int BaseVersion, string? Title, List<CellEdit>? Cells, List<ParagraphEdit>? Paragraphs);
     public sealed record PreviewCellsRequest(string? Sheet, List<CellEdit> Edits);
     public sealed record SaveDocumentRequest(int BaseVersion, List<ParagraphEdit> Edits, bool EditBlank = false);
@@ -55,6 +55,10 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
     [HttpGet("{id:guid}/history"), RequirePermission(Permissions.SequflohViewImportedFiles)]
     public Task<object> History(Guid id, CancellationToken ct) => files.HistoryAsync(id, ct);
 
+    public sealed record PartNumberRequest(string? PartNumber);
+    [HttpPut("{id:guid}/part-number"), RequirePermission(Permissions.SequflohImportFiles)]
+    public async Task<IActionResult> SetPartNumber(Guid id, PartNumberRequest r, CancellationToken ct) { await files.SetPartNumberAsync(id, r.PartNumber, ct); return NoContent(); }
+
     [HttpPut("{id:guid}/title"), RequirePermission(Permissions.SequflohImportFiles)]
     public async Task<IActionResult> Rename(Guid id, RenameRequest r, CancellationToken ct) { await files.RenameAsync(id, r.Title, ct); return NoContent(); }
 
@@ -62,7 +66,7 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
     public async Task<IActionResult> Archive(Guid id, CancellationToken ct) { await files.ArchiveAsync(id, ct); return NoContent(); }
 
     [HttpPost("{id:guid}/fill-out"), RequirePermission(Permissions.SequflohImportFiles)]
-    public Task<object> FillOut(Guid id, FillOutRequest r, CancellationToken ct) => files.FillOutAsync(id, r.Title, ct);
+    public Task<object> FillOut(Guid id, FillOutRequest r, CancellationToken ct) => files.FillOutAsync(id, r.Title, ct, r.PartNumber);
 
     [HttpPost("{id:guid}/save-as-copy"), RequirePermission(Permissions.SequflohImportFiles)]
     public Task<object> SaveAsCopy(Guid id, SaveCopyRequest r, CancellationToken ct) => files.SaveAsCopyAsync(id, r.BaseVersion, r.Title, r.Cells, r.Paragraphs, ct);

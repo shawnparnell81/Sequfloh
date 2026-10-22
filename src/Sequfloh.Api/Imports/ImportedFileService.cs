@@ -75,12 +75,12 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var blank = f.BlankFormId is null ? null : await db.ImportedFiles.AsNoTracking().Where(b => b.Id == f.BlankFormId)
             .Select(b => new { b.Id, b.Number, b.Title, Version = f.BlankFormVersion }).FirstOrDefaultAsync(ct);
         var copies = !f.IsBlankForm ? null : await db.ImportedFiles.AsNoTracking().Where(c => c.BlankFormId == f.Id && !c.IsArchived).OrderByDescending(c => c.CreatedAt)
-            .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.CreatedAt, c.UpdatedAt,
+            .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.PartNumber, c.CreatedAt, c.UpdatedAt,
                 CreatedBy = db.Users.Where(u => u.Id == c.CreatedById).Select(u => u.DisplayName).FirstOrDefault(),
                 UpdatedBy = db.Users.Where(u => u.Id == c.UpdatedById).Select(u => u.DisplayName).FirstOrDefault() })
             .Take(500).ToListAsync(ct);
         return new { f.Id, f.Number, f.Title, Kind = f.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document", f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
-            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, BlankForm = blank, Copies = copies };
+            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, BlankForm = blank, Copies = copies, f.PartNumber };
     }
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
@@ -419,14 +419,15 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     }
 
     /// <summary>Starts a filled copy of a blank form from its current version and returns the new file.</summary>
-    public async Task<object> FillOutAsync(Guid id, string? title, CancellationToken ct)
+    public async Task<object> FillOutAsync(Guid id, string? title, CancellationToken ct, string? partNumber = null)
     {
         var blank = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
         if (!blank.IsBlankForm) throw new AppException("Only a blank form can be filled out. Use Save as new copy instead.");
         if (blank.IsArchived) throw new AppException("This blank form is archived.");
         var (v, bytes) = await CurrentAsync(blank, null, ct);
         var copy = await CreateCopyAsync(blank, v, bytes, title, blank.Id, blank.CurrentVersion, $"Started from blank form {blank.Number} version {blank.CurrentVersion}", ct,
-            c => ("Created from blank form", $"Created {c.Number} {c.Title} from blank form {blank.Number} {blank.Title} (version {blank.CurrentVersion})"));
+            c => ("Created from blank form", $"Created {c.Number} {c.Title} from blank form {blank.Number} {blank.Title} (version {blank.CurrentVersion}){(c.PartNumber is null ? "" : $" for part {c.PartNumber}")}"),
+            partNumber);
         return new { copy.Id, copy.Number, copy.Title };
     }
 
@@ -458,7 +459,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     }
 
     async Task<ImportedFile> CreateCopyAsync(ImportedFile from, ImportedFileVersion v, byte[] bytes, string? title, Guid? blankId, int? blankVersion, string note, CancellationToken ct,
-        Func<ImportedFile, (string Action, string Text)> audit)
+        Func<ImportedFile, (string Action, string Text)> audit, string? partNumber = null)
     {
         var ext = Path.GetExtension(v.FileName).ToLowerInvariant();
         var t = string.IsNullOrWhiteSpace(title) ? $"{from.Title} – {DateTimeOffset.UtcNow:yyyy-MM-dd}" : title.Trim();
@@ -468,6 +469,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             Number = await numbers.NextAsync("SqfImportedFile", from.SiteId, ct), Title = t.Length > 300 ? t[..300] : t, Kind = from.Kind, SourceFormat = ext.TrimStart('.'),
             OriginalFileName = Path.GetFileNameWithoutExtension(v.FileName) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = Summarize(from.Kind, bytes, ext),
             BlankFormId = blankId, BlankFormVersion = blankVersion,
+            PartNumber = string.IsNullOrWhiteSpace(partNumber) ? (from.IsBlankForm ? null : from.PartNumber) : partNumber.Trim().Length > 100 ? partNumber.Trim()[..100] : partNumber.Trim(),
         };
         copy.OriginalStorageKey = $"imports/{copy.Id:N}/original{ext}";
         await storage.PutAsync(copy.OriginalStorageKey, new MemoryStream(bytes), v.ContentType, ct);
@@ -521,6 +523,17 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
         if (string.IsNullOrWhiteSpace(title)) throw new AppException("Enter a title.");
         f.Title = title.Trim().Length > 300 ? title.Trim()[..300] : title.Trim();
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Sets the part number a filled copy is for (blank forms have none; an empty value clears it).</summary>
+    public async Task SetPartNumberAsync(Guid id, string? partNumber, CancellationToken ct)
+    {
+        var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        if (f.IsBlankForm) throw new AppException("A blank form has no part number. Fill out a copy and enter it there.");
+        var n = string.IsNullOrWhiteSpace(partNumber) ? null : partNumber.Trim();
+        if (n is { Length: > 100 }) throw new AppException("Keep the part number to 100 characters.");
+        f.PartNumber = n;
         await db.SaveChangesAsync(ct);
     }
 
