@@ -20,6 +20,9 @@ public sealed class DeleteController(DeletionService delete) : ControllerBase
     [HttpDelete("api/sequfloh/tracking/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> WorkOrder(Guid id, CancellationToken ct) { await delete.WorkOrderAsync(id, ct); return NoContent(); }
 
+    [HttpDelete("api/sequfloh/inspection-requests/{id:guid}"), RequirePermission(P)]
+    public async Task<IActionResult> InspectionRequest(Guid id, CancellationToken ct) { await delete.InspectionRequestAsync(id, ct); return NoContent(); }
+
     [HttpDelete("api/sequfloh/parts/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> Part(Guid id, CancellationToken ct) { await delete.PartAsync(id, ct); return NoContent(); }
 

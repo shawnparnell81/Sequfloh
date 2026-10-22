@@ -5,6 +5,7 @@ import { get } from '../api';
 import { useAuth } from '../auth';
 import { fmtDateTime } from '../components/Status';
 import { Empty, S, SqfPage, useSqf } from './common';
+import { NewInspectionRequestButton } from './InspectionRequests';
 import { Dashboard } from './Dashboard';
 
 interface Item { id: string; itemType: string; path: string; label: string; lastOpenedAt: string }
@@ -35,6 +36,7 @@ export function SequflohHome() {
     <SqfPage title={ctx.data?.module.displayName ?? 'SEQUFLOH'} crumbs={[{ label: 'SEQUFLOH Home' }]} permission="sequfloh.view_dashboard"
       description={`${ctx.data?.module.subtitle ?? 'Enterprise Execution Engine'} — ${ctx.data?.module.description ?? ''}`}>
       <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 3 }} aria-label="Quick actions">
+        <NewInspectionRequestButton />
         {quick.filter(([, , p]) => can(p)).map(([l, to]) => <Button key={to} component={RouterLink} to={to} variant="outlined" size="small">{l}</Button>)}
       </Stack>
       <Dashboard />

@@ -144,6 +144,18 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         await tx.CommitAsync(ct);
     }
 
+    /// <summary>Deletes an inspection request and its attachments. A work order made from it stays.</summary>
+    public async Task InspectionRequestAsync(Guid id, CancellationToken ct)
+    {
+        var r = await db.SequflohInspectionRequests.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Inspection request");
+        await RequireAsync(r, ct);
+        if (r.WorkOrderNumber is { } wo) AuditInterceptor.Note(r, $"work order {wo} made from it stays");
+        var keys = await AttachmentKeysAsync(nameof(SequflohInspectionRequest), [id], ct);
+        db.SequflohInspectionRequests.Remove(r);
+        await ForgetRecentAsync([id], ct);
+        await SaveAndRemoveFilesAsync(keys, ct);
+    }
+
     public async Task OperationStepAsync(Guid id, CancellationToken ct)
     {
         await RequireAsync(null, ct);

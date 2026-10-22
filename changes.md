@@ -1,5 +1,16 @@
 # Changes
 
+## Inspection requests
+- New top-level "Inspection Requests" section in the menu. Status: Open, In progress, Done, Cancelled.
+- "New inspection request" button opens the form in a dialog. It is on SEQUFLOH Home (quick actions), Work Instructions and Tracking (work orders).
+- Fields: part number (pick from the Part Master to fill the description, or type any part number), part description, Qty (per NetSuite), reason, inspection requirement, optional linked work instruction, requested completion date, priority. Attachments can be added on the request.
+- Reasons (Supplier request, Warranty claim, AQL sample result, Random inspection, Customer request, Defect driven) and priorities (Critical, High, Normal, Low) are edited in SEQUFLOH Settings › Tracking Settings.
+- Anyone signed in to SEQUFLOH can submit. The list is ordered by priority, then requested date. Overdue requests are highlighted.
+- Open requests are also shown at the top of the Dispatch Queue.
+- Convert to work order: part, quantity, priority (Critical becomes Urgent), requested date and requirement carry over, and the part's drawings are attached. The request moves to In progress.
+- The Dispatch Queue and My Tasks now sort by priority first, then due date.
+- Delete follows the usual delete permission and is recorded in the audit trail. A converted work order is kept.
+
 ## Time detail per technician
 - New Time tab on each work order. Each person can start, pause, resume and stop their own timer.
 - Every start, pause, resume and stop is logged with a timestamp ("Show time log").

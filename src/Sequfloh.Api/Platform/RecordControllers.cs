@@ -64,6 +64,11 @@ public sealed class FilesController(AppDbContext db, IFileStorage storage, IAcce
                 var w = await db.SequflohWorkInstructions.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.SiteId, x.DepartmentId }).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("Record");
                 return (w.SiteId, w.DepartmentId, await access.CanAccessAsync(me.UserId!.Value, Permissions.SequflohEditDraftWorkInstruction, w.SiteId, w.DepartmentId, ct));
             }
+            case "SequflohInspectionRequest":
+            {
+                var t = await db.SequflohInspectionRequests.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.SiteId, x.DepartmentId }).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("Record");
+                return (t.SiteId, t.DepartmentId, await access.CanAccessAsync(me.UserId!.Value, Permissions.SequflohAccess, t.SiteId, t.DepartmentId, ct));
+            }
             case "SequflohTrackingRecord":
             {
                 var t = await db.SequflohTrackingRecords.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.SiteId, x.DepartmentId }).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("Record");

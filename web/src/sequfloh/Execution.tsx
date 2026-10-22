@@ -6,6 +6,7 @@ import { get, post, put } from '../api';
 import { useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Filters, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, qs, useOptions, words, type Col } from './common';
+import { OpenInspectionRequestsPanel } from './InspectionRequests';
 import { LiveClock, TaskActionDialog, newOpId, trackingStatuses, trackingTypes, type TrAction, type TrRow } from './Tracking';
 import { RecordDrawings } from './Drawings';
 import { ProblemList } from './Designer';
@@ -109,6 +110,7 @@ export function ExecutionQueuePage() {
     <SqfPage title={cfg.title} crumbs={exCrumbs(cfg.title)} description={cfg.description} permission="sequfloh.view_live_execution"
       actions={view === 'mine' && <Button variant="contained" component={RouterLink} to="/sequfloh/execution/active">Open Active Station</Button>}>
       {row.msg && <Alert severity="success" sx={{ mb: 2 }} onClose={row.clear}>{row.msg}</Alert>}
+      {view === 'dispatch' && <OpenInspectionRequestsPanel />}
       <Filters search={v('q')} onSearch={(x) => set('q', x)} filters={filters} values={Object.fromEntries(filters.map((f) => [f.key, v(f.key)]))} onChange={set} onClear={() => { setSp({}); setPage(1); }}
         extra={<>
           <TextField size="small" label="Part number" defaultValue={v('part')} key={'p' + v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 150 }} />

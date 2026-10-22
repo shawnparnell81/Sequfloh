@@ -3,6 +3,7 @@ import PlaylistPlayOutlined from '@mui/icons-material/PlaylistPlayOutlined';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
 import PlayCircleOutline from '@mui/icons-material/PlayCircleOutline';
 import TimelineOutlined from '@mui/icons-material/TimelineOutlined';
+import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
 import CategoryOutlined from '@mui/icons-material/CategoryOutlined';
 import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined';
@@ -49,6 +50,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Open Activities', path: '/sequfloh/tracking/open' },
         { label: 'Completed Activities', path: '/sequfloh/tracking/completed' },
       ] },
+      { label: 'Inspection Requests', path: '/sequfloh/inspection-requests', icon: <FactCheckOutlined fontSize="small" />, match: ['/sequfloh/inspection-request'] },
       { label: 'Work Instructions', path: '/sequfloh/instructions/all', icon: <DescriptionOutlined fontSize="small" />, match: ['/sequfloh/instructions', '/sequfloh/instruction/'], children: [
         { label: 'All Work Instructions', path: '/sequfloh/instructions/all' },
         { label: 'Validation Work Instructions', path: '/sequfloh/instructions/validation' },
