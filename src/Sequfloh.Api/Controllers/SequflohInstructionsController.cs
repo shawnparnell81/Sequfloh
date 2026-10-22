@@ -18,7 +18,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
 {
     [HttpGet("schema")] public object Schema() => SequflohDesigner.Schemas.Values;
 
-    /// <summary>Folder listing. folder: validation | repair | all | current | drafts | pending-review | pending-approval | released | superseded | obsolete | archived | type key.</summary>
+    /// <summary>Folder listing. folder: validation | repair | all | current | drafts | released | superseded | obsolete | type key.</summary>
     [HttpGet]
     public async Task<object> List([FromQuery] string? folder, [FromQuery] string? q, [FromQuery] WorkInstructionStatus? status, [FromQuery] WorkInstructionType? type, [FromQuery] string? part,
         [FromQuery] string? repairCategory, [FromQuery] string? repairType, [FromQuery] string? validationType, [FromQuery] string? resultStatus, [FromQuery] string? sort,
@@ -33,13 +33,10 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             "repair" => query.Where(x => repair.Contains(x.Type)),
             "current" => query.Where(x => x.Status == WorkInstructionStatus.Released),
             "drafts" => query.Where(x => SequflohInstructionService.Editable.Contains(x.Status)),
-            "pending-review" => query.Where(x => x.Status == WorkInstructionStatus.PendingReview),
-            "pending-approval" => query.Where(x => x.Status == WorkInstructionStatus.PendingApproval),
             "released" => query.Where(x => x.Status == WorkInstructionStatus.Released),
             "superseded" => query.Where(x => x.Status == WorkInstructionStatus.Superseded),
             "obsolete" => query.Where(x => x.Status == WorkInstructionStatus.Obsolete),
-            "archived" => query.Where(x => x.Status == WorkInstructionStatus.Archived),
-            "development" => query.Where(x => x.Status == WorkInstructionStatus.Draft || x.Status == WorkInstructionStatus.InDevelopment || x.Status == WorkInstructionStatus.ChangesRequested),
+            "development" => query.Where(x => x.Status == WorkInstructionStatus.Draft),
             "validation-only" => query.Where(x => x.Type == WorkInstructionType.Validation),
             "validation-fai" => query.Where(x => x.Type == WorkInstructionType.ValidationFai),
             "fai" => query.Where(x => x.Type == WorkInstructionType.Fai),
@@ -47,7 +44,6 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             "repair-work" => query.Where(x => x.Type == WorkInstructionType.RepairWork),
             _ => query
         };
-        if (folder is not "archived" && status != WorkInstructionStatus.Archived) query = query.Where(x => x.Status != WorkInstructionStatus.Archived || status == WorkInstructionStatus.Archived);
         if (status is not null) query = query.Where(x => x.Status == status);
         if (type is not null) query = query.Where(x => x.Type == type);
         if (!string.IsNullOrWhiteSpace(part)) query = query.Where(x => x.PartNumber != null && EF.Functions.ILike(x.PartNumber, $"%{part.Trim()}%"));
@@ -67,11 +63,10 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         return await Paging.PageAsync(query.Select(x => new
         {
             x.Id, x.Number, x.Title, x.Type, x.Revision, x.Status, x.PartId, x.PartNumber, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription, x.ResultStatus,
-            x.EffectiveDate, x.UpdatedAt, x.Project, x.TargetCompletionDate, x.DevelopmentStatus, x.ReleaseRecommendedAt, x.ReviewedAt, x.ApprovedAt,
+            x.EffectiveDate, x.UpdatedAt, x.Project, x.TargetCompletionDate, x.DevelopmentStatus, x.ReleasedAt,
             AssignedEngineer = db.Users.Where(u => u.Id == x.AssignedEngineerId).Select(u => u.DisplayName).FirstOrDefault(),
             Owner = db.Users.Where(u => u.Id == x.OwnerId).Select(u => u.DisplayName).FirstOrDefault(),
-            Reviewer = db.Users.Where(u => u.Id == x.ReviewerId).Select(u => u.DisplayName).FirstOrDefault(),
-            Approver = db.Users.Where(u => u.Id == x.ApproverId).Select(u => u.DisplayName).FirstOrDefault()
+            ReleasedBy = db.Users.Where(u => u.Id == x.ReleasedById).Select(u => u.DisplayName).FirstOrDefault()
         }), page, pageSize, ct);
     }
 
@@ -89,13 +84,13 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         {
             Instruction = new
             {
-                x.Id, x.FamilyId, x.Number, x.Type, x.Title, x.Revision, x.Status, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.ReviewerId, x.ApproverId, x.PartId, x.PartNumber, x.PartDescription,
+                x.Id, x.FamilyId, x.Number, x.Type, x.Title, x.Revision, x.Status, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.PartId, x.PartNumber, x.PartDescription,
                 x.ProductFamily, x.Assembly, x.Model, x.Variant, x.Process, x.Operation, x.Workstation, x.Location, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription,
-                x.SourcePartsListId, x.ResultStatus, x.EffectiveDate, x.SupersededAt, x.ObsoleteAt, x.ReviewedAt, x.ApprovedAt, x.ReleasedAt, x.RevisionReason, x.CreatedAt, x.UpdatedAt, x.RowVersion,
-                x.AssignedEngineerId, x.TargetCompletionDate, x.Project, x.EngineeringNotes, x.DevelopmentStatus, x.ReleaseRecommendedAt, ReleaseRecommendedBy = Name(x.ReleaseRecommendedById),
+                x.SourcePartsListId, x.ResultStatus, x.EffectiveDate, x.SupersededAt, x.ObsoleteAt, x.ReleasedAt, x.RevisionReason, x.CreatedAt, x.UpdatedAt, x.RowVersion,
+                x.AssignedEngineerId, x.TargetCompletionDate, x.Project, x.EngineeringNotes, x.DevelopmentStatus,
                 Content = JsonNode.Parse(x.Content), Steps = JsonNode.Parse(x.Steps), Characteristics = JsonNode.Parse(x.Characteristics), PartsRows = JsonNode.Parse(x.PartsRows),
                 Blocks = JsonNode.Parse(x.Blocks), x.TemplateId, Template = db.SequflohInstructionTemplates.Where(t => t.Id == x.TemplateId).Select(t => t.Name).FirstOrDefault(),
-                Owner = Name(x.OwnerId), Author = Name(x.AuthorId), Reviewer = Name(x.ReviewerId), Approver = Name(x.ApproverId), ReviewedBy = Name(x.ReviewedById), ApprovedBy = Name(x.ApprovedById),
+                Owner = Name(x.OwnerId), Author = Name(x.AuthorId),
                 ReleasedBy = Name(x.ReleasedById), CreatedBy = Name(x.CreatedById), UpdatedBy = Name(x.UpdatedById),
                 Site = db.Sites.Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefault(),
                 Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
@@ -103,7 +98,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             Transitions = transitions, Revisions = revisions, CanEdit = canEdit,
             Actions = await wi.AvailableActionsAsync(x, ct),
             ReleaseProblems = await wi.ReleaseProblemsAsync(x, true, ct),
-            CanDevelop = x.Status is not (WorkInstructionStatus.Released or WorkInstructionStatus.Superseded or WorkInstructionStatus.Obsolete or WorkInstructionStatus.Archived)
+            CanDevelop = x.Status is not (WorkInstructionStatus.Released or WorkInstructionStatus.Superseded or WorkInstructionStatus.Obsolete)
                 && await m.CanAsync(Permissions.SequflohEditEngineeringFolder, x.SiteId, x.DepartmentId, ct),
             CanDuplicate = await m.CanAsync(Permissions.SequflohCreateWorkInstruction, x.SiteId, x.DepartmentId, ct)
         };

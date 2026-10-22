@@ -18,7 +18,7 @@ public sealed class SequflohTrackingTests(TestApp app)
         Permissions.SequflohCreateProductionTask, Permissions.SequflohDispatchTask, Permissions.SequflohReassignTask, Permissions.SequflohCancelTask];
     static readonly string[] Tech = [Permissions.SequflohAccess, Permissions.SequflohStartTask, Permissions.SequflohPauseTask, Permissions.SequflohResumeTask, Permissions.SequflohHoldTask,
         Permissions.SequflohCompleteTask, Permissions.SequflohFailTask];
-    static readonly string[] Quality = [Permissions.SequflohAccess, Permissions.SequflohEditQualityFolder, Permissions.SequflohRejectTask, Permissions.SequflohStartTask];
+    static readonly string[] Quality = [Permissions.SequflohAccess, Permissions.SequflohEditQualityFolder, Permissions.SequflohStartTask];
     static readonly string[] Engineering = [Permissions.SequflohAccess, Permissions.SequflohEditEngineeringFolder];
 
     /// <summary>Released instruction written straight to the database (the lifecycle itself is covered by SequflohInstructionTests).</summary>
@@ -70,12 +70,10 @@ public sealed class SequflohTrackingTests(TestApp app)
         var r = await Rec(c, id);
         return await c.PutAsync($"{U}/{id}", body(r.GetProperty("record")));
     }
-    static async Task Sign(ApiClient c, Guid id, string role) =>
-        await c.PostOkAsync($"{U}/{id}/signoffs", new { operationId = Guid.NewGuid(), stateVersion = Ver(await Rec(c, id)), role });
     static string Row(JsonElement rec, string list, int i) => rec.GetProperty(list)[i].Str("id");
 
     [Fact]
-    public async Task Validation_record_keeps_its_revision_enforces_completion_rules_and_needs_independent_quality_approval()
+    public async Task Validation_record_keeps_its_revision_and_completes_in_one_step_once_results_are_recorded()
     {
         var site = await app.CreateSiteAsync();
         var (_, planner) = await app.CreateUserAsync(Planner, site);
@@ -116,42 +114,38 @@ public sealed class SequflohTrackingTests(TestApp app)
         var problems = full.GetProperty("completionProblems").EnumerateArray().Select(p => p.GetString()!).ToList();
         Assert.Contains(problems, p => p.Contains("Step 10: record the evidence reference"));
         Assert.Contains(problems, p => p.Contains("Step 20: record the result"));
-        Assert.Contains(problems, p => p.Contains("Technician signoff"));
         Assert.Equal("Pending", full.GetProperty("record").Str("result"));
-        Assert.Equal(HttpStatusCode.BadRequest, await ActStatus(tech, id, "submit-review"));
+        Assert.Equal(HttpStatusCode.BadRequest, await ActStatus(tech, id, "complete")); // results still missing
         Assert.Equal(HttpStatusCode.OK, (await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), lotNumber = "LOT-7",
             evidenceReferences = "Photo set 4", steps = new object[] { new { id = s1, result = "Pass", actualResult = "150", evidence = "IMG-0042" }, new { id = s2, result = "Pass" } } })).StatusCode);
         Assert.Equal("Pass", (await Rec(tech, id)).GetProperty("record").Str("result"));
-        await Sign(tech, id, "Technician");
-        Assert.Equal(HttpStatusCode.Conflict, (await tech.PostAsync($"{U}/{id}/signoffs", new { operationId = Guid.NewGuid(), stateVersion = Ver(await Rec(tech, id)), role = "Technician" })).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, await ActStatus(tech, id, "complete")); // review is required
-        await Act(tech, id, "submit-review");
-        Assert.Equal(HttpStatusCode.Forbidden, await ActStatus(tech, id, "approve"));
-        await Act(quality, id, "approve");
+        Assert.Equal(HttpStatusCode.Forbidden, await ActStatus(quality, id, "complete")); // needs the complete permission
+        Assert.Equal(HttpStatusCode.NotFound, (await tech.PostAsync($"{U}/{id}/signoffs", new { operationId = Guid.NewGuid(), stateVersion = Ver(await Rec(tech, id)), role = "Technician" })).StatusCode);
+        await Act(tech, id, "complete");
         rec = (await Rec(viewer, id)).GetProperty("record");
         Assert.Equal("Completed", rec.Str("status"));
-        Assert.Equal("Approved", rec.Str("approvalStatus"));
+        Assert.False(rec.TryGetProperty("approvalStatus", out _));
+        Assert.False(rec.TryGetProperty("signoffs", out _));
         Assert.Equal(HttpStatusCode.Conflict, (await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), technicianComments = "late" })).StatusCode);
         var events = (await Rec(viewer, id)).GetProperty("events").EnumerateArray().Select(e => e.Str("eventType")).ToList();
-        Assert.Equal(["Dispatch", "Start", "RecordUpdate", "RecordUpdate", "Signoff", "ReviewSubmission", "Approval"], events);
+        Assert.Equal(["Dispatch", "Start", "RecordUpdate", "RecordUpdate", "Completion"], events);
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            Assert.True(await db.AuditEntries.AnyAsync(a => a.EntityId == id && a.Action == "TaskApprove" && a.Description.Contains("pending review -> completed")));
+            Assert.True(await db.AuditEntries.AnyAsync(a => a.EntityId == id && a.Action == "TaskComplete" && a.Description.Contains("in progress -> completed")));
         }
     }
 
     [Fact]
-    public async Task Fai_record_copies_characteristics_and_blocks_incomplete_or_out_of_limit_results_with_engineering_review()
+    public async Task Fai_record_copies_characteristics_and_blocks_incomplete_or_out_of_limit_results()
     {
         var site = await app.CreateSiteAsync();
         var (_, planner) = await app.CreateUserAsync(Planner, site);
         var (_, tech) = await app.CreateUserAsync(Tech, site);
-        var (_, quality) = await app.CreateUserAsync(Quality, site);
         var (_, eng) = await app.CreateUserAsync(Engineering, site);
         var chars = """[{"id":"a","sequence":10,"characteristicNumber":"1","requirement":"Bore","lowerLimit":5.9,"upperLimit":6.1,"unit":"mm"},{"id":"b","sequence":20,"characteristicNumber":"2","requirement":"Finish"}]""";
         var wiId = await ReleasedAsync(site, WorkInstructionType.Fai, "[]", chars);
-        var id = (await PostEl(planner, U, new { type = "Fai", workInstructionId = wiId, siteId = site, engineeringReviewRequired = true })).Id();
+        var id = (await PostEl(planner, U, new { type = "Fai", workInstructionId = wiId, siteId = site })).Id();
         await Act(tech, id, "start");
         var rec = (await Rec(tech, id)).GetProperty("record");
         Assert.Equal(2, rec.GetProperty("characteristics").GetArrayLength());
@@ -166,28 +160,20 @@ public sealed class SequflohTrackingTests(TestApp app)
         Assert.Equal(HttpStatusCode.BadRequest, (await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), finalDisposition = "Not a disposition" })).StatusCode);
         await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), finalDisposition = "Accepted",
             characteristics = new object[] { new { id = c1, actualResult = "6.02", result = "Pass" }, new { id = c2, result = "Pass", actualResult = "Ra 1.2" } } });
-        await Sign(tech, id, "Technician");
         Assert.Empty((await Rec(tech, id)).GetProperty("completionProblems").EnumerateArray());
-        await Act(tech, id, "submit-review");
-        Assert.Equal(HttpStatusCode.Forbidden, await ActStatus(eng, id, "approve")); // Quality first
-        await Act(quality, id, "approve");
-        Assert.Equal("PendingReview", (await Rec(tech, id)).GetProperty("record").Str("status"));
-        await Act(eng, id, "approve");
+        await Act(tech, id, "complete");
         rec = (await Rec(tech, id)).GetProperty("record");
         Assert.Equal("Completed", rec.Str("status"));
         Assert.Equal("Pass", rec.Str("result"));
-        // authorized result reversal returns it to review
-        await Act(quality, id, "reverse-result", new { reason = "Wrong gauge used" });
-        Assert.Equal("PendingReview", (await Rec(tech, id)).GetProperty("record").Str("status"));
+        Assert.Equal(HttpStatusCode.NotFound, (await eng.PostAsync($"{U}/{id}/actions/approve", new { operationId = Guid.NewGuid(), stateVersion = Ver(await Rec(tech, id)) })).StatusCode);
     }
 
     [Fact]
-    public async Task Repair_record_validates_quantities_operations_tests_inspector_and_disposition()
+    public async Task Repair_record_validates_quantities_operations_tests_and_disposition_and_failed_work_restarts()
     {
         var site = await app.CreateSiteAsync();
         var (_, planner) = await app.CreateUserAsync(Planner, site);
         var (_, tech) = await app.CreateUserAsync(Tech, site);
-        var (_, quality) = await app.CreateUserAsync(Quality, site);
         var (_, inspector) = await app.CreateUserAsync(Quality, site);
         var plain = await PartAsync(site, repairable: false);
         var part = await PartAsync(site, repairable: true, serialized: true);
@@ -212,28 +198,18 @@ public sealed class SequflohTrackingTests(TestApp app)
         };
         Assert.Equal(HttpStatusCode.OK, (await Save(tech, id, r => Body(r, new[] { new { id = s, result = "Pass", acknowledged = true } }, new[] { new { id = p, issuedQuantity = 3, usedQuantity = 2 } }, null, null))).StatusCode);
         var problems = (await Rec(tech, id)).GetProperty("completionProblems").EnumerateArray().Select(x => x.GetString()!).ToList();
-        Assert.Contains(problems, x => x.Contains("inspector verification is missing"));
         Assert.Contains(problems, x => x.Contains("must account for the issued quantity"));
         Assert.Contains(problems, x => x.Contains("lot number"));
         Assert.Contains(problems, x => x.Contains("repair test result"));
         Assert.Contains(problems, x => x.Contains("final disposition"));
-        Assert.Contains(problems, x => x.Contains("Inspector signoff"));
-        // the technician cannot verify their own work
-        var techSteps = (await Rec(tech, id)).GetProperty("record").GetProperty("steps")[0];
-        Assert.False(techSteps.TryGetProperty("verified", out _));
-        await Save(inspector, id, r => Body(r, new[] { new { id = s, result = "Pass", acknowledged = true, verified = true } }, new[] { new { id = p, issuedQuantity = 3, usedQuantity = 2, returnedQuantity = 1, lotNumber = "L-9" } },
+        await Save(inspector, id, r => Body(r, new[] { new { id = s, result = "Pass" } }, new[] { new { id = p, issuedQuantity = 3, usedQuantity = 2, returnedQuantity = 1, lotNumber = "L-9" } },
             "Return to service", "Pass"));
-        rec = (await Rec(tech, id)).GetProperty("record");
-        Assert.NotEqual(rec.GetProperty("steps")[0].Str("acknowledgedById"), rec.GetProperty("steps")[0].Str("verifiedById"));
-        await Sign(tech, id, "Technician");
-        Assert.Equal(HttpStatusCode.Forbidden, (await tech.PostAsync($"{U}/{id}/signoffs", new { operationId = Guid.NewGuid(), stateVersion = Ver(await Rec(tech, id)), role = "Inspector" })).StatusCode);
-        await Sign(inspector, id, "Inspector");
         Assert.Empty((await Rec(tech, id)).GetProperty("completionProblems").EnumerateArray());
-        await Act(tech, id, "submit-review");
-        await Act(quality, id, "reject", new { reason = "Wrong seal material" });
+        Assert.Equal(HttpStatusCode.BadRequest, await ActStatus(tech, id, "fail")); // a reason is required
+        await Act(tech, id, "fail", new { reason = "Wrong seal material" });
         rec = (await Rec(tech, id)).GetProperty("record");
-        Assert.Equal("Rejected", rec.Str("status"));
-        Assert.Equal("Rejected", rec.Str("approvalStatus"));
+        Assert.Equal("Failed", rec.Str("status"));
+        Assert.Equal("Wrong seal material", rec.Str("failureReason"));
         await Act(planner, id, "restart", new { reason = "Rework with the correct seal" });
         Assert.Equal("Assigned", (await Rec(tech, id)).GetProperty("record").Str("status"));
     }
@@ -268,7 +244,6 @@ public sealed class SequflohTrackingTests(TestApp app)
         await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), workOrder = "WO-1", priority = "High", result = "Pass" });
         Assert.Equal(HttpStatusCode.Forbidden, (await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), workOrder = "WO-2", priority = "High", result = "Pass" })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, await ActStatus(planner, id, "reassign", new { assignedUserId = tech2Id, expectedAssignedUserId = tech2Id })); // conflicting reassignment
-        await Sign(tech, id, "Technician");
         Assert.Equal(HttpStatusCode.BadRequest, await ActStatus(tech, id, "complete")); // 50 minutes is outside 15-40 without a reason
         await Act(tech, id, "complete", new { varianceReason = "Fixture changeover" });
         var done = (await Rec(tech, id)).GetProperty("record");

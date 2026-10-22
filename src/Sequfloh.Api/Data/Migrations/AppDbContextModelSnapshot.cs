@@ -300,12 +300,6 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ApprovedById")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -325,6 +319,12 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("character varying(40)");
 
                     b.Property<Guid?>("ParentPartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReleasedById")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Revision")
@@ -354,10 +354,10 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ApprovedById");
-
                     b.HasIndex("Number")
                         .IsUnique();
+
+                    b.HasIndex("ReleasedById");
 
                     b.HasIndex("UpdatedAt");
 
@@ -741,11 +741,6 @@ namespace Sequfloh.Data.Migrations
                     b.Property<DateTimeOffset?>("ActualStart")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("ApprovalStatus")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<Guid?>("AssignedUserId")
                         .HasColumnType("uuid");
 
@@ -794,15 +789,6 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("EngineeringConclusion")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
-
-                    b.Property<bool>("EngineeringReviewRequired")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset?>("EngineeringReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("EngineeringReviewedById")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("EvidenceReferences")
                         .HasMaxLength(4000)
@@ -903,19 +889,6 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
-                    b.Property<bool>("QualityReviewRequired")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset?>("QualityReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("QualityReviewedById")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RejectionReason")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
                     b.Property<string>("RepairDescription")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -942,10 +915,6 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("SerialNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Signoffs")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
 
                     b.Property<Guid>("SiteId")
                         .HasColumnType("uuid");
@@ -1009,8 +978,6 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("CompletedById");
 
-                    b.HasIndex("EngineeringReviewedById");
-
                     b.HasIndex("Number")
                         .IsUnique();
 
@@ -1018,11 +985,7 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("PartId");
 
-                    b.HasIndex("QualityReviewedById");
-
                     b.HasIndex("WorkInstructionId");
-
-                    b.HasIndex("ApprovalStatus", "OwnerId");
 
                     b.HasIndex("AssignedUserId", "Status");
 
@@ -1104,15 +1067,6 @@ namespace Sequfloh.Data.Migrations
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohWorkInstruction", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ApprovedById")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ApproverId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Assembly")
@@ -1219,12 +1173,6 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<DateTimeOffset?>("ReleaseRecommendedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ReleaseRecommendedById")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTimeOffset?>("ReleasedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1246,15 +1194,6 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("ResultStatus")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
-
-                    b.Property<DateTimeOffset?>("ReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ReviewedById")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ReviewerId")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("Revision")
                         .IsRequired()
@@ -1278,9 +1217,6 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("StatusBeforeArchive")
                         .HasColumnType("integer");
 
                     b.Property<string>("Steps")
@@ -1324,10 +1260,6 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ApprovedById");
-
-                    b.HasIndex("ApproverId");
-
                     b.HasIndex("AuthorId");
 
                     b.HasIndex("DepartmentId");
@@ -1338,13 +1270,7 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("PreviousRevisionId");
 
-                    b.HasIndex("ReleaseRecommendedById");
-
                     b.HasIndex("ReleasedById");
-
-                    b.HasIndex("ReviewedById");
-
-                    b.HasIndex("ReviewerId");
 
                     b.HasIndex("SourcePartsListId");
 
@@ -1360,8 +1286,6 @@ namespace Sequfloh.Data.Migrations
                     b.HasIndex("OwnerId", "Status");
 
                     b.HasIndex("SiteId", "Status");
-
-                    b.HasIndex("Status", "ReviewerId");
 
                     b.HasIndex("Type", "Status");
 
@@ -2035,14 +1959,14 @@ namespace Sequfloh.Data.Migrations
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohPartsList", b =>
                 {
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("ApprovedById")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Sequfloh.Domain.MasterData.Part", null)
                         .WithMany()
                         .HasForeignKey("ParentPartId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("ReleasedById")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
@@ -2117,22 +2041,12 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
-                        .HasForeignKey("EngineeringReviewedById")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
                         .HasForeignKey("OwnerId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Sequfloh.Domain.MasterData.Part", null)
                         .WithMany()
                         .HasForeignKey("PartId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("QualityReviewedById")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Sequfloh.Domain.Organization.Site", null)
@@ -2159,16 +2073,6 @@ namespace Sequfloh.Data.Migrations
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohWorkInstruction", b =>
                 {
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("ApprovedById")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("ApproverId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("AssignedEngineerId")
@@ -2201,22 +2105,7 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
-                        .HasForeignKey("ReleaseRecommendedById")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
                         .HasForeignKey("ReleasedById")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("ReviewedById")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("ReviewerId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Sequfloh.Domain.Organization.Site", null)

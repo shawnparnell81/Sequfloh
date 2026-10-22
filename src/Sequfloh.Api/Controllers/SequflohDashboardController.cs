@@ -12,7 +12,7 @@ using Sequfloh.Infrastructure.Persistence;
 namespace Sequfloh.Api.Controllers.Sequfloh;
 
 /// <summary>
-/// SEQUFLOH Home, Quality and Engineering dashboards and review queues. Every figure is a count or list of stored records the user can see
+/// SEQUFLOH Home, Quality and Engineering dashboards. Every figure is a count or list of stored records the user can see
 /// (site and department scope); sections the user has no permission for are left out.
 /// </summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh")]
@@ -25,9 +25,6 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
         await wis.Where(x => x.Status == WorkInstructionStatus.Released && x.ReleasedAt != null && (!revised || x.PreviousRevisionId != null)).OrderByDescending(x => x.ReleasedAt).Take(5)
             .Select(x => new { x.Id, x.Number, x.Revision, x.Title, x.Type, x.ReleasedAt, x.RevisionReason }).ToListAsync(ct);
 
-    static IQueryable<SequflohTrackingRecord> AwaitingQuality(IQueryable<SequflohTrackingRecord> q) => q.Where(x => x.Status == TrackingStatus.PendingReview && x.QualityReviewRequired && x.QualityReviewedAt == null);
-    static IQueryable<SequflohTrackingRecord> AwaitingEngineering(IQueryable<SequflohTrackingRecord> q) =>
-        q.Where(x => x.Status == TrackingStatus.PendingReview && x.EngineeringReviewRequired && x.EngineeringReviewedAt == null && (!x.QualityReviewRequired || x.QualityReviewedAt != null));
     static IQueryable<SequflohTrackingRecord> Failed(IQueryable<SequflohTrackingRecord> q, TrackingType t) => q.Where(x => x.Type == t && (x.Status == TrackingStatus.Failed || x.Result == "Fail"));
     static async Task<object> Rows(IQueryable<SequflohTrackingRecord> q, CancellationToken ct) => await q.OrderByDescending(x => x.UpdatedAt).Take(5)
         .Select(x => new { x.Id, x.Number, x.Type, x.Status, x.Result, x.PartNumber, x.WorkInstructionNumber, x.WorkInstructionRevision, x.DueAt, x.UpdatedAt }).ToListAsync(ct);
@@ -54,7 +51,7 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
             Live = live ? new
             {
                 AwaitingDispatch = await tr.CountAsync(x => x.Status == TrackingStatus.NotStarted || x.Status == TrackingStatus.Assigned, ct),
-                Active = await tr.CountAsync(x => x.Status == TrackingStatus.InProgress || x.Status == TrackingStatus.PendingInspection, ct),
+                Active = await tr.CountAsync(x => x.Status == TrackingStatus.InProgress, ct),
                 Paused = await tr.CountAsync(x => x.Status == TrackingStatus.Paused, ct),
                 Overdue = await open.CountAsync(x => x.DueAt != null && x.DueAt < cutoff, ct),
                 ValidationInProgress = await open.CountAsync(x => x.Type == TrackingType.Validation, ct),
@@ -67,8 +64,8 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
             } : null,
             Instructions = new
             {
-                PendingReview = await wis.CountAsync(x => x.Status == WorkInstructionStatus.PendingReview, ct) + await tr.CountAsync(x => x.Status == TrackingStatus.PendingReview, ct),
-                PendingApproval = await wis.CountAsync(x => x.Status == WorkInstructionStatus.PendingApproval, ct),
+                Drafts = await wis.CountAsync(x => x.Status == WorkInstructionStatus.Draft, ct),
+                Released = await wis.CountAsync(x => x.Status == WorkInstructionStatus.Released, ct),
                 RecentlyReleased = await Recent(wis, false, ct),
                 RecentlyRevised = await Recent(wis, true, ct),
             },
@@ -85,16 +82,16 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
         var wis = await instructions.QueryAsync(ct);
         var now = await tracking.DbNowAsync(ct);
         var cutoff = now.AddHours(-(await f.GetSettingsAsync(ct)).Tracking.OverdueThresholdHours);
-        var overdue = tr.Where(x => (x.Status == TrackingStatus.PendingInspection || (x.Status == TrackingStatus.PendingReview && x.QualityReviewRequired && x.QualityReviewedAt == null)) && x.DueAt != null && x.DueAt < cutoff);
+        var overdue = tr.Where(x => SequflohTrackingService.Open.Contains(x.Status) && x.DueAt != null && x.DueAt < cutoff);
         return new
         {
-            ValidationPendingReview = await wis.CountAsync(x => ValidationTypes.Contains(x.Type) && x.Status == WorkInstructionStatus.PendingReview, ct),
-            RepairPendingReview = await wis.CountAsync(x => RepairTypes.Contains(x.Type) && x.Status == WorkInstructionStatus.PendingReview, ct),
-            ApprovalsAwaitingQuality = await wis.CountAsync(x => x.Status == WorkInstructionStatus.PendingApproval, ct) + await AwaitingQuality(tr).CountAsync(ct),
+            ValidationDrafts = await wis.CountAsync(x => ValidationTypes.Contains(x.Type) && x.Status == WorkInstructionStatus.Draft, ct),
+            RepairDrafts = await wis.CountAsync(x => RepairTypes.Contains(x.Type) && x.Status == WorkInstructionStatus.Draft, ct),
+            CompletedThisWeek = await tr.CountAsync(x => x.Status == TrackingStatus.Completed && x.ActualCompletion != null && x.ActualCompletion > now.AddDays(-7), ct),
             FailedValidations = await Failed(tr, TrackingType.Validation).CountAsync(ct),
             FailedFai = await Failed(tr, TrackingType.Fai).CountAsync(ct),
             FailedRepairTests = await Failed(tr, TrackingType.Repair).CountAsync(ct),
-            OverdueQualityActions = await overdue.CountAsync(ct),
+            OverdueRecords = await overdue.CountAsync(ct),
             FailedRecords = await Rows(tr.Where(x => x.Status == TrackingStatus.Failed || x.Result == "Fail"), ct),
             OverdueRows = await Rows(overdue, ct),
             RecentlyReleased = await Recent(wis, false, ct),
@@ -108,49 +105,17 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
     {
         var tr = await tracking.QueryAsync(ct);
         var wis = await instructions.QueryAsync(ct);
-        var dev = wis.Where(x => x.Status == WorkInstructionStatus.Draft || x.Status == WorkInstructionStatus.InDevelopment || x.Status == WorkInstructionStatus.ChangesRequested);
+        var dev = wis.Where(x => x.Status == WorkInstructionStatus.Draft);
         return new
         {
             InDevelopment = await dev.CountAsync(ct),
             DraftValidation = await dev.CountAsync(x => ValidationTypes.Contains(x.Type), ct),
             DraftRepair = await dev.CountAsync(x => RepairTypes.Contains(x.Type), ct),
-            ChangesRequested = await wis.CountAsync(x => x.Status == WorkInstructionStatus.ChangesRequested, ct),
-            RecommendedForRelease = await wis.CountAsync(x => x.ReleaseRecommendedAt != null && x.Status != WorkInstructionStatus.Released && x.Status != WorkInstructionStatus.Superseded
-                && x.Status != WorkInstructionStatus.Obsolete && x.Status != WorkInstructionStatus.Archived, ct),
             OpenValidationActivities = await tr.CountAsync(x => x.Type == TrackingType.Validation && SequflohTrackingService.Open.Contains(x.Status), ct),
             FailedValidations = await Failed(tr, TrackingType.Validation).CountAsync(ct),
-            AwaitingEngineeringReview = await AwaitingEngineering(tr).CountAsync(ct),
             ReleasedValidationInstructions = await wis.CountAsync(x => ValidationTypes.Contains(x.Type) && x.Status == WorkInstructionStatus.Released, ct),
             MyDevelopment = await WiRows(dev.Where(x => x.AssignedEngineerId == m.UserId || (x.AssignedEngineerId == null && x.AuthorId == m.UserId)), ct),
-            AwaitingRows = await Rows(AwaitingEngineering(tr), ct),
+            OpenValidationRows = await Rows(tr.Where(x => x.Type == TrackingType.Validation && SequflohTrackingService.Open.Contains(x.Status)), ct),
         };
     }
-
-    /// <summary>Quality or Engineering review queue: work instructions and tracking records waiting for that function, oldest first.</summary>
-    [HttpGet("{area:regex(^(quality|engineering)$)}/review-queue")]
-    public async Task<object> Queue(string area, [FromQuery] string? q, [FromQuery] string? kind, CancellationToken ct)
-    {
-        if (!await m.CanAnyAsync(area == "quality" ? Permissions.SequflohViewQualityFolder : Permissions.SequflohViewEngineeringFolder, ct)) throw new ForbiddenException();
-        var tr = await tracking.QueryAsync(ct);
-        var wis = await instructions.QueryAsync(ct);
-        var trq = area == "quality" ? tr.Where(x => x.Status == TrackingStatus.PendingInspection || (x.Status == TrackingStatus.PendingReview && x.QualityReviewRequired && x.QualityReviewedAt == null))
-            : AwaitingEngineering(tr);
-        var wiq = area == "quality" ? wis.Where(x => x.Status == WorkInstructionStatus.PendingReview || x.Status == WorkInstructionStatus.PendingApproval)
-            : wis.Where(x => x.Status == WorkInstructionStatus.ChangesRequested || (x.Status == WorkInstructionStatus.PendingReview && ValidationTypes.Contains(x.Type)));
-        if (!string.IsNullOrWhiteSpace(q))
-        {
-            var like = $"%{q.Trim()}%";
-            trq = trq.Where(x => EF.Functions.ILike(x.Number + " " + x.WorkInstructionNumber + " " + (x.PartNumber ?? ""), like));
-            wiq = wiq.Where(x => EF.Functions.ILike(x.Number + " " + x.Title + " " + (x.PartNumber ?? ""), like));
-        }
-        var rows = new List<QueueRow>();
-        if (kind is null or "tracking")
-            rows.AddRange(await trq.Select(x => new QueueRow(x.Id, "Tracking record", x.Number, x.WorkInstructionNumber + " rev " + x.WorkInstructionRevision + " — " + x.WorkInstructionTitle, x.Type.ToString(),
-                x.Status.ToString(), x.PartNumber, x.LastTransitionAt ?? x.UpdatedAt, x.DueAt, "/sequfloh/record/" + x.Id + "?tab=review")).Take(200).ToListAsync(ct));
-        if (kind is null or "instruction")
-            rows.AddRange(await wiq.Select(x => new QueueRow(x.Id, "Work instruction", x.Number + " rev " + x.Revision, x.Title, x.Type.ToString(), x.Status.ToString(), x.PartNumber, x.UpdatedAt, null,
-                "/sequfloh/instruction/" + x.Id)).Take(200).ToListAsync(ct));
-        return rows.OrderBy(r => r.WaitingSince);
-    }
-    public sealed record QueueRow(Guid Id, string Kind, string Number, string Title, string Type, string Status, string? PartNumber, DateTimeOffset WaitingSince, DateTimeOffset? DueAt, string Path);
 }

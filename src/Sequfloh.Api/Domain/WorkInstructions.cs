@@ -7,7 +7,7 @@ namespace Sequfloh.Domain.Execution;
 public enum WorkInstructionType { Validation = 0, ValidationFai = 1, Fai = 2, RepairTest = 3, RepairWork = 4 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum WorkInstructionStatus { Draft = 0, InDevelopment = 1, PendingReview = 2, ChangesRequested = 3, PendingApproval = 4, Approved = 5, Released = 6, Superseded = 7, Obsolete = 8, Archived = 9 }
+public enum WorkInstructionStatus { Draft = 0, Released = 6, Superseded = 7, Obsolete = 8 }
 
 /// <summary>
 /// Controlled SEQUFLOH work instruction (one row per revision). Document control and applicability are columns; the designer sections, steps,
@@ -22,13 +22,10 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     public string Title { get; set; } = "";
     public string Revision { get; set; } = "A";
     public WorkInstructionStatus Status { get; set; }
-    public WorkInstructionStatus? StatusBeforeArchive { get; set; }
     public Guid SiteId { get; set; }
     public Guid? DepartmentId { get; set; }
     public Guid? OwnerId { get; set; }
     public Guid? AuthorId { get; set; }
-    public Guid? ReviewerId { get; set; }
-    public Guid? ApproverId { get; set; }
     public Guid? PartId { get; set; }
     public string? PartNumber { get; set; }
     public string? PartDescription { get; set; }
@@ -51,10 +48,6 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     public DateOnly? EffectiveDate { get; set; }
     public DateTimeOffset? SupersededAt { get; set; }
     public DateTimeOffset? ObsoleteAt { get; set; }
-    public DateTimeOffset? ReviewedAt { get; set; }
-    public Guid? ReviewedById { get; set; }
-    public DateTimeOffset? ApprovedAt { get; set; }
-    public Guid? ApprovedById { get; set; }
     public DateTimeOffset? ReleasedAt { get; set; }
     public Guid? ReleasedById { get; set; }
     public string? RevisionReason { get; set; }
@@ -64,8 +57,6 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     public string? Project { get; set; }
     public string? EngineeringNotes { get; set; }
     public string? DevelopmentStatus { get; set; }
-    public DateTimeOffset? ReleaseRecommendedAt { get; set; }
-    public Guid? ReleaseRecommendedById { get; set; }
     /// <summary>Section key -> field key -> value.</summary>
     public string Content { get; set; } = "{}";
     /// <summary>Ordered steps (validation, test, repair or procedure steps) with explicit sequence numbers.</summary>
@@ -76,7 +67,7 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     public string PartsRows { get; set; } = "[]";
     /// <summary>
     /// Free layout the author arranges: ordered blocks of text, images or visual aids, tables, numbered steps with operation numbers,
-    /// cautions and warnings, and checks or sign-offs (see <c>SequflohBlocks</c>).
+    /// cautions and warnings, and checks (see <c>SequflohBlocks</c>).
     /// </summary>
     public string Blocks { get; set; } = "[]";
     /// <summary>The reusable template the blocks were started from, if any (copied, never linked back).</summary>

@@ -27,18 +27,11 @@ public sealed class NumberingSettings
 
 public sealed class WorkInstructionSettings
 {
-    public bool QualityReviewRequired { get; set; } = true;
-    public bool EngineeringReviewRequired { get; set; }
-    public bool ApprovalRequired { get; set; } = true;
-    /// <summary>Permissions a reviewer must hold (administrable; never role names).</summary>
-    public List<string> RequiredReviewPermissions { get; set; } = ["sequfloh.review_work_instruction"];
     public bool EffectiveDateRequired { get; set; } = true;
     public bool RevisionReasonRequired { get; set; } = true;
     public bool TrainingAcknowledgementRequired { get; set; }
     public int ObsoleteRetentionYears { get; set; } = 10;
     public string PrintFooter { get; set; } = "Controlled copy when viewed in SEQUFLOH. Printed copies are uncontrolled unless stamped.";
-    public string ApprovalStatement { get; set; } = "I have reviewed this work instruction and approve it for its stated purpose and scope.";
-    public bool PreventSelfApproval { get; set; } = true;
 }
 
 public sealed class TrackingSettings
@@ -50,45 +43,35 @@ public sealed class TrackingSettings
     /// <summary>A task counts as overdue this many hours after its due date.</summary>
     public int OverdueThresholdHours { get; set; }
     public int ApproachingDueHours { get; set; } = 24;
-    public bool TechnicianSignoffRequired { get; set; } = true;
-    public bool InspectorSignoffRequired { get; set; }
     public bool VarianceReasonRequired { get; set; } = true;
 }
 
 public sealed class ValidationSettings
 {
     public bool EvidenceRequired { get; set; } = true;
-    public bool QualityReviewRequired { get; set; } = true;
-    public bool EngineeringReviewRequired { get; set; }
-    public bool ApprovalRequired { get; set; } = true;
 }
 
 public sealed class FaiSettings
 {
-    public bool QualityApprovalRequired { get; set; } = true;
-    public bool EngineeringApprovalRequired { get; set; }
     public bool EvidenceRequiredForFailures { get; set; } = true;
 }
 
 public sealed class RepairSettings
 {
-    public bool QualityApprovalRequired { get; set; } = true;
-    public bool InspectorVerificationRequired { get; set; } = true;
     public bool RepairTestRequired { get; set; } = true;
 }
 
 public sealed class DisplaySettings
 {
     public bool CompactTables { get; set; }
-    public List<string> DashboardCards { get; set; } = ["awaitingDispatch", "active", "paused", "overdue", "validation", "fai", "repair", "production", "failed", "pendingReview", "pendingApproval", "released", "revised", "assigned"];
+    public List<string> DashboardCards { get; set; } = ["awaitingDispatch", "active", "paused", "overdue", "validation", "fai", "repair", "production", "failed", "released", "revised", "assigned"];
     public string DefaultTrackingFilter { get; set; } = "open";
     public string DefaultFolderView { get; set; } = "current";
     /// <summary>Status to chip colour; values use the shared status palette (default, primary, success, warning, error, info).</summary>
     public Dictionary<string, string> StatusColors { get; set; } = new()
     {
-        ["Draft"] = "default", ["InDevelopment"] = "info", ["PendingReview"] = "warning", ["ChangesRequested"] = "warning", ["PendingApproval"] = "warning", ["Approved"] = "primary",
-        ["Released"] = "success", ["Superseded"] = "default", ["Obsolete"] = "default", ["Archived"] = "default", ["InProgress"] = "primary", ["Paused"] = "warning", ["OnHold"] = "warning",
-        ["Completed"] = "success", ["Failed"] = "error", ["Rejected"] = "error", ["Canceled"] = "default"
+        ["Draft"] = "default", ["Released"] = "success", ["Superseded"] = "default", ["Obsolete"] = "default", ["InProgress"] = "primary", ["Paused"] = "warning", ["OnHold"] = "warning",
+        ["Completed"] = "success", ["Failed"] = "error", ["Canceled"] = "default"
     };
 }
 
@@ -102,19 +85,15 @@ public sealed class ExportSettings
     {
         ["work-instructions"] = "Work Instruction Status", ["validation"] = "Validation Tracking", ["fai"] = "FAI Tracking", ["repair"] = "Repair Tracking", ["production"] = "Production Tracking",
         ["parts"] = "Part Master", ["parts-lists"] = "Parts Lists", ["task-log"] = "Task Log", ["time-variance"] = "Time Variance", ["audit"] = "SEQUFLOH Audit Trail",
-        ["user-activity"] = "User Activity", ["approval-status"] = "Approval Status", ["task-performance"] = "Task Performance"
+        ["user-activity"] = "User Activity", ["task-performance"] = "Task Performance"
     };
 }
 
 public sealed class NotificationSettings
 {
     public bool AssignedWork { get; set; } = true;
-    public bool PendingReview { get; set; } = true;
-    public bool PendingApproval { get; set; } = true;
-    public bool ChangesRequested { get; set; } = true;
     public bool OverdueWork { get; set; } = true;
     public bool FailedRecords { get; set; } = true;
-    public bool RejectedRecords { get; set; } = true;
     public bool ReleasedInstructions { get; set; } = true;
     public bool SupersededInstructions { get; set; } = true;
     public bool ApproachingDueDates { get; set; } = true;

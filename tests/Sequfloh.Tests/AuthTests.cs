@@ -60,10 +60,20 @@ public sealed class AuthTests(TestApp app)
         Assert.Equal(HttpStatusCode.OK, (await user.GetAsync("/api/sequfloh/context")).StatusCode); // this session got a new token
         Assert.Equal(HttpStatusCode.Unauthorized, (await second.GetAsync("/api/sequfloh/context")).StatusCode);
 
+        // the user's real email and current password work while the account is active
+        var email = await SessionEmailAsync(user);
+        Assert.Equal(HttpStatusCode.OK, (await (await app.AnonymousAsync()).PostAsync("/api/auth/login", new { email, password = "another-long-password" })).StatusCode);
+
         var admin = await app.AdminAsync();
         Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsync($"/api/admin/users/{uid}", new { displayName = "Gone", jobTitle = (string?)null, defaultSiteId = (Guid?)null, isActive = false })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await user.GetAsync("/api/sequfloh/context")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await (await app.AnonymousAsync()).PostAsync("/api/auth/login", new { email = "x", password = "another-long-password" })).StatusCode);
+        // the same correct credentials are refused once the account is deactivated
+        var refused = await (await app.AnonymousAsync()).PostAsync("/api/auth/login", new { email, password = "another-long-password" });
+        Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+        Assert.DoesNotContain("token", await refused.Content.ReadAsStringAsync());
+        // and accepted again after reactivation, so the refusal came from the deactivation alone
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsync($"/api/admin/users/{uid}", new { displayName = "Back", jobTitle = (string?)null, defaultSiteId = (Guid?)null, isActive = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await (await app.AnonymousAsync()).PostAsync("/api/auth/login", new { email, password = "another-long-password" })).StatusCode);
     }
 
     static async Task<string> SessionEmailAsync(ApiClient c) => (await c.GetElAsync("/api/auth/session")).GetProperty("user").Str("email");

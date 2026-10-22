@@ -7,7 +7,7 @@ namespace Sequfloh.Domain.Execution;
 public enum TrackingType { Validation = 0, Fai = 1, Repair = 2, Production = 3 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TrackingStatus { NotStarted = 0, Assigned = 1, InProgress = 2, Paused = 3, OnHold = 4, PendingInspection = 5, PendingReview = 6, Completed = 7, Failed = 8, Rejected = 9, Canceled = 10 }
+public enum TrackingStatus { NotStarted = 0, Assigned = 1, InProgress = 2, Paused = 3, OnHold = 4, Completed = 7, Failed = 8, Canceled = 10 }
 
 /// <summary>
 /// Operational tracking record and executable task (validation, FAI, repair, production). It stores the exact released work instruction revision it was
@@ -60,14 +60,6 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string? VarianceReason { get; set; }
 
     public string Result { get; set; } = "Pending";
-    /// <summary>NotRequired, Pending, Approved, Rejected.</summary>
-    public string ApprovalStatus { get; set; } = "NotRequired";
-    public bool QualityReviewRequired { get; set; }
-    public bool EngineeringReviewRequired { get; set; }
-    public Guid? QualityReviewedById { get; set; }
-    public DateTimeOffset? QualityReviewedAt { get; set; }
-    public Guid? EngineeringReviewedById { get; set; }
-    public DateTimeOffset? EngineeringReviewedAt { get; set; }
     public string? EngineeringConclusion { get; set; }
     public string? EvidenceReferences { get; set; }
     public string? TechnicianComments { get; set; }
@@ -79,7 +71,6 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string? HoldReason { get; set; }
     public string? CancelReason { get; set; }
     public string? FailureReason { get; set; }
-    public string? RejectionReason { get; set; }
     public string? ReportedCondition { get; set; }
     public string? ObservedCondition { get; set; }
     public string? RepairDescription { get; set; }
@@ -91,8 +82,6 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string Steps { get; set; } = "[]";
     public string Characteristics { get; set; } = "[]";
     public string PartsRows { get; set; } = "[]";
-    /// <summary>Required signoffs: role, required, signer, time, meaning.</summary>
-    public string Signoffs { get; set; } = "[]";
     public string AuditLabel => $"{Type.ToString().ToLowerInvariant()} record {Number}";
 }
 

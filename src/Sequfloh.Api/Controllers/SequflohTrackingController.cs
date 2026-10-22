@@ -11,7 +11,7 @@ using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Api.Controllers.Sequfloh;
 
-/// <summary>SEQUFLOH tracking records and tasks: folders, create from a released instruction, data entry, signoffs, task actions, task events, history.</summary>
+/// <summary>SEQUFLOH tracking records and tasks: folders, create from a released instruction, data entry, task actions, task events, history.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh/tracking")]
 public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m, SequflohTrackingService tracking, SequflohPartsService parts, SequflohFoundationService f, SequflohPrintService print) : ControllerBase
 {
@@ -45,7 +45,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 AssignedBefore = db.Users.Where(u => u.Id == e.AssignedBeforeId).Select(u => u.DisplayName).FirstOrDefault(),
                 AssignedAfter = db.Users.Where(u => u.Id == e.AssignedAfterId).Select(u => u.DisplayName).FirstOrDefault() }).ToListAsync(ct);
         var problems = await tracking.CompletionProblemsAsync(x, ct);
-        var canEnter = (x.Status is TrackingStatus.InProgress or TrackingStatus.PendingInspection) && await m.CanAsync(Permissions.SequflohStartTask, x.SiteId, x.DepartmentId, ct);
+        var canEnter = x.Status == TrackingStatus.InProgress && await m.CanAsync(Permissions.SequflohStartTask, x.SiteId, x.DepartmentId, ct);
         return new
         {
             Record = new
@@ -53,18 +53,18 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 x.Id, x.Number, x.Type, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle, x.PartId, x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber,
                 x.WorkOrder, x.RepairOrder, x.CustomerReturnReference, x.Project, x.Operation, x.OwnerId, x.AssignedUserId, x.DepartmentId, x.SiteId, x.Status, x.Priority, x.PlannedStart, x.DueAt,
                 x.ActualStart, x.ActualCompletion, x.CurrentStateStartedAt, x.StateVersion, x.LastTransitionId, x.LastTransitionAt, x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes,
-                x.VarianceReason, x.Result, x.ApprovalStatus, x.QualityReviewRequired, x.EngineeringReviewRequired, x.QualityReviewedAt, x.EngineeringReviewedAt, x.EngineeringConclusion,
+                x.VarianceReason, x.Result, x.EngineeringConclusion,
                 x.EvidenceReferences, x.TechnicianComments, x.QualityComments, x.EngineeringComments, x.Deviations, x.NonconformanceReferences, x.PauseReason, x.HoldReason, x.CancelReason,
-                x.FailureReason, x.RejectionReason, x.ReportedCondition, x.ObservedCondition, x.RepairDescription, x.FinalDisposition, x.FaiType, x.CreatedAt, x.UpdatedAt,
-                Details = JsonNode.Parse(x.Details), Steps = JsonNode.Parse(x.Steps), Characteristics = JsonNode.Parse(x.Characteristics), PartsRows = JsonNode.Parse(x.PartsRows), Signoffs = JsonNode.Parse(x.Signoffs),
+                x.FailureReason, x.ReportedCondition, x.ObservedCondition, x.RepairDescription, x.FinalDisposition, x.FaiType, x.CreatedAt, x.UpdatedAt,
+                Details = JsonNode.Parse(x.Details), Steps = JsonNode.Parse(x.Steps), Characteristics = JsonNode.Parse(x.Characteristics), PartsRows = JsonNode.Parse(x.PartsRows),
                 ElapsedSeconds = active, PausedSeconds = paused, HoldSeconds = hold,
                 Owner = Name(x.OwnerId), AssignedUser = Name(x.AssignedUserId), ActiveOperator = Name(x.ActiveOperatorId), CompletedBy = Name(x.CompletedById),
-                QualityReviewedBy = Name(x.QualityReviewedById), EngineeringReviewedBy = Name(x.EngineeringReviewedById), CreatedBy = Name(x.CreatedById), UpdatedBy = Name(x.UpdatedById),
+                CreatedBy = Name(x.CreatedById), UpdatedBy = Name(x.UpdatedById),
                 Site = db.Sites.Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefault(),
                 Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
             },
             Events = events, ServerTime = now, CanEnter = canEnter,
-            CanPlan = !SequflohTrackingService.Terminal.Contains(x.Status) && x.Status != TrackingStatus.PendingReview
+            CanPlan = !SequflohTrackingService.Terminal.Contains(x.Status)
                 && (await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct) || await m.CanAsync(Permissions.SequflohDispatchTask, x.SiteId, x.DepartmentId, ct)),
             CanQualityComment = x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && await m.CanAsync(Permissions.SequflohEditQualityFolder, x.SiteId, x.DepartmentId, ct),
             CanEngineeringComment = x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && await m.CanAsync(Permissions.SequflohEditEngineeringFolder, x.SiteId, x.DepartmentId, ct),
@@ -79,8 +79,6 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     public async Task<object> Save(Guid id, TrackingSaveInput r, CancellationToken ct) { var x = await tracking.SaveAsync(id, r, ct); return new { x.Id, x.StateVersion, x.Result }; }
     [HttpPost("{id:guid}/actions/{name}")]
     public async Task<object> Act(Guid id, string name, TaskActionInput r, CancellationToken ct) { var x = await tracking.ActAsync(id, name, r, ct); return new { x.Id, x.Status, x.StateVersion }; }
-    [HttpPost("{id:guid}/signoffs")]
-    public async Task<object> Sign(Guid id, SignoffInput r, CancellationToken ct) { var x = await tracking.SignAsync(id, r, ct); return new { x.Id, x.StateVersion }; }
     [HttpGet("{id:guid}/history")]
     public async Task<object> History(Guid id, CancellationToken ct) { await tracking.LoadAsync(id, false, ct); return await parts.HistoryAsync(SequflohTrackingService.EntityType, id, ct); }
 
