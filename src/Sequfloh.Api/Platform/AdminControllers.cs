@@ -281,6 +281,7 @@ public static class PermissionText
             "sequfloh.import_files" => "Import and edit Excel and Word files",
             "sequfloh.view_drawings" => "View drawings",
             "sequfloh.manage_drawings" => "Add drawings, revisions and drawing folders",
+            "sequfloh.delete_records" => "Delete records (instructions, work orders, parts, drawings, imported files)",
             _ => char.ToUpperInvariant(words[0]) + words[1..],
         };
     }

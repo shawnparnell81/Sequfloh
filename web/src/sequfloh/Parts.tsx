@@ -13,7 +13,7 @@ import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
-import { Confirm, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
+import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
 const crumbs = (label: string, extra?: { label: string; to?: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts and Items', to: '/sequfloh/parts' }, { label, to: extra ? undefined : undefined }, ...(extra ? [extra] : [])];
 const yes = (b?: boolean) => (b ? 'Yes' : 'No');
@@ -150,9 +150,11 @@ export function PartDetailPage() {
   return (
     <SqfPage title={p ? `${p.partNumber} · ${p.name}` : 'Part'} crumbs={crumbs('Part Master', { label: p?.partNumber ?? '…' })} recent={p ? { label: `Part ${p.partNumber}`, itemType: 'Part', recordId: p.id } : null}
       tabs={[{ label: 'Overview', value: 'overview' }, { label: 'Parts lists', value: 'lists' }, { label: 'Revisions', value: 'revisions' }, { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
-      actions={q.data?.canEdit && p && <>
+      actions={p && <>{q.data?.canEdit && <>
         <Button variant="outlined" onClick={() => setEdit(true)}>Edit</Button>
-        <Button color={p.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{p.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button></>}>
+        <Button color={p.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{p.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button></>}
+        <DeleteButton what={`part ${p.partNumber}`} url={`${S}/parts/${p.id}`} to="/sequfloh/parts"
+          extra="Links to drawings are removed; the drawings stay. Parts used by work instructions, work orders or parts lists can't be deleted; deactivate them instead." /></>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : p && <>
         {tab === 'overview' && <Paper variant="outlined" sx={{ p: 2 }}>
           {!q.data!.canEditMaster && q.data!.canEdit && <Alert severity="info" sx={{ mb: 2 }}>You can change SEQUFLOH execution attributes. Core Part Master fields need Master Data edit permission.</Alert>}
@@ -309,7 +311,8 @@ export function PartsListDetailPage() {
         {l.status === 'Draft' && <Button variant="contained" onClick={() => setDlg('release')}>Release</Button>}
         {l.status === 'Released' && <Button variant="contained" onClick={() => setDlg('revise')}>New revision</Button>}
         <Button onClick={() => act(async () => { const r = await post<{ id: string }>(`${S}/parts-lists/${l.id}/duplicate`, {}); nav(`/sequfloh/parts-lists/${r.id}`); })}>Duplicate</Button>
-        <Button color={l.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setDlg('active')}>{l.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button></>}>
+        <Button color={l.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setDlg('active')}>{l.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button>
+        <DeleteButton what={`parts list ${l.number ?? ''}`.trim()} url={`${S}/parts-lists/${l.id}`} to="/sequfloh/parts-lists" extra="All revisions and items of this list are removed." /></>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : l && <>
         {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr(null)}>{err}</Alert>}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}><Grid cols={4}>
@@ -394,6 +397,7 @@ export function OperationStepsPage() {
             <Button size="small" onClick={() => setEdit(s)}>Edit</Button>
             <Button size="small" onClick={() => act(() => post(`${S}/operation-steps/${s.id}/duplicate`, {}))}>Duplicate</Button>
             <Button size="small" color={s.isActive ? 'error' : 'primary'} onClick={() => act(() => post(`${S}/operation-steps/${s.id}/${s.isActive ? 'deactivate' : 'activate'}`, {}))}>{s.isActive ? 'Deactivate' : 'Activate'}</Button>
+            <DeleteButton size="small" what={`step ${s.number}`} url={`${S}/operation-steps/${s.id}`} extra="Copies already placed in work instructions stay." />
           </Stack> : null])} />}
       <StepDialog edit={edit} onClose={() => setEdit(undefined)} onSaved={refresh} />
     </SqfPage>

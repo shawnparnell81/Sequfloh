@@ -8,6 +8,7 @@ import { useAuth } from '../auth';
 import { ModuleWorkspace } from '../layout/ModuleWorkspace';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
+import { DeleteButton } from '../sequfloh/common';
 
 interface RoleRow { id: string; name: string; description: string | null; isSystem: boolean; permissions: string[]; users: number }
 interface UserRow { id: string; email: string; displayName: string; jobTitle: string | null; isActive: boolean; defaultSiteId: string | null; lastSignInAt: string | null; mustChangePassword: boolean;
@@ -266,9 +267,11 @@ export function SitesPage() {
               <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1 }}>
                 <Chip color="primary" label={s.code} /><Typography variant="h3">{s.name}</Typography>
                 <Box sx={{ flex: 1 }} /><Button size="small" onClick={() => setDept({ siteId: s.id, code: '', name: '' })}>Add department</Button>
+                <DeleteButton size="small" perm="admin.organization" what={`site ${s.code}`} url={`/api/organization/sites/${s.id}`} extra="Sites in use can't be deleted; archive them instead." />
               </Stack>
               <Stack direction="row" gap={1} flexWrap="wrap">
-                {s.departments.length === 0 ? <Typography variant="body2" color="text.secondary">No departments.</Typography> : s.departments.map((d) => <Chip key={d.id} variant="outlined" label={`${d.code} · ${d.name}`} />)}
+                {s.departments.length === 0 ? <Typography variant="body2" color="text.secondary">No departments.</Typography> : s.departments.map((d) => <Stack key={d.id} direction="row" alignItems="center" gap={0.5}><Chip variant="outlined" label={`${d.code} · ${d.name}`} />
+                  <DeleteButton size="small" perm="admin.organization" what={`department ${d.code}`} url={`/api/organization/departments/${d.id}`} extra="Departments in use can't be deleted; archive them instead." /></Stack>)}
               </Stack>
               {dept?.siteId === s.id && <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} sx={{ mt: 2 }}>
                 <TextField size="small" label="Code" value={dept.code} onChange={(e) => setDept({ ...dept, code: e.target.value })} />

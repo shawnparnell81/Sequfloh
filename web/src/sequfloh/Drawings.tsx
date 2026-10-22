@@ -6,7 +6,7 @@ import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { fmtDateTime } from '../components/Status';
-import { Confirm, Empty, ErrorState, Loading, Mono, Paged, S, SqfPage, qs } from './common';
+import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, Paged, S, SqfPage, qs } from './common';
 import { HistoryTable, SimpleTable, type AuditRow } from './Parts';
 
 const D = '/api/drawings';
@@ -153,6 +153,7 @@ export function DrawingsPage() {
           <Box sx={{ flex: 1 }} />
           {here.canManage && !here.isArchived && <Button size="small" onClick={() => setDlg('edit')}>Rename or link part</Button>}
           {here.canManage && <Button size="small" color={here.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{here.isArchived ? 'Restore folder' : 'Archive folder'}</Button>}
+          <DeleteButton size="small" what={`folder ${here.name}`} url={`${D}/folders/${here.id}`} label="Delete folder" extra="Only empty folders can be deleted." onDone={() => setSp(here.parentId ? { folder: here.parentId } : {})} />
           <Button size="small" onClick={() => setDlg('history')}>History</Button>
         </Stack>}
         {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : <>
@@ -248,7 +249,9 @@ export function DrawingPage() {
         <OpenDrawingButton d={{ ...d, viewable: !!d.revisions.find((r) => r.current)?.viewable }} size="medium" />
         {d.canManage && !d.isArchived && <><Button variant="contained" onClick={() => setDlg('rev')}>New revision</Button><Button variant="outlined" onClick={() => setDlg('edit')}>Edit</Button>
           <Button variant="outlined" onClick={() => setDlg('parts')}>Link to parts</Button></>}
-        {d.canManage && <Button color={d.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{d.isArchived ? 'Restore' : 'Archive'}</Button>}</>}>
+        {d.canManage && <Button color={d.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{d.isArchived ? 'Restore' : 'Archive'}</Button>}
+        <DeleteButton what={`drawing ${d.drawingNumber || d.title}`} url={`${D}/${d.id}`} to={`/sequfloh/engineering/drawings?folder=${d.folder.id}`}
+          extra="Every revision and its file is removed, and it is unlinked from parts and work orders." /></>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Stack direction="row" gap={4} flexWrap="wrap">
@@ -267,7 +270,8 @@ export function DrawingPage() {
           <Stack key="r" direction="row" gap={1} alignItems="center"><b>{r.revision}</b>{r.current && <Chip size="small" color="primary" label="Current" />}</Stack>,
           `${r.fileName} · ${size(r.sizeBytes)}`, r.notes ?? '—', `${fmtDateTime(r.createdAt)} · ${r.createdByName ?? ''}`,
           <Stack key="a" direction="row" gap={1}>{r.viewable && <Button size="small" component="a" href={viewerUrl(d.id, r.revision)} target="_blank" rel="noopener">View</Button>}
-            <Button size="small" component="a" href={fileUrl(d.id, r.revision)}>Download</Button></Stack>])} />}
+            <Button size="small" component="a" href={fileUrl(d.id, r.revision)}>Download</Button>
+            <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file for this revision is removed." /></Stack>])} />}
         {tab === 'history' && <HistoryTable q={history} />}
         <RevisionDialog open={dlg === 'rev'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <EditDialog open={dlg === 'edit'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />

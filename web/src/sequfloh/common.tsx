@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer,
   TableHead, TablePagination, TableRow, TableSortLabel, TextField, Tooltip, Typography } from '@mui/material';
 import PushPinOutlined from '@mui/icons-material/PushPinOutlined';
@@ -201,3 +201,23 @@ export const qs = (o: Record<string, string | number | boolean | null | undefine
 
 export const Grid = ({ children, cols = 3 }: { children: ReactNode; cols?: number }) =>
   <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', md: `repeat(${cols}, minmax(0, 1fr))` } }}>{children}</Box>;
+
+/** Red Delete button with a "can't be undone" confirm. Hidden without the permission. Server reasons (e.g. "in use") show in the dialog. */
+export function DeleteButton({ what, url, perm = 'sequfloh.delete_records', extra, onDone, size = 'medium', show = true, label = 'Delete', to }: {
+  what: string; url: string; to?: string; perm?: string; extra?: string; onDone?: () => void; size?: 'small' | 'medium'; show?: boolean; label?: string;
+}) {
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const [open, setOpen] = useState(false);
+  if (!show || !can(perm)) return null;
+  return (
+    <>
+      <Button size={size} color="error" data-testid="delete-button" onClick={() => setOpen(true)}>{label}</Button>
+      <Confirm open={open} danger title={`Delete ${what}?`} confirm="Delete"
+        text={`${extra ? extra + ' ' : ''}This can't be undone.`}
+        onClose={() => setOpen(false)}
+        onConfirm={async () => { await del(url); if (to) nav(to, { replace: true }); onDone?.(); void qc.invalidateQueries(); }} />
+    </>
+  );
+}

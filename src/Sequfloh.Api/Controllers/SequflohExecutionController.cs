@@ -44,7 +44,7 @@ public sealed class SequflohExecutionController(AppDbContext db, ModuleSupport m
             Active = await query.CountAsync(x => x.Status == TrackingStatus.InProgress, ct),
             Paused = await query.CountAsync(x => x.Status == TrackingStatus.Paused, ct),
             OnHold = await query.CountAsync(x => x.Status == TrackingStatus.OnHold, ct),
-            Mine = await query.CountAsync(x => x.AssignedUserId == me && SequflohTrackingService.Open.Contains(x.Status), ct),
+            Mine = await query.CountAsync(x => (x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me)) && SequflohTrackingService.Open.Contains(x.Status), ct),
             Overdue = await query.CountAsync(x => SequflohTrackingService.Open.Contains(x.Status) && x.DueAt != null && x.DueAt < cutoff, ct),
         };
     }

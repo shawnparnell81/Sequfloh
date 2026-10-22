@@ -143,7 +143,7 @@ public class SimplifyApprovalsMigrationTests
                 while (await rd.ReadAsync()) list.Add(rd.GetString(0));
                 return list;
             }
-            Assert.Equal(["sequfloh.import_files", "sequfloh.manage_drawings", "sequfloh.view_drawings", "sequfloh.view_imported_files"], (await PermsOf(adminRole)).Order().ToList());
+            Assert.Equal(["sequfloh.delete_records", "sequfloh.import_files", "sequfloh.manage_drawings", "sequfloh.view_drawings", "sequfloh.view_imported_files"], (await PermsOf(adminRole)).Order().ToList());
             Assert.Equal(["sequfloh.edit_quality_folder", "sequfloh.import_files", "sequfloh.view_imported_files"], (await PermsOf(qualityRole)).Order().ToList());
 
             // reference lists: the kept action keeps its custom label under the new list; removed entries are gone

@@ -8,7 +8,8 @@ import { get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
-import { Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
+import { AssigneesPanel, TimePanel, type Person } from './TimePanel';
+import { DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { ProblemList } from './Designer';
 import { PartPicker } from './Instructions';
@@ -35,7 +36,7 @@ export function LiveClock({ seconds, running, label }: { seconds: number; runnin
 // ------------------------------------------------------------------ folders
 export interface TrRow { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionNumber: string; workInstructionRevision: string;
   workInstructionTitle: string; partNumber?: string; partDescription?: string; serialNumber?: string; lotNumber?: string; workOrder?: string; repairOrder?: string; operation?: string; dueAt?: string;
-  actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; owner?: string; department?: string; site?: string; elapsedSeconds: number;
+  actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; assignees?: string[]; owner?: string; department?: string; site?: string; elapsedSeconds: number;
   pausedSeconds: number; holdSeconds: number; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number; varianceMinutes?: number; stateVersion: number }
 const folders: Record<string, { title: string; description: string; type?: string }> = {
   validation: { title: 'Validation Tracking', type: 'Validation', description: 'Validation records executed against released Validation and Validation / FAI work instructions.' },
@@ -53,7 +54,7 @@ export const trackingCols = (extra: { key: string; label: string; render?: (r: T
   { key: 'wi', label: 'Work instruction', render: (r: TrRow) => <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> },
   { key: 'partNumber', label: 'Part', sort: true, render: (r: TrRow) => r.partNumber ?? '—' },
   ...extra,
-  { key: 'assignedUser', label: 'Assigned', render: (r: TrRow) => r.assignedUser ?? '—' },
+  { key: 'assignedUser', label: 'Assigned', render: (r: TrRow) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
   { key: 'status', label: 'Status', sort: true, render: (r: TrRow) => <SqfStatus status={r.status} /> },
   { key: 'result', label: 'Result', render: (r: TrRow) => <SqfStatus status={r.result} /> },
   { key: 'priority', label: 'Priority', sort: true },
@@ -184,11 +185,11 @@ export function NewTrackingPage() {
 type J = Record<string, unknown>;
 interface TrRecord extends J { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionId: string; workInstructionNumber: string;
   workInstructionRevision: string; workInstructionTitle: string; stateVersion: number; elapsedSeconds: number; pausedSeconds: number; holdSeconds: number; steps: J[]; characteristics: J[];
-  partsRows: J[]; details: Record<string, string>; assignedUserId?: string; createdAt: string }
+  partsRows: J[]; details: Record<string, string>; assignedUserId?: string; assignees?: Person[]; createdAt: string }
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
-interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; serverTime: string }
+interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
 const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'nonconformanceReferences', 'reportedCondition', 'observedCondition', 'finalDisposition', 'varianceReason', 'result', 'qualityComments',
   'engineeringComments', 'engineeringConclusion'];
@@ -251,19 +252,23 @@ export function TrackingRecordPage() {
         {(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save</Button>}
         {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" href={`${S}/tracking/${rec.id}/print`} target="_blank" rel="noopener" disabled={dirty}>Print</Button>
+        <DeleteButton what={`work order ${rec.number}`} url={`${S}/tracking/${rec.id}`} show={!!q.data.canDelete} to={`/sequfloh/tracking/${folder}`}
+          extra="Use this for work orders made by mistake. Work orders with logged time are kept for chargebacks and can only be cancelled." />
       </Stack>}>
       {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {dirty && <Alert severity="info" sx={{ mb: 2 }}>You have unsaved changes.</Alert>}
       {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
 
       {tab === 'record' && <Stack gap={2}>
+        <TimePanel recordId={rec.id} />
+        <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Tracking record">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Tracking record</Typography>
           <Facts items={[['Tracking number', <Mono>{rec.number}</Mono>], ['Tracking type', trackingTypes[rec.type]],
             ['Work instruction', <><Link to={`/sequfloh/instruction/${rec.workInstructionId}`}><Mono>{rec.workInstructionNumber}</Mono></Link> rev {rec.workInstructionRevision} — {rec.workInstructionTitle}</>],
             ['Part', rec.partNumber ? `${s(rec.partNumber)} — ${s(rec.partDescription)}` : '—'], ['Status', <SqfStatus status={rec.status} />], ['Result', <SqfStatus status={rec.result} />],
-            ['Assigned user', s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
+            ['Assigned people', rec.assignees?.length ? rec.assignees.map((a) => a.displayName).join(', ') : s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
             ['Site', s(rec.site) || '—'], ['Owner', s(rec.owner) || '—'], ['Created', `${fmtDateTime(rec.createdAt)}${rec.createdBy ? ' · ' + s(rec.createdBy) : ''}`],
             ['Updated', `${fmtDateTime(s(rec.updatedAt))}${rec.updatedBy ? ' · ' + s(rec.updatedBy) : ''}`],
             ...(rec.repairDescription ? [['Repair description', s(rec.repairDescription)] as [string, ReactNode]] : []),

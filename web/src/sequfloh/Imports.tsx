@@ -8,7 +8,7 @@ import { ApiError, api, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
-import { Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
+import { DeleteButton, Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
 import { HistoryTable, type AuditRow } from './Parts';
 import { PartDrawingLinks } from './Drawings';
 
@@ -201,6 +201,8 @@ export function ImportedFilePage() {
         {d.canEdit && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
           <input hidden type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc" data-testid="upload-version-input" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadVersion(f); }} /></Button>}
         <Button startIcon={<DownloadOutlined />} onClick={(e) => setMenu(e.currentTarget)}>Download</Button>
+        <DeleteButton what={`${d.number} ${d.title}`} url={`${A}/${d.id}`} to="/sequfloh/imported-files"
+          extra={d.isBlankForm ? "Blank forms with filled copies can't be deleted; delete the copies first or archive the form." : 'All versions and stored files are removed.'} />
         <Menu open={!!menu} anchorEl={menu} onClose={() => setMenu(null)}>
           <MenuItem component="a" href={`${A}/${d.id}/download${latest ? '' : `?version=${shown}`}`} onClick={() => setMenu(null)}>{latest ? 'Current version' : `Version ${shown}`} ({d.kind === 'spreadsheet' ? 'Excel' : 'Word'})</MenuItem>
           <MenuItem component="a" href={`${A}/${d.id}/download?original=true`} onClick={() => setMenu(null)}>As uploaded ({d.originalFileName})</MenuItem>

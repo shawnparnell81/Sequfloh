@@ -8,7 +8,7 @@ import { get, post, put } from '../api';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { FilesPanel } from '../components/Files';
-import { Confirm, S, nul } from './common';
+import { Confirm, DeleteButton, S, nul } from './common';
 
 /** One block of a work instruction page. The order of the list is the order on the page. */
 export type BlockKind = 'text' | 'image' | 'table' | 'step' | 'caution' | 'check';
@@ -245,6 +245,7 @@ export function LayoutTemplates({ typeLabels }: { typeLabels: Record<string, str
             {manage(t) && <Stack direction="row" gap={1}>
               <Button size="small" onClick={() => setEdit({ id: t.id, name: t.name, description: t.description ?? '', type: t.type ?? null, blocks: t.blocks, rowVersion: t.rowVersion })}>Edit {t.name}</Button>
               <Button size="small" color={t.isActive ? 'error' : 'primary'} onClick={() => toggle(t)}>{t.isActive ? 'Retire' : 'Restore'} {t.name}</Button>
+              <DeleteButton size="small" what={`layout template ${t.name}`} url={`${S}/instruction-templates/${t.id}`} extra="Work instructions already made from it keep their content." />
             </Stack>}
           </Stack>))}</Stack>}
       <Dialog open={!!edit} onClose={() => setEdit(null)} fullWidth maxWidth="lg">
