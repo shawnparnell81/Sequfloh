@@ -17,7 +17,7 @@ interface Run { key: string; title: string; description: string; columns: Column
 const slugs: Record<string, string> = { 'task-performance': 'task-performance', 'validation-status': 'validation', 'fai-status': 'fai', 'repair-status': 'repair',
   'work-instruction-status': 'work-instructions', 'user-activity': 'user-activity', 'time-variance': 'time-variance' };
 const rCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Reports', to: '/sequfloh/reports/task-performance' }, { label }];
-const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'OnHold', 'Completed', 'Failed', 'Canceled'];
+const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
 const wiStatuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 const opt = (l: string[]): [string, string][] => l.map((v) => [v, words(v)]);
 const filterSets: Record<string, { status?: [string, string][]; type?: [string, string][] }> = {
@@ -136,7 +136,7 @@ export function AuditPage() {
     <SqfPage title={title} crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Audit Trail', to: '/sequfloh/audit/system' }, { label: title }]} permission="sequfloh.view_audit_trail"
       tabs={Object.entries(auditViews).map(([value, label]) => ({ value, label }))} tab={view} onTab={(t) => nav(`/sequfloh/audit/${t}`)}
       description="Audit events are written automatically when work happens and cannot be edited or deleted. Open an event for its full detail."
-      actions={<Button variant="outlined" href={`${S}/audit/${view}/print?${qs(params)}`} target="_blank" rel="noopener">Print summary</Button>}>
+      actions={<><Button variant="outlined" href={`${S}/audit/${view}/csv?${qs(params)}`}>Export CSV</Button><Button variant="outlined" href={`${S}/audit/${view}/print?${qs(params)}`} target="_blank" rel="noopener">Print summary</Button></>}>
       <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ action: v('action') }} onChange={set} onClear={() => setSp({})}
         filters={[{ key: 'action', label: 'Action', options: (q.data?.actions ?? []).map((a) => [a, words(a)]) }]} extra={<DateUserFilters v={v} set={set} />} />
       <PagedTable q={rows} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => setOpen(Number(r.id))}

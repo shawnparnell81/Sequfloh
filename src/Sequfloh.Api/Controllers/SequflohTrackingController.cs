@@ -19,8 +19,8 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     [HttpGet]
     public Task<object> List([FromQuery] string? folder, [FromQuery] string? q, [FromQuery] TrackingStatus? status, [FromQuery] TrackingType? type, [FromQuery] Guid? owner,
         [FromQuery] Guid? assigned, [FromQuery] string? part, [FromQuery] Guid? department, [FromQuery] Guid? site, [FromQuery] string? dateField, [FromQuery] DateOnly? from,
-        [FromQuery] DateOnly? to, [FromQuery] string? priority, [FromQuery] string? result, [FromQuery] string? sort, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default) =>
-        SequflohTrackingQuery.ListAsync(db, m, tracking, f, new TrackingFilter(folder, q, status, type, owner, assigned, part, department, site, dateField, from, to, priority, result, sort, page, pageSize), false, ct);
+        [FromQuery] DateOnly? to, [FromQuery] string? priority, [FromQuery] string? result, [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default) =>
+        SequflohTrackingQuery.ListAsync(db, m, tracking, f, new TrackingFilter(folder, q, status, type, owner, assigned, part, department, site, dateField, from, to, priority, result, sort, page, pageSize, tag), false, ct);
 
     /// <summary>Released work instructions a record of this type can execute (the exact revision is stored on the record).</summary>
     [HttpGet("instructions")]
@@ -45,12 +45,12 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 AssignedBefore = db.Users.Where(u => u.Id == e.AssignedBeforeId).Select(u => u.DisplayName).FirstOrDefault(),
                 AssignedAfter = db.Users.Where(u => u.Id == e.AssignedAfterId).Select(u => u.DisplayName).FirstOrDefault() }).ToListAsync(ct);
         var problems = await tracking.CompletionProblemsAsync(x, ct);
-        var canEnter = x.Status == TrackingStatus.InProgress && await m.CanAsync(Permissions.SequflohStartTask, x.SiteId, x.DepartmentId, ct);
+        var canEnter = x.Status == TrackingStatus.InProgress;
         return new
         {
             Record = new
             {
-                x.Id, x.Number, x.Type, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle, x.PartId, x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber,
+                x.Id, x.Number, x.Type, x.StatusTag, x.StatusNote, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle, x.PartId, x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber,
                 x.WorkOrder, x.RepairOrder, x.CustomerReturnReference, x.Project, x.Operation, x.OwnerId, x.AssignedUserId, x.DepartmentId, x.SiteId, x.Status, x.Priority, x.PlannedStart, x.DueAt,
                 x.ActualStart, x.ActualCompletion, x.CurrentStateStartedAt, x.StateVersion, x.LastTransitionId, x.LastTransitionAt, x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes,
                 x.VarianceReason, x.Result, x.EngineeringConclusion,
@@ -85,7 +85,15 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     [HttpPost("{id:guid}/actions/{name}")]
     public async Task<object> Act(Guid id, string name, TaskActionInput r, CancellationToken ct) { var x = await tracking.ActAsync(id, name, r, ct); return new { x.Id, x.Status, x.StateVersion }; }
     [HttpGet("{id:guid}/history")]
-    public async Task<object> History(Guid id, CancellationToken ct) { await tracking.LoadAsync(id, false, ct); return await parts.HistoryAsync(SequflohTrackingService.EntityType, id, ct); }
+    public async Task<object> History(Guid id, CancellationToken ct)
+    {
+        await tracking.LoadAsync(id, false, ct);
+        // the work order's own entries plus its timers and test files
+        var related = await db.SequflohTimeEntries.Where(e => e.TrackingRecordId == id).Select(e => e.Id)
+            .Concat(db.SequflohTestFiles.Where(e => e.TrackingRecordId == id).Select(e => e.Id)).ToListAsync(ct);
+        return await db.AuditEntries.AsNoTracking().Where(a => (a.EntityType == SequflohTrackingService.EntityType && a.EntityId == id) || related.Contains(a.EntityId))
+            .OrderByDescending(a => a.OccurredAt).Select(a => new { a.OccurredAt, a.UserName, a.Action, a.Description, a.Changes, a.Reason }).Take(1000).ToListAsync(ct);
+    }
 
     /// <summary>Printable tracking record (PDF from the application's renderer), opened inline in the browser for printing. Audited.</summary>
     [HttpGet("{id:guid}/print")]

@@ -48,7 +48,6 @@ export const sequfloh: ModuleDef = {
         { label: 'Production Tracking', path: '/sequfloh/tracking/production' },
         { label: 'Open Activities', path: '/sequfloh/tracking/open' },
         { label: 'Completed Activities', path: '/sequfloh/tracking/completed' },
-        { label: 'On-Hold Activities', path: '/sequfloh/tracking/on-hold' },
       ] },
       { label: 'Work Instructions', path: '/sequfloh/instructions/all', icon: <DescriptionOutlined fontSize="small" />, match: ['/sequfloh/instructions', '/sequfloh/instruction/'], children: [
         { label: 'All Work Instructions', path: '/sequfloh/instructions/all' },

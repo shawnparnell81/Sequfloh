@@ -93,6 +93,8 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
             throw new ConflictException($"Time has been logged on {t.Number} and is kept for chargebacks, so it can't be deleted. Cancel it instead.");
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var keys = await AttachmentKeysAsync(nameof(SequflohTrackingRecord), [id], ct);
+        keys.AddRange(await db.SequflohTestFiles.Where(e => e.TrackingRecordId == id).Select(e => e.StorageKey).ToListAsync(ct));
+        await db.SequflohTestFiles.Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
         await db.SequflohTaskEvents.Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
         await db.SequflohTaskAssignees.Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
         await ForgetRecentAsync([id], ct);

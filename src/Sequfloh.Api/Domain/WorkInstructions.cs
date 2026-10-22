@@ -15,6 +15,12 @@ public enum WorkInstructionStatus { Draft = 0, Released = 6, Superseded = 7, Obs
 /// </summary>
 public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDeletable
 {
+    /// <summary>Informational status from the admin-editable status list, for example "Quarantine hold (NetSuite)". Never blocks anything; official holds are in NetSuite.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(100)]
+    public string? StatusTag { get; set; }
+    /// <summary>Optional free-text note that goes with the status.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(300)]
+    public string? StatusNote { get; set; }
     public Guid FamilyId { get; set; }
     public Guid? PreviousRevisionId { get; set; }
     public string Number { get; set; } = "";

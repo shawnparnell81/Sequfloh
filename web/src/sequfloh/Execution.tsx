@@ -19,15 +19,15 @@ const s = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 /** Live execution views and the actions offered on their rows (the server decides which actions the user may take). */
 const views: Record<string, { api: string; title: string; description: string; actions: string[]; empty: string }> = {
   dispatch: { api: 'dispatch', title: 'Dispatch Queue', description: 'Tasks awaiting start, with assignment, priority, due date, part, operation and the work instruction revision they execute.',
-    actions: ['dispatch', 'assign', 'reassign', 'start', 'hold', 'cancel'], empty: 'No tasks are waiting to start.' },
+    actions: ['dispatch', 'assign', 'reassign', 'start', 'cancel'], empty: 'No tasks are waiting to start.' },
   paused: { api: 'paused', title: 'Paused Tasks', description: 'Paused tasks with the pause reason, when they were paused and the accumulated paused time. Timing continues from the stored values on resume.',
-    actions: ['resume', 'reassign', 'hold', 'cancel'], empty: 'No tasks are paused.' },
+    actions: ['resume', 'reassign', 'cancel'], empty: 'No tasks are paused.' },
   completed: { api: 'finished', title: 'Completed Tasks', description: 'Completed, failed and canceled tasks with result, duration, variance and who finished them.',
     actions: ['restart', 'reverse-result'], empty: 'No finished tasks yet.' },
   mine: { api: 'mine', title: 'My Assigned Work', description: 'Open tasks assigned to you. Filter by status, priority and due date.',
     actions: ['start', 'resume', 'pause'], empty: 'Nothing is assigned to you right now.' },
   overdue: { api: 'overdue', title: 'Overdue Work', description: 'Open tasks past their due date by more than the configured overdue threshold (SEQUFLOH Settings › Tracking).',
-    actions: ['reassign', 'hold', 'resume', 'cancel'], empty: 'No work is overdue.' },
+    actions: ['reassign', 'resume', 'cancel'], empty: 'No work is overdue.' },
 };
 
 function useRowAction() {
@@ -209,7 +209,6 @@ export function ActiveStationPage() {
                   <Fact k="Priority">{s(r.priority)}</Fact>
                   <Fact k="Target range">{r.minBenchmarkMinutes != null || r.maxBenchmarkMinutes != null ? `${s(r.minBenchmarkMinutes) || '—'} – ${s(r.maxBenchmarkMinutes) || '—'} min` : '—'}</Fact>
                   <Fact k="Paused time"><LiveClock key={'p' + r.stateVersion} seconds={r.pausedSeconds} running={r.status === 'Paused'} label="Paused time" /></Fact>
-                  <Fact k="Hold time"><LiveClock key={'h' + r.stateVersion} seconds={r.holdSeconds} running={r.status === 'OnHold'} label="Hold time" /></Fact>
                   <Fact k="Due">{fmtDateTime(s(r.dueAt))}</Fact>
                 </Box>
                 <Box sx={{ mt: 2 }}><RecordDrawings recordId={r.id} /></Box>
@@ -295,7 +294,6 @@ export function WorkHistoryPage() {
           { key: 'reason', label: 'Reason / comment', render: (r) => [r.reason, r.comment].filter(Boolean).join(' · ') || '—' },
           { key: 'active', label: 'Active', render: (r) => <Mono>{fmtSeconds(r.activeSeconds)}</Mono> },
           { key: 'paused', label: 'Paused', render: (r) => <Mono>{fmtSeconds(r.pausedSeconds)}</Mono> },
-          { key: 'hold', label: 'Hold', render: (r) => <Mono>{fmtSeconds(r.holdSeconds)}</Mono> },
         ]} />
         : <PagedTable q={done} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}?tab=events`)}
           empty={sp.toString() !== 'tab=completed' ? 'No completed executions match these filters.' : 'No completed executions yet.'} cols={[
@@ -307,8 +305,7 @@ export function WorkHistoryPage() {
             { key: 'result', label: 'Result', render: (r) => <SqfStatus status={r.result} /> },
             { key: 'active', label: 'Active', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> },
             { key: 'paused', label: 'Paused', render: (r) => <Mono>{fmtSeconds(r.pausedSeconds)}</Mono> },
-            { key: 'hold', label: 'Hold', render: (r) => <Mono>{fmtSeconds(r.holdSeconds)}</Mono> },
-            { key: 'variance', label: 'Variance', render: (r) => (r.varianceMinutes != null ? `${r.varianceMinutes} min` : '—') },
+              { key: 'variance', label: 'Variance', render: (r) => (r.varianceMinutes != null ? `${r.varianceMinutes} min` : '—') },
             { key: 'actualCompletion', label: 'Finished', sort: true, render: (r) => `${fmtDateTime(r.actualCompletion)}${r.completedBy ? ' · ' + r.completedBy : ''}` },
           ]} />}
     </SqfPage>

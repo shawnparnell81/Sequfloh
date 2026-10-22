@@ -16,6 +16,12 @@ public enum TrackingStatus { NotStarted = 0, Assigned = 1, InProgress = 2, Pause
 /// </summary>
 public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeletable
 {
+    /// <summary>Informational status from the admin-editable status list, for example "Quarantine hold (NetSuite)". Never blocks anything; official holds are in NetSuite.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(100)]
+    public string? StatusTag { get; set; }
+    /// <summary>Optional free-text note that goes with the status.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(300)]
+    public string? StatusNote { get; set; }
     public string Number { get; set; } = "";
     public TrackingType Type { get; set; }
     public Guid WorkInstructionId { get; set; }
@@ -26,6 +32,16 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string? PartNumber { get; set; }
     public string? PartDescription { get; set; }
     public string? SerialNumber { get; set; }
+    /// <summary>How many units this job should do, for example 2300 assemblies; null when not counted.</summary>
+    public int? QuantityTarget { get; set; }
+    /// <summary>Quantity repaired on the job so far, kept for the whole job (not per person).</summary>
+    public int QuantityCompleted { get; set; }
+    /// <summary>Units that could not be repaired (a plain count; scrap and disposition are handled in the ERP).</summary>
+    public int QuantityNotRepaired { get; set; }
+    /// <summary>Parts replaced on each assembly (JSON array of partNumber, description, perAssembly and an optional quantity override).</summary>
+    public string PartsReplaced { get; set; } = "[]";
+    /// <summary>How the columns of this job's tester result files are read (JSON), remembered once set.</summary>
+    public string TestColumns { get; set; } = "{}";
     public string? LotNumber { get; set; }
     public string? WorkOrder { get; set; }
     public string? RepairOrder { get; set; }
@@ -127,4 +143,25 @@ public class SequflohTimeEntry : Entity, IAudited
     public DateTimeOffset? StoppedAt { get; set; }
     public long Seconds { get; set; }
     public string AuditLabel => $"time on {TrackingNumber} for {UserName}";
+}
+
+
+/// <summary>A tester result file attached to a job, optionally for a batch or test date. CSV and XLSX files are read into pass and fail counts.</summary>
+public class SequflohTestFile : Entity, IAudited
+{
+    public Guid TrackingRecordId { get; set; }
+    public string TrackingNumber { get; set; } = "";
+    public string FileName { get; set; } = "";
+    public string StorageKey { get; set; } = "";
+    public string ContentType { get; set; } = "";
+    public long SizeBytes { get; set; }
+    public string? Batch { get; set; }
+    public DateOnly? TestDate { get; set; }
+    public string UploadedByName { get; set; } = "";
+    public int? Tested { get; set; }
+    public int? Passed { get; set; }
+    public int? Failed { get; set; }
+    /// <summary>Key values read from the file (JSON array of column, min, average, max).</summary>
+    public string KeyValues { get; set; } = "[]";
+    public string AuditLabel => $"test file {FileName} on {TrackingNumber}";
 }

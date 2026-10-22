@@ -18,12 +18,14 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     // ---------------- Part Master (shared parts table)
     [HttpGet("parts")]
     public async Task<object> Parts([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
-        [FromQuery] string? sort, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
+        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var query = SequflohPartsService.SortParts(await parts.PartsQueryAsync(q, view, family, status, type, ct), sort);
+        if (tag == "none") query = query.Where(x => x.StatusTag == null);
+        else if (!string.IsNullOrWhiteSpace(tag)) query = query.Where(x => x.StatusTag == tag);
         return await Paging.PageAsync(query.Select(p => new
         {
-            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsSerialized, p.IsLotControlled,
+            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsSerialized, p.IsLotControlled,
             p.DrawingNumber, p.Specification, p.SiteId, p.UpdatedAt
         }), page, pageSize, ct);
     }
@@ -41,7 +43,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         {
             Part = new
             {
-                p.Id, p.PartNumber, p.Name, p.Description, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
+                p.Id, p.PartNumber, p.Name, p.Description, p.StatusTag, p.StatusNote, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
                 p.ProductFamily, p.AssemblyType, p.IsRepairable, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.RowVersion, p.CreatedAt, p.UpdatedAt,
                 CreatedBy = Name(p.CreatedById), UpdatedBy = Name(p.UpdatedById)
             },

@@ -36,6 +36,7 @@ const SqfWiTemplates = lazy(() => import('./sequfloh/Instructions').then((m) => 
 const SqfTrFolder = lazy(() => import('./sequfloh/Tracking').then((m) => ({ default: m.TrackingFolderPage })));
 const SqfTrNew = lazy(() => import('./sequfloh/Tracking').then((m) => ({ default: m.NewTrackingPage })));
 const SqfTr = lazy(() => import('./sequfloh/Tracking').then((m) => ({ default: m.TrackingRecordPage })));
+const SqfJobReport = lazy(() => import('./sequfloh/Job').then((m) => ({ default: m.JobReportPage })));
 const SqfQDash = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.QualityDashboardPage })));
 const SqfQVal = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.QualityValidationPage })));
 const SqfQRep = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.QualityRepairPage })));
@@ -144,6 +145,7 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/sequfloh/tracking/new" element={<SqfTrNew />} />
         <Route path="/sequfloh/tracking/:folder" element={<SqfTrFolder />} />
         <Route path="/sequfloh/record/:id" element={<SqfTr />} />
+        <Route path="/sequfloh/record/:id/report" element={<SqfJobReport />} />
         <Route path="/sequfloh/execution/active" element={<SqfExStation />} />
         <Route path="/sequfloh/reports/export-center" element={<SqfExportCenter />} />
         <Route path="/sequfloh/reports/:slug" element={<SqfReport />} />

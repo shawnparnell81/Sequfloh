@@ -26,7 +26,7 @@ const sections: Record<string, { title: string; description: string; fields: Fie
     { key: 'effectiveDateRequired', label: 'Effective date required for release', type: 'bool' }, { key: 'revisionReasonRequired', label: 'Reason required for a new revision', type: 'bool' },
     { key: 'trainingAcknowledgementRequired', label: 'Training acknowledgement required', type: 'bool' }, { key: 'obsoleteRetentionYears', label: 'Obsolete-document retention (years)', type: 'number' },
     { key: 'printFooter', label: 'Print footer', type: 'multiline' }] },
-  tracking: { title: 'Tracking Settings', description: 'Variance thresholds, default benchmark times, and overdue thresholds.', lists: ['activity-statuses', 'priorities', 'hold-reasons', 'cancellation-reasons'], fields: [
+  tracking: { title: 'Tracking Settings', description: 'Variance thresholds, default benchmark times, and overdue thresholds.', lists: ['activity-statuses', 'priorities', 'cancellation-reasons', 'status-tags'], fields: [
     { key: 'varianceWarningPercent', label: 'Variance warning threshold (%)', type: 'number' }, { key: 'varianceCriticalPercent', label: 'Variance critical threshold (%)', type: 'number' },
     { key: 'defaultMinimumMinutes', label: 'Default minimum time (minutes)', type: 'number' }, { key: 'defaultMaximumMinutes', label: 'Default maximum time (minutes)', type: 'number' },
     { key: 'overdueThresholdHours', label: 'Overdue threshold (hours after due date)', type: 'number' }, { key: 'approachingDueHours', label: 'Approaching due date warning (hours)', type: 'number' },
@@ -35,7 +35,7 @@ const sections: Record<string, { title: string; description: string; fields: Fie
     { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' }] },
   fai: { title: 'FAI Settings', description: 'Evidence requirements for FAI records.', lists: ['fai-types', 'inspection-results', 'characteristic-results'], fields: [
     { key: 'evidenceRequiredForFailures', label: 'Evidence required for failed characteristics', type: 'bool' }] },
-  repair: { title: 'Repair Settings', description: 'Test requirements for repairs.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-dispositions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [
+  repair: { title: 'Repair Settings', description: 'Test requirements for repairs.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [
     { key: 'repairTestRequired', label: 'Repair test required before completion', type: 'bool' }] },
   notifications: { title: 'Notification Settings', description: 'SEQUFLOH notifications sent through the in-app notification system.', fields: [
     { key: 'assignedWork', label: 'Assigned work', type: 'bool' }, { key: 'overdueWork', label: 'Overdue work', type: 'bool' }, { key: 'failedRecords', label: 'Failed records requiring attention', type: 'bool' },
@@ -43,7 +43,7 @@ const sections: Record<string, { title: string; description: string; fields: Fie
     { key: 'approachingDueDates', label: 'Approaching due dates', type: 'bool' }] },
   display: { title: 'Display Preferences', description: 'Compact tables, dashboard cards, default filters and folder view, status colours.', fields: [
     { key: 'compactTables', label: 'Compact tables', type: 'bool' }, { key: 'dashboardCards', label: 'Visible dashboard cards (comma separated)', type: 'csv' },
-    { key: 'defaultTrackingFilter', label: 'Default tracking filter', type: 'select', options: ['open', 'all', 'completed', 'on-hold'] },
+    { key: 'defaultTrackingFilter', label: 'Default tracking filter', type: 'select', options: ['open', 'all', 'completed'] },
     { key: 'defaultFolderView', label: 'Default folder view', type: 'select', options: ['current', 'all'] },
     { key: 'statusColors', label: 'Status colours (status=colour per line: default, primary, success, warning, error, info)', type: 'lines' }] },
   export: { title: 'Export Settings', description: 'File names, date format, organization heading, included columns and report titles.', fields: [

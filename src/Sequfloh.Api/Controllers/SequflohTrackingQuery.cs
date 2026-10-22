@@ -9,7 +9,7 @@ namespace Sequfloh.Api.Controllers.Sequfloh;
 /// <summary>Filters shared by the tracking folders and the live execution views.</summary>
 public sealed record TrackingFilter(string? Folder = null, string? Q = null, TrackingStatus? Status = null, TrackingType? Type = null, Guid? Owner = null, Guid? Assigned = null,
     string? Part = null, Guid? Department = null, Guid? Site = null, string? DateField = null, DateOnly? From = null, DateOnly? To = null, string? Priority = null, string? Result = null,
-    string? Sort = null, int Page = 1, int PageSize = 25);
+    string? Sort = null, int Page = 1, int PageSize = 25, string? Tag = null);
 
 /// <summary>
 /// One listing for tracking records and tasks. Folders: validation, fai, repair, production, open, completed, on-hold, rejected, all (tracking) and
@@ -24,6 +24,8 @@ internal static class SequflohTrackingQuery
         var now = await tracking.DbNowAsync(ct);
         var me = m.UserId;
         var overdueCutoff = now.AddHours(-(await f.GetSettingsAsync(ct)).Tracking.OverdueThresholdHours);
+        if (p.Tag == "none") query = query.Where(x => x.StatusTag == null);
+        else if (!string.IsNullOrWhiteSpace(p.Tag)) query = query.Where(x => x.StatusTag == p.Tag);
         query = (p.Folder ?? "all") switch
         {
             "validation" => query.Where(x => x.Type == TrackingType.Validation),
@@ -32,7 +34,7 @@ internal static class SequflohTrackingQuery
             "production" => query.Where(x => x.Type == TrackingType.Production),
             "open" => query.Where(x => SequflohTrackingService.Open.Contains(x.Status)),
             "completed" => query.Where(x => x.Status == TrackingStatus.Completed),
-            "on-hold" => query.Where(x => x.Status == TrackingStatus.OnHold),
+            "on-hold" => query.Where(x => x.Status == TrackingStatus.Paused), // old links; holds are handled in the ERP
             "dispatch" => query.Where(x => x.Status == TrackingStatus.NotStarted || x.Status == TrackingStatus.Assigned),
             "active" => query.Where(x => x.Status == TrackingStatus.InProgress),
             "paused" => query.Where(x => x.Status == TrackingStatus.Paused),
@@ -101,7 +103,7 @@ internal static class SequflohTrackingQuery
             var (active, paused, hold) = SequflohTrackingService.Durations(x, now);
             items.Add(new
             {
-                x.Id, x.Number, x.Type, x.Status, x.Result, x.Priority, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle,
+                x.Id, x.Number, x.Type, x.Status, x.Result, x.Priority, x.StatusTag, x.StatusNote, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle,
                 x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber, x.WorkOrder, x.RepairOrder, x.Operation, x.PlannedStart, x.DueAt, x.ActualStart, x.ActualCompletion, x.CreatedAt, x.UpdatedAt,
                 x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes, x.VarianceReason, x.StateVersion, x.AssignedUserId, x.PauseReason, x.HoldReason, x.FailureReason, x.CancelReason,
                 PausedAt = x.Status == TrackingStatus.Paused ? x.CurrentStateStartedAt : null, HeldAt = x.Status == TrackingStatus.OnHold ? x.CurrentStateStartedAt : null,

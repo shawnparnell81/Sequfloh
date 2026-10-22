@@ -10,6 +10,7 @@ import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
 import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, qs, useOptions, useUnsaved, words } from './common';
+import { StatusBadge, StatusEditor, useStatusFilter } from './Job';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { DevelopmentPanel } from './Personnel';
 import { type Block, BlocksEditor, LayoutTemplates, TemplateActions, TemplatePicker } from './Blocks';
@@ -21,7 +22,7 @@ const statuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 const folderStatuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 
 // ------------------------------------------------------------------ folders
-interface WiRow { id: string; number: string; title: string; type: string; revision: string; status: string; partId?: string; partNumber?: string; validationType?: string; faiType?: string;
+interface WiRow { statusTag?: string | null; statusNote?: string | null; id: string; number: string; title: string; type: string; revision: string; status: string; partId?: string; partNumber?: string; validationType?: string; faiType?: string;
   repairCategory?: string; repairType?: string; repairDescription?: string; resultStatus?: string; effectiveDate?: string; updatedAt: string; owner?: string; releasedBy?: string }
 type Kind = 'generic' | 'validation' | 'repair';
 /** Navigation folder -> API folder, title, column set. */
@@ -51,7 +52,8 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
   const repairCats = useOptions('repair-categories'); const repairTypes = useOptions('repair-types'); const valTypes = useOptions('validation-types');
   const q = useQuery({ queryKey: ['sqf-wi', cfg.api, sp.toString(), page, size, sort], queryFn: () => get<Paged<WiRow>>(`${S}/instructions?${qs({ folder: cfg.api, q: v('q'), status: v('status'), type: v('type'),
-    part: v('part'), repairCategory: v('repairCategory'), repairType: v('repairType'), validationType: v('validationType'), resultStatus: v('resultStatus'), sort, page, pageSize: size })}`) });
+    part: v('part'), repairCategory: v('repairCategory'), repairType: v('repairType'), validationType: v('validationType'), resultStatus: v('resultStatus'), tag: v('tag'), sort, page, pageSize: size })}`) });
+  const tagFilter = useStatusFilter();
   const title = titleOverride ?? cfg.title;
   const filters: { key: string; label: string; options: [string, string][] }[] = [{ key: 'status', label: 'Status', options: (cfg.kind === 'generic' ? statuses : folderStatuses).map((s) => [s, words(s)]) }];
   if (cfg.kind === 'generic') filters.push({ key: 'type', label: 'Type', options: types.map((t) => [t, typeLabels[t]]) });
@@ -63,23 +65,25 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
     filters.push({ key: 'repairCategory', label: 'Repair category', options: (repairCats.data ?? []).map((o) => [o, o]) });
     filters.push({ key: 'repairType', label: 'Repair type', options: (repairTypes.data ?? []).map((o) => [o, o]) });
   }
+  filters.push(tagFilter);
   const num = { key: 'number', label: 'Instruction number', sort: true, render: (r: WiRow) => <Mono>{r.number}</Mono> };
   const people = [{ key: 'owner', label: 'Owner', render: (r: WiRow) => r.owner ?? '—' }, { key: 'releasedBy', label: 'Released by', render: (r: WiRow) => r.releasedBy ?? '—' }];
   const tail = [{ key: 'effectiveDate', label: 'Effective', sort: true, render: (r: WiRow) => fmtDate(r.effectiveDate) }, { key: 'updatedAt', label: 'Last updated', sort: true, render: (r: WiRow) => fmtDateTime(r.updatedAt) }];
   const actions = { key: 'actions', label: 'Actions', render: (r: WiRow) => <RowActions row={r} /> };
+  const tagCol = { key: 'statusTag', label: 'Official status in NetSuite', render: (r: WiRow) => <StatusBadge tag={r.statusTag} note={r.statusNote} /> };
   const cols = cfg.kind === 'validation'
     ? [num, { key: 'title', label: 'Title', sort: true }, { key: 'partNumber', label: 'Part', render: (r: WiRow) => r.partNumber ?? '—' },
       { key: 'validationType', label: folderKey === 'fai' ? 'FAI type' : 'Validation type', render: (r: WiRow) => (r.type === 'Fai' ? r.faiType : r.validationType) ?? r.faiType ?? '—' },
       { key: 'revision', label: 'Rev' }, { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, ...people, ...tail,
-      { key: 'resultStatus', label: 'Result status', render: (r: WiRow) => <SqfStatus status={r.resultStatus ?? null} /> }, actions]
+      { key: 'resultStatus', label: 'Result status', render: (r: WiRow) => <SqfStatus status={r.resultStatus ?? null} /> }, tagCol, actions]
     : cfg.kind === 'repair'
       ? [num, { key: 'title', label: 'Title', sort: true }, { key: 'partNumber', label: 'Part being repaired', render: (r: WiRow) => r.partNumber ?? '—' },
         { key: 'repairDescription', label: 'Repair description', render: (r: WiRow) => r.repairDescription ?? (r.type === 'RepairTest' ? 'Repair test' : '—') },
         { key: 'repairCategory', label: 'Repair category', render: (r: WiRow) => r.repairCategory ?? '—' }, { key: 'revision', label: 'Rev' },
-        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, ...people, ...tail, actions]
+        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, ...people, ...tail, tagCol, actions]
       : [num, { key: 'title', label: 'Title', sort: true }, { key: 'type', label: 'Type', render: (r: WiRow) => typeLabels[r.type] ?? r.type },
         { key: 'partNumber', label: 'Part', render: (r: WiRow) => r.partNumber ?? '—' }, { key: 'revision', label: 'Rev' },
-        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, people[0], ...tail, actions];
+        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, people[0], ...tail, tagCol, actions];
   return (
     <SqfPage title={title} crumbs={crumbsOverride ?? wiCrumbs(title)} description={descriptionOverride ?? cfg.description} permission={permission} tabs={tabs} tab={tab} onTab={onTab}
       actions={can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to={`/sequfloh/instructions/new${cfg.newType ? `?type=${cfg.newType}` : ''}`}>New instruction</Button>}>
@@ -225,6 +229,7 @@ export function TemplatesPage() {
 
 // ------------------------------------------------------------------ designer
 interface WiDoc {
+  statusTag?: string | null; statusNote?: string | null;
   id: string; familyId: string; number: string; type: string; title: string; revision: string; status: string; siteId: string; departmentId?: string | null; ownerId?: string | null; authorId?: string | null;
   partId?: string | null; partNumber?: string | null; partDescription?: string | null; productFamily?: string | null; assembly?: string | null;
   model?: string | null; variant?: string | null; process?: string | null; operation?: string | null; workstation?: string | null; location?: string | null; validationType?: string | null; faiType?: string | null;
@@ -315,6 +320,7 @@ export function InstructionPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{typeLabels[doc.type]} designer · {doc.site ?? ''}{doc.department ? ` · ${doc.department}` : ''}
         {!q.data.canEdit && doc.status === 'Released' && ' · Released revisions are read-only. Use Create revision to change this instruction.'}
         {!q.data.canEdit && doc.status !== 'Released' && ` · Read-only while ${words(doc.status).toLowerCase()}.`}</Typography>
+      <StatusEditor kind="instruction" id={doc.id} tag={doc.statusTag} note={doc.statusNote} canEdit={can('sequfloh.edit_draft_work_instruction') && !dirty} onSaved={refresh} />
       {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {dirty && <Alert severity="info" sx={{ mb: 2 }}>You have unsaved changes.</Alert>}
       {doc.status === 'Draft' &&
