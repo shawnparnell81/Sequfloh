@@ -145,6 +145,19 @@ public sealed class CsvParserTests
     }
 
     [Fact]
+    public void Formulas_with_no_stored_result_are_worked_out_on_import()
+    {
+        using var src = new XLWorkbook();
+        var ws = src.AddWorksheet("Audit");
+        ws.Cell(1, 1).Value = 24; ws.Cell(1, 2).Value = 28; ws.Cell(2, 1).Value = 29.4;
+        ws.Cell(2, 2).FormulaA1 = "IF(AND(A2>=A1,A2<=B1),\"PASS\",\"FAIL\")";
+        var ms = new MemoryStream();
+        src.SaveAs(ms, new SaveOptions { EvaluateFormulasBeforeSaving = false });
+        var sh = WorkbookReader.Read(new MemoryStream(ms.ToArray()), "xlsx").Sheet("Audit")!;
+        Assert.Equal("FAIL", sh.At(2, 2)!.Cached);
+    }
+
+    [Fact]
     public void Cell_edits_keep_formulas_merges_and_formatting_and_recalculate()
     {
         var (saved, recalculated) = ImportedFileService.ApplyCells(ImportTests.InspectionWorkbook(), [new CellEdit("Checks", 3, 2, "12.5"), new CellEdit("Checks", 6, 3, "=B5*2")]);

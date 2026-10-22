@@ -179,6 +179,9 @@ public static class WorkbookReader
                 if (string.IsNullOrEmpty(formula) && cell.HasArrayFormula) formula = cell.FormulaA1;
                 kind = "formula";
                 cached = Show(cell.CachedValue);
+                // files written by scripts or some exporters carry no stored result; work it out so the sheet is not blank
+                if (string.IsNullOrEmpty(cached) && !FormulaTranslator.PreservedOnly.Any(f => formula.Contains(f + "(", StringComparison.OrdinalIgnoreCase)))
+                    try { cached = Show(cell.Value); } catch (Exception ex) when (ex is not OutOfMemoryException) { }
             }
             else
             {
