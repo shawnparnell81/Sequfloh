@@ -53,20 +53,34 @@ public sealed class S3FileStorage : IFileStorage
 {
     readonly AmazonS3Client _s3;
     readonly string _bucket;
+    readonly bool _https;
 
     public S3FileStorage(StorageOptions o)
     {
         _bucket = o.Bucket ?? throw new InvalidOperationException("STORAGE_BUCKET is required when STORAGE_PROVIDER is s3.");
-        var cfg = new AmazonS3Config { ServiceURL = o.ServiceUrl, ForcePathStyle = true, AuthenticationRegion = o.Region };
-        _s3 = new AmazonS3Client(new BasicAWSCredentials(o.AccessKey, o.SecretKey), cfg);
+        _https = o.ServiceUrl?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ?? true;
+        _s3 = new AmazonS3Client(new BasicAWSCredentials(o.AccessKey, o.SecretKey), ConfigFor(o));
     }
+
+    /// <summary>
+    /// Client settings that work with Cloudflare R2 as well as MinIO and AWS. R2 does not accept the streaming
+    /// trailer checksums the SDK adds by default, so checksums are only sent or checked when an operation demands them.
+    /// </summary>
+    public static AmazonS3Config ConfigFor(StorageOptions o) => new()
+    {
+        ServiceURL = o.ServiceUrl,
+        ForcePathStyle = true,
+        AuthenticationRegion = string.IsNullOrWhiteSpace(o.Region) ? "auto" : o.Region,
+        RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+        ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
+    };
 
     public async Task PutAsync(string key, Stream content, string contentType, CancellationToken ct)
     {
         using var ms = new MemoryStream();
         await content.CopyToAsync(ms, ct);
         ms.Position = 0;
-        await _s3.PutObjectAsync(new PutObjectRequest { BucketName = _bucket, Key = key, InputStream = ms, ContentType = contentType, DisablePayloadSigning = true }, ct);
+        await _s3.PutObjectAsync(new PutObjectRequest { BucketName = _bucket, Key = key, InputStream = ms, ContentType = contentType, DisablePayloadSigning = _https, UseChunkEncoding = false }, ct);
     }
 
     public async Task<Stream?> GetAsync(string key, CancellationToken ct)
