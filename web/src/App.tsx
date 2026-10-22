@@ -1,14 +1,17 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
-import { Link as RouterLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, Navigate, Route, Routes, useLocation, useNavigate, type Location } from 'react-router-dom';
 import { AppBar, Box, Button, CircularProgress, Divider, ListItemIcon, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography } from '@mui/material';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
-import ArrowBack from '@mui/icons-material/ArrowBack';
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import KeyOutlined from '@mui/icons-material/KeyOutlined';
+import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import { useTheme } from '@mui/material/styles';
 import { useAuth, useBranding } from './auth';
 import { LoginPage, SetupPage, ChangePasswordPage } from './pages/SignIn';
+import { TabbedWorkspace } from './tabs/Workspace';
+
+const Preferences = lazy(() => import('./pages/Account').then((m) => ({ default: m.PreferencesPage })));
 
 const SqfHome = lazy(() => import('./sequfloh/Home').then((m) => ({ default: m.SequflohHome })));
 const SqfSettings = lazy(() => import('./sequfloh/Admin').then((m) => ({ default: m.SettingsPage })));
@@ -50,7 +53,7 @@ const AdminAudit = lazy(() => import('./pages/Admin').then((m) => ({ default: m.
 
 const Spinner = () => <Stack alignItems="center" sx={{ py: 10 }}><CircularProgress aria-label="Loading" /></Stack>;
 
-/** Top bar on every signed-in page: name, Home and Back, and the person's menu. */
+/** Top bar on every signed-in page: name, Home, and the person's menu. Back lives on each page, so it follows that tab. */
 function TopBar() {
   const { me, logout } = useAuth();
   const branding = useBranding();
@@ -70,12 +73,12 @@ function TopBar() {
           </Box>
         </Box>
         <Button startIcon={<HomeOutlined />} component={RouterLink} to="/sequfloh" variant={atHome ? 'contained' : 'text'} size="small">Home</Button>
-        <Button startIcon={<ArrowBack />} onClick={() => nav(-1)} size="small" disabled={atHome && window.history.length <= 1}>Back</Button>
         <Box sx={{ flex: 1 }} />
         <Tooltip title="Your account"><Button onClick={(e) => setAnchor(e.currentTarget)} startIcon={<AccountCircleOutlined />} size="small" color="inherit">{me?.displayName}</Button></Tooltip>
         <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
           <MenuItem disabled><Typography variant="body2">{me?.email}</Typography></MenuItem>
           <Divider />
+          <MenuItem onClick={() => { setAnchor(null); nav('/account/preferences'); }}><ListItemIcon><TuneOutlined fontSize="small" /></ListItemIcon>Preferences</MenuItem>
           <MenuItem onClick={() => { setAnchor(null); nav('/account/password'); }}><ListItemIcon><KeyOutlined fontSize="small" /></ListItemIcon>Change password</MenuItem>
           <MenuItem onClick={async () => { setAnchor(null); await logout(); nav('/'); }}><ListItemIcon><LogoutOutlined fontSize="small" /></ListItemIcon>Sign out</MenuItem>
         </Menu>
@@ -85,7 +88,7 @@ function TopBar() {
 }
 
 function Signed({ children }: { children: ReactNode }) {
-  return <><TopBar /><Suspense fallback={<Spinner />}>{children}</Suspense></>;
+  return <><TopBar />{children}</>;
 }
 
 export function App() {
@@ -97,9 +100,19 @@ export function App() {
   if (me.mustChangePassword) return <ChangePasswordPage forced />;
   return (
     <Signed>
-      <Routes>
+      <TabbedWorkspace render={(location) => <AppRoutes location={location} />} />
+    </Signed>
+  );
+}
+
+/** Every page of the application; each open tab renders these at its own address. */
+function AppRoutes({ location }: { location?: Location }) {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <Routes location={location}>
         <Route path="/" element={<Navigate to="/sequfloh" replace />} />
         <Route path="/account/password" element={<ChangePasswordPage />} />
+        <Route path="/account/preferences" element={<Preferences />} />
         <Route path="/admin/users" element={<AdminUsers />} />
         <Route path="/admin/roles" element={<AdminRoles />} />
         <Route path="/admin/sites" element={<AdminSites />} />
@@ -139,6 +152,6 @@ export function App() {
         <Route path="/sequfloh/execution/:view" element={<SqfExQueue />} />
         <Route path="*" element={<Navigate to="/sequfloh" replace />} />
       </Routes>
-    </Signed>
+    </Suspense>
   );
 }

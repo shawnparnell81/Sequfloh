@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post } from '../api';
 import { useAuth } from '../auth';
 import { modules } from '../modules/registry';
+import { useTabs } from '../tabs/Workspace';
 import { ModuleWorkspace, type Crumb } from '../layout/ModuleWorkspace';
 import { mono } from '../theme';
 
@@ -145,6 +146,14 @@ export function PagedTable<T extends { id?: string }>({ q, cols, page, size, onP
   q: { data?: Paged<T>; isLoading: boolean; error: unknown; refetch: () => void }; cols: Col<T>[]; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void;
   sort?: string; onSort?: (s: string) => void; onRow?: (row: T) => void; empty: string;
 }) {
+  const tabs = useTabs();
+  // Ctrl/Cmd-click, middle-click or the right-click menu open the row in another tab
+  const rowEvents = (row: T) => !onRow ? {} : {
+    onClick: (e: React.MouseEvent) => { if (tabs && (e.ctrlKey || e.metaKey)) tabs.openHandlerInTab(() => onRow(row)); else onRow(row); },
+    onAuxClick: (e: React.MouseEvent) => { if (tabs && e.button === 1) { e.preventDefault(); tabs.openHandlerInTab(() => onRow(row)); } },
+    onMouseDown: (e: React.MouseEvent) => { if (tabs && e.button === 1) e.preventDefault(); },
+    onContextMenu: (e: React.MouseEvent) => { if (tabs && !e.shiftKey && !(e.target as HTMLElement).closest('a[href]')) tabs.showOpenMenu(e, () => onRow(row)); },
+  };
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorState error={q.error} retry={q.refetch} />;
   const rows = q.data?.items ?? [];
@@ -157,7 +166,7 @@ export function PagedTable<T extends { id?: string }>({ q, cols, page, size, onP
           <TableHead><TableRow>{cols.map((c) => <TableCell key={c.key} sx={{ width: c.width, whiteSpace: 'nowrap' }}>
             {c.sort && onSort ? <TableSortLabel active={sk === c.key} direction={sk === c.key && sd === 'desc' ? 'desc' : 'asc'} onClick={() => onSort(`${c.key}:${sk === c.key && sd !== 'desc' ? 'desc' : 'asc'}`)}>{c.label}</TableSortLabel> : c.label}
           </TableCell>)}</TableRow></TableHead>
-          <TableBody>{rows.map((r, i) => <TableRow key={r.id ?? i} hover={!!onRow} onClick={() => onRow?.(r)} sx={{ cursor: onRow ? 'pointer' : undefined }}>
+          <TableBody>{rows.map((r, i) => <TableRow key={r.id ?? i} hover={!!onRow} {...rowEvents(r)} sx={{ cursor: onRow ? 'pointer' : undefined }}>
             {cols.map((c) => <TableCell key={c.key}>{c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? '—')}</TableCell>)}</TableRow>)}</TableBody>
         </Table>
       </TableContainer>
