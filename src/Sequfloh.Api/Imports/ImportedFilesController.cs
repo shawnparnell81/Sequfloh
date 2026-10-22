@@ -8,6 +8,7 @@ namespace Sequfloh.Imports;
 public sealed class ImportedFilesController(ImportedFileService files) : ControllerBase
 {
     public sealed record SaveCellsRequest(int BaseVersion, List<CellEdit> Edits);
+    public sealed record PreviewCellsRequest(string? Sheet, List<CellEdit> Edits);
     public sealed record SaveDocumentRequest(int BaseVersion, List<ParagraphEdit> Edits);
     public sealed record RenameRequest(string Title);
 
@@ -31,6 +32,9 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
 
     [HttpPut("{id:guid}/cells"), RequirePermission(Permissions.SequflohImportFiles)]
     public Task<object> SaveCells(Guid id, SaveCellsRequest r, CancellationToken ct) => files.SaveCellsAsync(id, r.BaseVersion, r.Edits ?? [], ct);
+
+    [HttpPost("{id:guid}/preview"), RequirePermission(Permissions.SequflohViewImportedFiles)]
+    public Task<object> Preview(Guid id, PreviewCellsRequest r, CancellationToken ct) => files.PreviewAsync(id, r.Sheet ?? "", r.Edits ?? [], ct);
 
     [HttpGet("{id:guid}/document"), RequirePermission(Permissions.SequflohViewImportedFiles)]
     public Task<object> Document(Guid id, int? version, CancellationToken ct) => files.DocumentAsync(id, version, ct);
