@@ -976,6 +976,83 @@ namespace Sequfloh.Data.Migrations
                     b.ToTable("sequfloh_task_events", "sqf");
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohTestFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Batch")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("Failed")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("KeyValues")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int?>("Passed")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateOnly?>("TestDate")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("Tested")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TrackingNumber")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TrackingRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UploadedByName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrackingRecordId");
+
+                    b.ToTable("sequfloh_test_files", "sqf");
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohTimeEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1175,6 +1252,12 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("PartsReplaced")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
                     b.Property<string>("PartsRows")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -1201,6 +1284,15 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("QualityComments")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
+
+                    b.Property<int>("QuantityCompleted")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("QuantityNotRepaired")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("QuantityTarget")
+                        .HasColumnType("integer");
 
                     b.Property<string>("RepairDescription")
                         .HasMaxLength(300)
@@ -1238,6 +1330,14 @@ namespace Sequfloh.Data.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<string>("StatusNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("StatusTag")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Steps")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -1245,6 +1345,12 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("TechnicianComments")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("TestColumns")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'{}'::jsonb");
 
                     b.Property<int>("Type")
                         .HasColumnType("integer");
@@ -1531,6 +1637,14 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<string>("StatusNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("StatusTag")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Steps")
                         .IsRequired()
@@ -1909,6 +2023,14 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<string>("StatusNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("StatusTag")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("UnitOfMeasure")
                         .IsRequired()
@@ -2568,6 +2690,15 @@ namespace Sequfloh.Data.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohTestFile", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohTrackingRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TrackingRecordId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohTimeEntry", b =>

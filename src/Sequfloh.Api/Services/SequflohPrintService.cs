@@ -130,10 +130,10 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
             var rows = JsonNode.Parse(x.PartsRows)!.AsArray().Select(p => new[]
             {
                 V(p?["sequence"]), V(p?["replacementPartNumber"]), V(p?["description"]), V(p?["quantity"]), V(p?["unit"]), V(p?["required"]), V(p?["approvedAlternate"]), V(p?["lotNumberRequired"]),
-                V(p?["serialNumberRequired"]), V(p?["issuedQuantity"]), V(p?["usedQuantity"]), V(p?["returnedQuantity"]), V(p?["scrapQuantity"])
+                V(p?["serialNumberRequired"]), V(p?["issuedQuantity"]), V(p?["usedQuantity"]), V(p?["returnedQuantity"])
             }).ToList();
             blocks.Add(new PrintTable([("Item", 0.5), ("Part number", 1.4), ("Description", 2), ("Qty", 0.6), ("Unit", 0.6), ("Required", 0.8), ("Alternate", 1.1), ("Lot", 0.5), ("Serial", 0.6),
-                ("Issued", 0.7), ("Used", 0.6), ("Returned", 0.8), ("Scrap", 0.6)], rows));
+                ("Issued", 0.7), ("Used", 0.6), ("Returned", 0.8)], rows));
         }
         blocks.Add(new PrintHeading("Release"));
         blocks.Add(new PrintFields([("Prepared by", N(x.AuthorId)), ("Released by", x.ReleasedAt is null ? null : $"{N(x.ReleasedById)} · {local(x.ReleasedAt)}")]));
@@ -184,10 +184,10 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
                 ("Benchmark (minutes)", x.MinBenchmarkMinutes is null && x.MaxBenchmarkMinutes is null ? null : $"{x.MinBenchmarkMinutes:0.##} to {x.MaxBenchmarkMinutes:0.##}"),
                 ("Variance (minutes)", x.VarianceMinutes?.ToString("0.##", CultureInfo.InvariantCulture)), ("Variance reason", x.VarianceReason)]),
             new PrintHeading("Conditions and comments"),
-            new PrintFields([("Reported condition", x.ReportedCondition), ("Observed condition", x.ObservedCondition), ("Repair description", x.RepairDescription), ("Final disposition", x.FinalDisposition),
+            new PrintFields([("Reported condition", x.ReportedCondition), ("Observed condition", x.ObservedCondition), ("Repair description", x.RepairDescription), (x.Type == TrackingType.Fai ? "Inspection result" : "Final disposition", x.Type == TrackingType.Fai ? x.FinalDisposition : null),
                 ("Deviations", x.Deviations), ("Nonconformance references", x.NonconformanceReferences), ("Evidence", x.EvidenceReferences), ("Technician comments", x.TechnicianComments),
                 ("Quality comments", x.QualityComments), ("Engineering comments", x.EngineeringComments), ("Engineering conclusion", x.EngineeringConclusion),
-                ("Pause reason", x.PauseReason), ("Hold reason", x.HoldReason), ("Failure reason", x.FailureReason), ("Cancel reason", x.CancelReason)]),
+                ("Pause reason", x.PauseReason), ("Failure reason", x.FailureReason), ("Cancel reason", x.CancelReason)]),
         };
         var steps = JsonNode.Parse(x.Steps)!.AsArray();
         blocks.Add(new PrintHeading("Steps"));

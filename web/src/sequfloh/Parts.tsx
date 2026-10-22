@@ -13,6 +13,7 @@ import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
+import { StatusEditor, downloadCsv, useStatusFilter } from './Job';
 import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
 const crumbs = (label: string, extra?: { label: string; to?: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts and Items', to: '/sequfloh/parts' }, { label, to: extra ? undefined : undefined }, ...(extra ? [extra] : [])];
@@ -24,7 +25,7 @@ const masterStatuses = ['Active', 'Inactive', 'Obsolete'];
 
 // ------------------------------------------------------------------ Part Master
 interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; unitOfMeasure: string;
-  status: string; isRepairable: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string }
+  status: string; isRepairable: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string; statusTag?: string | null; statusNote?: string | null }
 const views: Record<string, string> = { '': 'Part Master', repairable: 'Repair Parts', assemblies: 'Assemblies' };
 
 export function PartMasterPage() {
@@ -36,23 +37,27 @@ export function PartMasterPage() {
   const v = (k: string) => sp.get(k) ?? '';
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
   const families = useQuery({ queryKey: ['sqf-families'], queryFn: () => get<string[]>(`${S}/parts/families`) });
-  const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), sort, page, pageSize: size })}`) });
+  const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), tag: v('tag'), sort, page, pageSize: size })}`) });
   const [open, setOpen] = useState(false);
+  const tagFilter = useStatusFilter();
+  const qc = useQueryClient();
   const title = views[view] ?? 'Part Master';
   return (
     <SqfPage title={title} crumbs={crumbs(title)} description="The part master with execution attributes for each part and revision."
       actions={can('sequfloh.edit_parts') && can('parts.edit') && <Button variant="contained" onClick={() => setOpen(true)}>New part</Button>}>
-      <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ family: v('family'), status: v('status'), type: v('type') }} onChange={set}
+      <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ family: v('family'), status: v('status'), type: v('type'), tag: v('tag') }} onChange={set}
         onClear={() => { setSp(view ? { view } : {}); setPage(1); }}
         filters={[{ key: 'family', label: 'Product family', options: (families.data ?? []).map((f) => [f, f]) },
           { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) },
-          { key: 'type', label: 'Part type', options: partTypes.map((t) => [t, words(t)]) }]} />
+          { key: 'type', label: 'Part type', options: partTypes.map((t) => [t, words(t)]) }, tagFilter]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
         cols={[{ key: 'partNumber', label: 'Part number', sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'revision', label: 'Rev' },
           { key: 'productFamily', label: 'Product family', sort: true, render: (r) => r.productFamily ?? '—' }, { key: 'partType', label: 'Type', render: (r) => words(r.partType) },
           { key: 'assemblyType', label: 'Assembly type', render: (r) => r.assemblyType ?? '—' }, { key: 'unitOfMeasure', label: 'UoM' },
           { key: 'flags', label: 'Repairable / Serialized / Lot', render: (r) => `${yes(r.isRepairable)} / ${yes(r.isSerialized)} / ${yes(r.isLotControlled)}` },
-          { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> }, { key: 'updatedAt', label: 'Updated', sort: true, render: (r) => fmtDateTime(r.updatedAt) }]} />
+          { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
+          { key: 'statusTag', label: 'Official status in NetSuite', render: (r) => <StatusEditor compact kind="part" id={r.id} tag={r.statusTag} note={r.statusNote} canEdit={can('sequfloh.edit_parts')} onSaved={() => qc.invalidateQueries({ queryKey: ['sqf-parts'] })} /> },
+          { key: 'updatedAt', label: 'Updated', sort: true, render: (r) => fmtDateTime(r.updatedAt) }]} />
       <PartDialog open={open} onClose={() => setOpen(false)} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
     </SqfPage>
   );
@@ -156,6 +161,7 @@ export function PartDetailPage() {
         <DeleteButton what={`part ${p.partNumber}`} url={`${S}/parts/${p.id}`} to="/sequfloh/parts"
           extra="Links to drawings are removed; the drawings stay. Parts used by work instructions, work orders or parts lists can't be deleted; deactivate them instead." /></>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : p && <>
+        <StatusEditor kind="part" id={p.id} tag={p.statusTag} note={p.statusNote} canEdit={!!q.data?.canEdit} onSaved={refresh} />
         {tab === 'overview' && <Paper variant="outlined" sx={{ p: 2 }}>
           {!q.data!.canEditMaster && q.data!.canEdit && <Alert severity="info" sx={{ mb: 2 }}>You can change SEQUFLOH execution attributes. Core Part Master fields need Master Data edit permission.</Alert>}
           <Grid cols={4}>
@@ -190,11 +196,21 @@ export function SimpleTable({ head, rows }: { head: string[]; rows: React.ReactN
 }
 
 export interface AuditRow { occurredAt: string; userName?: string; action: string; description?: string; reason?: string }
-export function HistoryTable({ q }: { q: { data?: AuditRow[]; isLoading: boolean; error: unknown } }) {
+export function HistoryTable({ q, name = 'history' }: { q: { data?: AuditRow[]; isLoading: boolean; error: unknown }; name?: string }) {
+  const [filter, setFilter] = useState('');
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorState error={q.error} />;
   if (!q.data?.length) return <Empty text="No audit history yet." />;
-  return <SimpleTable head={['When', 'Action', 'User', 'Details']} rows={q.data.map((h) => [fmtDateTime(h.occurredAt), words(h.action), h.userName ?? '—', [h.description, h.reason].filter(Boolean).join(' · ')])} />;
+  const f = filter.trim().toLowerCase();
+  const rows = q.data.filter((h) => !f || [h.action, words(h.action), h.userName, h.description, h.reason, fmtDateTime(h.occurredAt)].some((x) => x?.toLowerCase().includes(f)));
+  return <Stack gap={1}>
+    <Stack direction="row" gap={1} alignItems="center">
+      <TextField size="small" label="Filter history" value={filter} onChange={(e) => setFilter(e.target.value)} sx={{ minWidth: 260 }} />
+      <Typography variant="body2" color="text.secondary">{rows.length} of {q.data.length}</Typography><Box flex={1} />
+      <Button variant="outlined" onClick={() => downloadCsv(`${name}.csv`, ['When (UTC)', 'Action', 'User', 'Description', 'Reason'], rows.map((h) => [h.occurredAt, words(h.action), h.userName, h.description, h.reason]))}>Export CSV</Button>
+    </Stack>
+    <SimpleTable head={['When', 'Action', 'User', 'Details']} rows={rows.map((h) => [fmtDateTime(h.occurredAt), words(h.action), h.userName ?? '—', [h.description, h.reason].filter(Boolean).join(' · ')])} />
+  </Stack>;
 }
 
 // ------------------------------------------------------------------ parts lists

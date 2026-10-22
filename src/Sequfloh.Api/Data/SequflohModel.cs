@@ -21,6 +21,7 @@ public partial class AppDbContext
     public DbSet<SequflohTaskEvent> SequflohTaskEvents => Set<SequflohTaskEvent>();
     public DbSet<SequflohTaskAssignee> SequflohTaskAssignees => Set<SequflohTaskAssignee>();
     public DbSet<SequflohTimeEntry> SequflohTimeEntries => Set<SequflohTimeEntry>();
+    public DbSet<SequflohTestFile> SequflohTestFiles => Set<SequflohTestFile>();
 
     private static void ConfigureSequfloh(ModelBuilder b)
     {
@@ -177,6 +178,8 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.SiteId, x.Status });
             e.HasIndex(x => new { x.Status, x.DueAt });
             e.HasIndex(x => x.WorkInstructionId);
+            e.Property(x => x.TestColumns).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+            e.Property(x => x.PartsReplaced).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.HasIndex(x => x.PartId);
             e.HasOne<SequflohWorkInstruction>().WithMany().HasForeignKey(x => x.WorkInstructionId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Part>().WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
@@ -210,6 +213,15 @@ public partial class AppDbContext
             e.HasIndex(x => x.UserId);
             e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<SequflohTestFile>(e =>
+        {
+            e.ToTable("sequfloh_test_files");
+            e.HasIndex(x => x.TrackingRecordId);
+            e.Property(x => x.FileName).HasMaxLength(300);
+            e.Property(x => x.Batch).HasMaxLength(100);
+            e.Property(x => x.KeyValues).HasColumnType("jsonb");
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
         });
         b.Entity<SequflohTimeEntry>(e =>
         {

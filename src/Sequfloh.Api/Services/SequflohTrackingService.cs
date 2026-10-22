@@ -62,10 +62,9 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     [
         new("dispatch", "Dispatch", [TrackingStatus.NotStarted], TrackingStatus.Assigned, Permissions.SequflohDispatchTask, false, "Dispatch"),
         new("assign", "Assign", [TrackingStatus.NotStarted, TrackingStatus.Assigned], TrackingStatus.Assigned, Permissions.SequflohDispatchTask, false, "Assignment"),
-        new("start", "Start", [TrackingStatus.NotStarted, TrackingStatus.Assigned], TrackingStatus.InProgress, Permissions.SequflohStartTask, false, "Start"),
-        new("pause", "Pause", [TrackingStatus.InProgress], TrackingStatus.Paused, Permissions.SequflohPauseTask, true, "Pause"),
-        new("resume", "Resume", [TrackingStatus.Paused, TrackingStatus.OnHold], TrackingStatus.InProgress, Permissions.SequflohResumeTask, false, "Resume"),
-        new("hold", "Place on hold", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused], TrackingStatus.OnHold, Permissions.SequflohHoldTask, true, "Hold"),
+        new("start", "Start", [TrackingStatus.NotStarted, TrackingStatus.Assigned], TrackingStatus.InProgress, Permissions.SequflohAccess, false, "Start"),
+        new("pause", "Pause", [TrackingStatus.InProgress], TrackingStatus.Paused, Permissions.SequflohAccess, true, "Pause"),
+        new("resume", "Resume", [TrackingStatus.Paused], TrackingStatus.InProgress, Permissions.SequflohAccess, false, "Resume"),
         new("restart", "Restart", [TrackingStatus.Failed], TrackingStatus.Assigned, Permissions.SequflohDispatchTask, true, "Restart"),
         new("complete", "Complete", [TrackingStatus.InProgress], TrackingStatus.Completed, Permissions.SequflohCompleteTask, false, "Completion"),
         new("fail", "Fail", [TrackingStatus.InProgress], TrackingStatus.Failed, Permissions.SequflohFailTask, true, "Failure"),
@@ -121,7 +120,6 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         TrackingStatus.NotStarted => "Dispatch the task to a user.",
         TrackingStatus.Assigned => "Start the task.",
         TrackingStatus.Paused => $"Resume the task (paused: {r.PauseReason ?? "no reason"}).",
-        TrackingStatus.OnHold => $"Resolve the hold and resume (hold: {r.HoldReason ?? "no reason"}).",
         TrackingStatus.InProgress when problems.Count > 0 => problems[0],
         TrackingStatus.InProgress => "Complete the task.",
         TrackingStatus.Failed => "Restart for rework when authorized.",
@@ -139,7 +137,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         if (r.AssignedUserId is { } au)
         {
             await m.RequireActiveUserAsync(au, "assigned user", ct);
-            if (!await m.UserCanAsync(au, Permissions.SequflohStartTask, r.SiteId, r.DepartmentId, ct)) throw new AppException("The assigned user cannot start SEQUFLOH tasks at this site.");
+            if (!await m.UserCanAsync(au, Permissions.SequflohAccess, r.SiteId, r.DepartmentId, ct)) throw new AppException("The assigned user cannot open SEQUFLOH at this site.");
         }
         var team = new List<Guid>();
         if (r.AssignedUserId is { } lead0) team.Add(lead0);
@@ -206,7 +204,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     // ------------------------------------------------------------------ save (data entry)
     static readonly string[] StepEntry = ["result", "actualResult", "evidence", "comment", "completed"];
     static readonly string[] CharEntry = ["actualResult", "result", "evidenceReference", "nonconformanceReference", "notes"];
-    static readonly string[] PartsEntry = ["issuedQuantity", "usedQuantity", "returnedQuantity", "scrapQuantity", "lotNumber", "serialNumber"];
+    static readonly string[] PartsEntry = ["issuedQuantity", "usedQuantity", "returnedQuantity", "lotNumber", "serialNumber"];
     static readonly string[] DetailKeys = ["sampleIdentification", "controlledConditions", "materialVerification", "specialProcessVerification", "certificateReview", "drawingBalloonReferences",
         "dimensionalResults", "visualResults", "functionalResults", "repairTestResult", "repairTestReference", "postRepairInspection", "failureHandling", "rejectionHandling", "resultEntry", "qualityCheckpoints"];
 
@@ -249,10 +247,10 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
             || !JsonNode.DeepEquals(JsonNode.Parse(partsRows), JsonNode.Parse(rec.PartsRows)) || !JsonNode.DeepEquals(JsonNode.Parse(details), JsonNode.Parse(rec.Details));
         if (entryChanged)
         {
-            await m.RequireAsync(Permissions.SequflohStartTask, rec.SiteId, rec.DepartmentId, ct);
+            // anyone who can see the record may work on it
             if (!Working.Contains(rec.Status)) throw new ConflictException($"Results can be recorded only while the record is in progress. {rec.Number} is {Words(rec.Status)}.");
             if (tech.Fd is not null)
-                await f.RequireOptionAsync(rec.Type == TrackingType.Fai ? "inspection-results" : "repair-dispositions", tech.Fd, "Final disposition", ct);
+                if (rec.Type == TrackingType.Fai) await f.RequireOptionAsync("inspection-results", tech.Fd, "Inspection result", ct);
             CheckStepResults(steps);
             ValidateQuantities(partsRows);
             if (rec.Type == TrackingType.Production && tech.Res is not null && tech.Res is not ("Pending" or "Pass" or "Fail" or "Conditional")) throw new AppException("The result must be Pending, Pass, Fail or Conditional.");
@@ -347,9 +345,9 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         foreach (var p in JsonNode.Parse(json)!.AsArray().OfType<JsonObject>())
         {
             var pn = p["replacementPartNumber"]?.ToString() ?? "parts row";
-            decimal? iss = Num(p["issuedQuantity"]), used = Num(p["usedQuantity"]), ret = Num(p["returnedQuantity"]), scr = Num(p["scrapQuantity"]);
-            if (new[] { iss, used, ret, scr }.Any(x => x < 0)) throw new AppException($"{pn}: quantities cannot be negative.");
-            if (iss is { } i && (used ?? 0) + (ret ?? 0) + (scr ?? 0) > i) throw new AppException($"{pn}: used, returned and scrap quantities cannot exceed the issued quantity ({i.ToString(CultureInfo.InvariantCulture)}).");
+            decimal? iss = Num(p["issuedQuantity"]), used = Num(p["usedQuantity"]), ret = Num(p["returnedQuantity"]);
+            if (new[] { iss, used, ret }.Any(x => x < 0)) throw new AppException($"{pn}: quantities cannot be negative.");
+            if (iss is { } i && (used ?? 0) + (ret ?? 0) > i) throw new AppException($"{pn}: used and returned quantities cannot exceed the issued quantity ({i.ToString(CultureInfo.InvariantCulture)}).");
             if (iss is null && (used ?? 0) > 0) throw new AppException($"{pn}: record the issued quantity before the used quantity.");
         }
     }
@@ -403,7 +401,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                         && ((Num(c["lowerLimit"]) is { } lo && a < lo) || (Num(c["upperLimit"]) is { } hi && a > hi)))
                         p.Add($"Characteristic {n}: the actual result {a.ToString(CultureInfo.InvariantCulture)} is outside the limits and cannot pass.");
                 }
-                if (string.IsNullOrWhiteSpace(rec.FinalDisposition)) p.Add("Choose the final disposition.");
+                if (string.IsNullOrWhiteSpace(rec.FinalDisposition)) p.Add("Choose the inspection result.");
                 break;
             case TrackingType.Repair:
                 foreach (var s in steps)
@@ -415,16 +413,15 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 foreach (var pr in JsonNode.Parse(rec.PartsRows)!.AsArray().OfType<JsonObject>())
                 {
                     var pn = pr["replacementPartNumber"]?.ToString() ?? "Parts row";
-                    decimal? iss = Num(pr["issuedQuantity"]), used = Num(pr["usedQuantity"]), ret = Num(pr["returnedQuantity"]), scr = Num(pr["scrapQuantity"]);
+                    decimal? iss = Num(pr["issuedQuantity"]), used = Num(pr["usedQuantity"]), ret = Num(pr["returnedQuantity"]);
                     if (Flag(pr, "required") && (used ?? 0) <= 0) p.Add($"{pn}: record the used quantity of this required part.");
-                    if (iss is { } i && (used ?? 0) + (ret ?? 0) + (scr ?? 0) != i) p.Add($"{pn}: used, returned and scrap quantities must account for the issued quantity.");
+                    if (iss is { } i && (used ?? 0) + (ret ?? 0) > i) p.Add($"{pn}: used and returned quantities cannot exceed the issued quantity.");
                     if (Flag(pr, "lotNumberRequired") && (used ?? 0) > 0 && !Has(pr, "lotNumber")) p.Add($"{pn}: record the lot number.");
                     if (Flag(pr, "serialNumberRequired") && (used ?? 0) > 0 && !Has(pr, "serialNumber")) p.Add($"{pn}: record the serial number.");
                 }
                 var d = JsonNode.Parse(rec.Details)!.AsObject();
                 if (settings.Repair.RepairTestRequired && string.IsNullOrWhiteSpace(d["repairTestResult"]?.ToString())) p.Add("Record the repair test result.");
                 if (string.IsNullOrWhiteSpace(rec.ObservedCondition)) p.Add("Record the observed condition.");
-                if (string.IsNullOrWhiteSpace(rec.FinalDisposition)) p.Add("Choose the final disposition.");
                 break;
             default:
                 if (rec.Result is "Pending" or "") p.Add("Record the result.");
@@ -451,7 +448,6 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         var before = rec.AssignedUserId;
         switch (action)
         {
-            case "hold": rec.HoldReason = reason; break;
             case "pause": rec.PauseReason = reason; break;
             case "resume": rec.PauseReason = null; rec.HoldReason = null; break;
             case "dispatch" or "assign" or "reassign":
@@ -459,13 +455,11 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 if (action == "reassign" && r.ExpectedAssignedUserId != rec.AssignedUserId) throw new ConflictException("The task was reassigned by someone else. Reload and try again.");
                 if (action == "reassign" && target == rec.AssignedUserId) throw new AppException("The task is already assigned to that user.");
                 await m.RequireActiveUserAsync(target, "assigned user", ct);
-                if (!await m.UserCanAsync(target, Permissions.SequflohStartTask, rec.SiteId, rec.DepartmentId, ct)) throw new AppException("The selected user cannot start SEQUFLOH tasks at this site.");
+                if (!await m.UserCanAsync(target, Permissions.SequflohAccess, rec.SiteId, rec.DepartmentId, ct)) throw new AppException("The selected user cannot open SEQUFLOH at this site.");
                 rec.AssignedUserId = target;
                 if (action == "reassign" && rec.ActiveOperatorId is not null) rec.ActiveOperatorId = target;
                 break;
             case "start":
-                if (rec.AssignedUserId is { } a && a != m.UserId && !await db.SequflohTaskAssignees.AnyAsync(x => x.TrackingRecordId == rec.Id && x.UserId == m.UserId, ct) && !await m.CanAsync(Permissions.SequflohReassignTask, rec.SiteId, rec.DepartmentId, ct))
-                    throw new ConflictException("The task is assigned to someone else.");
                 rec.AssignedUserId ??= m.UserId;
                 break;
             case "restart":

@@ -1,39 +1,48 @@
 # Changes
 
-## Delete
-- New Delete button, with a "Delete …? This can't be undone." confirm, on:
-  - work instructions (removes every revision, its files and history)
-  - work orders (only ones made by mistake, with no logged time)
-  - parts (links to drawings are removed; the drawings stay)
-  - parts lists, reusable operation steps and layout templates
-  - drawings, single drawing revisions and drawing folders
-  - imported files, blank forms and filled copies
-  - sites and departments
-- Delete needs the "Delete records" permission. Admins can give it per site and department. Administrator roles get it by default. Sites and departments use the existing organization admin permission.
-- When a delete isn't allowed, the dialog explains why:
-  - work orders with logged time are kept for chargebacks; cancel them instead
-  - work instructions that have work orders; mark them obsolete instead
-  - parts used by work instructions, work orders or parts lists; deactivate them instead
-  - blank forms with filled copies; delete the copies first or archive the form
-  - folders that still hold drawings or folders
-  - the only revision of a drawing; delete the drawing instead
-  - sites and departments in use; archive them instead
-- Every delete is in the audit trail: who, when, what, and what went with it.
-- Stored files are removed from storage when their record is deleted.
-- People are not deleted; they are deactivated as before, because they show in history and time records.
+## Anyone can work a job
+- Anyone who can see a work order (SEQUFLOH access at its site) can start, pause, resume and enter step results. Being assigned is no longer required.
+- Each person's time adds to the job total.
+- Complete, fail, cancel and assign keep their existing permissions.
 
-## Several people on one work order
-- A work order can have several assigned people. The first one is the lead.
-- "Change" on the work order picks the people. This needs the dispatch or reassign permission, as before.
-- Lists and cards show everyone assigned.
-- "Assigned to me", My work and dashboard counts include work orders you are one of several on.
-- Existing work orders keep their assigned person.
+## Job tab (work orders)
+- Quantity is for the whole job: completed / repaired, plus an optional "could not repair" count and an optional target. Anyone working the job can add to it; a negative number corrects a mistake. Quantity is never recorded per technician.
+- Parts replaced by part number. Quantity is worked out as completed × per assembly; you can type a number instead.
+- Tester files (CSV, Excel, PDF, text) attach to the work order, with an optional batch and test date. CSV and Excel files are read for tested / passed / failed counts. The pass/fail column and pass values are picked once and remembered for the job. No serial numbers.
+- Every change is in the work order's History tab.
 
-## Time on a job
-- Every signed-in person can start and stop their own timer on any work order, assigned or not. No permission is needed.
-- Several people can run timers on the same job at the same time.
-- The work order shows the total time and a per-person breakdown for chargebacks.
-- Timer starts and stops are in the audit trail.
+## Chargeback job report
+- "Job report" button on each work order opens a print-friendly page with a PDF download.
+- Sections: chargeback (supplier and reference typed in), job, man hours per person with a total, parts replaced, cost, test results summary, sign-off.
+- The rate is typed in when printing and is not saved. Without a rate the rate and cost show "____".
+- No quantity per technician. The Official status in NetSuite is not shown on the report.
+- Printing the PDF is recorded in the audit trail.
 
-## Database
-- Migration AddAssigneesTimeAndDelete adds the assigned-people and time tables, copies existing assignees, and gives administrator roles the Delete records permission.
+## Official status in NetSuite
+- New informational field on parts (inline in the Part Master list and on the part page), work instructions and work orders.
+- A dropdown (None, Quarantine hold (NetSuite), Repair hold, Released) plus an optional note. Admins edit the options in SEQUFLOH Settings › Tracking Settings.
+- Amber badge for holds, green for released. Shown as a list column with a filter.
+- Informational only: it blocks nothing. Official holds are made in NetSuite. Changes are recorded in the audit trail.
+
+## History and audit
+- History tabs now have a filter box and Export CSV.
+- Work order history also shows changes to its time entries and tester files.
+- Audit Trail pages have Export CSV (needs "View audit trail"; up to 50,000 rows; the export is itself recorded).
+
+## Removed (NetSuite handles holds, quarantine, scrap, disposition and inventory)
+- Hold action on work orders and tasks (Pause stays).
+- Hold reasons list.
+- On-Hold Activities folder and menu item.
+- Hold time on the work order, station view, task events and execution lists.
+- Repair final disposition and the repair dispositions list.
+- Scrap quantity column on repair parts. The rule is now used + returned ≤ issued.
+- "Hold tasks" in the suggested Technician and Supervisor roles. The permission itself is kept so existing roles still save, but nothing needs it.
+- Existing On Hold work orders are moved to Paused, keeping the hold reason as the pause reason.
+
+## Decisions
+- Seeing a work order is the existing site-scoped SEQUFLOH access.
+- FAI keeps its result, now labelled "Inspection result".
+- Stored hold time is kept in the database but not shown.
+
+## Still needed
+- Real tester sample exports, to confirm the column detection and pass values on actual files.

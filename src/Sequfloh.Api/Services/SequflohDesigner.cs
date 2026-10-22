@@ -89,19 +89,19 @@ public static class SequflohDesigner
     [
         S("repairIdentity", "Repair document identity", "Repair category:s:repair-categories", "Repair type:s:repair-types"),
         S("partIdentification", "Part identification", "Serial-number requirement:b", "Lot-number requirement:b", "Customer-return reference", "Repair-order reference"),
-        S("repairCondition", "Repair condition", "Reported problem:m", "Observed condition:m", "Failure description:m", "Defect location", "Defect category", "Initial inspection:m", "Visual-evidence references", "Disposition before repair"),
+        S("repairCondition", "Repair condition", "Reported problem:m", "Observed condition:m", "Failure description:m", "Defect location", "Defect category", "Initial inspection:m", "Visual-evidence references"),
         S("repairDescription", "Repair description", "Detailed description:m", "Repair objective:m", "Expected restored condition:m", "Limitations:m", "Prohibited actions:m"),
         S("safety", "Safety", "Hazards:m", "PPE", "Stored-energy precautions:m", "Electrical precautions:m", "Mechanical precautions:m", "Chemical precautions:m", "Handling requirements:m", "Contamination controls:m"),
         S("tools", "Tools and equipment", "Tools:m", "Fixtures", "Gauges", "Test equipment", "Equipment IDs", "Calibration requirements", "Consumables", "Approved chemicals", "Torque tools"),
         S("postRepair", "Post-repair", "Visual inspection:b", "Dimensional inspection:b", "Electrical test:b", "Mechanical test:b", "Functional test:b", "Leak test:b", "Load test:b", "Cycle test:b", "Final cleaning:b",
-            "Labeling:b", "Packaging:b", "Final disposition:s:repair-dispositions"),
+            "Labeling:b", "Packaging:b"),
         S("acceptance", "Acceptance", "Restored condition:m", "Inspection requirements:m", "Test requirements:m", "Allowable conditions:m", "Rejection conditions:m", "Rework rules:m", "Escalation requirements:m", "Nonconformance instructions:m"),
-        S("approval", "Completion", "Performed by", "Inspected by", "Dates", "Comments:m", "Repair disposition:s:repair-dispositions"),
+        S("approval", "Completion", "Performed by", "Inspected by", "Dates", "Comments:m"),
     ];
     static readonly List<DesignerField> RepairSteps = Cols("Operation step", "Title", "Detailed repair action:m", "Tools required", "Parts consumed", "Quantity consumed:n", "Specification", "Torque value", "Minimum:n", "Maximum:n", "Unit",
         "Visual checkpoint", "Quality checkpoint", "Expected result", "Evidence requirement", "Warning", "Technician result required:b", "Pass or fail required:b", "Notes");
     static readonly List<DesignerField> PartsRowColumns = Cols("Replacement part number", "Description", "Quantity:n", "Unit", "Required:b", "Approved alternate", "Lot number required:b", "Serial number required:b",
-        "Issued quantity:n", "Used quantity:n", "Returned quantity:n", "Scrap quantity:n");
+        "Issued quantity:n", "Used quantity:n", "Returned quantity:n");
 
     static IReadOnlyList<DesignerSection> Merge(IEnumerable<DesignerSection> specific, IEnumerable<DesignerSection>? common = null)
     {

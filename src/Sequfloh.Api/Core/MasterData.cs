@@ -9,6 +9,12 @@ public enum PartType { Component = 0, Assembly = 1, Material = 2, Subassembly = 
 
 public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
 {
+    /// <summary>Informational status from the admin-editable status list, for example "Quarantine hold (NetSuite)". Never blocks anything; official holds are in NetSuite.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(100)]
+    public string? StatusTag { get; set; }
+    /// <summary>Optional free-text note that goes with the status.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(300)]
+    public string? StatusNote { get; set; }
     public string PartNumber { get; set; } = "";
     public string Name { get; set; } = "";
     public string? Description { get; set; }

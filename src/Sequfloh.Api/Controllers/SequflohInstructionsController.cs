@@ -21,10 +21,12 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
     /// <summary>Folder listing. folder: validation | repair | all | current | drafts | released | superseded | obsolete | type key.</summary>
     [HttpGet]
     public async Task<object> List([FromQuery] string? folder, [FromQuery] string? q, [FromQuery] WorkInstructionStatus? status, [FromQuery] WorkInstructionType? type, [FromQuery] string? part,
-        [FromQuery] string? repairCategory, [FromQuery] string? repairType, [FromQuery] string? validationType, [FromQuery] string? resultStatus, [FromQuery] string? sort,
+        [FromQuery] string? repairCategory, [FromQuery] string? repairType, [FromQuery] string? validationType, [FromQuery] string? resultStatus, [FromQuery] string? sort, [FromQuery] string? tag,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var query = await wi.QueryAsync(ct);
+        if (tag == "none") query = query.Where(x => x.StatusTag == null);
+        else if (!string.IsNullOrWhiteSpace(tag)) query = query.Where(x => x.StatusTag == tag);
         WorkInstructionType[] validation = [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai];
         WorkInstructionType[] repair = [WorkInstructionType.RepairTest, WorkInstructionType.RepairWork];
         query = (folder ?? "all") switch
@@ -62,7 +64,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         };
         return await Paging.PageAsync(query.Select(x => new
         {
-            x.Id, x.Number, x.Title, x.Type, x.Revision, x.Status, x.PartId, x.PartNumber, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription, x.ResultStatus,
+            x.Id, x.Number, x.Title, x.Type, x.Revision, x.Status, x.StatusTag, x.StatusNote, x.PartId, x.PartNumber, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription, x.ResultStatus,
             x.EffectiveDate, x.UpdatedAt, x.Project, x.TargetCompletionDate, x.DevelopmentStatus, x.ReleasedAt,
             AssignedEngineer = db.Users.Where(u => u.Id == x.AssignedEngineerId).Select(u => u.DisplayName).FirstOrDefault(),
             Owner = db.Users.Where(u => u.Id == x.OwnerId).Select(u => u.DisplayName).FirstOrDefault(),
@@ -84,7 +86,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         {
             Instruction = new
             {
-                x.Id, x.FamilyId, x.Number, x.Type, x.Title, x.Revision, x.Status, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.PartId, x.PartNumber, x.PartDescription,
+                x.Id, x.FamilyId, x.Number, x.Type, x.Title, x.Revision, x.Status, x.StatusTag, x.StatusNote, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.PartId, x.PartNumber, x.PartDescription,
                 x.ProductFamily, x.Assembly, x.Model, x.Variant, x.Process, x.Operation, x.Workstation, x.Location, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription,
                 x.SourcePartsListId, x.ResultStatus, x.EffectiveDate, x.SupersededAt, x.ObsoleteAt, x.ReleasedAt, x.RevisionReason, x.CreatedAt, x.UpdatedAt, x.RowVersion,
                 x.AssignedEngineerId, x.TargetCompletionDate, x.Project, x.EngineeringNotes, x.DevelopmentStatus,

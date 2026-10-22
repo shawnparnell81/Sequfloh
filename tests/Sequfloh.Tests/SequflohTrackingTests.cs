@@ -155,7 +155,7 @@ public sealed class SequflohTrackingTests(TestApp app)
         var problems = (await Rec(tech, id)).GetProperty("completionProblems").EnumerateArray().Select(p => p.GetString()!).ToList();
         Assert.Contains(problems, p => p.Contains("outside the limits"));
         Assert.Contains(problems, p => p.Contains("needs an evidence reference"));
-        Assert.Contains(problems, p => p.Contains("final disposition"));
+        Assert.Contains(problems, p => p.Contains("inspection result"));
         Assert.Equal("Fail", (await Rec(tech, id)).GetProperty("record").Str("result"));
         Assert.Equal(HttpStatusCode.BadRequest, (await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), finalDisposition = "Not a disposition" })).StatusCode);
         await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), finalDisposition = "Accepted",
@@ -198,10 +198,9 @@ public sealed class SequflohTrackingTests(TestApp app)
         };
         Assert.Equal(HttpStatusCode.OK, (await Save(tech, id, r => Body(r, new[] { new { id = s, result = "Pass", acknowledged = true } }, new[] { new { id = p, issuedQuantity = 3, usedQuantity = 2 } }, null, null))).StatusCode);
         var problems = (await Rec(tech, id)).GetProperty("completionProblems").EnumerateArray().Select(x => x.GetString()!).ToList();
-        Assert.Contains(problems, x => x.Contains("must account for the issued quantity"));
         Assert.Contains(problems, x => x.Contains("lot number"));
         Assert.Contains(problems, x => x.Contains("repair test result"));
-        Assert.Contains(problems, x => x.Contains("final disposition"));
+        Assert.DoesNotContain(problems, x => x.Contains("disposition")); // disposition and scrap are handled in the ERP
         await Save(inspector, id, r => Body(r, new[] { new { id = s, result = "Pass" } }, new[] { new { id = p, issuedQuantity = 3, usedQuantity = 2, returnedQuantity = 1, lotNumber = "L-9" } },
             "Return to service", "Pass"));
         Assert.Empty((await Rec(tech, id)).GetProperty("completionProblems").EnumerateArray());
@@ -226,7 +225,7 @@ public sealed class SequflohTrackingTests(TestApp app)
             minBenchmarkMinutes = 15, maxBenchmarkMinutes = 40 })).Id();
         Assert.Equal("NotStarted", (await Rec(tech, id)).GetProperty("record").Str("status"));
         await Act(planner, id, "dispatch", new { assignedUserId = techId });
-        Assert.Equal(HttpStatusCode.Conflict, await ActStatus(tech2, id, "start")); // assigned to someone else
+        Assert.Contains((await Rec(tech2, id)).GetProperty("actions").EnumerateArray(), a => a.Str("action") == "start"); // anyone can work it, assigned or not
         var op = Guid.NewGuid();
         var first = await Act(tech, id, "start", op: op);
         var again = await PostEl(tech, $"{U}/{id}/actions/start", new { operationId = op, stateVersion = Ver(await Rec(tech, id)) - 1 });

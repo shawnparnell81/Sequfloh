@@ -14,7 +14,7 @@ namespace Sequfloh.Api.Controllers.Sequfloh;
 /// <summary>SEQUFLOH reports, Export Center, audit trail views and module search.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh")]
 public sealed class SequflohReportsController(AppDbContext db, ModuleSupport m, SequflohReportService reports, SequflohPrintService print, SequflohInstructionService instructions,
-    SequflohTrackingService tracking) : ControllerBase
+    SequflohTrackingService tracking, SequflohFoundationService f) : ControllerBase
 {
     static readonly Dictionary<string, string> AuditViews = new()
     {
@@ -93,6 +93,24 @@ public sealed class SequflohReportsController(AppDbContext db, ModuleSupport m, 
             nameof(SequflohPartsList) => $"/sequfloh/parts-lists/{a.EntityId}", _ => null,
         };
         return new { a.Id, a.OccurredAt, a.UserName, a.Action, a.EntityType, a.EntityId, a.Description, a.Reason, a.Changes, a.CorrelationId, Site = site, Path = path };
+    }
+
+    /// <summary>CSV export of one audit view and its filters (up to 50,000 events). The export itself is audited.</summary>
+    [HttpGet("audit/{view}/csv")] [RequirePermission(Permissions.SequflohViewAuditTrail)]
+    public async Task<IActionResult> AuditCsv(string view, [FromQuery] string? q, [FromQuery] Guid? user, [FromQuery] string? action, [FromQuery] string? entityType, [FromQuery] DateOnly? from,
+        [FromQuery] DateOnly? to, CancellationToken ct = default)
+    {
+        if (!AuditViews.TryGetValue(view, out var title)) throw new NotFoundException("Audit view");
+        var p = new SequflohReportFilter(q, null, null, entityType, user, from, to, action);
+        var rows = await (await reports.FilterAuditAsync(SequflohReportService.AuditView(await reports.AuditQueryAsync(ct), view), p, ct)).OrderByDescending(a => a.OccurredAt).Take(50000)
+            .Select(a => new { a.OccurredAt, a.UserName, a.Action, a.EntityType, a.EntityId, a.Description, a.Reason }).ToListAsync(ct);
+        static string C(string? v) { v ??= ""; if (v.Length > 0 && "=+-@".Contains(v[0])) v = "'" + v; return "\"" + v.Replace("\"", "\"\"") + "\""; }
+        var sb = new System.Text.StringBuilder("When (UTC),Who,What,Record type,Record id,Description,Reason\r\n");
+        foreach (var a in rows)
+            sb.Append(string.Join(",", C(a.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")), C(a.UserName), C(a.Action), C(a.EntityType), C(a.EntityId.ToString()), C(a.Description), C(a.Reason))).Append("\r\n");
+        f.Audit("AuditExported", "SequflohAudit", Guid.Empty, $"Exported the {title} audit view to CSV ({rows.Count} events)");
+        await db.SaveChangesAsync(ct);
+        return File(System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray(), "text/csv", $"sequfloh-audit-{view}.csv");
     }
 
     /// <summary>Printable audit record summary of one view and its filters, from the application's PDF renderer.</summary>
