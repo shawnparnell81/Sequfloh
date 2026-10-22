@@ -283,3 +283,21 @@ public static class PermissionText
         };
     }
 }
+
+/// <summary>Lets an administrator test the file bucket: saves a tiny file, reads it back and reports the provider's answer.</summary>
+[ApiController, Route("api/admin/storage-check")]
+public sealed class StorageCheckController(Sequfloh.Platform.IFileStorage storage, Sequfloh.Platform.StorageOptions options) : ControllerBase
+{
+    [HttpPost, RequirePermission(Permissions.AdminOrganization)]
+    public async Task<object> Check(CancellationToken ct)
+    {
+        var key = $"storage-check/{Guid.NewGuid():N}.txt";
+        try
+        {
+            await storage.PutAsync(key, new MemoryStream("ok"u8.ToArray()), "text/plain", ct);
+            await using var back = await storage.GetAsync(key, ct);
+            return new { Ok = back is not null, options.Provider, Message = back is null ? "The file was saved but could not be read back." : "File storage is working." };
+        }
+        catch (AppException e) { return new { Ok = false, options.Provider, e.Message }; }
+    }
+}

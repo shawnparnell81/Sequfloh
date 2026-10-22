@@ -107,7 +107,10 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             }
             default: working = original.ToArray(); workingExt = ext; workingType = ext == ".docx" ? DocxType : ext == ".xlsm" ? XlsmType : XlsxType; break;
         }
-        var summary = Summarize(kind, working, workingExt);
+        string summary;
+        try { summary = Summarize(kind, working, workingExt); }
+        catch (Exception e) when (e is not AppException and not OutOfMemoryException and not OperationCanceledException)
+        { throw new FileUnreadableException($"This file could not be read ({e.GetType().Name}: {e.Message}). Open it in Excel or Word, save it again, and try once more.", e); }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var f = new ImportedFile
@@ -225,7 +228,53 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var sh = wb.Sheet(grid.Sheet)!;
         var formulas = grid.Cells.Where(c => c.Formula is not null).Select(c => new { c.R, c.C, Classes = FormulaTranslator.Classify(c.Formula!, wb.HasMacros, out var warning), Warning = warning }).ToList();
         return new { Version = v.Version, grid.Sheet, grid.R1, grid.C1, grid.R2, grid.C2, grid.Widths, grid.Heights, grid.Cells, grid.Truncated, grid.Sheets,
-            sh.FreezeRows, sh.FreezeCols, Formulas = formulas };
+            sh.FreezeRows, sh.FreezeCols, Formulas = formulas, Conditional = Looks(bytes, null, sh, grid.R1, grid.C1, grid.R2, grid.C2) };
+    }
+
+    /// <summary>Colours from conditional formatting for the cells shown, worked out from the stored values or, with edits, from the values after those edits.</summary>
+    public static List<ConditionalLook> Looks(byte[] bytes, IEnumerable<CellEdit>? edits, XlSheet sh, int r1, int c1, int r2, int c2)
+    {
+        if (sh.Conditionals.Count == 0) return [];
+        try
+        {
+            using var wb = new XLWorkbook(new MemoryStream(bytes));
+            if (edits is not null) Write(wb, edits);
+            // files saved by other tools may carry no stored results, so work them out before reading values
+            wb.RecalculateAllFormulas();
+            return ConditionalStyles.Evaluate(wb, sh, r1, c1, r2, c2);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException and not AppException) { return []; }
+    }
+
+    /// <summary>
+    /// Shows what the sheet would look like with unsaved edits: recalculated formula results and conditional formatting colours. Nothing is stored.
+    /// </summary>
+    public async Task<object> PreviewAsync(Guid id, string sheet, IReadOnlyList<CellEdit> edits, CancellationToken ct)
+    {
+        var f = await LoadAsync(id, Permissions.SequflohViewImportedFiles, ct);
+        if (f.Kind != ImportedFileKind.Spreadsheet) throw new AppException("This imported file is a document.");
+        if (edits.Count > 5000) throw new AppException("Preview at most 5000 cells at a time.");
+        var (v, bytes) = await CurrentAsync(f, null, ct);
+        var data = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
+        var grid = WorkbookIntake.Grid(data, sheet, 500, 60);
+        var sh = data.Sheet(grid.Sheet)!;
+        using var wb = new XLWorkbook(new MemoryStream(bytes));
+        Write(wb, edits);
+        try { wb.RecalculateAllFormulas(); } catch (Exception e) when (e is not OutOfMemoryException) { return new { Values = Array.Empty<object>(), Conditional = new List<ConditionalLook>() }; }
+        var ws = wb.Worksheet(grid.Sheet);
+        var values = grid.Cells.Where(c => c.Formula is not null).Select(c => ws.Cell(c.R, c.C)).Concat(edits.Where(e => e.Sheet == grid.Sheet && (e.Value ?? "").StartsWith('=')).Select(e => ws.Cell(e.R, e.C)))
+            .DistinctBy(c => (c.Address.RowNumber, c.Address.ColumnNumber))
+            .Select(c => new { R = c.Address.RowNumber, C = c.Address.ColumnNumber, Value = SafeText(c) }).ToList();
+        List<ConditionalLook> looks;
+        try { looks = sh.Conditionals.Count == 0 ? [] : ConditionalStyles.Evaluate(wb, sh, grid.R1, grid.C1, grid.R2, grid.C2); }
+        catch (Exception e) when (e is not OutOfMemoryException) { looks = []; }
+        return new { Values = values, Conditional = looks };
+    }
+
+    static string SafeText(IXLCell c)
+    {
+        try { var v = c.Value; return v.IsBlank ? "" : v.IsNumber ? v.GetNumber().ToString("R", CultureInfo.InvariantCulture) : v.IsBoolean ? (v.GetBoolean() ? "TRUE" : "FALSE") : v.ToString(CultureInfo.InvariantCulture); }
+        catch (Exception e) when (e is not OutOfMemoryException) { return "#VALUE!"; }
     }
 
     public async Task<object> SaveCellsAsync(Guid id, int baseVersion, IReadOnlyList<CellEdit> edits, CancellationToken ct)
@@ -251,6 +300,18 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public static (byte[] Bytes, bool Recalculated) ApplyCells(byte[] workbook, IEnumerable<CellEdit> edits)
     {
         using var wb = new XLWorkbook(new MemoryStream(workbook));
+        Write(wb, edits);
+        var recalculated = true;
+        try { wb.RecalculateAllFormulas(); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { recalculated = false; }
+        if (!recalculated) wb.ForceFullCalculation = true;
+        var ms = new MemoryStream();
+        wb.SaveAs(ms, new SaveOptions { EvaluateFormulasBeforeSaving = true });
+        return (ms.ToArray(), recalculated);
+    }
+
+    static void Write(XLWorkbook wb, IEnumerable<CellEdit> edits)
+    {
         foreach (var e in edits)
         {
             if (!wb.TryGetWorksheet(e.Sheet, out var ws)) throw new AppException($"The workbook has no worksheet named '{e.Sheet}'.");
@@ -268,13 +329,6 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             }
             else cell.Value = v;
         }
-        var recalculated = true;
-        try { wb.RecalculateAllFormulas(); }
-        catch (Exception ex) when (ex is not OutOfMemoryException) { recalculated = false; }
-        if (!recalculated) wb.ForceFullCalculation = true;
-        var ms = new MemoryStream();
-        wb.SaveAs(ms, new SaveOptions { EvaluateFormulasBeforeSaving = true });
-        return (ms.ToArray(), recalculated);
     }
 
     async Task<object> SaveVersionAsync(ImportedFile f, ImportedFileVersion from, byte[] bytes, string description, string? notice, CancellationToken ct)
@@ -364,4 +418,10 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         f.IsArchived = true; f.ArchivedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
     }
+}
+
+/// <summary>The uploaded file could not be read; the message is shown to the user and the cause is kept for the log.</summary>
+public sealed class FileUnreadableException(string message, Exception inner) : AppException(message, 422)
+{
+    public Exception Cause { get; } = inner;
 }

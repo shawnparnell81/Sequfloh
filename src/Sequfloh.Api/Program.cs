@@ -22,6 +22,11 @@ using Sequfloh.Platform;
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
+// hosting platforms read the console; keep it on in every environment with UTC timestamps
+builder.Logging.ClearProviders();
+builder.Logging.AddSimpleConsole(o => { o.TimestampFormat = "yyyy-MM-dd HH:mm:ss 'UTC' "; o.UseUtcTimestamp = true; o.IncludeScopes = false; });
+builder.Logging.AddFilter("Sequfloh", LogLevel.Information);
+builder.Logging.AddFilter("Sequfloh.Api.Infrastructure.ErrorHandler", LogLevel.Information);
 
 // Hosting platforms pass settings as plain environment variables; map them onto the configuration keys the app reads.
 static void Map(IConfiguration c, Dictionary<string, string?> into, string env, string key) { if (c[env] is { Length: > 0 } v) into[key] = v; }
@@ -45,11 +50,12 @@ if (auth.JwtSecret.Length < 32)
         throw new InvalidOperationException("Set JWT_SECRET to a random value of at least 32 characters.");
     auth.JwtSecret = "local-development-only-signing-secret-0123456789";
 }
-var storage = cfg.GetSection("Storage").Get<StorageOptions>() ?? new StorageOptions();
+var storage = S3FileStorage.Clean(cfg.GetSection("Storage").Get<StorageOptions>() ?? new StorageOptions());
 
 builder.Services.AddSingleton(auth);
 builder.Services.AddSingleton(storage);
-builder.Services.AddSingleton<IFileStorage>(storage.Provider.Equals("s3", StringComparison.OrdinalIgnoreCase) ? new S3FileStorage(storage) : new LocalFileStorage(storage));
+builder.Services.AddSingleton<IFileStorage>(sp => storage.Provider.Equals("s3", StringComparison.OrdinalIgnoreCase)
+    ? new S3FileStorage(storage, sp.GetRequiredService<ILoggerFactory>().CreateLogger<S3FileStorage>()) : new LocalFileStorage(storage));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddSingleton<IClock, SystemClock>();

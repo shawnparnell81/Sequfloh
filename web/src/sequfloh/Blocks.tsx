@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
+import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { FilesPanel } from '../components/Files';
 import { Confirm, S, nul } from './common';
@@ -140,7 +141,8 @@ export function BlocksEditor({ blocks, onChange, disabled, ownerType, ownerId }:
       <Confirm open={remove !== null} title="Remove block" danger confirm="Remove" onClose={() => setRemove(null)}
         text={`Remove block ${remove !== null ? remove + 1 : ''} (${remove !== null && blocks[remove] ? kindLabel(blocks[remove].kind).toLowerCase() : ''})? The change is kept only when you save.`}
         onConfirm={async () => { if (remove !== null) onChange(blocks.filter((_, j) => j !== remove)); }} />
-      {ownerType && ownerId && <Box sx={{ mt: 2 }}><Typography variant="subtitle2" sx={{ mb: 1 }}>Files (pictures for image blocks)</Typography><FilesPanel type={ownerType} id={ownerId} canEdit={!disabled} /></Box>}
+      {ownerType && ownerId && <Box sx={{ mt: 2 }}><Typography variant="subtitle2" sx={{ mb: 1 }}>Files (pictures for image blocks)</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-testid="imported-files-hint">For Excel, Word or CSV forms, use <Link component={RouterLink} to="/sequfloh/imported-files">Imported Files</Link>.</Typography><FilesPanel type={ownerType} id={ownerId} canEdit={!disabled} /></Box>}
     </Paper>
   );
 }

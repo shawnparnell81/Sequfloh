@@ -14,6 +14,8 @@ public sealed class ErrorHandler(ILogger<ErrorHandler> log, IProblemDetailsServi
     // the database driver can wrap the cancellation (for example in a DbUpdateException)
     static bool Cancelled(Exception? ex) { for (; ex is not null; ex = ex.InnerException) if (ex is OperationCanceledException) return true; return false; }
 
+    static IEnumerable<Exception> Chain(Exception? e) { for (; e is not null; e = e.InnerException) yield return e; }
+
     public async ValueTask<bool> TryHandleAsync(HttpContext http, Exception ex, CancellationToken ct)
     {
         // The browser went away (page closed, request cancelled): not a server error, and there is no one left to send a body to.
@@ -29,7 +31,14 @@ public sealed class ErrorHandler(ILogger<ErrorHandler> log, IProblemDetailsServi
             DbUpdateConcurrencyException => (409, "This record was changed by someone else. Reload and try again.", null),
             _ => (500, "An unexpected error occurred.", (Dictionary<string, string[]>?)null)
         };
-        if (status == 500) log.LogError(ex, "Unhandled error");
+        if (status == 500)
+        {
+            var chain = string.Join(" <- ", Chain(ex).Select(e => $"{e.GetType().FullName}: {e.Message}"));
+            // the full text (types, messages, inner exceptions, stack) goes into the message itself so hosts that keep only one line per entry still show it
+            log.LogError("Unhandled error on {Method} {Path} (trace {TraceId}): {Chain}{NewLine}{Detail}", http.Request.Method, http.Request.Path, http.TraceIdentifier, chain, Environment.NewLine, ex.ToString());
+        }
+        else if (ex is Sequfloh.Imports.FileUnreadableException fu) log.LogWarning(fu.Cause, "Upload on {Path} could not be read (trace {TraceId})", http.Request.Path, http.TraceIdentifier);
+        else if (status >= 500) log.LogWarning("{Path} failed with {Status} (trace {TraceId}): {Message}", http.Request.Path, status, http.TraceIdentifier, ex.Message);
         http.Response.StatusCode = status;
         var pd = new ProblemDetails { Status = status, Title = title };
         pd.Extensions["traceId"] = http.TraceIdentifier;

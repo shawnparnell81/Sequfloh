@@ -4,7 +4,7 @@ import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogT
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api, get, put } from '../api';
+import { ApiError, api, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
@@ -142,7 +142,9 @@ interface CellStyle { font?: string; size?: number; bold?: boolean; italic?: boo
   borderTop?: string; borderRight?: string; borderBottom?: string; borderLeft?: string; borderColour?: string; numberFormat?: string }
 interface GridCell { r: number; c: number; text?: string | null; formula?: string | null; cached?: string | null; validation: boolean; name?: string | null; rowSpan: number; colSpan: number; style?: CellStyle | null; locked: boolean; comment?: string | null }
 interface Sheet { version: number; sheet: string; r1: number; c1: number; r2: number; c2: number; widths: number[]; heights: number[]; cells: GridCell[]; truncated: boolean; sheets: string[];
-  freezeRows: number; freezeCols: number; formulas: { r: number; c: number; classes: string[]; warning?: string }[] }
+  freezeRows: number; freezeCols: number; formulas: { r: number; c: number; classes: string[]; warning?: string }[]; conditional?: Look[] }
+interface Look { r: number; c: number; fill?: string | null; colour?: string | null; bold: boolean }
+interface Preview { values: { r: number; c: number; value: string }[]; conditional: Look[] }
 
 const letters = (n: number) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
 const key = (r: number, c: number) => `${r}:${c}`;
@@ -196,6 +198,18 @@ function SheetEditor({ file, version, editable, onSaved }: { file: Detail; versi
   const fInfo = useMemo(() => new Map((g?.formulas ?? []).map((f) => [key(f.r, f.c), f])), [g]);
   const name = g?.sheet ?? '';
   const pend = edits[name] ?? {};
+  const allEdits = useMemo(() => Object.entries(edits).flatMap(([s, m]) => Object.entries(m).map(([k, value]) => { const [r, c] = k.split(':').map(Number); return { sheet: s, r, c, value }; })), [edits]);
+  // with unsaved edits, ask the server for the recalculated results and conditional colours without saving anything
+  const [preview, setPreview] = useState<{ sheet: string; data: Preview } | null>(null);
+  useEffect(() => {
+    if (!allEdits.length || !name) { setPreview(null); return; }
+    let live = true;
+    const t = setTimeout(() => { post<Preview>(`${A}/${file.id}/preview`, { sheet: name, edits: allEdits }).then((d) => { if (live) setPreview({ sheet: name, data: d }); }).catch(() => { if (live) setPreview(null); }); }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [allEdits, name, file.id]);
+  const pv = preview?.sheet === name ? preview.data : null;
+  const looks = useMemo(() => new Map((pv?.conditional ?? g?.conditional ?? []).map((l) => [key(l.r, l.c), l])), [pv, g]);
+  const pvValues = useMemo(() => new Map((pv?.values ?? []).map((v) => [key(v.r, v.c), v.value])), [pv]);
   const raw = (r: number, c: number) => { const p = pend[key(r, c)]; if (p !== undefined) return p; const x = cells.get(key(r, c)); return x?.formula ?? x?.text ?? ''; };
   const select = (r: number, c: number) => { setSel({ r, c }); setBar(raw(r, c)); };
   const commit = (r: number, c: number, value: string) => {
@@ -230,14 +244,18 @@ function SheetEditor({ file, version, editable, onSaved }: { file: Detail; versi
       const x = cells.get(k);
       const p = pend[k];
       const isSel = sel?.r === r && sel?.c === c;
-      const value = p !== undefined ? p : showFormulas && x?.formula ? x.formula : formatted(x?.text, x?.style?.numberFormat);
+      const live = pvValues.get(k);
+      const value = p !== undefined ? (p.startsWith('=') && !showFormulas && live !== undefined ? formatted(live, x?.style?.numberFormat) : p)
+        : showFormulas && x?.formula ? x.formula : formatted(live ?? x?.text, x?.style?.numberFormat);
+      const look = looks.get(k);
       const isFormula = !!(p !== undefined ? p.startsWith('=') : x?.formula);
       const info = fInfo.get(k);
-      tds.push(<td key={k} rowSpan={x?.rowSpan ?? 1} colSpan={x?.colSpan ?? 1} data-cell={`${letters(c)}${r}`} data-formula={x?.formula ?? undefined}
+      tds.push(<td key={k} rowSpan={x?.rowSpan ?? 1} colSpan={x?.colSpan ?? 1} data-cell={`${letters(c)}${r}`} data-formula={x?.formula ?? undefined} data-fill={look?.fill ?? undefined}
         onClick={() => select(r, c)} onDoubleClick={() => { if (editable) { select(r, c); setEditing(k); } }}
         title={info?.warning ?? (x?.formula ? `${x.formula}` : x?.comment ?? undefined)}
         style={{ ...baseCell, ...cellCss(x?.style), height: pt(g.heights[r - g.r1] ?? 15), outline: isSel ? '2px solid #1257C4' : undefined, outlineOffset: -2,
-          background: p !== undefined ? '#FFF6D6' : x?.style?.fill ?? '#fff', position: 'relative', fontFamily: showFormulas && isFormula ? faces.mono : cellCss(x?.style).fontFamily }}>
+          ...(look?.colour ? { color: look.colour } : {}), ...(look?.bold ? { fontWeight: 700 } : {}),
+          background: p !== undefined ? '#FFF6D6' : look?.fill ?? x?.style?.fill ?? '#fff', position: 'relative', fontFamily: showFormulas && isFormula ? faces.mono : cellCss(x?.style).fontFamily }}>
         {editing === k
           ? <input ref={inputRef} defaultValue={raw(r, c)} aria-label={`Edit ${letters(c)}${r}`} style={{ width: '100%', border: 0, outline: 0, font: 'inherit', background: 'transparent', padding: 0 }}
               onBlur={(e) => { commit(r, c, e.currentTarget.value); setEditing(null); }}
@@ -263,7 +281,7 @@ function SheetEditor({ file, version, editable, onSaved }: { file: Detail; versi
           {pendingCount > 0 && <Button onClick={() => setEdits({})} disabled={busy}>Discard</Button>}
         </Stack>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5, ml: 1, minHeight: 20 }}>
-          {selCell?.formula ? <>Result: <b>{formatted(selCell.cached, selCell.style?.numberFormat)}</b>{selInfo?.warning ? ` · ${selInfo.warning}` : ' · recalculated when the file is saved'}</> : sel && editable ? 'Double-click a cell or type in the bar above. Start with = for a formula.' : ''}</Typography>
+          {selCell?.formula ? <>Result: <b>{formatted(selCell.cached, selCell.style?.numberFormat)}</b>{selInfo?.warning ? ` · ${selInfo.warning}` : ' · updates as you edit; saved when you save'}</> : sel && editable ? 'Double-click a cell or type in the bar above. Start with = for a formula.' : ''}</Typography>
       </Paper>
       <Paper variant="outlined" sx={{ overflow: 'auto', maxHeight: 'calc(100vh - 330px)', minHeight: 300 }}>
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }} data-testid="sheet-grid">

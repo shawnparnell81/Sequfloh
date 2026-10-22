@@ -374,7 +374,8 @@ public static class WorkbookReader
                 if (tint != 0) col = Tint(col, tint);
             }
             else col = c.Color;
-            if (col.A == 0 && c.ColorType != XLColorType.Theme) return fallback;
+            // Excel ignores the alpha byte of an ARGB colour; some tools write 00 there for opaque colours
+            if (col.A == 0 && (c.ColorType != XLColorType.Color || col.IsNamedColor)) return fallback;
             return $"#{col.R:X2}{col.G:X2}{col.B:X2}";
         }
         catch (Exception) { return fallback; }
