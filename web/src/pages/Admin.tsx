@@ -240,10 +240,18 @@ export function SitesPage() {
   const [error, setError] = useState<string | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ['sites'] });
   const run = async (fn: () => Promise<unknown>) => { setError(null); try { await fn(); refresh(); } catch (e) { setError((e as Error).message); } };
+  const [storage, setStorage] = useState<{ ok: boolean; message: string } | null>(null);
   return (
     <ModuleWorkspace crumbs={crumbsFor('Sites and Departments')} title="Sites and Departments">
       {!can('admin.organization') ? <Denied what="sites" /> : <>
         <ErrorLine error={error} />
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Stack direction="row" alignItems="center" gap={2}>
+            <Typography variant="h3">File storage</Typography>
+            <Button size="small" variant="outlined" data-testid="storage-check" onClick={async () => { setStorage(null); try { setStorage(await post<{ ok: boolean; message: string }>('/api/admin/storage-check')); } catch (e) { setStorage({ ok: false, message: (e as Error).message }); } }}>Test file storage</Button>
+          </Stack>
+          {storage && <Alert severity={storage.ok ? 'success' : 'error'} sx={{ mt: 1.5 }}>{storage.message}</Alert>}
+        </Paper>
         <Paper sx={{ p: 2, mb: 2 }}>
           <Typography variant="h3" sx={{ mb: 1.5 }}>Add a site</Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}>
