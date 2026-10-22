@@ -14,11 +14,11 @@ export type BlockKind = 'text' | 'image' | 'table' | 'step' | 'caution' | 'check
 export interface Block {
   id?: string; kind: BlockKind; title?: string; body?: string; caption?: string; alt?: string; attachmentId?: string;
   columns?: string[]; rows?: string[][]; operation?: string; tools?: string; expected?: string; level?: 'note' | 'caution' | 'warning';
-  label?: string; check?: 'check' | 'signoff'; signer?: string; required?: boolean;
+  label?: string; check?: 'check'; signer?: string; required?: boolean;
 }
 export interface InstructionTemplate { id: string; name: string; description?: string | null; type?: string | null; isActive: boolean; ownerId: string; rowVersion: number; blocks: Block[] }
 
-export const blockKinds: [BlockKind, string][] = [['text', 'Text'], ['image', 'Image or visual aid'], ['table', 'Table'], ['step', 'Step'], ['caution', 'Caution or warning'], ['check', 'Check or sign-off']];
+export const blockKinds: [BlockKind, string][] = [['text', 'Text'], ['image', 'Image or visual aid'], ['table', 'Table'], ['step', 'Step'], ['caution', 'Caution or warning'], ['check', 'Check']];
 const kindLabel = (k: BlockKind) => blockKinds.find(([x]) => x === k)?.[1] ?? k;
 
 const nextOperation = (blocks: Block[]) => {
@@ -67,9 +67,7 @@ function BlockFields({ block, set, disabled, images }: { block: Block; set: (b: 
     case 'step': return <>{f('operation', 'Operation number', { required: true, width: 140 })}{f('title', 'Step title', { required: true })}{f('body', 'Instructions', { multiline: true })}{f('tools', 'Tools and materials')}{f('expected', 'Expected result')}</>;
     case 'check': return <>
       {f('label', 'What is checked', { required: true })}
-      <TextField select size="small" label="Type" value={block.check ?? 'check'} disabled={disabled} sx={{ width: 160 }} onChange={(e) => set({ ...block, check: e.target.value as Block['check'] })}>
-        <MenuItem value="check">Check</MenuItem><MenuItem value="signoff">Sign-off</MenuItem></TextField>
-      {f('signer', 'Signed by (for example Inspector)')}
+      {f('signer', 'Checked by (for example Inspector)')}
       <FormControlLabel control={<Checkbox checked={!!block.required} disabled={disabled} onChange={(e) => set({ ...block, required: e.target.checked })} />} label="Required" /></>;
     case 'image': {
       const pics = images.filter((x) => !x.isArchived && x.contentType.startsWith('image/'));
@@ -121,7 +119,7 @@ export function BlocksEditor({ blocks, onChange, disabled, ownerType, ownerId }:
           </Menu></>}
       </Stack>
       {problems.length > 0 && <Alert severity="warning" sx={{ mb: 1.5 }}><Box component="ul" sx={{ m: 0, pl: 2 }}>{problems.map((p) => <li key={p}>{p}</li>)}</Box></Alert>}
-      {blocks.length === 0 && <Typography variant="body2" color="text.secondary">No blocks yet. Add text, pictures, tables, numbered steps, cautions and sign-offs in the order they appear on the page, or start from a template.</Typography>}
+      {blocks.length === 0 && <Typography variant="body2" color="text.secondary">No blocks yet. Add text, pictures, tables, numbered steps, cautions and checks in the order they appear on the page, or start from a template.</Typography>}
       <Stack gap={1.5}>
         {blocks.map((b, i) => (
           <Paper key={b.id ?? `new-${i}`} variant="outlined" component="section" aria-label={`Block ${i + 1}: ${kindLabel(b.kind)}`}
@@ -235,7 +233,7 @@ export function LayoutTemplates({ typeLabels }: { typeLabels: Record<string, str
         <Typography variant="h3">Layout templates</Typography>
         {can('sequfloh.create_work_instruction') && <Button size="small" variant="outlined" onClick={() => setEdit({ name: '', description: '', type: null, blocks: [] })}>New layout template</Button>}
       </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Reusable page layouts made of text, pictures, tables, numbered steps, cautions and sign-offs. Pick one when you create an instruction, or use Save as template on an instruction's Layout tab.</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Reusable page layouts made of text, pictures, tables, numbered steps, cautions and checks. Pick one when you create an instruction, or use Save as template on an instruction's Layout tab.</Typography>
       {err && !edit && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
       {q.isLoading ? <Typography variant="body2">Loading…</Typography> : !(q.data ?? []).length ? <Typography variant="body2" color="text.secondary">No layout templates yet.</Typography> :
         <Stack gap={1}>{(q.data ?? []).map((t) => (

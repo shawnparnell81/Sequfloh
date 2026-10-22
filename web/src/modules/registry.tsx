@@ -31,7 +31,6 @@ export const sequfloh: ModuleDef = {
         { label: 'Open Activities', path: '/sequfloh/tracking/open' },
         { label: 'Completed Activities', path: '/sequfloh/tracking/completed' },
         { label: 'On-Hold Activities', path: '/sequfloh/tracking/on-hold' },
-        { label: 'Rejected Activities', path: '/sequfloh/tracking/rejected' },
       ] },
       { label: 'Work Instructions', path: '/sequfloh/instructions/all', children: [
         { label: 'All Work Instructions', path: '/sequfloh/instructions/all' },
@@ -40,8 +39,6 @@ export const sequfloh: ModuleDef = {
         { label: 'Repair Test Instructions', path: '/sequfloh/instructions/repair-test' },
         { label: 'Repair Work Instructions', path: '/sequfloh/instructions/repair' },
         { label: 'Draft Instructions', path: '/sequfloh/instructions/draft' },
-        { label: 'Instructions Pending Review', path: '/sequfloh/instructions/pending-review' },
-        { label: 'Instructions Pending Approval', path: '/sequfloh/instructions/pending-approval' },
         { label: 'Released Instructions', path: '/sequfloh/instructions/released' },
         { label: 'Obsolete Instructions', path: '/sequfloh/instructions/obsolete' },
         { label: 'Templates', path: '/sequfloh/instructions/templates' },
@@ -58,13 +55,11 @@ export const sequfloh: ModuleDef = {
         { label: 'Quality Dashboard', path: '/sequfloh/quality' },
         { label: 'Validation Work Instructions', path: '/sequfloh/quality/validation' },
         { label: 'Repair Work Instructions', path: '/sequfloh/quality/repair' },
-        { label: 'Quality Review Queue', path: '/sequfloh/quality/review-queue' },
       ] },
       { label: 'Engineering Personnel', path: '/sequfloh/engineering', permission: 'sequfloh.view_engineering_folder', children: [
         { label: 'Engineering Dashboard', path: '/sequfloh/engineering' },
         { label: 'Validation', path: '/sequfloh/engineering/validation' },
         { label: 'Development', path: '/sequfloh/engineering/development' },
-        { label: 'Engineering Review Queue', path: '/sequfloh/engineering/review-queue' },
       ] },
       { label: 'Reports', path: '/sequfloh/reports/task-performance', permission: 'sequfloh.view_reports', children: [
         { label: 'Task Performance', path: '/sequfloh/reports/task-performance' },

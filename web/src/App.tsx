@@ -33,11 +33,9 @@ const SqfTr = lazy(() => import('./sequfloh/Tracking').then((m) => ({ default: m
 const SqfQDash = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.QualityDashboardPage })));
 const SqfQVal = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.QualityValidationPage })));
 const SqfQRep = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.QualityRepairPage })));
-const SqfQQueue = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: () => <m.ReviewQueuePage area="quality" /> })));
 const SqfEDash = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.EngineeringDashboardPage })));
 const SqfEVal = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.EngineeringValidationPage })));
 const SqfEDev = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.DevelopmentPage })));
-const SqfEQueue = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: () => <m.ReviewQueuePage area="engineering" /> })));
 const SqfReport = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ReportPage })));
 const SqfExportCenter = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ExportCenterPage })));
 const SqfAudit = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.AuditPage })));
@@ -134,11 +132,9 @@ export function App() {
         <Route path="/sequfloh/quality" element={<SqfQDash />} />
         <Route path="/sequfloh/quality/validation" element={<SqfQVal />} />
         <Route path="/sequfloh/quality/repair" element={<SqfQRep />} />
-        <Route path="/sequfloh/quality/review-queue" element={<SqfQQueue />} />
         <Route path="/sequfloh/engineering" element={<SqfEDash />} />
         <Route path="/sequfloh/engineering/validation" element={<SqfEVal />} />
         <Route path="/sequfloh/engineering/development" element={<SqfEDev />} />
-        <Route path="/sequfloh/engineering/review-queue" element={<SqfEQueue />} />
         <Route path="/sequfloh/execution/history" element={<SqfExHistory />} />
         <Route path="/sequfloh/execution/:view" element={<SqfExQueue />} />
         <Route path="*" element={<Navigate to="/sequfloh" replace />} />

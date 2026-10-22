@@ -7,12 +7,11 @@ import { useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Filters, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, qs, useOptions, words, type Col } from './common';
 import { LiveClock, TaskActionDialog, newOpId, trackingStatuses, trackingTypes, type TrAction, type TrRow } from './Tracking';
-import { SimpleTable } from './Parts';
 import { ProblemList } from './Designer';
 
 type J = Record<string, unknown>;
 export interface ExRow extends TrRow { actions: TrAction[]; pauseReason?: string; holdReason?: string; pausedAt?: string; completedBy?: string; activeOperator?: string; overdueSeconds: number;
-  durationSeconds: number; varianceReason?: string; failureReason?: string; rejectionReason?: string; cancelReason?: string; updatedAt?: string }
+  durationSeconds: number; varianceReason?: string; failureReason?: string; cancelReason?: string; updatedAt?: string }
 const exCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Live Execution', to: '/sequfloh/execution/dispatch' }, { label }];
 const s = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 
@@ -22,7 +21,7 @@ const views: Record<string, { api: string; title: string; description: string; a
     actions: ['dispatch', 'assign', 'reassign', 'start', 'hold', 'cancel'], empty: 'No tasks are waiting to start.' },
   paused: { api: 'paused', title: 'Paused Tasks', description: 'Paused tasks with the pause reason, when they were paused and the accumulated paused time. Timing continues from the stored values on resume.',
     actions: ['resume', 'reassign', 'hold', 'cancel'], empty: 'No tasks are paused.' },
-  completed: { api: 'finished', title: 'Completed Tasks', description: 'Completed, failed, rejected and canceled tasks with result, duration, variance and who finished them.',
+  completed: { api: 'finished', title: 'Completed Tasks', description: 'Completed, failed and canceled tasks with result, duration, variance and who finished them.',
     actions: ['restart', 'reverse-result'], empty: 'No finished tasks yet.' },
   mine: { api: 'mine', title: 'My Assigned Work', description: 'Open tasks assigned to you. Filter by status, priority and due date.',
     actions: ['start', 'resume', 'pause'], empty: 'Nothing is assigned to you right now.' },
@@ -62,7 +61,7 @@ export function ExecutionQueuePage() {
   const row = useRowAction();
   const userOpts: [string, string][] = (users.data ?? []).map((u) => [u.id, u.displayName]);
   const depts: [string, string][] = (sites.data ?? []).filter((x) => !v('site') || x.id === v('site')).flatMap((x) => x.departments.map((d) => [d.id, `${x.code} · ${d.name}`] as [string, string]));
-  const statusOpts = { dispatch: ['NotStarted', 'Assigned'], paused: ['Paused'], completed: ['Completed', 'Failed', 'Rejected', 'Canceled'] }[view] ?? trackingStatuses.filter((x) => !['Completed', 'Failed', 'Rejected', 'Canceled'].includes(x));
+  const statusOpts = { dispatch: ['NotStarted', 'Assigned'], paused: ['Paused'], completed: ['Completed', 'Failed', 'Canceled'] }[view] ?? trackingStatuses.filter((x) => !['Completed', 'Failed', 'Canceled'].includes(x));
   const filters: { key: string; label: string; options: [string, string][] }[] = [
     ...(statusOpts.length > 1 ? [{ key: 'status', label: 'Status', options: statusOpts.map((x) => [x, words(x)] as [string, string]) }] : []),
     { key: 'type', label: 'Type', options: Object.entries(trackingTypes) as [string, string][] },
@@ -92,7 +91,7 @@ export function ExecutionQueuePage() {
     { key: 'duration', label: 'Duration (active)', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> },
     { key: 'variance', label: 'Variance', render: (r) => (r.varianceMinutes != null ? `${r.varianceMinutes} min` : '—') },
     { key: 'actualCompletion', label: 'Finished', sort: true, render: (r) => `${fmtDateTime(r.actualCompletion)}${r.completedBy ? ' · ' + r.completedBy : ''}` },
-    { key: 'reason', label: 'Reason', render: (r) => r.failureReason ?? r.rejectionReason ?? r.cancelReason ?? '—' }, ...tail]
+    { key: 'reason', label: 'Reason', render: (r) => r.failureReason ?? r.cancelReason ?? '—' }, ...tail]
     : view === 'overdue' ? [...base,
     { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
     { key: 'assignedUser', label: 'Assigned', render: (r) => r.assignedUser ?? '—' },
@@ -124,7 +123,7 @@ export function ExecutionQueuePage() {
 
 // ------------------------------------------------------------------ active station
 interface StationResponse { record: J & { id: string; number: string; type: string; status: string; stateVersion: number; elapsedSeconds: number; pausedSeconds: number; holdSeconds: number;
-  steps: J[]; characteristics: J[]; signoffs: J[]; details: Record<string, string>; assignedUserId?: string; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number };
+  steps: J[]; characteristics: J[]; details: Record<string, string>; assignedUserId?: string; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number };
   actions: TrAction[]; completionProblems: string[]; nextAction: string; canEnter: boolean; canPlan: boolean }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
 const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'nonconformanceReferences', 'reportedCondition', 'observedCondition', 'finalDisposition', 'varianceReason', 'result',
@@ -165,12 +164,6 @@ export function ActiveStationPage() {
     if (dirty) { if (!(await save(true))) throw new Error('Save your entries first.'); version = (await get<StationResponse>(`${S}/tracking/${selected}`)).record.stateVersion; }
     await post(`${S}/tracking/${selected}/actions/${a.action}`, { ...input, stateVersion: version });
     await refresh(); setMsg({ sev: 'success', text: `${a.label}: done.` });
-  };
-  const sign = async (role: string) => {
-    if (dirty && !(await save(true))) return;
-    setBusy(true); setMsg(null);
-    try { const version = (await get<StationResponse>(`${S}/tracking/${selected}`)).record.stateVersion; await post(`${S}/tracking/${selected}/signoffs`, { operationId: newOpId(), stateVersion: version, role }); await refresh(); setMsg({ sev: 'success', text: `${role} signoff captured.` }); }
-    catch (e) { setMsg({ sev: 'error', text: (e as Error).message }); } finally { setBusy(false); }
   };
   const pick = (id: string) => { if (dirty && !window.confirm('Discard unsaved changes?')) return; setDirty(false); setMsg(null); const n = new URLSearchParams(sp); n.set('task', id); setSp(n, { replace: true }); };
   const f = (k: string, label: string, disabled: boolean, multiline = true) => <TextField size="small" label={label} value={form[k] ?? ''} disabled={disabled} multiline={multiline} minRows={multiline ? 2 : undefined}
@@ -221,11 +214,11 @@ export function ActiveStationPage() {
                 <Alert severity="info" sx={{ mt: 2 }} icon={false} aria-label="Next required action"><strong>Next required action:</strong> {d.nextAction}</Alert>
                 <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 2 }}>
                   {d.canEnter && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save</Button>}
-                  {d.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'reject', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
+                  {d.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
                   <Button component={RouterLink} to={`/sequfloh/record/${r.id}`}>Open full record</Button>
                 </Stack>
               </Paper>
-              {['InProgress', 'PendingInspection'].includes(r.status) && <ProblemList title="Before this task can be completed or submitted:" problems={d.completionProblems} />}
+              {r.status === 'InProgress' && <ProblemList title="Before this task can be completed:" problems={d.completionProblems} />}
               <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Quality checkpoints">
                 <Typography variant="h3" sx={{ mb: 1 }}>Quality checkpoints</Typography>
                 {checkpoints.length ? <ul style={{ margin: 0 }}>{checkpoints.map((c) => <li key={c}><Typography variant="body2">{c}</Typography></li>)}</ul>
@@ -234,7 +227,7 @@ export function ActiveStationPage() {
               </Paper>
               <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Result entry">
                 <Typography variant="h3" sx={{ mb: 1.5 }}>Result entry</Typography>
-                {!d.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Results are entered while the task is in progress or pending inspection.</Typography>}
+                {!d.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Results are entered while the task is in progress.</Typography>}
                 <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '1fr 1fr' } }}>
                   {r.type === 'Production' ? <TextField select size="small" label="Result" value={form.result ?? ''} disabled={!enter} onChange={(e) => { setForm({ ...form, result: e.target.value }); setDirty(true); }}>
                     {['Pending', 'Pass', 'Fail', 'Conditional'].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
@@ -243,12 +236,6 @@ export function ActiveStationPage() {
                   {f('evidenceReferences', 'Evidence references', !enter)}
                   {f('technicianComments', 'Technician comments', !enter)}
                 </Box>
-              </Paper>
-              <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Required signoffs">
-                <Typography variant="h3" sx={{ mb: 1.5 }}>Required signoffs</Typography>
-                {r.signoffs.length === 0 ? <Typography variant="body2" color="text.secondary">No signoffs are required for this task.</Typography> :
-                  <SimpleTable head={['Role', 'Signed by', 'When', '']} rows={r.signoffs.map((x) => [s(x.role), s(x.userName) || '—', fmtDateTime(s(x.signedAt)),
-                    !x.userId && ['InProgress', 'PendingInspection'].includes(r.status) ? <Button size="small" variant="outlined" disabled={busy} onClick={() => sign(s(x.role))}>Sign as {s(x.role).toLowerCase()}</Button> : ''])} />}
               </Paper>
             </Stack>}
           </Box>
@@ -261,8 +248,8 @@ export function ActiveStationPage() {
 // ------------------------------------------------------------------ work history
 interface EvRow { id: string; trackingRecordId: string; trackingNumber: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string;
   activeSeconds: number; pausedSeconds: number; holdSeconds: number; operationId: string; type: string; assignedBefore?: string; assignedAfter?: string }
-const eventTypes = ['Created', 'Dispatch', 'Assignment', 'Start', 'Pause', 'Resume', 'Hold', 'Restart', 'Completion', 'Failure', 'Rejection', 'Reassignment', 'Cancellation', 'InspectionSubmission',
-  'ReviewSubmission', 'Approval', 'ResultReversal', 'AdministrativeOverride', 'RecordUpdate', 'Signoff'];
+const eventTypes = ['Created', 'Dispatch', 'Assignment', 'Start', 'Pause', 'Resume', 'Hold', 'Restart', 'Completion', 'Failure', 'Reassignment', 'Cancellation',
+  'AdministrativeOverride', 'RecordUpdate'];
 
 export function WorkHistoryPage() {
   const nav = useNavigate();

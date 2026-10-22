@@ -22,36 +22,28 @@ const sections: Record<string, { title: string; description: string; fields: Fie
     { key: 'defaultLandingPage', label: 'Default landing page', type: 'select', options: ['/sequfloh', '/sequfloh/execution/active', '/sequfloh/execution/mine', '/sequfloh/instructions/all', '/sequfloh/tracking/open'] },
     { key: 'recordsPerPage', label: 'Records per page', type: 'number' }, { key: 'defaultSiteId', label: 'Default site', type: 'site' }, { key: 'defaultDepartmentId', label: 'Default department', type: 'department' },
     { key: 'recentItemsLimit', label: 'Recent-items limit', type: 'number' }, { key: 'favoritesEnabled', label: 'Favorites enabled', type: 'bool' }] },
-  workInstructions: { title: 'Work Instruction Settings', description: 'Reviews, approvals, effective dates, revision and training requirements, retention, print footer and approval statement.', lists: ['work-instruction-types', 'lifecycle-statuses', 'approval-action-types', 'document-types'], fields: [
-    { key: 'qualityReviewRequired', label: 'Quality review required', type: 'bool' }, { key: 'engineeringReviewRequired', label: 'Engineering review required', type: 'bool' },
-    { key: 'approvalRequired', label: 'Approval required before release', type: 'bool' }, { key: 'preventSelfApproval', label: 'Author cannot approve own instruction', type: 'bool' },
-    { key: 'requiredReviewPermissions', label: 'Required review permissions', type: 'permissions', helper: 'Reviewers must hold these permissions (roles are never hardcoded).' },
+  workInstructions: { title: 'Work Instruction Settings', description: 'Effective dates, revision and training requirements, retention and print footer. Who may release is set by permissions in Module Access.', lists: ['work-instruction-types', 'lifecycle-statuses', 'lifecycle-actions', 'document-types'], fields: [
     { key: 'effectiveDateRequired', label: 'Effective date required for release', type: 'bool' }, { key: 'revisionReasonRequired', label: 'Reason required for a new revision', type: 'bool' },
     { key: 'trainingAcknowledgementRequired', label: 'Training acknowledgement required', type: 'bool' }, { key: 'obsoleteRetentionYears', label: 'Obsolete-document retention (years)', type: 'number' },
-    { key: 'printFooter', label: 'Print footer', type: 'multiline' }, { key: 'approvalStatement', label: 'Approval statement', type: 'multiline' }] },
-  tracking: { title: 'Tracking Settings', description: 'Variance thresholds, default benchmark times, overdue thresholds and required signoffs.', lists: ['activity-statuses', 'priorities', 'hold-reasons', 'rejection-reasons', 'cancellation-reasons'], fields: [
+    { key: 'printFooter', label: 'Print footer', type: 'multiline' }] },
+  tracking: { title: 'Tracking Settings', description: 'Variance thresholds, default benchmark times, and overdue thresholds.', lists: ['activity-statuses', 'priorities', 'hold-reasons', 'cancellation-reasons'], fields: [
     { key: 'varianceWarningPercent', label: 'Variance warning threshold (%)', type: 'number' }, { key: 'varianceCriticalPercent', label: 'Variance critical threshold (%)', type: 'number' },
     { key: 'defaultMinimumMinutes', label: 'Default minimum time (minutes)', type: 'number' }, { key: 'defaultMaximumMinutes', label: 'Default maximum time (minutes)', type: 'number' },
     { key: 'overdueThresholdHours', label: 'Overdue threshold (hours after due date)', type: 'number' }, { key: 'approachingDueHours', label: 'Approaching due date warning (hours)', type: 'number' },
-    { key: 'technicianSignoffRequired', label: 'Technician signoff required', type: 'bool' }, { key: 'inspectorSignoffRequired', label: 'Inspector signoff required', type: 'bool' },
     { key: 'varianceReasonRequired', label: 'Variance reason required outside the benchmark range', type: 'bool' }] },
-  validation: { title: 'Validation Settings', description: 'Evidence, review and approval requirements for validation records.', lists: ['validation-types', 'validation-results', 'activity-statuses'], fields: [
-    { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' }, { key: 'qualityReviewRequired', label: 'Quality review required', type: 'bool' },
-    { key: 'engineeringReviewRequired', label: 'Engineering review required', type: 'bool' }, { key: 'approvalRequired', label: 'Approval required', type: 'bool' }] },
-  fai: { title: 'FAI Settings', description: 'Approval requirements for FAI records.', lists: ['fai-types', 'inspection-results', 'characteristic-results', 'rejection-reasons'], fields: [
-    { key: 'qualityApprovalRequired', label: 'Quality approval required', type: 'bool' }, { key: 'engineeringApprovalRequired', label: 'Engineering approval required', type: 'bool' },
+  validation: { title: 'Validation Settings', description: 'Evidence requirements for validation records.', lists: ['validation-types', 'validation-results', 'activity-statuses'], fields: [
+    { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' }] },
+  fai: { title: 'FAI Settings', description: 'Evidence requirements for FAI records.', lists: ['fai-types', 'inspection-results', 'characteristic-results'], fields: [
     { key: 'evidenceRequiredForFailures', label: 'Evidence required for failed characteristics', type: 'bool' }] },
-  repair: { title: 'Repair Settings', description: 'Approval, inspection and test requirements for repairs.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-dispositions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [
-    { key: 'qualityApprovalRequired', label: 'Quality approval required', type: 'bool' }, { key: 'inspectorVerificationRequired', label: 'Inspector verification required', type: 'bool' },
+  repair: { title: 'Repair Settings', description: 'Test requirements for repairs.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-dispositions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [
     { key: 'repairTestRequired', label: 'Repair test required before completion', type: 'bool' }] },
   notifications: { title: 'Notification Settings', description: 'SEQUFLOH notifications sent through the in-app notification system.', fields: [
-    { key: 'assignedWork', label: 'Assigned work', type: 'bool' }, { key: 'pendingReview', label: 'Pending review', type: 'bool' }, { key: 'pendingApproval', label: 'Pending approval', type: 'bool' },
-    { key: 'changesRequested', label: 'Requested changes', type: 'bool' }, { key: 'overdueWork', label: 'Overdue work', type: 'bool' }, { key: 'failedRecords', label: 'Failed records requiring attention', type: 'bool' },
-    { key: 'rejectedRecords', label: 'Rejected records', type: 'bool' }, { key: 'releasedInstructions', label: 'Released instructions', type: 'bool' }, { key: 'supersededInstructions', label: 'Superseded instructions', type: 'bool' },
+    { key: 'assignedWork', label: 'Assigned work', type: 'bool' }, { key: 'overdueWork', label: 'Overdue work', type: 'bool' }, { key: 'failedRecords', label: 'Failed records requiring attention', type: 'bool' },
+    { key: 'releasedInstructions', label: 'Released instructions', type: 'bool' }, { key: 'supersededInstructions', label: 'Superseded instructions', type: 'bool' },
     { key: 'approachingDueDates', label: 'Approaching due dates', type: 'bool' }] },
   display: { title: 'Display Preferences', description: 'Compact tables, dashboard cards, default filters and folder view, status colours.', fields: [
     { key: 'compactTables', label: 'Compact tables', type: 'bool' }, { key: 'dashboardCards', label: 'Visible dashboard cards (comma separated)', type: 'csv' },
-    { key: 'defaultTrackingFilter', label: 'Default tracking filter', type: 'select', options: ['open', 'all', 'completed', 'on-hold', 'rejected'] },
+    { key: 'defaultTrackingFilter', label: 'Default tracking filter', type: 'select', options: ['open', 'all', 'completed', 'on-hold'] },
     { key: 'defaultFolderView', label: 'Default folder view', type: 'select', options: ['current', 'all'] },
     { key: 'statusColors', label: 'Status colours (status=colour per line: default, primary, success, warning, error, info)', type: 'lines' }] },
   export: { title: 'Export Settings', description: 'File names, date format, organization heading, included columns and report titles.', fields: [

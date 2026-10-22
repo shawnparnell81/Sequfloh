@@ -17,26 +17,23 @@ import { type DSchema, FieldInput, ProblemList, type Row, RowsEditor, SectionCar
 
 export const wiCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work Instructions', to: '/sequfloh/instructions/all' }, ...(folder ? [folder] : []), { label }];
-const statuses = ['Draft', 'InDevelopment', 'PendingReview', 'ChangesRequested', 'PendingApproval', 'Approved', 'Released', 'Superseded', 'Obsolete', 'Archived'];
-const folderStatuses = ['Draft', 'PendingReview', 'PendingApproval', 'Released', 'Superseded', 'Obsolete'];
+const statuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
+const folderStatuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 
 // ------------------------------------------------------------------ folders
 interface WiRow { id: string; number: string; title: string; type: string; revision: string; status: string; partId?: string; partNumber?: string; validationType?: string; faiType?: string;
-  repairCategory?: string; repairType?: string; repairDescription?: string; resultStatus?: string; effectiveDate?: string; updatedAt: string; owner?: string; reviewer?: string; approver?: string }
+  repairCategory?: string; repairType?: string; repairDescription?: string; resultStatus?: string; effectiveDate?: string; updatedAt: string; owner?: string; releasedBy?: string }
 type Kind = 'generic' | 'validation' | 'repair';
 /** Navigation folder -> API folder, title, column set. */
 const folders: Record<string, { api: string; title: string; kind: Kind; description: string; newType?: string }> = {
-  all: { api: 'all', title: 'All Work Instructions', kind: 'generic', description: 'Every SEQUFLOH work instruction you can see, all types and statuses except archived.' },
+  all: { api: 'all', title: 'All Work Instructions', kind: 'generic', description: 'Every SEQUFLOH work instruction you can see, all types and statuses.' },
   validation: { api: 'validation', title: 'Validation Work Instructions', kind: 'validation', newType: 'Validation', description: 'Validation folder: Validation, Validation / FAI and FAI instructions, kept separate from repair instructions.' },
   fai: { api: 'fai', title: 'FAI Work Instructions', kind: 'validation', newType: 'Fai', description: 'First article inspection instructions with their characteristics.' },
   'repair-test': { api: 'repair-test', title: 'Repair Test Instructions', kind: 'repair', newType: 'RepairTest', description: 'Repair test instructions: test steps, parameters and pass / fail criteria.' },
   repair: { api: 'repair', title: 'Repair Work Instructions', kind: 'repair', newType: 'RepairWork', description: 'Repair folder: Repair Work Instructions and Repair Test instructions, kept separate from validation instructions.' },
-  draft: { api: 'drafts', title: 'Draft Instructions', kind: 'generic', description: 'Instructions that can still be edited: draft, in development and changes requested.' },
-  'pending-review': { api: 'pending-review', title: 'Instructions Pending Review', kind: 'generic', description: 'Instructions submitted for review.' },
-  'pending-approval': { api: 'pending-approval', title: 'Instructions Pending Approval', kind: 'generic', description: 'Reviewed instructions waiting for approval.' },
+  draft: { api: 'drafts', title: 'Draft Instructions', kind: 'generic', description: 'Instructions that can still be edited. Release one when it is ready.' },
   released: { api: 'released', title: 'Released Instructions', kind: 'generic', description: 'Current released revisions. Released revisions are read-only; changes go through a new revision.' },
   obsolete: { api: 'obsolete', title: 'Obsolete Instructions', kind: 'generic', description: 'Instructions marked obsolete. They stay on file and cannot be used for new work.' },
-  archived: { api: 'archived', title: 'Archived Instructions', kind: 'generic', description: 'Archived instructions. Restore one to bring it back to its previous status.' },
 };
 
 export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverride, descriptionOverride, permission, tabs, tab, onTab }: {
@@ -67,8 +64,7 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
     filters.push({ key: 'repairType', label: 'Repair type', options: (repairTypes.data ?? []).map((o) => [o, o]) });
   }
   const num = { key: 'number', label: 'Instruction number', sort: true, render: (r: WiRow) => <Mono>{r.number}</Mono> };
-  const people = [{ key: 'owner', label: 'Owner', render: (r: WiRow) => r.owner ?? '—' }, { key: 'reviewer', label: 'Reviewer', render: (r: WiRow) => r.reviewer ?? '—' },
-    { key: 'approver', label: 'Approver', render: (r: WiRow) => r.approver ?? '—' }];
+  const people = [{ key: 'owner', label: 'Owner', render: (r: WiRow) => r.owner ?? '—' }, { key: 'releasedBy', label: 'Released by', render: (r: WiRow) => r.releasedBy ?? '—' }];
   const tail = [{ key: 'effectiveDate', label: 'Effective', sort: true, render: (r: WiRow) => fmtDate(r.effectiveDate) }, { key: 'updatedAt', label: 'Last updated', sort: true, render: (r: WiRow) => fmtDateTime(r.updatedAt) }];
   const actions = { key: 'actions', label: 'Actions', render: (r: WiRow) => <RowActions row={r} /> };
   const cols = cfg.kind === 'validation'
@@ -95,14 +91,14 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
   );
 }
 
-const editable = ['Draft', 'InDevelopment', 'ChangesRequested'];
-/** Row menu: open, edit, duplicate, create revision, history, archive (each re-checked by the server). */
+const editable = ['Draft'];
+/** Row menu: open, edit, duplicate, create revision, print, history, mark obsolete (each re-checked by the server). */
 function RowActions({ row }: { row: WiRow }) {
   const { can } = useAuth();
   const nav = useNavigate();
   const qc = useQueryClient();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [dlg, setDlg] = useState<'revise' | 'archive' | null>(null);
+  const [dlg, setDlg] = useState<'revise' | 'obsolete' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const go = (to: string) => { setAnchor(null); nav(to); };
   const items: [string, () => void, boolean][] = [
@@ -113,7 +109,7 @@ function RowActions({ row }: { row: WiRow }) {
     ['Create revision', () => { setAnchor(null); setDlg('revise'); }, row.status === 'Released' && can('sequfloh.revise_work_instruction')],
     ['Print', () => { setAnchor(null); window.open(`${S}/instructions/${row.id}/print`, '_blank', 'noopener'); }, true],
     ['History', () => go(`/sequfloh/instruction/${row.id}?tab=history`), true],
-    ['Archive', () => { setAnchor(null); setDlg('archive'); }, ['Draft', 'InDevelopment', 'ChangesRequested', 'Superseded', 'Obsolete'].includes(row.status) && can('sequfloh.archive_work_instruction')],
+    ['Mark obsolete', () => { setAnchor(null); setDlg('obsolete'); }, ['Draft', 'Released', 'Superseded'].includes(row.status) && can('sequfloh.obsolete_work_instruction')],
   ];
   return (
     <Box onClick={(e) => e.stopPropagation()}>
@@ -123,8 +119,8 @@ function RowActions({ row }: { row: WiRow }) {
       <Confirm open={dlg === 'revise'} title={`Create a revision of ${row.number}`} confirm="Create revision" reason="required" reasonLabel="Revision reason" onClose={() => setDlg(null)}
         text="The released revision stays released and unchanged. The new revision starts as a draft copy until it is released."
         onConfirm={async (reason) => { const r = await post<{ id: string }>(`${S}/instructions/${row.id}/revise`, { reason }); nav(`/sequfloh/instruction/${r.id}`); }} />
-      <Confirm open={dlg === 'archive'} title={`Archive ${row.number}`} confirm="Archive" reason="optional" onClose={() => setDlg(null)} text="The instruction moves to the archive. It can be restored later."
-        onConfirm={async (comment) => { await post(`${S}/instructions/${row.id}/actions/archive`, { comment: nul(comment) }); qc.invalidateQueries({ queryKey: ['sqf-wi'] }); }} />
+      <Confirm open={dlg === 'obsolete'} title={`Mark ${row.number} obsolete`} confirm="Mark obsolete" reason="required" onClose={() => setDlg(null)} text="The instruction stays on file with its revisions and history, and cannot be used for new work."
+        onConfirm={async (comment) => { await post(`${S}/instructions/${row.id}/actions/obsolete`, { comment }); qc.invalidateQueries({ queryKey: ['sqf-wi'] }); }} />
     </Box>
   );
 }
@@ -230,12 +226,12 @@ export function TemplatesPage() {
 // ------------------------------------------------------------------ designer
 interface WiDoc {
   id: string; familyId: string; number: string; type: string; title: string; revision: string; status: string; siteId: string; departmentId?: string | null; ownerId?: string | null; authorId?: string | null;
-  reviewerId?: string | null; approverId?: string | null; partId?: string | null; partNumber?: string | null; partDescription?: string | null; productFamily?: string | null; assembly?: string | null;
+  partId?: string | null; partNumber?: string | null; partDescription?: string | null; productFamily?: string | null; assembly?: string | null;
   model?: string | null; variant?: string | null; process?: string | null; operation?: string | null; workstation?: string | null; location?: string | null; validationType?: string | null; faiType?: string | null;
   repairCategory?: string | null; repairType?: string | null; repairDescription?: string | null; sourcePartsListId?: string | null; resultStatus?: string | null; effectiveDate?: string | null;
-  supersededAt?: string | null; obsoleteAt?: string | null; reviewedAt?: string | null; approvedAt?: string | null; releasedAt?: string | null; revisionReason?: string | null; createdAt: string; updatedAt: string;
-  rowVersion: number; content: Record<string, Record<string, Val>>; steps: Row[]; characteristics: Row[]; partsRows: Row[]; blocks: Block[]; templateId?: string | null; template?: string | null; owner?: string; author?: string; reviewer?: string; approver?: string;
-  reviewedBy?: string; approvedBy?: string; releasedBy?: string; createdBy?: string; updatedBy?: string; site?: string; department?: string;
+  supersededAt?: string | null; obsoleteAt?: string | null; releasedAt?: string | null; revisionReason?: string | null; createdAt: string; updatedAt: string;
+  rowVersion: number; content: Record<string, Record<string, Val>>; steps: Row[]; characteristics: Row[]; partsRows: Row[]; blocks: Block[]; templateId?: string | null; template?: string | null; owner?: string; author?: string;
+  releasedBy?: string; createdBy?: string; updatedBy?: string; site?: string; department?: string;
   developmentStatus?: string | null; engineeringNotes?: string | null;
 }
 interface WiResponse { instruction: WiDoc; transitions: { id: string; action: string; fromStatus?: string; toStatus: string; comment?: string; revision: string; createdAt: string; user?: string }[];
@@ -265,7 +261,6 @@ export function InstructionPage() {
   useEffect(() => { if (q.data) { setDoc(q.data.instruction); setSaved(JSON.stringify(q.data.instruction)); } }, [q.data]);
   const dirty = !!doc && JSON.stringify(doc) !== saved;
   const guard = useUnsaved(dirty);
-  const rejectReasons = useOptions('rejection-reasons');
   if (q.isLoading || schemas.isLoading) return <SqfPage title="Work instruction" crumbs={wiCrumbs('Loading')}><Loading /></SqfPage>;
   if (q.error) return <SqfPage title="Work instruction" crumbs={wiCrumbs('Not available')}><ErrorState error={q.error} retry={q.refetch} /></SqfPage>;
   if (!doc || !q.data) return null;
@@ -275,7 +270,7 @@ export function InstructionPage() {
   const setContent = (section: string, key: string, v: Val) => setDoc({ ...doc, content: { ...doc.content, [section]: { ...(doc.content[section] ?? {}), [key]: v } } });
   const refresh = async () => { await qc.invalidateQueries({ queryKey: ['sqf-wi-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-wi-history', id] }); qc.invalidateQueries({ queryKey: ['sqf-wi'] }); };
   const body = (d: WiDoc) => ({
-    title: d.title, siteId: d.siteId, departmentId: d.departmentId ?? null, ownerId: d.ownerId ?? null, reviewerId: d.reviewerId ?? null, approverId: d.approverId ?? null, partId: d.partId ?? null,
+    title: d.title, siteId: d.siteId, departmentId: d.departmentId ?? null, ownerId: d.ownerId ?? null, partId: d.partId ?? null,
     productFamily: nul(d.productFamily), assembly: nul(d.assembly), model: nul(d.model), variant: nul(d.variant), process: nul(d.process), operation: nul(d.operation), workstation: nul(d.workstation),
     location: nul(d.location), validationType: pick(d.content, ['validationIdentity', 'validationType']), faiType: pick(d.content, ['faiIdentity', 'faiType']),
     repairCategory: pick(d.content, ['repairIdentity', 'repairCategory'], ['repairTest', 'repairCategory']), repairType: pick(d.content, ['repairIdentity', 'repairType']),
@@ -311,7 +306,7 @@ export function InstructionPage() {
       actions={<Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
         <SqfStatus status={doc.status} />
         {q.data.canEdit && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save draft</Button>}
-        {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['reject', 'obsolete', 'supersede'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
+        {q.data.actions.map((a) => <Button key={a.action} variant={a.action === 'release' ? 'contained' : 'outlined'} disabled={busy} color={a.action === 'release' ? 'success' : a.action === 'obsolete' ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" href={`${S}/instructions/${id}/print`} target="_blank" rel="noopener" disabled={dirty}>Print</Button>
         {q.data.canDuplicate && <Button disabled={busy} onClick={() => guard(() => withSave(async () => { const r = await post<{ id: string }>(`${S}/instructions/${id}/duplicate`); nav(`/sequfloh/instruction/${r.id}`); }, 'Duplicated.'))}>Duplicate</Button>}
       </Stack>}>
@@ -320,15 +315,14 @@ export function InstructionPage() {
         {!q.data.canEdit && doc.status !== 'Released' && ` · Read-only while ${words(doc.status).toLowerCase()}.`}</Typography>
       {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {dirty && <Alert severity="info" sx={{ mb: 2 }}>You have unsaved changes.</Alert>}
-      {['Draft', 'InDevelopment', 'ChangesRequested', 'PendingReview', 'PendingApproval', 'Approved'].includes(doc.status) &&
-        <ProblemList title="Before this instruction can be approved and released:" problems={[...new Set([...seqIssues, ...q.data.releaseProblems])]} />}
+      {doc.status === 'Draft' &&
+        <ProblemList title="Before this instruction can be released:" problems={[...new Set([...seqIssues, ...q.data.releaseProblems])]} />}
 
       {tab === 'control' && <Stack gap={2}>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Document control">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Document control</Typography>
           <Facts items={[['Instruction number', <Mono>{doc.number}</Mono>], ['Instruction type', typeLabels[doc.type]], ['Revision', doc.revision], ['Status', <SqfStatus status={doc.status} />],
             ['Internal record ID', <Mono>{doc.id}</Mono>], ['Author', doc.author ?? '—'], ['Created', fmtDateTime(doc.createdAt)], ['Updated', `${fmtDateTime(doc.updatedAt)}${doc.updatedBy ? ' · ' + doc.updatedBy : ''}`],
-            ['Reviewed', doc.reviewedAt ? `${fmtDateTime(doc.reviewedAt)} · ${doc.reviewedBy ?? ''}` : '—'], ['Approved', doc.approvedAt ? `${fmtDateTime(doc.approvedAt)} · ${doc.approvedBy ?? ''}` : '—'],
             ['Released', doc.releasedAt ? `${fmtDateTime(doc.releasedAt)} · ${doc.releasedBy ?? ''}` : '—'], ['Superseded', fmtDateTime(doc.supersededAt)], ['Obsolete', fmtDateTime(doc.obsoleteAt)],
             ...(doc.revisionReason ? [['Revision reason', doc.revisionReason] as [string, string]] : [])]} />
           <Box sx={{ mt: 2 }}><ControlFields doc={doc} upd={upd} ro={ro} /></Box>
@@ -391,7 +385,7 @@ export function InstructionPage() {
         <HistoryTable q={history} />
       </Stack>}
 
-      <ActionDialog action={act} number={`${doc.number} rev ${doc.revision}`} effectiveDate={doc.effectiveDate ?? ''} rejectReasons={rejectReasons.data ?? []} onClose={() => setAct(null)} onRun={runAction} />
+      <ActionDialog action={act} number={`${doc.number} rev ${doc.revision}`} effectiveDate={doc.effectiveDate ?? ''} onClose={() => setAct(null)} onRun={runAction} />
     </SqfPage>
   );
 }
@@ -400,7 +394,7 @@ function ControlFields({ doc, upd, ro }: { doc: WiDoc; upd: (p: Partial<WiDoc>) 
   const sites = useSites();
   const users = useUsers();
   const site = sites.data?.find((s) => s.id === doc.siteId);
-  const userSel = (k: 'ownerId' | 'reviewerId' | 'approverId', label: string) => <TextField select size="small" label={label} value={users.data ? (doc[k] ?? '') : ''} disabled={ro} onChange={(e) => upd({ [k]: e.target.value || null })}>
+  const userSel = (k: 'ownerId', label: string) => <TextField select size="small" label={label} value={users.data ? (doc[k] ?? '') : ''} disabled={ro} onChange={(e) => upd({ [k]: e.target.value || null })}>
     <MenuItem value=""><em>None</em></MenuItem>{(users.data ?? []).map((u) => <MenuItem key={u.id} value={u.id}>{u.displayName}</MenuItem>)}{setupOptions('user', users.data)}</TextField>;
   return (
     <Grid cols={3}>
@@ -410,7 +404,7 @@ function ControlFields({ doc, upd, ro }: { doc: WiDoc; upd: (p: Partial<WiDoc>) 
         {(sites.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}{setupOptions('site', sites.data)}</TextField>
       <TextField select size="small" label="Department" value={site ? (doc.departmentId ?? '') : ''} disabled={ro} onChange={(e) => upd({ departmentId: e.target.value || null })}>
         <MenuItem value=""><em>None</em></MenuItem>{(site?.departments ?? []).map((d) => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}{site && setupOptions('department', site.departments)}</TextField>
-      {userSel('ownerId', 'Owner')}{userSel('reviewerId', 'Reviewer')}{userSel('approverId', 'Approver')}
+      {userSel('ownerId', 'Owner')}
     </Grid>
   );
 }
@@ -547,23 +541,19 @@ function CharacteristicSources({ id, familyId, withSave }: { id: string; familyI
   </>;
 }
 
-/** Lifecycle action dialog: comment (required for reject, return, supersede, obsolete, approval reversal, revision), effective date on release. */
-function ActionDialog({ action, number, effectiveDate, rejectReasons, onClose, onRun }: { action: WiResponse['actions'][number] | null; number: string; effectiveDate: string; rejectReasons: string[];
+/** Lifecycle action dialog: release (with effective date) or mark obsolete (comment required). */
+function ActionDialog({ action, number, effectiveDate, onClose, onRun }: { action: WiResponse['actions'][number] | null; number: string; effectiveDate: string;
   onClose: () => void; onRun: (a: WiResponse['actions'][number], comment: string, effectiveDate?: string) => Promise<void> }) {
   const [comment, setComment] = useState('');
   const [eff, setEff] = useState(effectiveDate);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   if (!action) return null;
-  const danger = ['reject', 'obsolete', 'supersede', 'revoke-approval'].includes(action.action);
+  const danger = action.action === 'obsolete';
   const required = action.commentRequired;
   const texts: Record<string, string> = {
-    develop: 'Moves the draft into development.', 'submit-review': 'Sends the instruction to its reviewer. It becomes read-only until it is returned or rejected.',
-    return: 'Returns the instruction to the author for changes.', 'submit-approval': 'Records your review and sends the instruction for approval.',
-    approve: 'Approves the instruction. It can then be released.', reject: 'Rejects the instruction back to draft.', 'revoke-approval': 'Reverses the approval and returns the instruction to pending approval.',
     release: 'Releases the instruction for use. The released revision becomes read-only; later changes need a new revision. Any earlier released revision is superseded.',
-    supersede: 'Marks this released revision superseded.', obsolete: 'Marks the instruction obsolete. It stays on file and cannot be used for new work.',
-    archive: 'Moves the instruction to the archive.', restore: 'Restores the archived instruction to its previous status.',
+    obsolete: 'Marks the instruction obsolete. It stays on file and cannot be used for new work.',
     revise: 'Creates a new draft revision. The released revision stays released and unchanged until the new revision is released.',
   };
   return (
@@ -572,14 +562,12 @@ function ActionDialog({ action, number, effectiveDate, rejectReasons, onClose, o
       <DialogContent>
         <Typography variant="body2" sx={{ mb: 2 }}>{texts[action.action] ?? ''}</Typography>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-        {action.action === 'reject' && rejectReasons.length > 0 && <TextField select fullWidth size="small" label="Rejection reason" sx={{ mb: 2 }} value={rejectReasons.includes(comment.split(': ')[0]) ? comment.split(': ')[0] : ''}
-          onChange={(e) => setComment(e.target.value + ': ')}>{rejectReasons.map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}</TextField>}
         {action.action === 'release' && <TextField size="small" type="date" label="Effective date" value={eff} onChange={(e) => setEff(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ mb: 2 }} />}
         <TextField fullWidth multiline minRows={2} label={action.action === 'revise' ? 'Revision reason (required)' : required ? 'Comment (required)' : 'Comment'} value={comment} onChange={(e) => setComment(e.target.value)} />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" color={danger ? 'error' : 'primary'} disabled={busy || (required && !comment.replace(/:\s*$/, '').trim())}
+        <Button variant="contained" color={danger ? 'error' : action.action === 'release' ? 'success' : 'primary'} disabled={busy || (required && !comment.replace(/:\s*$/, '').trim())}
           onClick={async () => { setBusy(true); setErr(null); try { await onRun(action, comment.trim(), eff); onClose(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } }}>{action.label}</Button>
       </DialogActions>
     </Dialog>

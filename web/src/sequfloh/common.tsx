@@ -35,9 +35,9 @@ export const useSqf = () => useQuery({ queryKey: ['sqf-context'], queryFn: () =>
 export const useOptions = (list: string) => useQuery({ queryKey: ['sqf-options', list], queryFn: () => get<string[]>(`${S}/reference/${list}/options`), staleTime: 60_000 });
 
 const statusColor: Record<string, 'default' | 'primary' | 'success' | 'warning' | 'error' | 'info'> = {
-  Draft: 'default', InDevelopment: 'info', PendingReview: 'warning', ChangesRequested: 'warning', PendingApproval: 'warning', Approved: 'primary', Released: 'success', Superseded: 'default',
-  Obsolete: 'default', Archived: 'default', NotStarted: 'default', Assigned: 'info', InProgress: 'primary', Paused: 'warning', OnHold: 'warning', PendingInspection: 'warning',
-  Completed: 'success', Failed: 'error', Rejected: 'error', Canceled: 'default', Pass: 'success', Fail: 'error', Conditional: 'warning', Pending: 'default', Active: 'success', Inactive: 'default',
+  Draft: 'default', Released: 'success', Superseded: 'default',
+  Obsolete: 'default', NotStarted: 'default', Assigned: 'info', InProgress: 'primary', Paused: 'warning', OnHold: 'warning',
+  Completed: 'success', Failed: 'error', Canceled: 'default', Pass: 'success', Fail: 'error', Conditional: 'warning', Pending: 'default', Active: 'success', Inactive: 'default',
   NotApplicable: 'default', Accepted: 'success',
 };
 /** Status chip in the shared chip style; colours follow the SEQUFLOH display settings mapping. */

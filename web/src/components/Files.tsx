@@ -40,7 +40,7 @@ export function FilesPanel({ type, id, canEdit, onChanged }: { type: string; id:
           <TableBody>{rows.map((r) => (
             <TableRow key={r.id}>
               <TableCell><Stack direction="row" gap={1} alignItems="center">
-                {r.isLocked && <Tooltip title="Locked: part of an approved revision"><LockOutlined fontSize="inherit" color="action" /></Tooltip>}
+                {r.isLocked && <Tooltip title="Locked: part of a released revision"><LockOutlined fontSize="inherit" color="action" /></Tooltip>}
                 <Link href={`/api/files/${r.id}?inline=true`} target="_blank" rel="noopener">{r.fileName}</Link></Stack></TableCell>
               <TableCell>{(r.sizeBytes / 1024).toFixed(1)} KB</TableCell>
               <TableCell><Tooltip title={r.sha256}><span style={{ fontFamily: mono, fontSize: 12 }}>{r.sha256.slice(0, 12)}…</span></Tooltip></TableCell>

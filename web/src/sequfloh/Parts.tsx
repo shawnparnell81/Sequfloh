@@ -183,10 +183,10 @@ export function PartsListsPage() {
   const q = useQuery({ queryKey: ['sqf-lists', f, search, page, size, sort], queryFn: () => get<Paged<ListRow>>(`${S}/parts-lists?${qs({ q: search, status: f.status, type: f.type, sort, page, pageSize: size })}`) });
   const [open, setOpen] = useState(false);
   return (
-    <SqfPage title="Parts Lists" crumbs={crumbs('Parts Lists')} description="Controlled parts lists, repair kits and assembly BOMs. Approved lists are changed only through a new revision."
+    <SqfPage title="Parts Lists" crumbs={crumbs('Parts Lists')} description="Controlled parts lists, repair kits and assembly BOMs. Released lists are changed only through a new revision."
       actions={can('sequfloh.manage_parts_lists') && <Button variant="contained" onClick={() => setOpen(true)}>New parts list</Button>}>
       <Filters search={search} onSearch={(s) => { setSearch(s); setPage(1); }} values={f} onChange={(k, v) => { setF({ ...f, [k]: v }); setPage(1); }} onClear={() => { setF({}); setSearch(''); }}
-        filters={[{ key: 'status', label: 'Status', options: [['Draft', 'Draft'], ['Approved', 'Approved'], ['Inactive', 'Inactive']] }, { key: 'type', label: 'List type', options: listTypes.map((t) => [t, words(t)]) }]} />
+        filters={[{ key: 'status', label: 'Status', options: [['Draft', 'Draft'], ['Released', 'Released'], ['Inactive', 'Inactive']] }, { key: 'type', label: 'List type', options: listTypes.map((t) => [t, words(t)]) }]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts-lists/${r.id}`)} empty="No parts lists yet."
         cols={[{ key: 'number', label: 'Number', sort: true, render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', sort: true }, { key: 'revision', label: 'Rev' },
           { key: 'listType', label: 'Type', render: (r) => words(r.listType) }, { key: 'parentPart', label: 'Parent part', render: (r) => r.parentPart ?? '—' }, { key: 'items', label: 'Items' },
@@ -202,7 +202,7 @@ function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChan
     <MenuItem value="">—</MenuItem>{(parts.data?.items ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{p.partNumber} · {p.name}</MenuItem>)}{setupOptions('sqfPart', parts.data?.items)}</TextField>;
 }
 
-interface ListDetail { list: { id: string; number: string; title: string; parentPartId?: string; revision: string; status: string; description?: string; listType: string; approvedAt?: string; approvedBy: string;
+interface ListDetail { list: { id: string; number: string; title: string; parentPartId?: string; revision: string; status: string; description?: string; listType: string; releasedAt?: string; releasedBy: string;
   rowVersion: number; createdAt: string; updatedAt: string; createdBy: string; updatedBy: string; parentPart?: { id: string; partNumber: string; name: string } };
   items: ItemRow[]; revisions: { id: string; revision: string; statusAtRevision: string; reason?: string; snapshot: string; createdAt: string; createdBy?: string }[]; canEdit: boolean }
 interface ItemRow { id: string; itemNumber: number; partId?: string; partNumber: string; description?: string; quantity: number; unit?: string; required: boolean; alternatePartNumber?: string; traceability: string; notes?: string }
@@ -266,7 +266,7 @@ export function PartsListDetailPage() {
   const q = useQuery({ queryKey: ['sqf-list', id], queryFn: () => get<ListDetail>(`${S}/parts-lists/${id}`) });
   const history = useQuery({ queryKey: ['sqf-list-history', id], queryFn: () => get<AuditRow[]>(`${S}/parts-lists/${id}/history`) });
   const [tab, setTab] = useState('items');
-  const [dlg, setDlg] = useState<null | 'edit' | 'item' | 'approve' | 'revise' | 'active' | 'copy'>(null);
+  const [dlg, setDlg] = useState<null | 'edit' | 'item' | 'release' | 'revise' | 'active' | 'copy'>(null);
   const [item, setItem] = useState<ItemRow | null>(null);
   const [copyFrom, setCopyFrom] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -282,8 +282,8 @@ export function PartsListDetailPage() {
       tabs={[{ label: 'Items', value: 'items' }, { label: 'Revisions', value: 'revisions' }, { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
       actions={q.data?.canEdit && l && <>
         {l.status === 'Draft' && <Button variant="outlined" onClick={() => setDlg('edit')}>Edit</Button>}
-        {l.status === 'Draft' && <Button variant="contained" onClick={() => setDlg('approve')}>Approve</Button>}
-        {l.status === 'Approved' && <Button variant="contained" onClick={() => setDlg('revise')}>New revision</Button>}
+        {l.status === 'Draft' && <Button variant="contained" onClick={() => setDlg('release')}>Release</Button>}
+        {l.status === 'Released' && <Button variant="contained" onClick={() => setDlg('revise')}>New revision</Button>}
         <Button onClick={() => act(async () => { const r = await post<{ id: string }>(`${S}/parts-lists/${l.id}/duplicate`, {}); nav(`/sequfloh/parts-lists/${r.id}`); })}>Duplicate</Button>
         <Button color={l.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setDlg('active')}>{l.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button></>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : l && <>
@@ -291,9 +291,9 @@ export function PartsListDetailPage() {
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}><Grid cols={4}>
           <Field label="Number"><Mono>{l.number}</Mono></Field><Field label="Revision">{l.revision}</Field><Field label="Status"><SqfStatus status={l.status} /></Field><Field label="List type">{words(l.listType)}</Field>
           <Field label="Parent part">{l.parentPart ? <Link component={RouterLink} to={`/sequfloh/parts/${l.parentPart.id}`}>{l.parentPart.partNumber} · {l.parentPart.name}</Link> : '—'}</Field>
-          <Field label="Approved">{l.approvedAt ? `${fmtDateTime(l.approvedAt)} · ${l.approvedBy}` : '—'}</Field><Field label="Created">{`${fmtDateTime(l.createdAt)} · ${l.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(l.updatedAt)} · ${l.updatedBy}`}</Field>
+          <Field label="Released">{l.releasedAt ? `${fmtDateTime(l.releasedAt)} · ${l.releasedBy}` : '—'}</Field><Field label="Created">{`${fmtDateTime(l.createdAt)} · ${l.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(l.updatedAt)} · ${l.updatedBy}`}</Field>
         </Grid>{l.description && <Typography variant="body2" sx={{ mt: 1 }}>{l.description}</Typography>}
-          {l.status === 'Approved' && <Alert severity="info" sx={{ mt: 2 }}>This list is approved and locked. Create a new revision to change it.</Alert>}</Paper>
+          {l.status === 'Released' && <Alert severity="info" sx={{ mt: 2 }}>This list is released and locked. Create a new revision to change it.</Alert>}</Paper>
         {tab === 'items' && <>
           {editable && <Stack direction="row" gap={1} sx={{ mb: 1 }}><Button variant="outlined" onClick={() => { setItem(null); setDlg('item'); }}>Add item</Button><Button onClick={() => setDlg('copy')}>Copy items from another list</Button></Stack>}
           {items.length === 0 ? <Empty text="No items on this list yet." /> : <SimpleTable head={['#', 'Part number', 'Description', 'Qty', 'Unit', 'Required', 'Traceability', 'Alternate', 'Notes', ...(editable ? [''] : [])]}
@@ -312,8 +312,8 @@ export function PartsListDetailPage() {
         {tab === 'history' && <HistoryTable q={history} />}
         <ListDialog open={dlg === 'edit'} edit={l} onClose={() => setDlg(null)} onSaved={refresh} />
         <ItemDialog open={dlg === 'item'} listId={l.id} edit={item} onClose={() => setDlg(null)} onSaved={refresh} />
-        <Confirm open={dlg === 'approve'} title="Approve parts list" confirm="Approve" text="Approving locks the list. Further changes need a new revision." onClose={() => setDlg(null)}
-          onConfirm={async () => { await post(`${S}/parts-lists/${l.id}/approve`, {}); refresh(); }} />
+        <Confirm open={dlg === 'release'} title="Release parts list" confirm="Release" text="Releasing locks the list. Further changes need a new revision." onClose={() => setDlg(null)}
+          onConfirm={async () => { await post(`${S}/parts-lists/${l.id}/release`, {}); refresh(); }} />
         <Confirm open={dlg === 'revise'} title="New revision" confirm="Create revision" reason="required" reasonLabel="Revision reason" text={`Revision ${l.revision} is kept as a snapshot and a new draft revision opens.`}
           onClose={() => setDlg(null)} onConfirm={async (reason) => { await post(`${S}/parts-lists/${l.id}/revise`, { reason }); refresh(); }} />
         <Confirm open={dlg === 'active'} title={l.status === 'Inactive' ? 'Reactivate parts list' : 'Deactivate parts list'} confirm={l.status === 'Inactive' ? 'Reactivate' : 'Deactivate'} danger={l.status !== 'Inactive'}

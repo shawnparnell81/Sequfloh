@@ -10,7 +10,7 @@ interface Mini { id: string; number: string; revision?: string; title?: string; 
 interface Home {
   live: { awaitingDispatch: number; active: number; paused: number; overdue: number; validationInProgress: number; faiInProgress: number; repairInProgress: number; productionInProgress: number;
     failed: number; assignedToMe: number; myWork: Mini[] } | null;
-  instructions: { pendingReview: number; pendingApproval: number; recentlyReleased: Mini[]; recentlyRevised: Mini[] };
+  instructions: { drafts: number; released: number; recentlyReleased: Mini[]; recentlyRevised: Mini[] };
   recentActivity: { id: string; at: string; number: string; kind: string; text: string; user: string }[];
 }
 
@@ -34,8 +34,8 @@ export function Dashboard() {
       <Stat label="Assigned to me" value={d.live.assignedToMe} to="/sequfloh/execution/mine" />
     </Stats>}
     <Stats>
-      <Stat label="Pending reviews" value={d.instructions.pendingReview} to="/sequfloh/instructions/pending-review" />
-      <Stat label="Pending approvals" value={d.instructions.pendingApproval} to="/sequfloh/instructions/pending-approval" />
+      <Stat label="Draft instructions" value={d.instructions.drafts} to="/sequfloh/instructions/draft" />
+      <Stat label="Released instructions" value={d.instructions.released} to="/sequfloh/instructions/released" />
     </Stats>
     <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '1fr 1fr' } }}>
       {d.live && <MiniList title="Assigned work" rows={d.live.myWork} empty="Nothing is assigned to you." kind="record" />}

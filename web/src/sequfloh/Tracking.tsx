@@ -14,7 +14,7 @@ import { ProblemList } from './Designer';
 import { PartPicker } from './Instructions';
 
 export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production' };
-export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'OnHold', 'PendingInspection', 'PendingReview', 'Completed', 'Failed', 'Rejected', 'Canceled'];
+export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'OnHold', 'Completed', 'Failed', 'Canceled'];
 const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Tracking', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
@@ -32,7 +32,7 @@ export function LiveClock({ seconds, running, label }: { seconds: number; runnin
 }
 
 // ------------------------------------------------------------------ folders
-export interface TrRow { id: string; number: string; type: string; status: string; result: string; approvalStatus: string; priority: string; workInstructionNumber: string; workInstructionRevision: string;
+export interface TrRow { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionNumber: string; workInstructionRevision: string;
   workInstructionTitle: string; partNumber?: string; partDescription?: string; serialNumber?: string; lotNumber?: string; workOrder?: string; repairOrder?: string; operation?: string; dueAt?: string;
   actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; owner?: string; department?: string; site?: string; elapsedSeconds: number;
   pausedSeconds: number; holdSeconds: number; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number; varianceMinutes?: number; stateVersion: number }
@@ -41,10 +41,9 @@ const folders: Record<string, { title: string; description: string; type?: strin
   fai: { title: 'FAI Tracking', type: 'Fai', description: 'First article inspection records with characteristic results, verifications and final disposition.' },
   repair: { title: 'Repair Tracking', type: 'Repair', description: 'Repair records: conditions, operations, material quantities, repair tests and final disposition.' },
   production: { title: 'Production Tracking', type: 'Production', description: 'Production tasks with work order, operation, benchmark range and persisted timing.' },
-  open: { title: 'Open Activities', description: 'Every tracking record and task that is not completed, failed, rejected or canceled.' },
+  open: { title: 'Open Activities', description: 'Every tracking record and task that is not completed, failed or canceled.' },
   completed: { title: 'Completed Activities', description: 'Completed tracking records and tasks.' },
   'on-hold': { title: 'On-Hold Activities', description: 'Tasks placed on hold, with the hold reason.' },
-  rejected: { title: 'Rejected Activities', description: 'Rejected records. An authorized user can restart them for rework.' },
 };
 const Elapsed = ({ r }: { r: TrRow }) => <LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} />;
 export const trackingCols = (extra: { key: string; label: string; render?: (r: TrRow) => ReactNode; sort?: boolean }[] = []) => [
@@ -120,7 +119,6 @@ export function NewTrackingPage() {
   const [wiText, setWiText] = useState('');
   const [part, setPart] = useState<{ id: string; partNumber: string; name?: string } | null>(null);
   const [f, setF] = useState<Record<string, string>>({ priority: 'Normal' });
-  const [eng, setEng] = useState(false);
   const [siteId, setSiteId] = useState(''); const [departmentId, setDepartmentId] = useState(''); const [assigned, setAssigned] = useState('');
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
@@ -134,7 +132,7 @@ export function NewTrackingPage() {
       const r = await post<{ id: string }>(`${S}/tracking`, { type, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
-        maxBenchmarkMinutes: numOrNull(f.max), engineeringReviewRequired: eng, reportedCondition: nul(f.reportedCondition) });
+        maxBenchmarkMinutes: numOrNull(f.max), reportedCondition: nul(f.reportedCondition) });
       nav(`/sequfloh/record/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -167,7 +165,6 @@ export function NewTrackingPage() {
           {fld('plannedStart', 'Planned start', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Due date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
           {fld('min', 'Minimum benchmark (minutes)', { type: 'number' })}{fld('max', 'Maximum benchmark (minutes)', { type: 'number' })}
           {type === 'Repair' && <Box sx={{ gridColumn: '1 / -1' }}>{fld('reportedCondition', 'Reported condition', { multiline: true, minRows: 2, fullWidth: true })}</Box>}
-          {type !== 'Production' && <FormControlLabel control={<Checkbox checked={eng} onChange={(_, c) => setEng(c)} />} label="Engineering review required" />}
         </Grid>
         <Stack direction="row" gap={1} sx={{ mt: 3 }}>
           <Button variant="contained" disabled={!type || !wi || !siteId || busy} onClick={create}>Create record</Button>
@@ -180,9 +177,9 @@ export function NewTrackingPage() {
 
 // ------------------------------------------------------------------ record
 type J = Record<string, unknown>;
-interface TrRecord extends J { id: string; number: string; type: string; status: string; result: string; approvalStatus: string; priority: string; workInstructionId: string; workInstructionNumber: string;
+interface TrRecord extends J { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionId: string; workInstructionNumber: string;
   workInstructionRevision: string; workInstructionTitle: string; stateVersion: number; elapsedSeconds: number; pausedSeconds: number; holdSeconds: number; steps: J[]; characteristics: J[];
-  partsRows: J[]; signoffs: J[]; details: Record<string, string>; assignedUserId?: string; createdAt: string }
+  partsRows: J[]; details: Record<string, string>; assignedUserId?: string; createdAt: string }
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
@@ -228,19 +225,13 @@ export function TrackingRecordPage() {
     await post(`${S}/tracking/${id}/actions/${a.action}`, { ...input, stateVersion: version });
     await refresh(); setMsg({ sev: 'success', text: `${a.label}: done.` });
   };
-  const sign = async (role: string) => {
-    if (dirty && !(await save(true))) return;
-    setBusy(true); setMsg(null);
-    try { const version = dirty ? (await get<TrResponse>(`${S}/tracking/${id}`)).record.stateVersion : rec.stateVersion; await post(`${S}/tracking/${id}/signoffs`, { operationId: newOpId(), stateVersion: version, role }); await refresh(); setMsg({ sev: 'success', text: `${role} signoff captured.` }); }
-    catch (e) { setMsg({ sev: 'error', text: (e as Error).message }); } finally { setBusy(false); }
-  };
   const enter = q.data.canEnter && !busy;
   const plan = q.data.canPlan && !busy;
   const folder = { Validation: 'validation', Fai: 'fai', Repair: 'repair', Production: 'production' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} record`;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
-    { label: 'Review and signoffs', value: 'review' }, { label: 'Task events', value: 'events' }, { label: 'History', value: 'history' }];
+    { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }, { label: 'History', value: 'history' }];
   const setRow = (list: 'steps' | 'characteristics' | 'partsRows', i: number, patch: J) => upd({ [list]: doc[list].map((r, j) => (j === i ? { ...r, ...patch } : r)) } as Partial<TrRecord>);
   const det = (k: string, label: string, multiline = true) => <TextField size="small" label={label} value={doc.details[k] ?? ''} disabled={!enter} multiline={multiline} minRows={multiline ? 2 : undefined}
     onChange={(e) => upd({ details: { ...doc.details, [k]: e.target.value } })} />;
@@ -253,12 +244,12 @@ export function TrackingRecordPage() {
       actions={<Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
         <SqfStatus status={rec.status} />
         {(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save</Button>}
-        {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'reject', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
+        {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" href={`${S}/tracking/${rec.id}/print`} target="_blank" rel="noopener" disabled={dirty}>Print</Button>
       </Stack>}>
       {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {dirty && <Alert severity="info" sx={{ mb: 2 }}>You have unsaved changes.</Alert>}
-      {['InProgress', 'PendingInspection'].includes(rec.status) && <ProblemList title="Before this record can be completed or submitted:" problems={q.data.completionProblems} />}
+      {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
 
       {tab === 'record' && <Stack gap={2}>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Tracking record">
@@ -266,11 +257,11 @@ export function TrackingRecordPage() {
           <Facts items={[['Tracking number', <Mono>{rec.number}</Mono>], ['Tracking type', trackingTypes[rec.type]],
             ['Work instruction', <><Link to={`/sequfloh/instruction/${rec.workInstructionId}`}><Mono>{rec.workInstructionNumber}</Mono></Link> rev {rec.workInstructionRevision} — {rec.workInstructionTitle}</>],
             ['Part', rec.partNumber ? `${s(rec.partNumber)} — ${s(rec.partDescription)}` : '—'], ['Status', <SqfStatus status={rec.status} />], ['Result', <SqfStatus status={rec.result} />],
-            ['Approval status', words(rec.approvalStatus)], ['Assigned user', s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
+            ['Assigned user', s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
             ['Site', s(rec.site) || '—'], ['Owner', s(rec.owner) || '—'], ['Created', `${fmtDateTime(rec.createdAt)}${rec.createdBy ? ' · ' + s(rec.createdBy) : ''}`],
             ['Updated', `${fmtDateTime(s(rec.updatedAt))}${rec.updatedBy ? ' · ' + s(rec.updatedBy) : ''}`],
             ...(rec.repairDescription ? [['Repair description', s(rec.repairDescription)] as [string, ReactNode]] : []),
-            ...(['pauseReason', 'holdReason', 'failureReason', 'rejectionReason', 'cancelReason'].filter((k) => rec[k]).map((k) => [words(k.replace(/^./, (c) => c.toUpperCase())), s(rec[k])] as [string, ReactNode]))]} />
+            ...(['pauseReason', 'holdReason', 'failureReason', 'cancelReason'].filter((k) => rec[k]).map((k) => [words(k.replace(/^./, (c) => c.toUpperCase())), s(rec[k])] as [string, ReactNode]))]} />
         </Paper>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Timing">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Timing</Typography>
@@ -323,10 +314,8 @@ export function TrackingRecordPage() {
           <TableCell><TextField size="small" label="Comment" value={s(r.comment)} disabled={!enter} onChange={(e) => setRow('steps', i, { comment: e.target.value })} /></TableCell>
           {rec.type === 'Repair' && <TableCell>
             <FormControlLabel control={<Checkbox size="small" checked={r.completed === true} disabled={!enter} onChange={(_, c) => setRow('steps', i, { completed: c })} />} label="Completed" />
-            {r.technicianAcknowledgement === true && <FormControlLabel control={<Checkbox size="small" checked={r.acknowledged === true} disabled={!enter} onChange={(_, c) => setRow('steps', i, { acknowledged: c })} />} label={`Acknowledged${r.acknowledgedBy ? ' · ' + s(r.acknowledgedBy) : ''}`} />}
-            {r.inspectorVerification === true && <FormControlLabel control={<Checkbox size="small" checked={r.verified === true} disabled={!enter} onChange={(_, c) => setRow('steps', i, { verified: c })} />} label={`Verified${r.verifiedBy ? ' · ' + s(r.verifiedBy) : ''}`} />}
           </TableCell>}
-        </>} entryHead={['Result', 'Actual result', 'Evidence', 'Comment', ...(rec.type === 'Repair' ? ['Acknowledgement'] : [])]} />}
+        </>} entryHead={['Result', 'Actual result', 'Evidence', 'Comment', ...(rec.type === 'Repair' ? ['Done'] : [])]} />}
 
       {tab === 'characteristics' && <EntryTable title="FAI characteristics" rows={doc.characteristics} disabled={!enter}
         cols={[['characteristicNumber', 'No.'], ['requirement', 'Requirement'], ['spec', 'Specification / limits'], ['inspectionMethod', 'Method']]}
@@ -349,22 +338,13 @@ export function TrackingRecordPage() {
         </>} />}
 
       {tab === 'review' && <Stack gap={2}>
-        <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Signoffs">
-          <Typography variant="h3" sx={{ mb: 1.5 }}>Required signoffs</Typography>
-          {doc.signoffs.length === 0 ? <Typography variant="body2" color="text.secondary">No signoffs are required for this record.</Typography> :
-            <SimpleTable head={['Role', 'Signed by', 'When', 'Meaning', '']} rows={doc.signoffs.map((x) => [s(x.role), s(x.userName) || '—', fmtDateTime(s(x.signedAt)), s(x.meaning) || '—',
-              !x.userId && ['InProgress', 'PendingInspection'].includes(rec.status) ? <Button size="small" variant="outlined" disabled={busy} onClick={() => sign(s(x.role))}>Sign as {s(x.role).toLowerCase()}</Button> : ''])} />}
-        </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Review">
-          <Typography variant="h3" sx={{ mb: 1.5 }}>Review</Typography>
-          <Facts items={[['Quality review', rec.qualityReviewRequired ? (rec.qualityReviewedAt ? `Approved ${fmtDateTime(s(rec.qualityReviewedAt))} · ${s(rec.qualityReviewedBy)}` : 'Required') : 'Not required'],
-            ['Engineering review', rec.engineeringReviewRequired ? (rec.engineeringReviewedAt ? `Approved ${fmtDateTime(s(rec.engineeringReviewedAt))} · ${s(rec.engineeringReviewedBy)}` : 'Required') : 'Not required'],
-            ['Approval status', words(rec.approvalStatus)]]} />
-          <Box sx={{ mt: 2 }}><Grid cols={2}>
+        <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Comments">
+          <Typography variant="h3" sx={{ mb: 1.5 }}>Quality and Engineering comments</Typography>
+          <Grid cols={2}>
             {txt('qualityComments', 'Quality comments', !q.data.canQualityComment || busy)}
             {txt('engineeringComments', 'Engineering comments', !q.data.canEngineeringComment || busy)}
-            {rec.engineeringReviewRequired === true && txt('engineeringConclusion', 'Engineering conclusion', !q.data.canEngineeringComment || busy)}
-          </Grid></Box>
+            {txt('engineeringConclusion', 'Engineering conclusion', !q.data.canEngineeringComment || busy)}
+          </Grid>
         </Paper>
       </Stack>}
 
@@ -420,12 +400,10 @@ export function TaskEvents({ events }: { events: TrEvent[] }) {
 const actionText: Record<string, string> = {
   dispatch: 'Dispatches the task to the assigned user.', assign: 'Assigns the task.', start: 'Starts the task. Timing runs from the database clock and survives refresh, sign-out and closing the browser.',
   pause: 'Pauses the task. Paused time is kept separately from active time.', resume: 'Resumes the task.', hold: 'Places the task on hold. Hold time is kept separately.',
-  restart: 'Restarts the record for rework. Earlier results and events stay in the history.', 'submit-inspection': 'Sends the record for inspection.',
-  'submit-review': 'Submits the record for review. It becomes read-only for the technician.', approve: 'Approves the results.', complete: 'Completes the record.',
-  fail: 'Records the failure.', reject: 'Rejects the record.', reassign: 'Moves the task to another user.', cancel: 'Cancels the task. A canceled task cannot be completed or resumed.',
-  'reverse-result': 'Reverses the recorded outcome and returns the record to review.',
+  restart: 'Restarts the record for rework. Earlier results and events stay in the history.', complete: 'Completes the record.',
+  fail: 'Records the failure.', reassign: 'Moves the task to another user.', cancel: 'Cancels the task. A canceled task cannot be completed or resumed.',
 };
-const reasonList: Record<string, string> = { hold: 'hold-reasons', cancel: 'cancellation-reasons', reject: 'rejection-reasons', fail: 'repair-failure-reasons' };
+const reasonList: Record<string, string> = { hold: 'hold-reasons', cancel: 'cancellation-reasons', fail: 'repair-failure-reasons' };
 /** Action dialog: one operation ID per opening, so a double click cannot apply the action twice; the button is disabled while the request runs. */
 export function TaskActionDialog({ action, record, onClose, onRun }: { action: TrAction | null; record: { number: string; assignedUserId?: string | null; minBenchmarkMinutes?: unknown; maxBenchmarkMinutes?: unknown; status: string; type?: string };
   onClose: () => void; onRun: (a: TrAction, input: J) => Promise<void> }) {
@@ -436,9 +414,9 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
   const options = useOptions(action && reasonList[action.action] && (action.action !== 'fail' || record.type === 'Repair') ? reasonList[action.action] : 'priorities');
   if (!action) return null;
   const needsUser = ['dispatch', 'assign', 'reassign'].includes(action.action);
-  const needsVariance = ['complete', 'submit-review'].includes(action.action) && record.status === 'InProgress' && (record.minBenchmarkMinutes != null || record.maxBenchmarkMinutes != null);
+  const needsVariance = action.action === 'complete' && record.status === 'InProgress' && (record.minBenchmarkMinutes != null || record.maxBenchmarkMinutes != null);
   const opts = reasonList[action.action] && (action.action !== 'fail' || record.type === 'Repair') ? options.data ?? [] : [];
-  const danger = ['fail', 'reject', 'cancel'].includes(action.action);
+  const danger = ['fail', 'cancel'].includes(action.action);
   return (
     <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setReason(''); setComment(''); setVariance(''); setUser(action.action === 'dispatch' ? record.assignedUserId ?? '' : ''); setErr(null); setOp(newOpId()); } }}>
       <DialogTitle>{action.label} — {record.number}</DialogTitle>
