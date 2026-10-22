@@ -11,7 +11,7 @@ namespace Sequfloh.Imports;
 public sealed record XlCell(int R, int C, string Kind, string? Text, string? Formula, string? Cached, CellStyle? Style, bool Locked, string? NumberFormat, string? Comment, string? Hyperlink);
 
 public sealed record XlValidation(string Range, int R1, int C1, int R2, int C2, string Type, string? Operator, string? Value, string? Value2, List<string>? Options, string? ListSource, bool Dropdown);
-public sealed record XlConditional(string Range, int R1, int C1, int R2, int C2, string Type, string? Operator, List<string> Values, CellStyle Style, bool StopIfTrue, int Priority);
+public sealed record XlConditional(string Range, int R1, int C1, int R2, int C2, string Type, string? Operator, List<string> Values, CellStyle Style, bool StopIfTrue, int Priority, int OriginR = 0, int OriginC = 0);
 public sealed record XlTable(string Name, int R1, int C1, int R2, int C2, bool HeaderRow, bool TotalsRow, List<string> Columns, List<string?> TotalsFunctions);
 public sealed record XlName(string Name, string RefersTo, string? Scope, bool Visible);
 public sealed record XlCheckbox(string Sheet, int? R, int? C, bool Checked);
@@ -245,8 +245,13 @@ public static class WorkbookReader
                 XLConditionalFormatType.Top10 => "top10", XLConditionalFormatType.IsDuplicate => "duplicate", XLConditionalFormatType.IsUnique => "unique", XLConditionalFormatType.AboveAverage => "aboveAverage",
                 XLConditionalFormatType.TimePeriod => "timePeriod", var x => x.ToString(),
             };
-            sh.Conditionals.Add(new XlConditional(a.ToStringRelative(false), a.FirstAddress.RowNumber, a.FirstAddress.ColumnNumber, a.LastAddress.RowNumber, a.LastAddress.ColumnNumber,
-                type, cf.Operator.ToString(), vals, Style(wb, cf.Style, data) ?? new CellStyle(), cf.StopIfTrue, sh.Conditionals.Count + 1));
+            // one rule can cover several ranges ("F2:G5 F6 F7:G51"); relative references in its formula start from the first range's top-left cell
+            var style = Style(wb, cf.Style, data) ?? new CellStyle();
+            var priority = sh.Conditionals.Count + 1;
+            var parts = cf.Ranges.Count > 0 ? cf.Ranges.Select(x => x.RangeAddress).ToList() : [a];
+            foreach (var p in parts)
+                sh.Conditionals.Add(new XlConditional(p.ToStringRelative(false), p.FirstAddress.RowNumber, p.FirstAddress.ColumnNumber, p.LastAddress.RowNumber, p.LastAddress.ColumnNumber,
+                    type, cf.Operator.ToString(), vals, style, cf.StopIfTrue, priority, a.FirstAddress.RowNumber, a.FirstAddress.ColumnNumber));
         }
 
         foreach (var t in ws.Tables)

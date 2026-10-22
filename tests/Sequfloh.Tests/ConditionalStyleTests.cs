@@ -87,4 +87,20 @@ public sealed class ConditionalStyleTests
     [InlineData("A1=\"B2\"", 1, 1, "B2=\"B2\"")]
     [InlineData("LOG10(A1)>1", 0, 1, "LOG10(B1)>1")]
     public void Rule_formulas_move_with_each_cell(string formula, int dr, int dc, string expected) => Assert.Equal(expected, ConditionalStyles.Shift(formula, dr, dc));
+
+    [Fact]
+    public void A_rule_covering_several_ranges_colours_every_range()
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.AddWorksheet("Torque Audit");
+        ws.Cell("F2").Value = "Failed"; ws.Cell("F8").Value = "Failed"; ws.Cell("G9").Value = "Passed";
+        var cf = ws.Range("F2:G5").AddConditionalFormat();
+        cf.WhenContains("Failed").Fill.SetBackgroundColor(XLColor.FromHtml("#FF0000"));
+        cf.Ranges.Add(ws.Range("F7:G9"));
+        var ms = new MemoryStream(); wb.SaveAs(ms);
+        var looks = Looks(ms.ToArray());
+        Assert.Equal("#FF0000", looks["F2"].Fill);
+        Assert.Equal("#FF0000", looks["F8"].Fill);
+        Assert.False(looks.ContainsKey("G9"));
+    }
 }

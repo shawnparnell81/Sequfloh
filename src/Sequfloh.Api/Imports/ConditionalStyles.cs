@@ -39,7 +39,7 @@ public static partial class ConditionalStyles
     {
         var cell = ws.Cell(r, c);
         var v = cell.Value;
-        int dr = r - rule.R1, dc = c - rule.C1;
+        int dr = r - (rule.OriginR > 0 ? rule.OriginR : rule.R1), dc = c - (rule.OriginC > 0 ? rule.OriginC : rule.C1);
         string here = cell.Address.ToStringRelative();
         XLCellValue Operand(int i) => i < rule.Values.Count ? Value(ws, Shift(rule.Values[i], dr, dc), here) : Blank.Value;
         string text = v.IsBlank ? "" : v.IsError ? "" : cell.GetFormattedString();
