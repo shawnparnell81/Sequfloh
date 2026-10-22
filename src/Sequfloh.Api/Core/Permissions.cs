@@ -40,6 +40,8 @@ public static class Permissions
     public const string SequflohEditQualityFolder = "sequfloh.edit_quality_folder";
     public const string SequflohViewEngineeringFolder = "sequfloh.view_engineering_folder";
     public const string SequflohEditEngineeringFolder = "sequfloh.edit_engineering_folder";
+    public const string SequflohViewImportedFiles = "sequfloh.view_imported_files";
+    public const string SequflohImportFiles = "sequfloh.import_files";
     public const string SequflohViewReports = "sequfloh.view_reports";
     public const string SequflohExportRecords = "sequfloh.export_records";
     public const string SequflohViewAuditTrail = "sequfloh.view_audit_trail";

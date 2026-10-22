@@ -123,7 +123,7 @@ public sealed class SequflohFoundationTests(TestApp app)
         var root = await app.AdminAsync();
         var roleId = await (await root.PostOkAsync("/api/admin/roles", new { name = "Repair bench " + Guid.NewGuid().ToString("N")[..6], description = (string?)null, permissions = new[] { Permissions.MasterDataView } })).Content.ReadFromJsonAsync<Guid>();
         var access = await admin.GetElAsync("/api/sequfloh/module-access");
-        Assert.Equal(35, access.GetProperty("permissions").GetArrayLength());
+        Assert.Equal(37, access.GetProperty("permissions").GetArrayLength());
         var codes = access.GetProperty("permissions").EnumerateArray().Select(p => p.ValueKind == System.Text.Json.JsonValueKind.String ? p.GetString() : p.Str("code")).ToList();
         Assert.Contains("sequfloh.release_work_instruction", codes);
         Assert.DoesNotContain(codes, c => c is "sequfloh.approve_work_instruction" or "sequfloh.review_work_instruction" or "sequfloh.submit_work_instruction" or "sequfloh.reject_task");

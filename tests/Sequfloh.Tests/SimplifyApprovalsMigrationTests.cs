@@ -65,7 +65,7 @@ public class SimplifyApprovalsMigrationTests
             await db.GetService<IMigrator>().MigrateAsync("20261022120703_Initial");
         }
 
-        var site = Guid.NewGuid(); var user = Guid.NewGuid(); var role = Guid.NewGuid();
+        var site = Guid.NewGuid(); var user = Guid.NewGuid(); var role = Guid.NewGuid(); var adminRole = Guid.NewGuid(); var qualityRole = Guid.NewGuid();
         var wi = new Dictionary<int, Guid>(); var tr = new Dictionary<int, Guid>();
         await using (var c = new NpgsqlConnection(Conn))
         {
@@ -73,6 +73,9 @@ public class SimplifyApprovalsMigrationTests
             await InsertAsync(c, "sites", new() { ["Id"] = Q(site.ToString()), ["Code"] = "'M1'", ["Name"] = "'Main'" });
             await InsertAsync(c, "users", new() { ["Id"] = Q(user.ToString()), ["Email"] = "'reviewer@example.test'", ["DisplayName"] = "'Robin Reviewer'" });
             await InsertAsync(c, "roles", new() { ["Id"] = Q(role.ToString()), ["Name"] = "'Doc control'" });
+            await InsertAsync(c, "roles", new() { ["Id"] = Q(adminRole.ToString()), ["Name"] = "'Site admin'", ["IsSystem"] = "true" });
+            await InsertAsync(c, "roles", new() { ["Id"] = Q(qualityRole.ToString()), ["Name"] = "'Quality folder'" });
+            await ExecAsync(c, $"INSERT INTO sqf.role_permissions (\"RoleId\", \"Permission\") VALUES ({Q(qualityRole.ToString())}, 'sequfloh.edit_quality_folder')");
             foreach (var p in new[] { "sequfloh.approve_work_instruction", "sequfloh.review_work_instruction", "sequfloh.archive_work_instruction", "sequfloh.reject_task", "sequfloh.access" })
                 await ExecAsync(c, $"INSERT INTO sqf.role_permissions (\"RoleId\", \"Permission\") VALUES ({Q(role.ToString())}, {Q(p)})");
             foreach (var status in new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 })
@@ -131,6 +134,17 @@ public class SimplifyApprovalsMigrationTests
             await using (var cmd = new NpgsqlCommand($"SELECT \"Permission\" FROM sqf.role_permissions WHERE \"RoleId\" = {Q(role.ToString())}", c))
             await using (var r = await cmd.ExecuteReaderAsync()) while (await r.ReadAsync()) perms.Add(r.GetString(0));
             Assert.Equal(["sequfloh.access", "sequfloh.obsolete_work_instruction", "sequfloh.release_work_instruction"], perms.Order().ToList());
+            // imported files: granted from what roles already held
+            async Task<List<string>> PermsOf(Guid r)
+            {
+                var list = new List<string>();
+                await using var cmd = new NpgsqlCommand($"SELECT \"Permission\" FROM sqf.role_permissions WHERE \"RoleId\" = {Q(r.ToString())}", c);
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync()) list.Add(rd.GetString(0));
+                return list;
+            }
+            Assert.Equal(["sequfloh.import_files", "sequfloh.view_imported_files"], (await PermsOf(adminRole)).Order().ToList());
+            Assert.Equal(["sequfloh.edit_quality_folder", "sequfloh.import_files", "sequfloh.view_imported_files"], (await PermsOf(qualityRole)).Order().ToList());
 
             // reference lists: the kept action keeps its custom label under the new list; removed entries are gone
             Assert.Equal("Release to floor", await ScalarAsync(c, "SELECT \"Label\" FROM sqf.sequfloh_reference_values WHERE \"ListKey\" = 'lifecycle-actions' AND \"Code\" = 'RELEASE'"));
