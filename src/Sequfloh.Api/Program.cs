@@ -78,6 +78,7 @@ builder.Services.AddScoped<SequflohReportService>();
 builder.Services.AddScoped<Seeder>();
 builder.Services.AddSingleton<Sequfloh.Imports.ILegacyOfficeConverter, Sequfloh.Imports.HeadlessOfficeConverter>();
 builder.Services.AddScoped<Sequfloh.Imports.ImportedFileService>();
+builder.Services.AddScoped<Sequfloh.Drawings.DrawingService>();
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddSingleton<IPasswordHasher<ApplicationUser>, PasswordHasher<ApplicationUser>>();
 

@@ -12,6 +12,7 @@ import { del, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
+import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { Confirm, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
 const crumbs = (label: string, extra?: { label: string; to?: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts and Items', to: '/sequfloh/parts' }, { label, to: extra ? undefined : undefined }, ...(extra ? [extra] : [])];
@@ -40,7 +41,7 @@ export function PartMasterPage() {
   const title = views[view] ?? 'Part Master';
   return (
     <SqfPage title={title} crumbs={crumbs(title)} description="The part master with execution attributes for each part and revision."
-      actions={can('sequfloh.edit_parts') && can('masterdata.edit') && <Button variant="contained" onClick={() => setOpen(true)}>New part</Button>}>
+      actions={can('sequfloh.edit_parts') && can('parts.edit') && <Button variant="contained" onClick={() => setOpen(true)}>New part</Button>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ family: v('family'), status: v('status'), type: v('type') }} onChange={set}
         onClear={() => { setSp(view ? { view } : {}); setPage(1); }}
         filters={[{ key: 'family', label: 'Product family', options: (families.data ?? []).map((f) => [f, f]) },
@@ -63,11 +64,18 @@ interface PartDetail { part: PartRow & { productId?: string; material?: string; 
 
 function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: PartDetail['part'] }) {
   const sites = useSites();
+  const { can } = useAuth();
+  const drawingsOk = can('sequfloh.manage_drawings');
+  const [links, setLinks] = useState<{ id: string; label: string }[]>([]);
+  const [inline, setInline] = useState<ReturnType<typeof blankDrawing> | null>(null);
   const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'EA', material: '', siteId: '', status: 'Active',
     productFamily: '', assemblyType: '', isRepairable: false, isSerialized: false, isLotControlled: false, drawingNumber: '', specification: '' };
   const [f, setF] = useState(blank);
   const [err, setErr] = useState<string | null>(null);
-  const init = () => { setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])) } as typeof blank : { ...blank, siteId: sites.data?.[0]?.id ?? '' }); };
+  const init = () => {
+    setLinks([]); setInline(null);
+    if (edit && drawingsOk) get<PartDrawing[]>(`/api/drawings/for-part?partId=${edit.id}`).then((l) => setLinks(l.map((d) => ({ id: d.id, label: `${d.drawingNumber ? d.drawingNumber + ' · ' : ''}${d.title} (rev ${d.currentRevision})` })))).catch(() => undefined);
+    setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])) } as typeof blank : { ...blank, siteId: sites.data?.[0]?.id ?? '' }); };
   const s = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const b = (k: keyof typeof blank) => (_: unknown, c: boolean) => setF({ ...f, [k]: c });
   const save = async () => {
@@ -77,7 +85,15 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
       execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isSerialized: f.isSerialized, isLotControlled: f.isLotControlled,
         drawingNumber: nul(f.drawingNumber), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 } };
     try {
-      if (edit) { await put(`${S}/parts/${edit.id}`, body); onSaved(edit.id); } else { const r = await post<{ id: string }>(`${S}/parts`, body); onSaved(r.id); }
+      let id = edit?.id;
+      if (edit) await put(`${S}/parts/${edit.id}`, body); else id = (await post<{ id: string }>(`${S}/parts`, body)).id;
+      if (drawingsOk && id) {
+        try {
+          await put(`/api/drawings/for-part/${id}`, { ids: links.map((l) => l.id) });
+          if (inline?.file) await post(`/api/drawings/for-part/${id}/upload`, drawingForm(inline));
+        } catch (e) { onSaved(id); setErr(`The part was saved, but the drawings were not: ${(e as Error).message}`); return; }
+      }
+      onSaved(id!);
       onClose();
     } catch (e) { setErr((e as Error).message); }
   };
@@ -105,9 +121,15 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
           <FormControlLabel control={<Checkbox checked={f.isRepairable} onChange={b('isRepairable')} />} label="Repairable" />
           <FormControlLabel control={<Checkbox checked={f.isSerialized} onChange={b('isSerialized')} />} label="Serialized" />
           <FormControlLabel control={<Checkbox checked={f.isLotControlled} onChange={b('isLotControlled')} />} label="Lot controlled" />
-        </Stack></Box>
+        </Stack>
+        {drawingsOk && <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Drawings</Typography>
+          <DrawingPicker value={links} onChange={setLinks} />
+          {inline ? <Box sx={{ mt: 2 }}><DrawingFileFields f={inline} set={setInline} /><Button size="small" sx={{ mt: 1 }} onClick={() => setInline(null)}>Don't upload</Button></Box>
+            : <Button size="small" sx={{ mt: 1 }} onClick={() => setInline(blankDrawing())}>Upload drawing</Button>}
+        </Paper>}</Box>
       </DialogContent>
-      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={!f.partNumber.trim() || !f.name.trim() || !f.siteId}>Save</Button></DialogActions>
+      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={!f.partNumber.trim() || !f.name.trim() || !f.siteId || (!!inline?.file && (!inline.title.trim() || !inline.revision.trim()))}>Save</Button></DialogActions>
     </Dialog>
   );
 }
@@ -124,7 +146,7 @@ export function PartDetailPage() {
   const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState('overview');
   const p = q.data?.part;
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-part', id] }); qc.invalidateQueries({ queryKey: ['sqf-part-history', id] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); qc.invalidateQueries({ queryKey: ['sqf-part', id] }); qc.invalidateQueries({ queryKey: ['sqf-part-history', id] }); };
   return (
     <SqfPage title={p ? `${p.partNumber} · ${p.name}` : 'Part'} crumbs={crumbs('Part Master', { label: p?.partNumber ?? '…' })} recent={p ? { label: `Part ${p.partNumber}`, itemType: 'Part', recordId: p.id } : null}
       tabs={[{ label: 'Overview', value: 'overview' }, { label: 'Parts lists', value: 'lists' }, { label: 'Revisions', value: 'revisions' }, { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
@@ -141,6 +163,8 @@ export function PartDetailPage() {
             <Field label="Drawing number">{p.drawingNumber}</Field><Field label="Specification">{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}
+          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Drawings</Typography>
+          <PartDrawingLinks partId={p.id} />
           <Typography variant="subtitle2" sx={{ mt: 2 }}>Related SEQUFLOH records</Typography>
           <Typography variant="body2">Parts lists: {q.data!.related.partsLists}</Typography>
         </Paper>}

@@ -174,7 +174,12 @@ export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', 
       MuiCardActionArea: { styleOverrides: { focusHighlight: { opacity: '0 !important' } } },
       MuiMenu: { styleOverrides: { paper: { backgroundColor: dark ? 'rgba(33,36,42,0.97)' : 'rgba(255,255,255,0.96)', boxShadow: dark ? '0 10px 30px rgba(0,0,0,0.5)' : '0 6px 18px rgba(20, 32, 50, 0.12)' } } },
       MuiPopover: { styleOverrides: { paper: { backgroundColor: dark ? 'rgba(33,36,42,0.97)' : 'rgba(255,255,255,0.96)' } } },
-      MuiDialog: { styleOverrides: { paper: { borderRadius: 20, backgroundColor: dark ? 'rgba(33,36,42,0.98)' : 'rgba(255,255,255,0.97)' } } },
+      // Dialogs: a solid surface over a dimmed backdrop, so nothing behind shows through the title or fields.
+      MuiDialog: { styleOverrides: {
+        paper: { borderRadius: 20, backgroundColor: dark ? '#21242A' : '#FFFFFF', backdropFilter: 'none', opacity: 1,
+          boxShadow: dark ? '0 24px 60px rgba(0,0,0,0.6)' : '0 24px 60px rgba(15,23,42,0.28)' },
+      } },
+      MuiBackdrop: { styleOverrides: { root: { '&:not(.MuiBackdrop-invisible)': { backgroundColor: dark ? 'rgba(0,0,0,0.65)' : 'rgba(15,23,42,0.5)' } } } },
       MuiTab: { styleOverrides: { root: { textTransform: 'none', fontWeight: 600, fontSize: 13.5, minWidth: 0, paddingLeft: 14, paddingRight: 14 } } },
       MuiTabs: { styleOverrides: { indicator: { height: 3, borderRadius: 3, background: tk.gradient } } },
       MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 10, backgroundColor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.85)' } } },

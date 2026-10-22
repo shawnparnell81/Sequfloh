@@ -10,6 +10,7 @@ import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
 import { HistoryTable, type AuditRow } from './Parts';
+import { PartDrawingLinks } from './Drawings';
 
 const A = '/api/imported-files';
 const GREEN = '#0E8550';
@@ -18,7 +19,7 @@ const crumbs = (label: string, extra?: { label: string }) => [{ label: 'SEQUFLOH
 interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; updatedBy?: string; isBlankForm: boolean; blankForm?: string | null }
 interface Detail {
   id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; createdAt: string; updatedAt: string; canEdit: boolean;
-  isBlankForm: boolean; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
+  isBlankForm: boolean; partNumber?: string | null; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
   copies?: { id: string; number: string; title: string; blankFormVersion?: number | null; createdAt: string; updatedAt: string; createdBy?: string; updatedBy?: string }[] | null;
   summary: { formulaTotal?: number; formulaClasses?: Record<string, number>; warnings?: string[]; security?: string[]; sheets?: { name: string; charts: number; pivots: number }[]; paragraphs?: number; tables?: number; controls?: number };
   versions: { version: number; fileName: string; sizeBytes: number; note?: string; createdAt: string; createdByName: string }[];
@@ -30,18 +31,42 @@ const today = () => new Date().toLocaleDateString('en-CA');
 const listTitles: Record<string, string> = { spreadsheet: 'Spreadsheets', document: 'Word Documents', blank: 'Blank Forms', filled: 'Filled Forms' };
 
 /** Asks for the title of a new file made from this one (a filled copy of a blank form, or a saved copy). */
-function CopyDialog({ open, heading, initial, action, busy, error, onClose, onConfirm }: { open: boolean; heading: string; initial: string; action: string; busy: boolean; error?: string | null; onClose: () => void; onConfirm: (title: string) => void }) {
+function CopyDialog({ open, heading, initial, action, busy, error, onClose, onConfirm, partNumber }: { open: boolean; heading: string; initial: string; action: string; busy: boolean; error?: string | null; onClose: () => void; onConfirm: (title: string, partNumber?: string) => void; partNumber?: boolean }) {
   const [title, setTitle] = useState(initial);
+  const [pn, setPn] = useState('');
+  const [typed, setTyped] = useState('');
+  useEffect(() => { const t = setTimeout(() => setTyped(pn), 400); return () => clearTimeout(t); }, [pn]);
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => setTitle(initial) }}>
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setTitle(initial); setPn(''); setTyped(''); } }}>
       <DialogTitle>{heading}</DialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         <TextField autoFocus fullWidth label="Title" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ mt: 1 }} inputProps={{ 'data-testid': 'copy-title' }} />
+        {partNumber && <>
+          <TextField fullWidth label="Part number (optional)" value={pn} onChange={(e) => setPn(e.target.value)} sx={{ mt: 2 }} inputProps={{ 'data-testid': 'copy-part-number' }}
+            helperText="The part this copy is for. Its drawings can be opened from here and from the filled copy." />
+          {typed.trim() && <Box sx={{ mt: 1 }}><PartDrawingLinks partNumber={typed} checkboxes /></Box>}
+        </>}
       </DialogContent>
-      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!title.trim() || busy} onClick={() => onConfirm(title.trim())} data-testid="copy-confirm">{busy ? 'Working…' : action}</Button></DialogActions>
+      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!title.trim() || busy} onClick={() => onConfirm(title.trim(), pn.trim() || undefined)} data-testid="copy-confirm">{busy ? 'Working…' : action}</Button></DialogActions>
     </Dialog>
   );
+}
+
+/** The part number a filled copy is for, with a tick box (and button) to open each of its drawings in a new window. */
+function CopyPartNumber({ d, onSaved }: { d: Detail; onSaved: () => void }) {
+  const [edit, setEdit] = useState(false);
+  const [pn, setPn] = useState(d.partNumber ?? '');
+  const save = async () => { await put(`${A}/${d.id}/part-number`, { partNumber: pn }); setEdit(false); onSaved(); };
+  if (edit || (!d.partNumber && d.canEdit)) return <Stack direction="row" gap={1} alignItems="center">
+    <TextField size="small" label="Part number" value={pn} onChange={(e) => setPn(e.target.value)} inputProps={{ 'data-testid': 'copy-header-part' }} sx={{ width: 200 }} />
+    <Button size="small" onClick={save} disabled={pn.trim() === (d.partNumber ?? '')} data-testid="copy-header-part-save">Set</Button>
+    {edit && <Button size="small" onClick={() => { setPn(d.partNumber ?? ''); setEdit(false); }}>Cancel</Button>}</Stack>;
+  return <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap" data-testid="copy-part">
+    <Typography variant="body2">Part <Mono>{d.partNumber}</Mono></Typography>
+    {d.canEdit && <Button size="small" onClick={() => setEdit(true)}>Change</Button>}
+    <PartDrawingLinks partNumber={d.partNumber} checkboxes />
+  </Stack>;
 }
 
 /** "Save as new copy": saves the pending edits into a new file and opens it; the file being edited stays as it is. */
@@ -77,8 +102,8 @@ export function ImportedFilesPage() {
       actions={can('sequfloh.import_files') && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setOpen(true)} data-testid="import-file">Import a file</Button>}>
       <Filters search={search} onSearch={(s) => { setSearch(s); setPage(1); }} values={{}} onChange={() => undefined} onClear={() => setSearch('')} filters={[]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty="No files imported yet."
-        cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', render: (r) => <Stack direction="row" gap={1} alignItems="center"><span>{r.title}</span>
-            {r.isBlankForm && <Chip size="small" color="primary" variant="outlined" label="Blank form" />}{r.blankForm && <Chip size="small" variant="outlined" label={`Filled from ${r.blankForm}`} />}</Stack> }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
+        cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', render: (r) => <Stack gap={0.5} alignItems="flex-start"><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><span>{r.title}</span>
+            {r.isBlankForm && <Chip size="small" color="primary" variant="outlined" label="Blank form" />}</Stack>{r.blankForm && <Chip size="small" variant="outlined" label={`Filled from ${r.blankForm}`} />}</Stack> }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
           { key: 'sourceFormat', label: 'Imported from', render: (r) => <Chip size="small" variant="outlined" label={formatLabel(r.sourceFormat)} /> }, { key: 'currentVersion', label: 'Version' },
           { key: 'updatedAt', label: 'Last saved', render: (r) => fmtDateTime(r.updatedAt) }, { key: 'updatedBy', label: 'Saved by', render: (r) => r.updatedBy ?? '—' }]} />
       <UploadDialog open={open} onClose={() => setOpen(false)} onDone={(id) => nav(`/sequfloh/imported-files/${id}`)} />
@@ -149,9 +174,9 @@ export function ImportedFilePage() {
   const latest = !d || shown === d.currentVersion;
   const refresh = () => { q.refetch(); history.refetch(); };
   const qc = useQueryClient();
-  const fillOut = async (title: string) => {
+  const fillOut = async (title: string, partNumber?: string) => {
     setFillBusy(true); setFillError(null);
-    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
+    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title, partNumber }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
     catch (e) { setFillError((e as Error).message); } finally { setFillBusy(false); }
   };
   const uploadVersion = async (f: File) => {
@@ -194,6 +219,7 @@ export function ImportedFilePage() {
           {d.kind === 'spreadsheet' && (d.summary.formulaTotal ?? 0) > 0 && <Chip size="small" variant="outlined" sx={{ borderColor: GREEN, color: GREEN }} label={`${d.summary.formulaTotal} formulas`} />}
           {d.kind === 'document' && <Chip size="small" variant="outlined" label={`${d.summary.paragraphs ?? 0} paragraphs · ${d.summary.tables ?? 0} tables`} />}
         </Stack>
+        {!d.isBlankForm && (d.partNumber || d.canEdit) && <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}><CopyPartNumber d={d} onSaved={refresh} /></Paper>}
         {upMsg && <Alert severity={upMsg.kind} sx={{ mb: 1 }} onClose={() => setUpMsg(null)}>{upMsg.text}</Alert>}
         {d.isBlankForm && tab === 'file' && <Alert severity={editBlank ? 'warning' : 'info'} sx={{ mb: 1 }}>{editBlank
           ? 'You are editing the blank form itself. Saved changes become a new version of the blank; filled copies made earlier stay as they are.'
@@ -221,7 +247,7 @@ export function ImportedFilePage() {
         </Paper>}
         {tab === 'history' && <HistoryTable q={history} />}
       </>}
-      {d && <CopyDialog open={fillOpen} heading="Fill out a copy" initial={`${d.title} – ${today()}`} action="Create and open" busy={fillBusy} error={fillError} onClose={() => setFillOpen(false)} onConfirm={fillOut} />}
+      {d && <CopyDialog open={fillOpen} heading="Fill out a copy" initial={`${d.title} – ${today()}`} action="Create and open" busy={fillBusy} error={fillError} onClose={() => setFillOpen(false)} onConfirm={fillOut} partNumber />}
     </SqfPage>
   );
 }
@@ -367,10 +393,10 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
           <TextField size="small" fullWidth value={bar} disabled={!sel || !editable} placeholder={editable ? 'Select a cell, then type a value or a formula starting with =' : 'Viewing only'}
             inputProps={{ 'data-testid': 'formula-bar', style: { fontFamily: faces.mono } }}
             onChange={(e) => setBar(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && sel) commit(sel.r, sel.c, bar); }} onBlur={() => { if (sel && editable && bar !== raw(sel.r, sel.c)) commit(sel.r, sel.c, bar); }} />
-          <FormControlLabel sx={{ whiteSpace: 'nowrap', ml: 1 }} control={<Switch size="small" checked={showFormulas} onChange={(e) => setShowFormulas(e.target.checked)} />} label="Show formulas" />
-          {editable && <Button variant="contained" disabled={!pendingCount || busy} onClick={save} data-testid="save-cells" sx={{ whiteSpace: 'nowrap' }}>{busy ? 'Saving…' : pendingCount ? `Save ${pendingCount} change${pendingCount === 1 ? '' : 's'}` : 'Saved'}</Button>}
-          {editable && pendingCount > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-as-copy" sx={{ whiteSpace: 'nowrap' }}>Save as new copy</Button>}
-          {pendingCount > 0 && <Button onClick={() => setEdits({})} disabled={busy}>Discard</Button>}
+          <FormControlLabel sx={{ whiteSpace: 'nowrap', ml: 1, flexShrink: 0 }} control={<Switch size="small" checked={showFormulas} onChange={(e) => setShowFormulas(e.target.checked)} />} label="Show formulas" />
+          {editable && <Button variant="contained" disabled={!pendingCount || busy} onClick={save} data-testid="save-cells" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{busy ? 'Saving…' : pendingCount ? `Save ${pendingCount} change${pendingCount === 1 ? '' : 's'}` : 'Saved'}</Button>}
+          {editable && pendingCount > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
+          {pendingCount > 0 && <Button onClick={() => setEdits({})} disabled={busy} sx={{ flexShrink: 0 }}>Discard</Button>}
         </Stack>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5, ml: 1, minHeight: 20 }}>
           {selCell?.formula ? <>Result: <b>{formatted(selCell.cached, selCell.style?.numberFormat)}</b>{selInfo?.warning ? ` · ${selInfo.warning}` : ' · updates as you edit; saved when you save'}</> : sel && editable ? 'Double-click a cell or type in the bar above. Start with = for a formula.' : ''}</Typography>
@@ -489,9 +515,9 @@ function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file:
       {msg && <Alert severity={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {editable && <Paper variant="outlined" sx={{ p: 1 }}><Stack direction="row" gap={1} alignItems="center">
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1, px: 1 }}>Click a paragraph or table cell to change its text. Fields, form controls and pictures stay as they are in the file.</Typography>
-        {count > 0 && <Button onClick={() => { setEdits({}); setEditing(null); }} disabled={busy}>Discard</Button>}
-        {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy">Save as new copy</Button>}
-        <Button variant="contained" disabled={!count || busy} onClick={save} data-testid="save-document">{busy ? 'Saving…' : count ? `Save ${count} change${count === 1 ? '' : 's'}` : 'Saved'}</Button>
+        {count > 0 && <Button onClick={() => { setEdits({}); setEditing(null); }} disabled={busy} sx={{ flexShrink: 0 }}>Discard</Button>}
+        {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
+        <Button variant="contained" disabled={!count || busy} onClick={save} data-testid="save-document" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{busy ? 'Saving…' : count ? `Save ${count} change${count === 1 ? '' : 's'}` : 'Saved'}</Button>
       </Stack></Paper>}
       <Box sx={{ bgcolor: '#E9EDF2', p: 3, borderRadius: 1, overflow: 'auto', maxHeight: 'calc(100vh - 300px)', '& .sqf-editable:hover': { background: '#EEF4FD' } }}>
         <Paper elevation={2} data-testid="document-page" sx={{ mx: 'auto', bgcolor: '#fff', color: '#1B2430', width: Math.min(fs.widthPt * 4 / 3, 1100),

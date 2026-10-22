@@ -13,6 +13,9 @@ import { TabbedWorkspace } from './tabs/Workspace';
 
 const Preferences = lazy(() => import('./pages/Account').then((m) => ({ default: m.PreferencesPage })));
 
+const SqfDrawings = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingsPage })));
+const SqfDrawing = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingPage })));
+const DrawingViewer = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingViewer })));
 const SqfHome = lazy(() => import('./sequfloh/Home').then((m) => ({ default: m.SequflohHome })));
 const SqfSettings = lazy(() => import('./sequfloh/Admin').then((m) => ({ default: m.SettingsPage })));
 const SqfReference = lazy(() => import('./sequfloh/Admin').then((m) => ({ default: m.ReferenceDataPage })));
@@ -100,6 +103,8 @@ export function App() {
   if (loading) return <Spinner />;
   if (!me) return needsSetup ? <SetupPage /> : <LoginPage />;
   if (me.mustChangePassword) return <ChangePasswordPage forced />;
+  // a drawing opened in its own browser tab: just the drawing, no workspace around it
+  if (loc.pathname.startsWith('/drawings/view/')) return <Suspense fallback={<Spinner />}><DrawingViewer /></Suspense>;
   return (
     <Signed>
       <TabbedWorkspace render={(location) => <AppRoutes location={location} />} />
@@ -152,6 +157,8 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/sequfloh/engineering" element={<SqfEDash />} />
         <Route path="/sequfloh/engineering/validation" element={<SqfEVal />} />
         <Route path="/sequfloh/engineering/development" element={<SqfEDev />} />
+        <Route path="/sequfloh/engineering/drawings" element={<SqfDrawings />} />
+        <Route path="/sequfloh/engineering/drawings/d/:id" element={<SqfDrawing />} />
         <Route path="/sequfloh/execution/history" element={<SqfExHistory />} />
         <Route path="/sequfloh/execution/:view" element={<SqfExQueue />} />
         <Route path="*" element={<Navigate to="/sequfloh" replace />} />

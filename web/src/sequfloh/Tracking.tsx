@@ -12,6 +12,7 @@ import { Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { ProblemList } from './Designer';
 import { PartPicker } from './Instructions';
+import { PartDrawingLinks, RecordDrawings } from './Drawings';
 
 export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production' };
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'OnHold', 'Completed', 'Failed', 'Canceled'];
@@ -150,6 +151,10 @@ export function NewTrackingPage() {
             renderInput={(p) => <TextField {...p} label="Released work instruction" helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type.' : undefined} />} />
           <PartPicker label={type === 'Repair' ? 'Repairable part' : 'Part'} repairable={type === 'Repair'} value={part} onChange={(p) => setPart(p)} />
           <TextField size="small" label="Part description" value={part?.name ?? ''} disabled InputLabelProps={{ shrink: true }} />
+          {part && <Box sx={{ gridColumn: { md: 'span 2' } }} data-testid="new-record-drawings">
+            <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 0.5 }}>
+              {type === 'Validation' ? 'Drawings for this part (attached to the record when it is created)' : 'Drawings for this part'}</Typography>
+            <PartDrawingLinks partId={part.id} /></Box>}
           <TextField select size="small" label="Site" value={sites.data ? siteId : ''} onChange={(e) => { setSiteId(e.target.value); setDepartmentId(''); }}>
             {(sites.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}{setupOptions('site', sites.data)}</TextField>
           <TextField select size="small" label="Department" value={site ? departmentId : ''} onChange={(e) => setDepartmentId(e.target.value)}>
@@ -252,6 +257,7 @@ export function TrackingRecordPage() {
       {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
 
       {tab === 'record' && <Stack gap={2}>
+        <RecordDrawings recordId={rec.id} />
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Tracking record">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Tracking record</Typography>
           <Facts items={[['Tracking number', <Mono>{rec.number}</Mono>], ['Tracking type', trackingTypes[rec.type]],

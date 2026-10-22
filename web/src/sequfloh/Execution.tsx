@@ -7,6 +7,7 @@ import { useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Filters, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, qs, useOptions, words, type Col } from './common';
 import { LiveClock, TaskActionDialog, newOpId, trackingStatuses, trackingTypes, type TrAction, type TrRow } from './Tracking';
+import { RecordDrawings } from './Drawings';
 import { ProblemList } from './Designer';
 
 type J = Record<string, unknown>;
@@ -211,6 +212,7 @@ export function ActiveStationPage() {
                   <Fact k="Hold time"><LiveClock key={'h' + r.stateVersion} seconds={r.holdSeconds} running={r.status === 'OnHold'} label="Hold time" /></Fact>
                   <Fact k="Due">{fmtDateTime(s(r.dueAt))}</Fact>
                 </Box>
+                <Box sx={{ mt: 2 }}><RecordDrawings recordId={r.id} /></Box>
                 <Alert severity="info" sx={{ mt: 2 }} icon={false} aria-label="Next required action"><strong>Next required action:</strong> {d.nextAction}</Alert>
                 <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 2 }}>
                   {d.canEnter && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save</Button>}
