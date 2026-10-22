@@ -1,0 +1,11 @@
+bin/
+obj/
+node_modules/
+web/dist/
+src/Sequfloh.Api/wwwroot/
+src/Sequfloh.Api/data/
+*.user
+.vs/
+.vscode/
+.env
+TestResults/

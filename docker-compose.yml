@@ -1,0 +1,30 @@
+# Local trial: docker compose up --build, then open http://localhost:8080
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: sequfloh
+      POSTGRES_USER: sequfloh
+      POSTGRES_PASSWORD: sequfloh_local_only
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sequfloh"]
+      interval: 5s
+      retries: 10
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://sequfloh:sequfloh_local_only@db:5432/sequfloh?sslmode=disable
+      JWT_SECRET: local-only-secret-change-me-0123456789abcdef
+      STORAGE_PROVIDER: local
+    volumes:
+      - files:/app/data/files
+volumes:
+  dbdata:
+  files:

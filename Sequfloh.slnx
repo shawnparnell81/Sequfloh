@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sequfloh.Api/Sequfloh.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sequfloh.Tests/Sequfloh.Tests.csproj" />
+  </Folder>
+</Solution>

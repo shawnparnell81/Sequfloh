@@ -1,0 +1,8 @@
+**/bin
+**/obj
+**/node_modules
+web/dist
+src/Sequfloh.Api/wwwroot
+src/Sequfloh.Api/data
+.git
+tests

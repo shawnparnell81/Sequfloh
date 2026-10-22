@@ -1,0 +1,147 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Sequfloh.Infrastructure.Modules.Execution;
+
+// Typed SEQUFLOH settings areas. Dropdown values (types, statuses, reasons, results, categories,
+// qualification labels) are administered as reference lists; the settings name the list that supplies each dropdown.
+
+public sealed class GeneralSettings
+{
+    public bool ModuleEnabled { get; set; } = true;
+    public string DisplayName { get; set; } = "SEQUFLOH";
+    public string Description { get; set; } = "Integrated execution, tracking, validation, inspection, repair, production, and controlled work instruction management.";
+    public string DefaultLandingPage { get; set; } = "/sequfloh";
+    public int RecordsPerPage { get; set; } = 25;
+    public Guid? DefaultSiteId { get; set; }
+    public Guid? DefaultDepartmentId { get; set; }
+    public int RecentItemsLimit { get; set; } = 10;
+    public bool FavoritesEnabled { get; set; } = true;
+}
+
+public sealed class NumberingSettings
+{
+    /// <summary>"Letters" (A, B, C) or "TwoDigits" (00, 01, 02).</summary>
+    public string RevisionFormat { get; set; } = "Letters";
+}
+
+public sealed class WorkInstructionSettings
+{
+    public bool QualityReviewRequired { get; set; } = true;
+    public bool EngineeringReviewRequired { get; set; }
+    public bool ApprovalRequired { get; set; } = true;
+    /// <summary>Permissions a reviewer must hold (administrable; never role names).</summary>
+    public List<string> RequiredReviewPermissions { get; set; } = ["sequfloh.review_work_instruction"];
+    public bool EffectiveDateRequired { get; set; } = true;
+    public bool RevisionReasonRequired { get; set; } = true;
+    public bool TrainingAcknowledgementRequired { get; set; }
+    public int ObsoleteRetentionYears { get; set; } = 10;
+    public string PrintFooter { get; set; } = "Controlled copy when viewed in SEQUFLOH. Printed copies are uncontrolled unless stamped.";
+    public string ApprovalStatement { get; set; } = "I have reviewed this work instruction and approve it for its stated purpose and scope.";
+    public bool PreventSelfApproval { get; set; } = true;
+}
+
+public sealed class TrackingSettings
+{
+    public decimal VarianceWarningPercent { get; set; } = 10;
+    public decimal VarianceCriticalPercent { get; set; } = 25;
+    public int DefaultMinimumMinutes { get; set; } = 15;
+    public int DefaultMaximumMinutes { get; set; } = 60;
+    /// <summary>A task counts as overdue this many hours after its due date.</summary>
+    public int OverdueThresholdHours { get; set; }
+    public int ApproachingDueHours { get; set; } = 24;
+    public bool TechnicianSignoffRequired { get; set; } = true;
+    public bool InspectorSignoffRequired { get; set; }
+    public bool VarianceReasonRequired { get; set; } = true;
+}
+
+public sealed class ValidationSettings
+{
+    public bool EvidenceRequired { get; set; } = true;
+    public bool QualityReviewRequired { get; set; } = true;
+    public bool EngineeringReviewRequired { get; set; }
+    public bool ApprovalRequired { get; set; } = true;
+}
+
+public sealed class FaiSettings
+{
+    public bool QualityApprovalRequired { get; set; } = true;
+    public bool EngineeringApprovalRequired { get; set; }
+    public bool EvidenceRequiredForFailures { get; set; } = true;
+}
+
+public sealed class RepairSettings
+{
+    public bool QualityApprovalRequired { get; set; } = true;
+    public bool InspectorVerificationRequired { get; set; } = true;
+    public bool RepairTestRequired { get; set; } = true;
+}
+
+public sealed class DisplaySettings
+{
+    public bool CompactTables { get; set; }
+    public List<string> DashboardCards { get; set; } = ["awaitingDispatch", "active", "paused", "overdue", "validation", "fai", "repair", "production", "failed", "pendingReview", "pendingApproval", "released", "revised", "assigned"];
+    public string DefaultTrackingFilter { get; set; } = "open";
+    public string DefaultFolderView { get; set; } = "current";
+    /// <summary>Status to chip colour; values use the shared status palette (default, primary, success, warning, error, info).</summary>
+    public Dictionary<string, string> StatusColors { get; set; } = new()
+    {
+        ["Draft"] = "default", ["InDevelopment"] = "info", ["PendingReview"] = "warning", ["ChangesRequested"] = "warning", ["PendingApproval"] = "warning", ["Approved"] = "primary",
+        ["Released"] = "success", ["Superseded"] = "default", ["Obsolete"] = "default", ["Archived"] = "default", ["InProgress"] = "primary", ["Paused"] = "warning", ["OnHold"] = "warning",
+        ["Completed"] = "success", ["Failed"] = "error", ["Rejected"] = "error", ["Canceled"] = "default"
+    };
+}
+
+public sealed class ExportSettings
+{
+    public string FilenamePattern { get; set; } = "{report}-{date}";
+    public string DateFormat { get; set; } = "yyyy-MM-dd HH:mm";
+    public string OrganizationHeading { get; set; } = "";
+    public Dictionary<string, List<string>> IncludedColumns { get; set; } = new();
+    public Dictionary<string, string> ReportTitles { get; set; } = new()
+    {
+        ["work-instructions"] = "Work Instruction Status", ["validation"] = "Validation Tracking", ["fai"] = "FAI Tracking", ["repair"] = "Repair Tracking", ["production"] = "Production Tracking",
+        ["parts"] = "Part Master", ["parts-lists"] = "Parts Lists", ["task-log"] = "Task Log", ["time-variance"] = "Time Variance", ["audit"] = "SEQUFLOH Audit Trail",
+        ["user-activity"] = "User Activity", ["approval-status"] = "Approval Status", ["task-performance"] = "Task Performance"
+    };
+}
+
+public sealed class NotificationSettings
+{
+    public bool AssignedWork { get; set; } = true;
+    public bool PendingReview { get; set; } = true;
+    public bool PendingApproval { get; set; } = true;
+    public bool ChangesRequested { get; set; } = true;
+    public bool OverdueWork { get; set; } = true;
+    public bool FailedRecords { get; set; } = true;
+    public bool RejectedRecords { get; set; } = true;
+    public bool ReleasedInstructions { get; set; } = true;
+    public bool SupersededInstructions { get; set; } = true;
+    public bool ApproachingDueDates { get; set; } = true;
+}
+
+public sealed class RoleSuggestion
+{
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public List<string> Permissions { get; set; } = [];
+}
+
+public sealed class SecuritySettings
+{
+    public bool RequireReasonForOverride { get; set; } = true;
+    public bool ExportsRequirePermission { get; set; } = true;
+    /// <summary>Suggested SEQUFLOH permission sets an administrator can apply to an existing role (suggestions, not roles).</summary>
+    public List<RoleSuggestion> RoleSuggestions { get; set; } = [];
+}
+
+public static class SequflohJson
+{
+    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
+    public static T Read<T>(string? json) where T : new()
+    {
+        if (string.IsNullOrWhiteSpace(json) || json == "{}") return new T();
+        try { return JsonSerializer.Deserialize<T>(json, Options) ?? new T(); } catch (JsonException) { return new T(); }
+    }
+    public static string Write<T>(T value) => JsonSerializer.Serialize(value, Options);
+}
