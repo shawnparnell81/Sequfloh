@@ -11,3 +11,4 @@ src/Sequfloh.Api/data/
 TestResults/
 web/test-results/
 web/playwright-report/
+test-results/

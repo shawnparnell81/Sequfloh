@@ -18,3 +18,10 @@ export const view = (p: Page) => p.locator('[data-testid^="tab-view-"][data-acti
 export const strip = (p: Page) => p.getByTestId('tab-strip');
 export const tabs = (p: Page) => strip(p).locator('[data-tab-url]');
 export const section = async (p: Page, label: string) => { await p.locator(`[data-testid="section-${label}"]:visible`).first().click(); await p.waitForTimeout(500); };
+
+/** Full-page-size screenshot taken only once dialog/backdrop transitions have finished, with any remaining animation frozen at its end state. */
+export async function settledShot(page: Page, file: string) {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'), undefined, { timeout: 5000 }).catch(() => {});
+  await page.waitForFunction(() => [...document.querySelectorAll('.MuiDialog-root .MuiBackdrop-root')].every((b) => { const o = getComputedStyle(b).opacity; return o === '1' || o === '0'; }), undefined, { timeout: 5000 }).catch(() => {});
+  await page.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
+}

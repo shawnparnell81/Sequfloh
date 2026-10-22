@@ -1,12 +1,12 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { section, signIn, view } from './support';
+import { section, settledShot, signIn, view } from './support';
 
 /** Uses the E2E_CF_XLSX test workbook ("Torque Audit": readings in F5:F8, PASS/FAIL in G5:G8 coloured by conditional formatting). */
 test('a blank form stays blank; filled copies and saved copies are separate files linked to it', async ({ page }) => {
   test.skip(!process.env.E2E_CF_XLSX, 'set E2E_CF_XLSX');
   const shots = process.env.E2E_SHOTS;
-  const shot = async (name: string) => { if (shots) await page.screenshot({ path: path.join(shots, name) }); };
+  const shot = async (name: string) => { if (shots) await settledShot(page, path.join(shots, name)); };
   const stamp = Date.now().toString().slice(-6);
   const blankTitle = `Torque audit blank ${stamp}`;
   await signIn(page);

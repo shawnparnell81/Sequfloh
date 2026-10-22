@@ -77,8 +77,8 @@ export function ImportedFilesPage() {
       actions={can('sequfloh.import_files') && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setOpen(true)} data-testid="import-file">Import a file</Button>}>
       <Filters search={search} onSearch={(s) => { setSearch(s); setPage(1); }} values={{}} onChange={() => undefined} onClear={() => setSearch('')} filters={[]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty="No files imported yet."
-        cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', render: (r) => <Stack direction="row" gap={1} alignItems="center"><span>{r.title}</span>
-            {r.isBlankForm && <Chip size="small" color="primary" variant="outlined" label="Blank form" />}{r.blankForm && <Chip size="small" variant="outlined" label={`Filled from ${r.blankForm}`} />}</Stack> }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
+        cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', render: (r) => <Stack gap={0.5} alignItems="flex-start"><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><span>{r.title}</span>
+            {r.isBlankForm && <Chip size="small" color="primary" variant="outlined" label="Blank form" />}</Stack>{r.blankForm && <Chip size="small" variant="outlined" label={`Filled from ${r.blankForm}`} />}</Stack> }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
           { key: 'sourceFormat', label: 'Imported from', render: (r) => <Chip size="small" variant="outlined" label={formatLabel(r.sourceFormat)} /> }, { key: 'currentVersion', label: 'Version' },
           { key: 'updatedAt', label: 'Last saved', render: (r) => fmtDateTime(r.updatedAt) }, { key: 'updatedBy', label: 'Saved by', render: (r) => r.updatedBy ?? '—' }]} />
       <UploadDialog open={open} onClose={() => setOpen(false)} onDone={(id) => nav(`/sequfloh/imported-files/${id}`)} />
@@ -367,10 +367,10 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
           <TextField size="small" fullWidth value={bar} disabled={!sel || !editable} placeholder={editable ? 'Select a cell, then type a value or a formula starting with =' : 'Viewing only'}
             inputProps={{ 'data-testid': 'formula-bar', style: { fontFamily: faces.mono } }}
             onChange={(e) => setBar(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && sel) commit(sel.r, sel.c, bar); }} onBlur={() => { if (sel && editable && bar !== raw(sel.r, sel.c)) commit(sel.r, sel.c, bar); }} />
-          <FormControlLabel sx={{ whiteSpace: 'nowrap', ml: 1 }} control={<Switch size="small" checked={showFormulas} onChange={(e) => setShowFormulas(e.target.checked)} />} label="Show formulas" />
-          {editable && <Button variant="contained" disabled={!pendingCount || busy} onClick={save} data-testid="save-cells" sx={{ whiteSpace: 'nowrap' }}>{busy ? 'Saving…' : pendingCount ? `Save ${pendingCount} change${pendingCount === 1 ? '' : 's'}` : 'Saved'}</Button>}
-          {editable && pendingCount > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-as-copy" sx={{ whiteSpace: 'nowrap' }}>Save as new copy</Button>}
-          {pendingCount > 0 && <Button onClick={() => setEdits({})} disabled={busy}>Discard</Button>}
+          <FormControlLabel sx={{ whiteSpace: 'nowrap', ml: 1, flexShrink: 0 }} control={<Switch size="small" checked={showFormulas} onChange={(e) => setShowFormulas(e.target.checked)} />} label="Show formulas" />
+          {editable && <Button variant="contained" disabled={!pendingCount || busy} onClick={save} data-testid="save-cells" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{busy ? 'Saving…' : pendingCount ? `Save ${pendingCount} change${pendingCount === 1 ? '' : 's'}` : 'Saved'}</Button>}
+          {editable && pendingCount > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
+          {pendingCount > 0 && <Button onClick={() => setEdits({})} disabled={busy} sx={{ flexShrink: 0 }}>Discard</Button>}
         </Stack>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5, ml: 1, minHeight: 20 }}>
           {selCell?.formula ? <>Result: <b>{formatted(selCell.cached, selCell.style?.numberFormat)}</b>{selInfo?.warning ? ` · ${selInfo.warning}` : ' · updates as you edit; saved when you save'}</> : sel && editable ? 'Double-click a cell or type in the bar above. Start with = for a formula.' : ''}</Typography>
@@ -489,9 +489,9 @@ function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file:
       {msg && <Alert severity={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {editable && <Paper variant="outlined" sx={{ p: 1 }}><Stack direction="row" gap={1} alignItems="center">
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1, px: 1 }}>Click a paragraph or table cell to change its text. Fields, form controls and pictures stay as they are in the file.</Typography>
-        {count > 0 && <Button onClick={() => { setEdits({}); setEditing(null); }} disabled={busy}>Discard</Button>}
-        {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy">Save as new copy</Button>}
-        <Button variant="contained" disabled={!count || busy} onClick={save} data-testid="save-document">{busy ? 'Saving…' : count ? `Save ${count} change${count === 1 ? '' : 's'}` : 'Saved'}</Button>
+        {count > 0 && <Button onClick={() => { setEdits({}); setEditing(null); }} disabled={busy} sx={{ flexShrink: 0 }}>Discard</Button>}
+        {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
+        <Button variant="contained" disabled={!count || busy} onClick={save} data-testid="save-document" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{busy ? 'Saving…' : count ? `Save ${count} change${count === 1 ? '' : 's'}` : 'Saved'}</Button>
       </Stack></Paper>}
       <Box sx={{ bgcolor: '#E9EDF2', p: 3, borderRadius: 1, overflow: 'auto', maxHeight: 'calc(100vh - 300px)', '& .sqf-editable:hover': { background: '#EEF4FD' } }}>
         <Paper elevation={2} data-testid="document-page" sx={{ mx: 'auto', bgcolor: '#fff', color: '#1B2430', width: Math.min(fs.widthPt * 4 / 3, 1100),
