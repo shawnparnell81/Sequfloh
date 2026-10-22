@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { section, signIn, view } from './support';
+import { section, settledShot, signIn, view } from './support';
 
 /** Made-up drawings, drawn on the fly: nothing here is a real part or a real drawing. */
 const svg = (title: string, rev: string) => `<html><body style="margin:0;background:#fff">
@@ -23,7 +23,7 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
   test.skip(!process.env.E2E_CF_XLSX, 'set E2E_CF_XLSX');
   const shots = process.env.E2E_SHOTS;
   let n = 0;
-  const shot = async (name: string, p: Page = page) => { n++; if (shots) await p.screenshot({ path: path.join(shots, `${String(n).padStart(2, '0')}-${name}.png`) }); };
+  const shot = async (name: string, p: Page = page) => { n++; if (shots) await settledShot(p, path.join(shots, `${String(n).padStart(2, '0')}-${name}.png`)); };
   const stamp = Date.now().toString().slice(-6);
   const part = `TP-DRW-${stamp}`;
   const dwg = `DWG-${stamp}`;

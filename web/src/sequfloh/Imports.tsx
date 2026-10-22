@@ -215,11 +215,11 @@ export function ImportedFilePage() {
           {d.isBlankForm && <Chip size="small" color="primary" label="Blank form" data-testid="blank-chip" />}
           {d.blankForm && <Typography variant="body2" data-testid="blank-link">Filled from blank form{' '}
             <Link component={RouterLink} to={`/sequfloh/imported-files/${d.blankForm.id}`}>{d.blankForm.number} · {d.blankForm.title}</Link>{d.blankForm.version ? ` (version ${d.blankForm.version})` : ''}</Typography>}
-          {!d.isBlankForm && (d.partNumber || d.canEdit) && <CopyPartNumber d={d} onSaved={refresh} />}
           {d.isBlankForm && d.canEdit && <FormControlLabel sx={{ ml: 'auto' }} control={<Switch size="small" checked={editBlank} onChange={(e) => setEditBlank(e.target.checked)} inputProps={{ 'data-testid': 'edit-blank' } as object} />} label="Edit blank" />}
           {d.kind === 'spreadsheet' && (d.summary.formulaTotal ?? 0) > 0 && <Chip size="small" variant="outlined" sx={{ borderColor: GREEN, color: GREEN }} label={`${d.summary.formulaTotal} formulas`} />}
           {d.kind === 'document' && <Chip size="small" variant="outlined" label={`${d.summary.paragraphs ?? 0} paragraphs · ${d.summary.tables ?? 0} tables`} />}
         </Stack>
+        {!d.isBlankForm && (d.partNumber || d.canEdit) && <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}><CopyPartNumber d={d} onSaved={refresh} /></Paper>}
         {upMsg && <Alert severity={upMsg.kind} sx={{ mb: 1 }} onClose={() => setUpMsg(null)}>{upMsg.text}</Alert>}
         {d.isBlankForm && tab === 'file' && <Alert severity={editBlank ? 'warning' : 'info'} sx={{ mb: 1 }}>{editBlank
           ? 'You are editing the blank form itself. Saved changes become a new version of the blank; filled copies made earlier stay as they are.'
