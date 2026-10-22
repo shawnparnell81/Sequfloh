@@ -12,6 +12,7 @@ import { AssigneesPanel, TimePanel, type Person } from './TimePanel';
 import { DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { ProblemList } from './Designer';
+import { FindingsPanel } from './Findings';
 import { JobPanel, StatusBadge, StatusEditor, useStatusFilter } from './Job';
 import { PartPicker } from './Instructions';
 import { PartDrawingLinks, RecordDrawings } from './Drawings';
@@ -240,7 +241,7 @@ export function TrackingRecordPage() {
   const title = `${rec.number} — ${trackingTypes[rec.type]} record`;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
-    { label: 'Job', value: 'job' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }, { label: 'History', value: 'history' }];
+    { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }, { label: 'History', value: 'history' }];
   const setRow = (list: 'steps' | 'characteristics' | 'partsRows', i: number, patch: J) => upd({ [list]: doc[list].map((r, j) => (j === i ? { ...r, ...patch } : r)) } as Partial<TrRecord>);
   const det = (k: string, label: string, multiline = true) => <TextField size="small" label={label} value={doc.details[k] ?? ''} disabled={!enter} multiline={multiline} minRows={multiline ? 2 : undefined}
     onChange={(e) => upd({ details: { ...doc.details, [k]: e.target.value } })} />;
@@ -363,6 +364,8 @@ export function TrackingRecordPage() {
       </Stack>}
 
       {tab === 'job' && <JobPanel id={rec.id} canWork={rec.status !== 'Canceled'} />}
+      {tab === 'time' && <TimePanel recordId={rec.id} />}
+      {tab === 'findings' && <FindingsPanel id={rec.id} canWork={rec.status !== 'Canceled'} wi={`${rec.workInstructionNumber} rev ${rec.workInstructionRevision}`} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
       {tab === 'history' && <HistoryTable q={history} name={`${rec.number}-history`} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />

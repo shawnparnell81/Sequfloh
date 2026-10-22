@@ -7,8 +7,9 @@ import { fmtDateTime } from '../components/Status';
 import { S, fmtSeconds } from './common';
 
 export interface Person { id: string; displayName: string }
-interface TimePerson { userId: string; name: string; seconds: number; entries: number; runningSince?: string | null }
-interface TimeSummary { totalSeconds: number; people: TimePerson[]; serverTime: string; mineRunning: boolean }
+interface TimePerson { userId: string; name: string; seconds: number; pausedSeconds: number; entries: number; runningSince?: string | null; pausedSince?: string | null }
+interface TimeEvent { userId: string; userName: string; kind: string; at: string }
+interface TimeSummary { totalSeconds: number; pausedSeconds: number; people: TimePerson[]; serverTime: string; mineRunning: boolean; minePaused: boolean; log: TimeEvent[] }
 
 /** People on a work order. The first one is the lead. */
 export function AssigneesPanel({ recordId, people, canAssign }: { recordId: string; people: Person[]; canAssign: boolean }) {
@@ -53,12 +54,14 @@ export function TimePanel({ recordId }: { recordId: string }) {
   const [now, setNow] = useState(Date.now());
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const d = q.data;
   const skew = d ? q.dataUpdatedAt - new Date(d.serverTime).getTime() : 0;
   const live = (p: TimePerson) => p.seconds + (p.runningSince ? Math.max(0, (now - skew - new Date(p.runningSince).getTime()) / 1000) : 0);
+  const livePaused = (p: TimePerson) => p.pausedSeconds + (p.pausedSince ? Math.max(0, (now - skew - new Date(p.pausedSince).getTime()) / 1000) : 0);
   const total = d ? d.people.reduce((a, p) => a + live(p), 0) : 0;
-  const go = async (what: 'start' | 'stop') => {
+  const go = async (what: 'start' | 'stop' | 'pause' | 'resume') => {
     setBusy(true); setErr(null);
     try { await post(`${S}/tracking/${recordId}/time/${what}`); await qc.invalidateQueries(); }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
@@ -69,6 +72,9 @@ export function TimePanel({ recordId }: { recordId: string }) {
         <Typography variant="h3">Time on this job</Typography>
         <Typography variant="h3" data-testid="time-total" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(total)}</Typography>
         <Box sx={{ flex: 1 }} />
+        {d && d.mineRunning && (d.minePaused
+          ? <Button variant="contained" disabled={busy} data-testid="resume-timer" onClick={() => go('resume')}>Resume my timer</Button>
+          : <Button variant="outlined" disabled={busy} data-testid="pause-timer" onClick={() => go('pause')}>Pause my timer</Button>)}
         {d && (d.mineRunning
           ? <Button variant="contained" color="error" disabled={busy} data-testid="stop-timer" onClick={() => go('stop')}>Stop my timer</Button>
           : <Button variant="contained" color="success" disabled={busy} data-testid="start-timer" onClick={() => go('start')}>Start my timer</Button>)}
@@ -76,12 +82,22 @@ export function TimePanel({ recordId }: { recordId: string }) {
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
       {d && (d.people.length === 0 ? <Typography variant="body2" color="text.secondary">No time logged yet. Anyone can start a timer.</Typography> :
         <Table size="small" data-testid="time-people">
-          <TableHead><TableRow><TableCell>Person</TableCell><TableCell align="right">Time</TableCell><TableCell align="right">Sessions</TableCell><TableCell>Now</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>Person</TableCell><TableCell align="right">Worked</TableCell><TableCell align="right">Paused (not counted)</TableCell><TableCell align="right">Sessions</TableCell><TableCell>Now</TableCell></TableRow></TableHead>
           <TableBody>{d.people.map((p) => <TableRow key={p.userId}>
             <TableCell>{p.name}</TableCell><TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(live(p))}</TableCell>
+            <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', color: 'text.secondary' }}>{fmtSeconds(livePaused(p))}</TableCell>
             <TableCell align="right">{p.entries}</TableCell>
-            <TableCell>{p.runningSince ? <Chip size="small" color="success" label={`Running since ${fmtDateTime(p.runningSince)}`} /> : '—'}</TableCell></TableRow>)}</TableBody>
+            <TableCell>{p.runningSince ? <Chip size="small" color="success" label={`Running since ${fmtDateTime(p.runningSince)}`} />
+              : p.pausedSince ? <Chip size="small" color="warning" label={`Paused since ${fmtDateTime(p.pausedSince)}`} /> : '—'}</TableCell></TableRow>)}</TableBody>
         </Table>)}
+      {d && d.log.length > 0 && <Box sx={{ mt: 1 }}>
+        <Button size="small" data-testid="toggle-time-log" onClick={() => setShowLog(!showLog)}>{showLog ? 'Hide time log' : `Show time log (${d.log.length})`}</Button>
+        {showLog && <Table size="small" data-testid="time-log">
+          <TableHead><TableRow><TableCell>When</TableCell><TableCell>Person</TableCell><TableCell>Event</TableCell></TableRow></TableHead>
+          <TableBody>{d.log.map((l, i) => <TableRow key={i}><TableCell>{fmtDateTime(l.at)}</TableCell><TableCell>{l.userName}</TableCell><TableCell>{l.kind}</TableCell></TableRow>)}</TableBody>
+        </Table>}
+        <Typography variant="caption" color="text.secondary" component="div">Paused time is shown for the record but is not counted in man hours.</Typography>
+      </Box>}
     </Paper>
   );
 }

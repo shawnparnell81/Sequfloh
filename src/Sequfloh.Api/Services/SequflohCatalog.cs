@@ -27,6 +27,8 @@ public static class SequflohCatalog
              "Connector repair", "Fastener replacement", "Functional restoration", "Final testing", "Other controlled repair"]),
         new("repair-test-results", "Repair test results", "Results of a repair test.", ["Pass", "Fail", "Retest required"]),
         new("repair-failure-reasons", "Repair failure reasons", "Why a repair or repair test failed.", ["Fault not found", "Repair ineffective", "Additional damage found", "Part not available", "Test equipment fault", "Workmanship"]),
+        new("discovery-methods", "Discovery methods", "How a supplier nonconformance was found, on the work order findings and chargeback report.",
+            ["AQL sampling inspection", "Warranty claim inspection", "Product alert", "Recall", "Incoming inspection", "In-process", "Customer complaint", "Other"]),
         new("status-tags", "Official status in NetSuite", "Informational status shown on parts, work instructions and work orders. It never blocks work; official holds are in NetSuite.",
             ["Quarantine hold (NetSuite)", "Repair hold", "Released"]),
         new("priorities", "Priorities", "Priority levels of tasks and tracking records.", ["Low", "Normal", "High", "Urgent"]),

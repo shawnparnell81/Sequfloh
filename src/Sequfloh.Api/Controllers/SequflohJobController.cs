@@ -20,7 +20,7 @@ public sealed class SequflohJobController(SequflohJobService job, SequflohPrintS
     { await job.SaveColumnsAsync(id, new TestColumnMap(r.ResultColumn, r.PassValues, r.ValueColumns, r.BatchColumn, r.DateColumn), ct); return await job.GetAsync(id, ct); }
 
     [HttpPost("{id:guid}/job/test-files"), RequestSizeLimit(200 * 1024 * 1024), RequestFormLimits(MultipartBodyLengthLimit = 200 * 1024 * 1024)]
-    public async Task<object> Upload(Guid id, [FromForm] List<IFormFile> files, [FromForm] string? batch, [FromForm] DateOnly? testDate, CancellationToken ct)
+    public async Task<object> Upload(Guid id, [FromForm] List<IFormFile> files, [FromForm] string? batch, [FromForm] DateOnly? testDate, [FromForm] string? kind, CancellationToken ct)
     {
         var list = new List<(string, string, byte[])>();
         foreach (var file in files)
@@ -28,18 +28,21 @@ public sealed class SequflohJobController(SequflohJobService job, SequflohPrintS
             using var ms = new MemoryStream(); await file.CopyToAsync(ms, ct);
             list.Add((file.FileName, file.ContentType, ms.ToArray()));
         }
-        return await job.UploadAsync(id, list, batch, testDate, ct);
+        return await job.UploadAsync(id, list, batch, testDate, ct, kind ?? "test");
     }
     [HttpGet("job/test-files/{fileId:guid}")]
     public async Task<IActionResult> Download(Guid fileId, CancellationToken ct) { var (b, n, t) = await job.DownloadAsync(fileId, ct); return File(b, t, n); }
     [HttpGet("job/test-files/{fileId:guid}/columns")] public Task<object> FileColumns(Guid fileId, CancellationToken ct) => job.ColumnsAsync(fileId, ct);
     [HttpDelete("job/test-files/{fileId:guid}")] public async Task<IActionResult> DeleteFile(Guid fileId, CancellationToken ct) { await job.DeleteFileAsync(fileId, ct); return NoContent(); }
 
+    [HttpPut("{id:guid}/job/findings")] public async Task<object> SaveFindings(Guid id, JobFindings r, CancellationToken ct) { await job.SaveFindingsAsync(id, r, ct); return await job.GetAsync(id, ct); }
+    [HttpPut("{id:guid}/job/cost-lines")] public async Task<object> SaveCostLines(Guid id, List<CostLine> r, CancellationToken ct) { await job.SaveCostLinesAsync(id, r, ct); return await job.GetAsync(id, ct); }
+    [HttpPut("{id:guid}/job/report-options")] public async Task<object> SaveReportOptions(Guid id, ReportOptions r, CancellationToken ct) { await job.SaveOptionsAsync(id, r, ct); return await job.GetAsync(id, ct); }
     [HttpGet("{id:guid}/job/report")] public Task<SequflohJobService.JobReport> Report(Guid id, CancellationToken ct) => job.ReportAsync(id, ct);
     [HttpGet("{id:guid}/job/report/pdf")]
-    public async Task<IActionResult> Pdf(Guid id, [FromQuery] string? supplier, [FromQuery] string? reference, [FromQuery] decimal? rate, CancellationToken ct)
+    public async Task<IActionResult> Pdf(Guid id, [FromQuery] string? supplier, [FromQuery] string? reference, [FromQuery] decimal? rate, [FromQuery] bool? full, CancellationToken ct)
     {
-        var (pdf, name) = await job.PdfAsync(id, supplier, reference, rate, print, ct);
+        var (pdf, name) = await job.PdfAsync(id, supplier, reference, rate, print, ct, full == true);
         return File(pdf, "application/pdf", name);
     }
 }
