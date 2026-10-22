@@ -19,6 +19,8 @@ public partial class AppDbContext
     public DbSet<SequflohInstructionTemplate> SequflohInstructionTemplates => Set<SequflohInstructionTemplate>();
     public DbSet<SequflohTrackingRecord> SequflohTrackingRecords => Set<SequflohTrackingRecord>();
     public DbSet<SequflohTaskEvent> SequflohTaskEvents => Set<SequflohTaskEvent>();
+    public DbSet<SequflohTaskAssignee> SequflohTaskAssignees => Set<SequflohTaskAssignee>();
+    public DbSet<SequflohTimeEntry> SequflohTimeEntries => Set<SequflohTimeEntry>();
 
     private static void ConfigureSequfloh(ModelBuilder b)
     {
@@ -200,6 +202,26 @@ public partial class AppDbContext
             foreach (var p in new[] { nameof(SequflohTrackingRecord.MinBenchmarkMinutes), nameof(SequflohTrackingRecord.MaxBenchmarkMinutes), nameof(SequflohTrackingRecord.VarianceMinutes) }) e.Property(p).HasPrecision(12, 2);
             foreach (var p in new[] { nameof(SequflohTrackingRecord.Details), nameof(SequflohTrackingRecord.Steps), nameof(SequflohTrackingRecord.Characteristics), nameof(SequflohTrackingRecord.PartsRows) })
                 e.Property(p).HasColumnType("jsonb");
+        });
+        b.Entity<SequflohTaskAssignee>(e =>
+        {
+            e.ToTable("sequfloh_task_assignees");
+            e.HasKey(x => new { x.TrackingRecordId, x.UserId });
+            e.HasIndex(x => x.UserId);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<SequflohTimeEntry>(e =>
+        {
+            e.ToTable("sequfloh_time_entries");
+            e.HasIndex(x => new { x.UserId, x.StartedAt });
+            // one running timer per person per work order
+            e.HasIndex(x => new { x.TrackingRecordId, x.UserId }, "IX_sequfloh_time_entries_running").HasFilter("\"StoppedAt\" IS NULL").IsUnique();
+            e.HasIndex(x => x.TrackingRecordId);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            e.Property(x => x.UserName).HasMaxLength(200);
         });
         b.Entity<SequflohTaskEvent>(e =>
         {

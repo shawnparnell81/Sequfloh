@@ -9,7 +9,7 @@ import { get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
-import { Confirm, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, qs, useOptions, useUnsaved, words } from './common';
+import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, qs, useOptions, useUnsaved, words } from './common';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { DevelopmentPanel } from './Personnel';
 import { type Block, BlocksEditor, LayoutTemplates, TemplateActions, TemplatePicker } from './Blocks';
@@ -309,6 +309,8 @@ export function InstructionPage() {
         {q.data.actions.map((a) => <Button key={a.action} variant={a.action === 'release' ? 'contained' : 'outlined'} disabled={busy} color={a.action === 'release' ? 'success' : a.action === 'obsolete' ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" href={`${S}/instructions/${id}/print`} target="_blank" rel="noopener" disabled={dirty}>Print</Button>
         {q.data.canDuplicate && <Button disabled={busy} onClick={() => guard(() => withSave(async () => { const r = await post<{ id: string }>(`${S}/instructions/${id}/duplicate`); nav(`/sequfloh/instruction/${r.id}`); }, 'Duplicated.'))}>Duplicate</Button>}
+        <DeleteButton what={`${doc.number} ${doc.title}`} url={`${S}/instructions/${id}`} to={folder.to}
+          extra={`Every revision of ${doc.number} is removed, with its files and history. Work instructions that already have work orders can't be deleted; mark them obsolete instead.`} />
       </Stack>}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{typeLabels[doc.type]} designer · {doc.site ?? ''}{doc.department ? ` · ${doc.department}` : ''}
         {!q.data.canEdit && doc.status === 'Released' && ' · Released revisions are read-only. Use Create revision to change this instruction.'}

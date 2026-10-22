@@ -58,12 +58,17 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 x.FailureReason, x.ReportedCondition, x.ObservedCondition, x.RepairDescription, x.FinalDisposition, x.FaiType, x.CreatedAt, x.UpdatedAt,
                 Details = JsonNode.Parse(x.Details), Steps = JsonNode.Parse(x.Steps), Characteristics = JsonNode.Parse(x.Characteristics), PartsRows = JsonNode.Parse(x.PartsRows),
                 ElapsedSeconds = active, PausedSeconds = paused, HoldSeconds = hold,
-                Owner = Name(x.OwnerId), AssignedUser = Name(x.AssignedUserId), ActiveOperator = Name(x.ActiveOperatorId), CompletedBy = Name(x.CompletedById),
+                Owner = Name(x.OwnerId), AssignedUser = Name(x.AssignedUserId),
+                Assignees = db.SequflohTaskAssignees.Where(a => a.TrackingRecordId == x.Id).OrderBy(a => a.AddedAt).Join(db.Users, a => a.UserId, u => u.Id, (a, u) => new { u.Id, u.DisplayName }).ToList(), ActiveOperator = Name(x.ActiveOperatorId), CompletedBy = Name(x.CompletedById),
                 CreatedBy = Name(x.CreatedById), UpdatedBy = Name(x.UpdatedById),
                 Site = db.Sites.Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefault(),
                 Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
             },
             Events = events, ServerTime = now, CanEnter = canEnter,
+            CanAssign = !SequflohTrackingService.Terminal.Contains(x.Status)
+                && (await m.CanAsync(Permissions.SequflohDispatchTask, x.SiteId, x.DepartmentId, ct) || await m.CanAsync(Permissions.SequflohReassignTask, x.SiteId, x.DepartmentId, ct)),
+            CanDelete = await m.CanAsync(Permissions.SequflohDeleteRecords, x.SiteId, x.DepartmentId, ct) && !global::Sequfloh.Deletion.DeletionService.HasTime(x)
+                && !await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == x.Id, ct),
             CanPlan = !SequflohTrackingService.Terminal.Contains(x.Status)
                 && (await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct) || await m.CanAsync(Permissions.SequflohDispatchTask, x.SiteId, x.DepartmentId, ct)),
             CanQualityComment = x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && await m.CanAsync(Permissions.SequflohEditQualityFolder, x.SiteId, x.DepartmentId, ct),

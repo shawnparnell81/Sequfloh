@@ -37,16 +37,16 @@ internal static class SequflohTrackingQuery
             "active" => query.Where(x => x.Status == TrackingStatus.InProgress),
             "paused" => query.Where(x => x.Status == TrackingStatus.Paused),
             "finished" => query.Where(x => SequflohTrackingService.Terminal.Contains(x.Status)),
-            "mine" => query.Where(x => x.AssignedUserId == me && SequflohTrackingService.Open.Contains(x.Status)),
+            "mine" => query.Where(x => (x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me)) && SequflohTrackingService.Open.Contains(x.Status)),
             "overdue" => query.Where(x => SequflohTrackingService.Open.Contains(x.Status) && x.DueAt != null && x.DueAt < overdueCutoff),
-            "station" => query.Where(x => (x.AssignedUserId == me || x.ActiveOperatorId == me) && (x.Status == TrackingStatus.Assigned || x.Status == TrackingStatus.InProgress
+            "station" => query.Where(x => (x.AssignedUserId == me || x.ActiveOperatorId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me)) && (x.Status == TrackingStatus.Assigned || x.Status == TrackingStatus.InProgress
                 || x.Status == TrackingStatus.Paused || x.Status == TrackingStatus.OnHold)),
             _ => query
         };
         if (p.Status is not null) query = query.Where(x => x.Status == p.Status);
         if (p.Type is not null) query = query.Where(x => x.Type == p.Type);
         if (p.Owner is not null) query = query.Where(x => x.OwnerId == p.Owner);
-        if (p.Assigned is not null) query = query.Where(x => x.AssignedUserId == p.Assigned);
+        if (p.Assigned is not null) query = query.Where(x => x.AssignedUserId == p.Assigned || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == p.Assigned));
         if (p.Department is not null) query = query.Where(x => x.DepartmentId == p.Department);
         if (p.Site is not null) query = query.Where(x => x.SiteId == p.Site);
         if (!string.IsNullOrWhiteSpace(p.Priority)) query = query.Where(x => x.Priority == p.Priority);
@@ -85,7 +85,10 @@ internal static class SequflohTrackingQuery
             "createdAt:asc" => query.OrderBy(x => x.CreatedAt), _ => query.OrderByDescending(x => x.CreatedAt)
         };
         var paged = await Paging.PageAsync(query, p.Page, p.PageSize, ct);
-        var userIds = paged.Items.SelectMany(x => new[] { x.OwnerId, x.AssignedUserId, x.CompletedById, x.ActiveOperatorId }).OfType<Guid>().Distinct().ToList();
+        var pageIds = paged.Items.Select(x => x.Id).ToList();
+        var team = (await db.SequflohTaskAssignees.AsNoTracking().Where(a => pageIds.Contains(a.TrackingRecordId)).OrderBy(a => a.AddedAt).ToListAsync(ct))
+            .GroupBy(a => a.TrackingRecordId).ToDictionary(g => g.Key, g => g.Select(a => a.UserId).ToList());
+        var userIds = paged.Items.SelectMany(x => new[] { x.OwnerId, x.AssignedUserId, x.CompletedById, x.ActiveOperatorId }).OfType<Guid>().Concat(team.Values.SelectMany(v => v)).Distinct().ToList();
         var users = await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         var deptIds = paged.Items.Select(x => x.DepartmentId).OfType<Guid>().Distinct().ToList();
         var depts = await db.Departments.AsNoTracking().Where(d => deptIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, d => d.Name, ct);
@@ -102,7 +105,8 @@ internal static class SequflohTrackingQuery
                 x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber, x.WorkOrder, x.RepairOrder, x.Operation, x.PlannedStart, x.DueAt, x.ActualStart, x.ActualCompletion, x.CreatedAt, x.UpdatedAt,
                 x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes, x.VarianceReason, x.StateVersion, x.AssignedUserId, x.PauseReason, x.HoldReason, x.FailureReason, x.CancelReason,
                 PausedAt = x.Status == TrackingStatus.Paused ? x.CurrentStateStartedAt : null, HeldAt = x.Status == TrackingStatus.OnHold ? x.CurrentStateStartedAt : null,
-                Owner = U(x.OwnerId), AssignedUser = U(x.AssignedUserId), CompletedBy = U(x.CompletedById), ActiveOperator = U(x.ActiveOperatorId),
+                Owner = U(x.OwnerId), AssignedUser = U(x.AssignedUserId),
+                Assignees = (team.TryGetValue(x.Id, out var tm) ? tm : x.AssignedUserId is { } lu ? [lu] : []).Select(u => U(u)).OfType<string>().ToList(), CompletedBy = U(x.CompletedById), ActiveOperator = U(x.ActiveOperatorId),
                 Department = x.DepartmentId is { } d && depts.TryGetValue(d, out var dn) ? dn : null, Site = sites.TryGetValue(x.SiteId, out var sc) ? sc : null,
                 ElapsedSeconds = active, PausedSeconds = paused, HoldSeconds = hold,
                 DurationSeconds = active + paused + hold,

@@ -13,6 +13,8 @@ public interface IFileStorage
     Task PutAsync(string key, Stream content, string contentType, CancellationToken ct);
     Task<Stream?> GetAsync(string key, CancellationToken ct);
     Task EnsureReadyAsync(CancellationToken ct);
+    /// <summary>Removes a stored file. A file that is already gone is not an error.</summary>
+    Task DeleteAsync(string key, CancellationToken ct);
 }
 
 public sealed class StorageOptions
@@ -47,6 +49,13 @@ public sealed class LocalFileStorage(StorageOptions o) : IFileStorage
     {
         var path = PathOf(key);
         return Task.FromResult<Stream?>(File.Exists(path) ? File.OpenRead(path) : null);
+    }
+
+    public Task DeleteAsync(string key, CancellationToken ct)
+    {
+        var path = PathOf(key);
+        if (File.Exists(path)) File.Delete(path);
+        return Task.CompletedTask;
     }
 
     public Task EnsureReadyAsync(CancellationToken ct) { Directory.CreateDirectory(Path.GetFullPath(o.LocalPath)); return Task.CompletedTask; }
@@ -115,6 +124,13 @@ public sealed class S3FileStorage : IFileStorage
         }
         catch (AmazonS3Exception e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
         catch (Exception e) when (Unreachable(e)) { throw Fail("read", key, e); }
+    }
+
+    public async Task DeleteAsync(string key, CancellationToken ct)
+    {
+        try { await _s3.DeleteObjectAsync(new DeleteObjectRequest { BucketName = _bucket, Key = key }, ct); }
+        catch (AmazonS3Exception e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+        catch (Exception e) when (Unreachable(e)) { throw Fail("delete", key, e); }
     }
 
     static bool Unreachable(Exception e) => e is AmazonServiceException or AmazonClientException or HttpRequestException or IOException;

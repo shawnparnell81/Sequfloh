@@ -98,7 +98,7 @@ export function EngineeringDashboardPage() {
 
 /** Engineering › Validation: instructions, plans, open activities, results, failed records and revision history. */
 interface TrMini { id: string; number: string; type: string; status: string; result: string; workInstructionNumber: string; workInstructionRevision: string; partNumber?: string;
-  assignedUser?: string; dueAt?: string; actualCompletion?: string; updatedAt?: string }
+  assignedUser?: string; assignees?: string[]; dueAt?: string; actualCompletion?: string; updatedAt?: string }
 export function EngineeringValidationPage() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
@@ -125,7 +125,7 @@ export function EngineeringValidationPage() {
         { key: 'number', label: 'Tracking number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'wi', label: 'Instruction / revision', render: (r) => <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> },
         { key: 'partNumber', label: 'Part', render: (r) => r.partNumber ?? '—' }, { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
         { key: 'result', label: 'Result', render: (r) => <SqfStatus status={r.result} /> },
-        { key: 'assignedUser', label: 'Assigned', render: (r) => r.assignedUser ?? '—' }, { key: 'updatedAt', label: 'Updated', render: (r) => fmtDateTime(r.updatedAt) }]} />
+        { key: 'assignedUser', label: 'Assigned', render: (r) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') }, { key: 'updatedAt', label: 'Updated', render: (r) => fmtDateTime(r.updatedAt) }]} />
     </SqfPage>
   );
 }

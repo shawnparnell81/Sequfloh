@@ -59,8 +59,8 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
                 RepairInProgress = await open.CountAsync(x => x.Type == TrackingType.Repair, ct),
                 ProductionInProgress = await open.CountAsync(x => x.Type == TrackingType.Production, ct),
                 Failed = await tr.CountAsync(x => x.Status == TrackingStatus.Failed, ct),
-                AssignedToMe = await open.CountAsync(x => x.AssignedUserId == me, ct),
-                MyWork = await Rows(open.Where(x => x.AssignedUserId == me), ct),
+                AssignedToMe = await open.CountAsync(x => x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me), ct),
+                MyWork = await Rows(open.Where(x => x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me)), ct),
             } : null,
             Instructions = new
             {

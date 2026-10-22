@@ -14,6 +14,11 @@ namespace Sequfloh.Infrastructure.Persistence;
 /// </summary>
 public sealed class AuditInterceptor(ICurrentUser user, IClock clock) : SaveChangesInterceptor
 {
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Entity, string> Notes = new();
+
+    /// <summary>Extra words for the audit entry of a record being deleted (what else went with it), added after the record label.</summary>
+    public static void Note(Entity record, string text) => Notes.AddOrUpdate(record, text);
+
     private static readonly HashSet<string> Ignored = [nameof(Entity.RowVersion), nameof(Entity.UpdatedAt), nameof(Entity.UpdatedById), nameof(Entity.CreatedAt), nameof(Entity.CreatedById)];
 
     public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData e, InterceptionResult<int> result, CancellationToken ct = default)
@@ -64,6 +69,7 @@ public sealed class AuditInterceptor(ICurrentUser user, IClock clock) : SaveChan
                 _ => "Updated"
             };
             var fields = entry.State == EntityState.Modified ? Fields(entry) : [];
+            if (entry.State == EntityState.Deleted && Notes.TryGetValue(entry.Entity, out var note)) fields.Add(("", null, null, note));
             pending.Add(new Pending(entry, action, audited.AuditLabel, fields, changes));
         }
         if (pending.Count > 0)

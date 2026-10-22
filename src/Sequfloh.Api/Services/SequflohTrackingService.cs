@@ -14,7 +14,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
     string? TechnicianComments = null, string? QualityComments = null, string? EngineeringComments = null, string? Deviations = null, string? NonconformanceReferences = null,
@@ -141,6 +141,10 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
             await m.RequireActiveUserAsync(au, "assigned user", ct);
             if (!await m.UserCanAsync(au, Permissions.SequflohStartTask, r.SiteId, r.DepartmentId, ct)) throw new AppException("The assigned user cannot start SEQUFLOH tasks at this site.");
         }
+        var team = new List<Guid>();
+        if (r.AssignedUserId is { } lead0) team.Add(lead0);
+        foreach (var u in r.AssigneeIds ?? []) if (!team.Contains(u)) { await m.RequireActiveUserAsync(u, "assigned user", ct); team.Add(u); }
+        if (r.AssignedUserId is null && team.Count > 0) r = r with { AssignedUserId = team[0] };
         var settings = await f.GetSettingsAsync(ct);
         var priority = T(r.Priority, 100) ?? "Normal";
         await f.RequireOptionAsync("priorities", priority, "Priority", ct);
@@ -180,6 +184,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         rec.Details = details.ToJsonString();
         rec.Number = await numbers.NextAsync(NumberingType(r.Type), null, ct);
         db.SequflohTrackingRecords.Add(rec);
+        foreach (var u in team) db.SequflohTaskAssignees.Add(new SequflohTaskAssignee { TrackingRecordId = rec.Id, UserId = u, AddedAt = now });
         if (r.Type == TrackingType.Validation && rec.PartId is { } attachFor) await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct);
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
         f.Audit("TrackingRecordCreated", EntityType, rec.Id, $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
@@ -459,7 +464,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 if (action == "reassign" && rec.ActiveOperatorId is not null) rec.ActiveOperatorId = target;
                 break;
             case "start":
-                if (rec.AssignedUserId is { } a && a != m.UserId && !await m.CanAsync(Permissions.SequflohReassignTask, rec.SiteId, rec.DepartmentId, ct))
+                if (rec.AssignedUserId is { } a && a != m.UserId && !await db.SequflohTaskAssignees.AnyAsync(x => x.TrackingRecordId == rec.Id && x.UserId == m.UserId, ct) && !await m.CanAsync(Permissions.SequflohReassignTask, rec.SiteId, rec.DepartmentId, ct))
                     throw new ConflictException("The task is assigned to someone else.");
                 rec.AssignedUserId ??= m.UserId;
                 break;
@@ -498,6 +503,13 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         }
         rec.Status = to;
         rec.StateVersion++; rec.LastTransitionId = r.OperationId; rec.LastTransitionAt = now;
+        if (before != rec.AssignedUserId)
+        {
+            // keep the list of assigned people in step with the lead: a reassignment swaps the person, an assignment or start adds them
+            var team = await db.SequflohTaskAssignees.Where(a => a.TrackingRecordId == rec.Id).ToListAsync(ct);
+            if (action == "reassign") db.SequflohTaskAssignees.RemoveRange(team.Where(a => a.UserId == before));
+            if (rec.AssignedUserId is { } lead && team.All(a => a.UserId != lead)) db.SequflohTaskAssignees.Add(new SequflohTaskAssignee { TrackingRecordId = rec.Id, UserId = lead, AddedAt = now });
+        }
         Event(rec, rule.EventType, from, to, before, rec.AssignedUserId, reason, comment, r.OperationId, now);
         var who = before != rec.AssignedUserId ? $" (assigned {await NameAsync(before, ct)} -> {await NameAsync(rec.AssignedUserId, ct)})" : "";
         f.Audit("Task" + string.Concat(action.Split('-').Select(Cap)), EntityType, rec.Id, $"{rec.Number}: {rule.Label.ToLowerInvariant()}, {Words(from)} -> {Words(to)}{who}", rec.SiteId, reason ?? comment,
@@ -542,6 +554,47 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         if (r.MinBenchmarkMinutes is { } mn && mins < mn) return mins - mn;
         if (r.MaxBenchmarkMinutes is { } mx && mins > mx) return mins - mx;
         return 0;
+    }
+
+    /// <summary>
+    /// Sets everyone assigned to a work order. The lead stays when still on the list, otherwise the first person becomes lead. Assigning the first person
+    /// moves a not-started order to Assigned and removing everyone moves it back.
+    /// </summary>
+    public async Task<List<Guid>> SetAssigneesAsync(Guid id, List<Guid> userIds, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var rec = await LockAsync(id, ct);
+        if (!await m.CanAsync(Permissions.SequflohDispatchTask, rec.SiteId, rec.DepartmentId, ct) && !await m.CanAsync(Permissions.SequflohReassignTask, rec.SiteId, rec.DepartmentId, ct))
+            throw new ForbiddenException("You do not have permission to assign people to this work order.");
+        if (Terminal.Contains(rec.Status)) throw new ConflictException($"{rec.Number} is {Words(rec.Status)}; people can't be assigned any more.");
+        var ids = userIds.Distinct().ToList();
+        foreach (var u in ids) await m.RequireActiveUserAsync(u, "assigned user", ct);
+        me = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
+        var now = await DbNowAsync(ct);
+        var current = await db.SequflohTaskAssignees.Where(a => a.TrackingRecordId == id).ToListAsync(ct);
+        var removed = current.Where(a => !ids.Contains(a.UserId)).ToList();
+        var added = ids.Where(u => current.All(a => a.UserId != u)).ToList();
+        if (removed.Count == 0 && added.Count == 0) return ids;
+        db.SequflohTaskAssignees.RemoveRange(removed);
+        foreach (var u in added) db.SequflohTaskAssignees.Add(new SequflohTaskAssignee { TrackingRecordId = id, UserId = u, AddedAt = now });
+        var before = rec.AssignedUserId;
+        rec.AssignedUserId = before is { } b && ids.Contains(b) ? b : ids.Count > 0 ? ids[0] : null;
+        var from = rec.Status;
+        if (rec.Status == TrackingStatus.NotStarted && rec.AssignedUserId is not null) rec.Status = TrackingStatus.Assigned;
+        else if (rec.Status == TrackingStatus.Assigned && rec.AssignedUserId is null) rec.Status = TrackingStatus.NotStarted;
+        if (from != rec.Status) Accumulate(rec, now);
+        var op = Guid.NewGuid();
+        rec.StateVersion++; rec.LastTransitionId = op; rec.LastTransitionAt = now;
+        var names = await db.Users.Where(u => added.Contains(u.Id) || removed.Select(r => r.UserId).Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+        var parts = new List<string>();
+        if (added.Count > 0) parts.Add("added " + string.Join(", ", added.Select(u => names.GetValueOrDefault(u, "unknown"))));
+        if (removed.Count > 0) parts.Add("removed " + string.Join(", ", removed.Select(r => names.GetValueOrDefault(r.UserId, "unknown"))));
+        var text = string.Join("; ", parts);
+        Event(rec, "Assignees", from, rec.Status, before, rec.AssignedUserId, null, text, op, now);
+        f.Audit("TaskAssignees", EntityType, rec.Id, $"{rec.Number}: assigned people changed, {text}", rec.SiteId);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return ids;
     }
 
     void Event(SequflohTrackingRecord rec, string type, TrackingStatus? from, TrackingStatus? to, Guid? before, Guid? after, string? reason, string? comment, Guid op, DateTimeOffset? now = null)

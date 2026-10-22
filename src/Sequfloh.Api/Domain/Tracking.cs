@@ -104,3 +104,27 @@ public class SequflohTaskEvent : Entity, IAppendOnly
     public long HoldSeconds { get; set; }
     public Guid OperationId { get; set; }
 }
+
+/// <summary>A person assigned to a work order. A work order can have several; the first one assigned is also kept as the lead on the record.</summary>
+public class SequflohTaskAssignee
+{
+    public Guid TrackingRecordId { get; set; }
+    public Guid UserId { get; set; }
+    public DateTimeOffset AddedAt { get; set; }
+}
+
+/// <summary>
+/// Live time one person logged on a work order (start to stop), used for chargebacks. Anyone signed in can log time on any work order, assigned or not,
+/// and several people can run their timers on the same work order at once.
+/// </summary>
+public class SequflohTimeEntry : Entity, IAudited
+{
+    public Guid TrackingRecordId { get; set; }
+    public string TrackingNumber { get; set; } = "";
+    public Guid UserId { get; set; }
+    public string UserName { get; set; } = "";
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset? StoppedAt { get; set; }
+    public long Seconds { get; set; }
+    public string AuditLabel => $"time on {TrackingNumber} for {UserName}";
+}

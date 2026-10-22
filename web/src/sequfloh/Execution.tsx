@@ -81,7 +81,7 @@ export function ExecutionQueuePage() {
   ];
   const tail: Col<ExRow>[] = [{ key: 'actions', label: 'Actions', render: (r) => row.buttons(r, cfg.actions) }];
   const cols: Col<ExRow>[] = view === 'paused' ? [...base,
-    { key: 'assignedUser', label: 'Assigned', render: (r) => r.assignedUser ?? '—' },
+    { key: 'assignedUser', label: 'Assigned', render: (r) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
     { key: 'pauseReason', label: 'Pause reason', render: (r) => r.pauseReason ?? '—' },
     { key: 'pausedAt', label: 'Paused at', sort: true, render: (r) => fmtDateTime(r.pausedAt) },
     { key: 'paused', label: 'Paused time', render: (r) => <LiveClock seconds={r.pausedSeconds} running label="Paused time" /> },
@@ -95,12 +95,12 @@ export function ExecutionQueuePage() {
     { key: 'reason', label: 'Reason', render: (r) => r.failureReason ?? r.cancelReason ?? '—' }, ...tail]
     : view === 'overdue' ? [...base,
     { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
-    { key: 'assignedUser', label: 'Assigned', render: (r) => r.assignedUser ?? '—' },
+    { key: 'assignedUser', label: 'Assigned', render: (r) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
     { key: 'department', label: 'Department', render: (r) => r.department ?? '—' },
     { key: 'dueAt', label: 'Due', sort: true, render: (r) => fmtDateTime(r.dueAt) },
     { key: 'overdue', label: 'Overdue by', render: (r) => <Mono>{fmtSeconds(r.overdueSeconds)}</Mono> }, ...tail]
     : [...base,
-    { key: 'assignedUser', label: 'Assigned', render: (r) => r.assignedUser ?? '—' },
+    { key: 'assignedUser', label: 'Assigned', render: (r) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
     { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
     { key: 'priority', label: 'Priority', sort: true },
     { key: 'dueAt', label: 'Due', sort: true, render: (r) => <>{fmtDateTime(r.dueAt)}{r.overdueSeconds > 0 && <Chip size="small" color="error" variant="outlined" label="Overdue" sx={{ ml: 0.5 }} />}</> },
