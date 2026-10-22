@@ -29,6 +29,9 @@ public static class SequflohCatalog
         new("repair-failure-reasons", "Repair failure reasons", "Why a repair or repair test failed.", ["Fault not found", "Repair ineffective", "Additional damage found", "Part not available", "Test equipment fault", "Workmanship"]),
         new("discovery-methods", "Discovery methods", "How a supplier nonconformance was found, on the work order findings and chargeback report.",
             ["AQL sampling inspection", "Warranty claim inspection", "Product alert", "Recall", "Incoming inspection", "In-process", "Customer complaint", "Other"]),
+        new("inspection-reasons", "Inspection request reasons", "Why an inspection is requested.",
+            ["Supplier request", "Warranty claim", "AQL sample result", "Random inspection", "Customer request", "Defect driven"]),
+        new("inspection-priorities", "Inspection request priorities", "Priority levels for inspection requests, highest first. The order sets the queue order.", ["Critical", "High", "Normal", "Low"]),
         new("status-tags", "Official status in NetSuite", "Informational status shown on parts, work instructions and work orders. It never blocks work; official holds are in NetSuite.",
             ["Quarantine hold (NetSuite)", "Repair hold", "Released"]),
         new("priorities", "Priorities", "Priority levels of tasks and tracking records.", ["Low", "Normal", "High", "Urgent"]),
@@ -56,6 +59,7 @@ public static class SequflohCatalog
         new("SqfPartsList", "Parts lists", "PL-"),
         new("SqfOperationStep", "Reusable operation steps", "OP-"),
         new("SqfImportedFile", "Imported files", "IMP-"),
+        new("SqfInspectionRequest", "Inspection requests", "IR-"),
     ];
 
     static string[] P(params string[] caps) => caps.Select(c => "sequfloh." + c).ToArray();

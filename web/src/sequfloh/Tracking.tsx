@@ -10,6 +10,7 @@ import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { AssigneesPanel, TimePanel, type Person } from './TimePanel';
 import { DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
+import { NewInspectionRequestButton } from './InspectionRequests';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { ProblemList } from './Designer';
 import { FindingsPanel } from './Findings';
@@ -97,7 +98,7 @@ export function TrackingFolderPage() {
   const newType = cfg.type ?? Object.keys(createPerm).find((t) => can(createPerm[t]));
   return (
     <SqfPage title={cfg.title} crumbs={trCrumbs(cfg.title)} description={cfg.description} permission="sequfloh.view_live_execution"
-      actions={newType && can(createPerm[newType]) && <Button variant="contained" component={RouterLink} to={`/sequfloh/tracking/new?type=${newType}`}>New {cfg.type ? `${trackingTypes[cfg.type]} record` : 'record'}</Button>}>
+      actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" />{newType && can(createPerm[newType]) && <Button variant="contained" component={RouterLink} to={`/sequfloh/tracking/new?type=${newType}`}>New {cfg.type ? `${trackingTypes[cfg.type]} record` : 'record'}</Button>}</Stack>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} filters={filters} values={Object.fromEntries(filters.map((f) => [f.key, v(f.key)]))} onChange={set} onClear={() => { setSp({}); setPage(1); }}
         extra={<>
           <TextField size="small" label="Part number" defaultValue={v('part')} key={'p' + v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 150 }} />

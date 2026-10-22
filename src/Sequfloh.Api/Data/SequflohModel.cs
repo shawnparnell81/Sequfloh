@@ -22,6 +22,7 @@ public partial class AppDbContext
     public DbSet<SequflohTaskAssignee> SequflohTaskAssignees => Set<SequflohTaskAssignee>();
     public DbSet<SequflohTimeEntry> SequflohTimeEntries => Set<SequflohTimeEntry>();
     public DbSet<SequflohTestFile> SequflohTestFiles => Set<SequflohTestFile>();
+    public DbSet<SequflohInspectionRequest> SequflohInspectionRequests => Set<SequflohInspectionRequest>();
 
     private static void ConfigureSequfloh(ModelBuilder b)
     {
@@ -216,6 +217,22 @@ public partial class AppDbContext
             e.HasIndex(x => x.UserId);
             e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<SequflohInspectionRequest>(e =>
+        {
+            e.ToTable("sequfloh_inspection_requests");
+            e.HasIndex(x => x.Number).IsUnique();
+            e.HasIndex(x => new { x.Status, x.RequestedDate });
+            e.Property(x => x.Number).HasMaxLength(40);
+            e.Property(x => x.PartNumber).HasMaxLength(100);
+            e.Property(x => x.PartDescription).HasMaxLength(300);
+            e.Property(x => x.Reason).HasMaxLength(100);
+            e.Property(x => x.Requirement).HasMaxLength(4000);
+            e.Property(x => x.WorkInstructionLabel).HasMaxLength(300);
+            e.Property(x => x.Priority).HasMaxLength(50);
+            e.Property(x => x.RequestedByName).HasMaxLength(200);
+            e.Property(x => x.WorkOrderNumber).HasMaxLength(40);
+            e.Property(x => x.Quantity).HasPrecision(18, 4);
         });
         b.Entity<SequflohTestFile>(e =>
         {

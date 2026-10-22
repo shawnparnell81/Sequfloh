@@ -71,7 +71,7 @@ internal static class SequflohTrackingQuery
             query = query.Where(x => EF.Functions.ILike(x.Number + " " + x.WorkInstructionNumber + " " + x.WorkInstructionTitle + " " + (x.PartNumber ?? "") + " " + (x.SerialNumber ?? "") + " "
                 + (x.LotNumber ?? "") + " " + (x.WorkOrder ?? "") + " " + (x.RepairOrder ?? "") + " " + (x.Project ?? "") + " " + (x.Operation ?? ""), like));
         }
-        var defaultSort = p.Folder switch { "overdue" or "dispatch" or "mine" => "dueAt:asc", "finished" => "actualCompletion:desc", "paused" => "pausedAt:asc", "station" => "station", _ => "createdAt:desc" };
+        var defaultSort = p.Folder switch { "dispatch" or "mine" => "queue", "overdue" => "dueAt:asc", "finished" => "actualCompletion:desc", "paused" => "pausedAt:asc", "station" => "station", _ => "createdAt:desc" };
         query = (p.Sort ?? defaultSort) switch
         {
             "number:asc" => query.OrderBy(x => x.Number), "number:desc" => query.OrderByDescending(x => x.Number),
@@ -84,6 +84,9 @@ internal static class SequflohTrackingQuery
             "updatedAt:asc" => query.OrderBy(x => x.UpdatedAt), "updatedAt:desc" => query.OrderByDescending(x => x.UpdatedAt),
             "station" => query.OrderBy(x => x.Status == TrackingStatus.InProgress ? 0 :  x.Status == TrackingStatus.Paused ? 2 : x.Status == TrackingStatus.OnHold ? 3 : 4)
                 .ThenBy(x => x.DueAt == null).ThenBy(x => x.DueAt),
+            // the work queue: higher priority first, then the earliest due date
+            "queue" => query.OrderBy(x => x.Priority == "Critical" || x.Priority == "Urgent" ? 0 : x.Priority == "High" ? 1 : x.Priority == "Low" ? 3 : 2)
+                .ThenBy(x => x.DueAt == null).ThenBy(x => x.DueAt).ThenBy(x => x.CreatedAt),
             "createdAt:asc" => query.OrderBy(x => x.CreatedAt), _ => query.OrderByDescending(x => x.CreatedAt)
         };
         var paged = await Paging.PageAsync(query, p.Page, p.PageSize, ct);
