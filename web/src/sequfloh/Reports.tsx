@@ -17,15 +17,15 @@ interface Run { key: string; title: string; description: string; columns: Column
 const slugs: Record<string, string> = { 'task-performance': 'task-performance', 'validation-status': 'validation', 'fai-status': 'fai', 'repair-status': 'repair',
   'work-instruction-status': 'work-instructions', 'user-activity': 'user-activity', 'time-variance': 'time-variance' };
 const rCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Reports', to: '/sequfloh/reports/task-performance' }, { label }];
-const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'OnHold', 'PendingInspection', 'PendingReview', 'Completed', 'Failed', 'Rejected', 'Canceled'];
-const wiStatuses = ['Draft', 'InDevelopment', 'PendingReview', 'ChangesRequested', 'PendingApproval', 'Approved', 'Released', 'Superseded', 'Obsolete', 'Archived'];
+const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'OnHold', 'Completed', 'Failed', 'Canceled'];
+const wiStatuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 const opt = (l: string[]): [string, string][] => l.map((v) => [v, words(v)]);
 const filterSets: Record<string, { status?: [string, string][]; type?: [string, string][] }> = {
   'task-performance': { status: opt(trackingStatuses), type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production']] },
   validation: { status: opt(trackingStatuses) }, fai: { status: opt(trackingStatuses) }, repair: { status: opt(trackingStatuses) }, production: { status: opt(trackingStatuses) },
   'time-variance': { type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production']] },
   'work-instructions': { status: opt(wiStatuses), type: [['Validation', 'Validation'], ['ValidationFai', 'Validation / FAI'], ['Fai', 'FAI'], ['RepairTest', 'Repair Test'], ['RepairWork', 'Repair Work Instruction']] },
-  'approval-status': {}, 'parts-lists': { status: [['Draft', 'Draft'], ['Approved', 'Approved'], ['Inactive', 'Inactive']] },
+  'parts-lists': { status: [['Draft', 'Draft'], ['Released', 'Released'], ['Inactive', 'Inactive']] },
 };
 
 const cell = (v: unknown, type: string) => {

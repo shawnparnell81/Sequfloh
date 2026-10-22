@@ -134,7 +134,7 @@ export function RowsEditor({ title, noun, cols, rows, onChange, disabled, summar
   );
 }
 
-/** Client-side copy of the server's sequence rules, shown before review, approval and release. */
+/** Client-side copy of the server's sequence rules, shown before release. */
 export function sequenceProblems(rows: Row[], noun: string) {
   const seqs = rows.map((r) => Number(r.sequence) || 0);
   const p: string[] = [];

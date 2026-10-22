@@ -92,9 +92,8 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
                 s.Numbering = SequflohJson.Write(n); break;
             case "workInstructions":
                 var w = Parse<WorkInstructionSettings>();
-                if (w.RequiredReviewPermissions.Any(p => !Permissions.All.Contains(p))) throw new AppException("A required review permission is not a known permission.");
                 if (w.ObsoleteRetentionYears is < 0 or > 100) throw new AppException("Obsolete-document retention must be between 0 and 100 years.");
-                if (w.PrintFooter.Length > 500 || w.ApprovalStatement.Length > 1000) throw new AppException("The print footer or approval statement is too long.");
+                if (w.PrintFooter.Length > 500) throw new AppException("The print footer is too long.");
                 s.WorkInstructions = SequflohJson.Write(w); break;
             case "tracking":
                 var t = Parse<TrackingSettings>();

@@ -26,35 +26,29 @@ public sealed class SequflohDashboardTests(TestApp app)
     }
 
     [Fact]
-    public async Task Dashboards_and_review_queues_follow_permissions_and_status()
+    public async Task Dashboards_follow_permissions_and_status_and_review_queues_are_gone()
     {
         var site = await app.CreateSiteAsync();
         var (_, eng) = await app.CreateUserAsync(Eng, site);
         var (_, qual) = await app.CreateUserAsync(Qual, site);
         var (_, plain) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
         var draft = await WiAsync(site, WorkInstructionStatus.Draft);
-        var review = await WiAsync(site, WorkInstructionStatus.PendingReview);
         await WiAsync(site, WorkInstructionStatus.Released, WorkInstructionType.RepairWork);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await plain.GetAsync($"{S}/quality/dashboard")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await plain.GetAsync($"{S}/engineering/dashboard")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await qual.GetAsync($"{S}/engineering/review-queue")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await eng.GetAsync($"{S}/quality/review-queue")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await qual.GetAsync($"{S}/quality/review-queue")).StatusCode);
 
         var qd = await qual.GetElAsync($"{S}/quality/dashboard");
-        Assert.True(qd.GetProperty("validationPendingReview").GetInt32() >= 1);
+        Assert.True(qd.GetProperty("validationDrafts").GetInt32() >= 1);
+        Assert.False(qd.TryGetProperty("validationPendingReview", out _));
         var ed = await eng.GetElAsync($"{S}/engineering/dashboard");
         Assert.True(ed.GetProperty("draftValidation").GetInt32() >= 1);
         Assert.True(ed.GetProperty("releasedValidationInstructions").GetInt32() >= 0);
 
-        var queue = (await qual.GetElAsync($"{S}/quality/review-queue?q={review.Number}")).EnumerateArray().ToList();
-        Assert.Single(queue);
-        Assert.Equal("Work instruction", queue[0].Str("kind"));
-        Assert.Equal($"/sequfloh/instruction/{review.Id}", queue[0].Str("path"));
-        Assert.Empty((await qual.GetElAsync($"{S}/quality/review-queue?q={draft.Number}")).EnumerateArray());
-
         // the home dashboard leaves out live execution for someone without that permission
         var home = await qual.GetElAsync($"{S}/dashboard");
+        Assert.True(home.GetProperty("instructions").GetProperty("drafts").GetInt32() >= 1);
         Assert.Equal(System.Text.Json.JsonValueKind.Null, home.GetProperty("live").ValueKind);
         Assert.Equal(HttpStatusCode.Forbidden, (await plain.GetAsync($"{S}/dashboard")).StatusCode);
     }
@@ -74,8 +68,6 @@ public sealed class SequflohDashboardTests(TestApp app)
         Assert.Equal(HttpStatusCode.BadRequest, (await eng.PutAsync($"{S}/instructions/{draft.Id}/development", new { assignedEngineerId = viewerId })).StatusCode);
         var ok = await eng.PutAsync($"{S}/instructions/{draft.Id}/development", body);
         Assert.True(ok.IsSuccessStatusCode, await ok.Content.ReadAsStringAsync());
-        // an empty instruction cannot be recommended for release
-        Assert.Equal(HttpStatusCode.BadRequest, (await eng.PutAsync($"{S}/instructions/{draft.Id}/development", new { recommendRelease = true })).StatusCode);
 
         var doc = (await eng.GetElAsync($"{S}/instructions/{draft.Id}")).GetProperty("instruction");
         Assert.Equal("Bracket redesign", doc.Str("project"));

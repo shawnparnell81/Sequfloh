@@ -128,7 +128,7 @@ public sealed class FilesController(AppDbContext db, IFileStorage storage, IAcce
         var a = await db.Attachments.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("File");
         var (_, _, editable) = await OwnerAsync(a.OwnerType, a.OwnerId, ct);
         if (!editable) throw new ForbiddenException();
-        if (a.IsLocked) throw new AppException("This file belongs to an approved revision and cannot be removed.");
+        if (a.IsLocked) throw new AppException("This file belongs to a released revision and cannot be removed.");
         a.IsArchived = true; a.ArchivedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return NoContent();

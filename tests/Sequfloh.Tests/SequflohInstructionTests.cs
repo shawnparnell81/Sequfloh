@@ -18,15 +18,14 @@ public sealed class SequflohInstructionTests(TestApp app)
         var r = await c.PutAsync(url, body);
         if (!r.IsSuccessStatusCode) throw new InvalidOperationException($"PUT {url} failed: {(int)r.StatusCode} {await r.Content.ReadAsStringAsync()}");
     }
-    static readonly string[] AuthorPerms = [Permissions.SequflohAccess, Permissions.SequflohCreateWorkInstruction, Permissions.SequflohEditDraftWorkInstruction, Permissions.SequflohSubmitWorkInstruction];
-    static readonly string[] ApproverPerms = [Permissions.SequflohAccess, Permissions.SequflohReviewWorkInstruction, Permissions.SequflohApproveWorkInstruction, Permissions.SequflohReleaseWorkInstruction,
-        Permissions.SequflohReviseWorkInstruction, Permissions.SequflohObsoleteWorkInstruction, Permissions.SequflohArchiveWorkInstruction, Permissions.SequflohRestoreWorkInstruction,
-        Permissions.SequflohEditDraftWorkInstruction, Permissions.SequflohSubmitWorkInstruction];
+    static readonly string[] AuthorPerms = [Permissions.SequflohAccess, Permissions.SequflohCreateWorkInstruction, Permissions.SequflohEditDraftWorkInstruction];
+    static readonly string[] ReleaserPerms = [Permissions.SequflohAccess, Permissions.SequflohReleaseWorkInstruction, Permissions.SequflohReviseWorkInstruction, Permissions.SequflohObsoleteWorkInstruction,
+        Permissions.SequflohEditDraftWorkInstruction];
 
     static object Save(JsonElement wi, Guid site, object? content = null, object[]? steps = null, object[]? chars = null, object[]? parts = null, string? effective = null, Guid? partId = null,
         string? repairDescription = null, uint rowVersion = 0) => new
     {
-        title = wi.GetProperty("instruction").Str("title"), siteId = site, departmentId = (Guid?)null, ownerId = (Guid?)null, reviewerId = (Guid?)null, approverId = (Guid?)null,
+        title = wi.GetProperty("instruction").Str("title"), siteId = site, departmentId = (Guid?)null, ownerId = (Guid?)null,
         partId = partId ?? (wi.GetProperty("instruction").GetProperty("partId").ValueKind == JsonValueKind.Null ? (Guid?)null : wi.GetProperty("instruction").GetProperty("partId").GetGuid()),
         repairDescription, effectiveDate = effective, content = content ?? new { }, steps = steps ?? [], characteristics = chars ?? [], partsRows = parts ?? [], rowVersion
     };
@@ -53,66 +52,57 @@ public sealed class SequflohInstructionTests(TestApp app)
     }
 
     [Fact]
-    public async Task Lifecycle_is_enforced_recorded_and_released_records_change_only_by_revision()
+    public async Task Draft_is_released_with_one_button_and_released_records_change_only_by_revision()
     {
         var site = await app.CreateSiteAsync();
         var (_, author) = await app.CreateUserAsync(AuthorPerms, site);
-        var (_, approver) = await app.CreateUserAsync(ApproverPerms, site);
+        var (_, releaser) = await app.CreateUserAsync(ReleaserPerms, site);
         var id = (await PostEl(author, "/api/sequfloh/instructions", new { type = "Validation", title = "Seal leak validation", siteId = site })).Id();
         var url = $"/api/sequfloh/instructions/{id}";
         var wi = await author.GetElAsync(url);
         Assert.Equal("Draft", wi.GetProperty("instruction").Str("status"));
-        // submit with no steps is blocked
-        Assert.Equal(HttpStatusCode.BadRequest, (await author.PostAsync($"{url}/actions/submit-review", new { })).StatusCode);
+        // the old review steps are gone
+        foreach (var old in new[] { "submit-review", "return", "submit-approval", "approve", "archive", "restore" })
+            Assert.Equal(HttpStatusCode.NotFound, (await releaser.PostAsync($"{url}/actions/{old}", new { })).StatusCode);
         // limits are validated, sequence must ascend
         Assert.Equal(HttpStatusCode.BadRequest, (await author.PutAsync(url, Save(wi, site, steps: [new { sequence = 10, title = "Pressurize", lowerLimit = 9, upperLimit = 2 }]))).StatusCode);
         var content = new { validationAcceptance = new { overallAcceptanceCriteria = "No leak at 150 psi for 10 minutes" }, purpose = new { purpose = "Prove seal integrity", bogus = "dropped" } };
         await PutOk(author, url, Save(wi, site, content, [new { sequence = 20, title = "Leak check" }, new { sequence = 10, title = "Pressurize", target = 150, lowerLimit = 145, upperLimit = 155, unit = "psi" }]));
-        Assert.Equal(HttpStatusCode.BadRequest, (await author.PostAsync($"{url}/actions/submit-review", new { })).StatusCode); // out of order
+        Assert.Equal(HttpStatusCode.BadRequest, (await releaser.PostAsync($"{url}/actions/release", new { effectiveDate = "2026-11-01" })).StatusCode); // out of order
         wi = await author.GetElAsync(url);
         Assert.False(wi.GetProperty("instruction").GetProperty("content").GetProperty("purpose").TryGetProperty("bogus", out _));
         await PutOk(author, url, Save(wi, site, content, [new { sequence = 10, title = "Pressurize", target = 150, lowerLimit = 145, upperLimit = 155, unit = "psi" }, new { sequence = 20, title = "Leak check" }]));
-        await author.PostOkAsync($"{url}/actions/submit-review", new { });
-        Assert.Equal(HttpStatusCode.Conflict, (await author.PostAsync($"{url}/actions/submit-review", new { })).StatusCode); // duplicate transition
-        Assert.Equal(HttpStatusCode.Conflict, (await author.PutAsync(url, Save(wi, site, content))).StatusCode); // not editable in review
-        Assert.Equal(HttpStatusCode.BadRequest, (await approver.PostAsync($"{url}/actions/return", new { comment = "" })).StatusCode);
-        await approver.PostOkAsync($"{url}/actions/return", new { comment = "Add the hold time unit" });
-        await author.PostOkAsync($"{url}/actions/submit-review", new { });
-        await approver.PostOkAsync($"{url}/actions/submit-approval", new { });
-        Assert.Equal(HttpStatusCode.Forbidden, (await author.PostAsync($"{url}/actions/approve", new { })).StatusCode);
-        await approver.PostOkAsync($"{url}/actions/approve", new { });
-        Assert.Equal(HttpStatusCode.BadRequest, (await approver.PostAsync($"{url}/actions/release", new { })).StatusCode); // effective date required
-        await approver.PostOkAsync($"{url}/actions/release", new { effectiveDate = "2026-11-01" });
+        // only someone whose role allows it can release
+        Assert.Equal(HttpStatusCode.Forbidden, (await author.PostAsync($"{url}/actions/release", new { effectiveDate = "2026-11-01" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await releaser.PostAsync($"{url}/actions/release", new { })).StatusCode); // effective date required
+        await releaser.PostOkAsync($"{url}/actions/release", new { effectiveDate = "2026-11-01" });
+        Assert.Equal(HttpStatusCode.Conflict, (await releaser.PostAsync($"{url}/actions/release", new { effectiveDate = "2026-11-01" })).StatusCode); // already released
         wi = await author.GetElAsync(url);
         Assert.Equal("Released", wi.GetProperty("instruction").Str("status"));
         Assert.Equal(HttpStatusCode.Conflict, (await author.PutAsync(url, Save(wi, site, content))).StatusCode); // released is read-only
-        var actions = wi.GetProperty("transitions").EnumerateArray().Select(t => t.Str("action")).ToList();
-        Assert.Equal(["create", "submit-review", "return", "submit-review", "submit-approval", "approve", "release"], actions);
-        Assert.Equal("Add the hold time unit", wi.GetProperty("transitions")[2].Str("comment"));
+        Assert.Equal(["create", "release"], wi.GetProperty("transitions").EnumerateArray().Select(t => t.Str("action")).ToList());
 
-        Assert.Equal(HttpStatusCode.BadRequest, (await approver.PostAsync($"{url}/revise", new { reason = "" })).StatusCode);
-        var rev = await PostEl(approver, $"{url}/revise", new { reason = "Raise test pressure" });
+        Assert.Equal(HttpStatusCode.BadRequest, (await releaser.PostAsync($"{url}/revise", new { reason = "" })).StatusCode);
+        var rev = await PostEl(releaser, $"{url}/revise", new { reason = "Raise test pressure" });
         Assert.Equal("B", rev.Str("revision"));
-        Assert.Equal(HttpStatusCode.Conflict, (await approver.PostAsync($"{url}/revise", new { reason = "again" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await releaser.PostAsync($"{url}/revise", new { reason = "again" })).StatusCode);
         var bUrl = $"/api/sequfloh/instructions/{rev.Id()}";
-        var b = await approver.GetElAsync(bUrl);
+        var b = await releaser.GetElAsync(bUrl);
+        Assert.Equal("Draft", b.GetProperty("instruction").Str("status"));
         Assert.Equal(2, b.GetProperty("instruction").GetProperty("steps").GetArrayLength());
-        var (_, approver2) = await app.CreateUserAsync(ApproverPerms, site); // the reviser authored revision B, so someone else approves it
-        await approver.PostOkAsync($"{bUrl}/actions/submit-review", new { });
-        await approver.PostOkAsync($"{bUrl}/actions/submit-approval", new { });
-        Assert.Equal(HttpStatusCode.BadRequest, (await approver.PostAsync($"{bUrl}/actions/approve", new { })).StatusCode);
-        await approver2.PostOkAsync($"{bUrl}/actions/approve", new { });
-        await approver2.PostOkAsync($"{bUrl}/actions/release", new { effectiveDate = "2026-12-01" });
+        await releaser.PostOkAsync($"{bUrl}/actions/release", new { effectiveDate = "2026-12-01" }); // the same person may release their own revision
         Assert.Equal("Superseded", (await author.GetElAsync(url)).GetProperty("instruction").Str("status"));
         Assert.Equal(2, (await author.GetElAsync(bUrl)).GetProperty("revisions").GetArrayLength());
-        Assert.Equal(HttpStatusCode.BadRequest, (await approver.PostAsync($"{bUrl}/actions/obsolete", new { })).StatusCode);
-        await approver.PostOkAsync($"{bUrl}/actions/obsolete", new { comment = "Product discontinued" });
-        await approver.PostOkAsync($"{bUrl}/actions/archive", new { });
-        await approver.PostOkAsync($"{bUrl}/actions/restore", new { });
+        Assert.Equal(HttpStatusCode.BadRequest, (await releaser.PostAsync($"{bUrl}/actions/obsolete", new { })).StatusCode);
+        await releaser.PostOkAsync($"{bUrl}/actions/obsolete", new { comment = "Product discontinued" });
         Assert.Equal("Obsolete", (await author.GetElAsync(bUrl)).GetProperty("instruction").Str("status"));
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.True(await db.AuditEntries.AnyAsync(a => a.EntityId == id && a.Action == "WorkInstructionRelease"));
+        var trail = await db.AuditEntries.AsNoTracking().Where(a => a.EntityId == id || a.EntityId == rev.Id()).ToListAsync();
+        var release = trail.First(a => a.EntityId == id && a.Action == "WorkInstructionRelease");
+        Assert.False(string.IsNullOrWhiteSpace(release.UserName));
+        Assert.Contains("released", release.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(trail, a => a.EntityId == rev.Id() && a.Action == "WorkInstructionObsolete" && a.Reason == "Product discontinued");
     }
 
     [Fact]

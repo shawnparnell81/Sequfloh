@@ -1,18 +1,20 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
-import { Box, Breadcrumbs, Collapse, IconButton, Link, List, ListItemButton, ListItemText, Tab, Tabs, Tooltip, Typography, useMediaQuery } from '@mui/material';
+import { Box, Breadcrumbs, IconButton, Link, List, ListItemButton, ListItemIcon, ListItemText, Tab, Tabs, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ChevronRight from '@mui/icons-material/ChevronRight';
-import ExpandLess from '@mui/icons-material/ExpandLess';
-import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useTheme } from '@mui/material/styles';
 import { useAuth } from '../auth';
-import { modules, type ModuleDef, type NavItem } from '../modules/registry';
+import { landingOf, modules, sectionOf, type ModuleDef, type NavItem } from '../modules/registry';
+import { PageNav, useTabTitle } from '../tabs/Workspace';
 
 export interface Crumb { label: string; to?: string }
 export interface WorkspaceTab { label: string; value: string }
 
-/** A page: collapsible left menu, breadcrumbs, a large title with the page's buttons, and an optional tab bar. */
+/**
+ * A page: collapsible left menu of sections, the section's pages as a menu across the top, Back and Home for this tab,
+ * breadcrumbs, a large title with the page's buttons, and an optional tab bar for the page's own parts.
+ */
 export function ModuleWorkspace({ module, crumbs, title, actions, tabs, tab, onTab, children }: {
   module?: ModuleDef; crumbs: Crumb[]; title: ReactNode; actions?: ReactNode;
   tabs?: WorkspaceTab[]; tab?: string; onTab?: (v: string) => void; children: ReactNode;
@@ -24,6 +26,8 @@ export function ModuleWorkspace({ module, crumbs, title, actions, tabs, tab, onT
   const [peek, setPeek] = useState(false);
   const loc = useLocation();
   const tk = useTheme().tk;
+  useTabTitle(titleText);
+  const section = sectionOf(loc.pathname);
   useEffect(() => { document.title = `${titleText} · SEQUFLOH`; }, [titleText]);
   useEffect(() => setPeek(false), [loc.pathname, loc.search]);
   const collapsed = narrow ? !peek : stored;
@@ -37,14 +41,18 @@ export function ModuleWorkspace({ module, crumbs, title, actions, tabs, tab, onT
           {!collapsed && <Typography variant="overline" color="text.secondary" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>{mod.icon}Menu</Typography>}
           <Tooltip title={collapsed ? 'Expand menu' : 'Collapse menu'}><IconButton size="small" onClick={toggle}>{collapsed ? <ChevronRight /> : <ChevronLeft />}</IconButton></Tooltip>
         </Box>
-        {!collapsed && <SideNav items={mod.sidebar} />}
+        <SideNav items={mod.sidebar} compact={collapsed} />
       </Box>
       <Box component="main" sx={{ flex: 1, minWidth: 0 }}>
+        {section && <SectionMenu section={section} />}
         <Box sx={{ px: { xs: 2, md: 4 }, pt: 3, color: tk.header.fg }}>
-          <Breadcrumbs separator="/" className="sqf-no-print" sx={{ mb: 1.25, fontSize: 11.5, letterSpacing: '0.04em', color: tk.header.muted, '& .MuiBreadcrumbs-separator': { mx: 0.75, color: 'divider' } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.25 }}>
+          <PageNav />
+          <Breadcrumbs separator="/" className="sqf-no-print" sx={{ fontSize: 11.5, letterSpacing: '0.04em', color: tk.header.muted, '& .MuiBreadcrumbs-separator': { mx: 0.75, color: 'divider' } }}>
             <Link component={RouterLink} to="/sequfloh" underline="hover" sx={{ color: tk.header.muted }}>Home</Link>
             {crumbs.filter((c, i) => !(i === 0 && c.label === mod.label)).map((c, i) => c.to ? <Link key={i} component={RouterLink} to={c.to} underline="hover" sx={{ color: tk.header.muted }}>{c.label}</Link> : <Typography key={i} fontSize={11.5} fontWeight={600} sx={{ color: tk.header.fg }}>{c.label}</Typography>)}
           </Breadcrumbs>
+          </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, pb: tabs ? 0.5 : 2.5, flexWrap: 'wrap' }}>
             <Box aria-hidden sx={{ width: tk.icon.size, height: tk.icon.size, flexShrink: 0, display: { xs: 'none', sm: 'grid' }, placeItems: 'center', background: tk.gradient, color: '#FFFFFF', borderRadius: `${tk.icon.radius}px`, '& svg': { fontSize: tk.icon.size * 0.56 }, boxShadow: `0 8px 20px ${tk.glow}` }}>{mod.icon}</Box>
             <Typography variant="h1" sx={{ flex: '1 1 320px', minWidth: 0, color: tk.header.fg }}>{title}</Typography>
@@ -62,39 +70,56 @@ export function ModuleWorkspace({ module, crumbs, title, actions, tabs, tab, onT
   );
 }
 
-function SideNav({ items, depth = 0 }: { items: NavItem[]; depth?: number }) {
+/** The sections down the left. Choosing one opens its first page; the section of the page being viewed is highlighted. */
+function SideNav({ items, compact }: { items: NavItem[]; compact: boolean }) {
   const { can } = useAuth();
   const loc = useLocation();
-  const current = loc.pathname + loc.search;
+  const tk = useTheme().tk;
+  const current = sectionOf(loc.pathname);
   const visible = items.filter((i) => (!i.permission || can(i.permission)) && (!i.children || i.children.some((c) => !c.permission || can(c.permission))));
   return (
-    <List dense disablePadding>
-      {visible.map((i) => <SideItem key={i.label} item={i} depth={depth} current={current} />)}
+    <List dense disablePadding aria-label="Sections" component="nav">
+      {visible.map((i) => {
+        const selected = current?.label === i.label;
+        return (
+          <Tooltip key={i.label} title={compact ? i.label : ''} placement="right"><ListItemButton component={RouterLink} to={landingOf(i, can)} selected={selected} aria-current={selected ? 'page' : undefined} aria-label={compact ? i.label : undefined} data-testid={`section-${i.label}`}
+            sx={{ mx: compact ? 0.5 : 1, my: 0.25, pl: compact ? 1 : 1.25, justifyContent: compact ? 'center' : undefined, borderRadius: '10px', '&.Mui-selected': { background: tk.gradient, color: '#FFFFFF', boxShadow: `0 6px 14px ${tk.glow}`, '& .MuiListItemIcon-root': { color: '#FFFFFF' }, '&:hover': { background: tk.gradient, filter: 'brightness(1.08)' } } }}>
+            {i.icon && <ListItemIcon sx={{ minWidth: compact ? 0 : 32, color: 'primary.main' }}>{i.icon}</ListItemIcon>}
+            {!compact && <ListItemText primary={i.label} slotProps={{ primary: { fontSize: 13.5, fontWeight: selected ? 700 : 500 } }} />}
+          </ListItemButton></Tooltip>
+        );
+      })}
     </List>
   );
 }
 
-function SideItem({ item, depth, current }: { item: NavItem; depth: number; current: string }) {
+/** The pages of the current section as a menu across the top of the page. */
+function SectionMenu({ section }: { section: NavItem }) {
+  const { can } = useAuth();
   const loc = useLocation();
-  const inside = !!item.children?.some((c) => current === c.path || loc.pathname === c.path.split('?')[0]);
-  const [open, setOpen] = useState(inside);
   const tk = useTheme().tk;
-  const selected = current === item.path;
-  if (item.children) {
-    return (
-      <>
-        <ListItemButton onClick={() => setOpen(!open)} sx={{ pl: 2 + depth * 2 }}>
-          <ListItemText primary={item.label} slotProps={{ primary: { fontWeight: 700, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'text.secondary' } }} />
-          {open ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
-        </ListItemButton>
-        <Collapse in={open}><SideNav items={item.children} depth={depth + 1} /></Collapse>
-      </>
-    );
-  }
+  const pages = (section.children ?? []).filter((c) => !c.permission || can(c.permission));
+  if (pages.length < 2) return null;
+  const here = loc.pathname + loc.search;
+  // a page with a query (Parts › Repair Parts) matches only with that query; others match on the path
+  const exact = pages.find((c) => c.path.includes('?') && c.path === here);
+  const active = exact ?? pages.find((c) => !c.path.includes('?') && c.path === loc.pathname);
   return (
-    <ListItemButton component={RouterLink} to={item.path} selected={selected}
-      sx={{ ml: 1, mr: 1, pl: 1 + depth * 2, borderRadius: '10px', '&.Mui-selected': { background: tk.gradient, color: '#FFFFFF', boxShadow: `0 6px 14px ${tk.glow}`, '&:hover': { background: tk.gradient, filter: 'brightness(1.08)' } } }}>
-      <ListItemText primary={item.label} slotProps={{ primary: { fontSize: 13, fontWeight: selected ? 600 : 500 } }} />
-    </ListItemButton>
+    <Box component="nav" aria-label={`${section.label} pages`} data-testid="section-menu" className="sqf-no-print"
+      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: { xs: 1.5, md: 3.5 }, py: 0.75, overflowX: 'auto', borderBottom: 1, borderColor: 'divider', background: tk.glass.section, backdropFilter: 'blur(14px)',
+        scrollbarWidth: 'thin' }}>
+      <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'text.secondary', mr: 1, whiteSpace: 'nowrap', display: { xs: 'none', md: 'block' } }}>{section.label}</Typography>
+      {pages.map((c) => {
+        const on = c === active;
+        return (
+          <Box key={c.path} component={RouterLink} to={c.path} aria-current={on ? 'page' : undefined} data-testid="section-page"
+            sx={{ flexShrink: 0, px: 1.5, py: 0.75, borderRadius: 999, fontSize: 13, fontWeight: on ? 700 : 500, textDecoration: 'none', whiteSpace: 'nowrap',
+              color: on ? '#FFFFFF' : 'text.primary', background: on ? tk.gradient : 'transparent', boxShadow: on ? `0 4px 12px ${tk.glow}` : 'none',
+              '&:hover': { background: on ? tk.gradient : tk.glass.field }, '&:focus-visible': { outline: '2px solid #1257C4', outlineOffset: 1 } }}>
+            {c.label}
+          </Box>
+        );
+      })}
+    </Box>
   );
 }

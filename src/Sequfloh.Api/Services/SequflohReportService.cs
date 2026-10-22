@@ -26,10 +26,10 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     public static readonly SequflohReportInfo[] Catalog =
     [
         new("task-performance", "Task Performance", "Task counts by status with assigned users, parts, operations, planned and actual dates, benchmark ranges, elapsed time and variance.", true, false),
-        new("validation", "Validation Status", "Validation records with instruction revision, part, owner, dates, result, review and approval status and deviations.", true, false),
-        new("fai", "FAI Status", "FAI records with FAI type, inspection status, characteristic completion, result and Quality and Engineering approval.", true, false),
-        new("repair", "Repair Status", "Repair records with category, technician, status, result, test and inspection status and disposition.", true, false),
-        new("work-instructions", "Work Instruction Status", "Work instructions with type, revision, status, owner, reviewer, approver, effective date and last update.", true, false),
+        new("validation", "Validation Status", "Validation records with instruction revision, part, owner, dates, status, result and deviations.", true, false),
+        new("fai", "FAI Status", "FAI records with FAI type, status, characteristic completion and result.", true, false),
+        new("repair", "Repair Status", "Repair records with category, technician, status, result, test status and disposition.", true, false),
+        new("work-instructions", "Work Instruction Status", "Work instructions with type, revision, status, owner, who released it, effective date and last update.", true, false),
         new("user-activity", "User Activity", "Who did what in SEQUFLOH and when, with role, record reference and summary.", true, true),
         new("time-variance", "Time Variance", "Finished tasks with benchmark ranges, elapsed time, variance and the recorded reason.", true, false),
         new("production", "Production Tracking", "Production tasks.", false, false),
@@ -37,7 +37,6 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
         new("parts-lists", "Parts Lists", "Parts lists with their items.", false, false),
         new("task-log", "Task Log", "Every task event (dispatch, start, pause, resume, hold, completion and so on).", false, false),
         new("audit", "SEQUFLOH Audit Trail", "SEQUFLOH audit events.", false, true),
-        new("approval-status", "Approval Status", "Approval status of work instructions and tracking records.", false, false),
     ];
 
     static ReportColumn C(string key, string label, string type = "text") => new(key, label, type);
@@ -155,7 +154,6 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                 var names = await NamesAsync(recs.SelectMany(r => new[] { r.AssignedUserId, r.OwnerId, r.CompletedById }), ct);
                 var wiIds = recs.Select(r => r.WorkInstructionId).Distinct().ToList();
                 var wis = await db.SequflohWorkInstructions.AsNoTracking().Where(w => wiIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => new { w.Type, w.RepairCategory }, ct);
-                string Review(bool req, DateTimeOffset? at) => !req ? "Not required" : at is null ? "Pending" : "Reviewed";
                 foreach (var r in recs)
                 {
                     var d = new Dictionary<string, object?>
@@ -163,11 +161,9 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                         ["number"] = r.Number, ["type"] = TypeLabel[r.Type], ["status"] = Words(r.Status), ["result"] = Words(r.Result), ["instruction"] = $"{r.WorkInstructionNumber} rev {r.WorkInstructionRevision}",
                         ["part"] = r.PartNumber, ["operation"] = r.Operation, ["assigned"] = N(names, r.AssignedUserId), ["owner"] = N(names, r.OwnerId), ["plannedStart"] = r.PlannedStart, ["dueAt"] = r.DueAt,
                         ["actualStart"] = r.ActualStart, ["actualCompletion"] = r.ActualCompletion, ["minBenchmark"] = r.MinBenchmarkMinutes, ["maxBenchmark"] = r.MaxBenchmarkMinutes,
-                        ["elapsedMinutes"] = Minutes(r.ActiveSeconds), ["varianceMinutes"] = r.VarianceMinutes, ["varianceReason"] = r.VarianceReason, ["approvalStatus"] = Words(r.ApprovalStatus),
-                        ["reviewStatus"] = Review(r.QualityReviewRequired, r.QualityReviewedAt), ["deviations"] = r.Deviations, ["workOrder"] = r.WorkOrder, ["priority"] = r.Priority,
+                        ["elapsedMinutes"] = Minutes(r.ActiveSeconds), ["varianceMinutes"] = r.VarianceMinutes, ["varianceReason"] = r.VarianceReason,
+                        ["deviations"] = r.Deviations, ["workOrder"] = r.WorkOrder, ["priority"] = r.Priority,
                         ["technician"] = N(names, r.CompletedById) ?? N(names, r.AssignedUserId), ["disposition"] = r.FinalDisposition, ["faiType"] = r.FaiType,
-                        ["qualityApproval"] = Review(r.QualityReviewRequired, r.QualityReviewedAt), ["engineeringApproval"] = Review(r.EngineeringReviewRequired, r.EngineeringReviewedAt),
-                        ["inspectionStatus"] = r.Status == TrackingStatus.PendingInspection ? "Pending inspection" : r.QualityReviewedAt is not null ? "Inspected" : r.QualityReviewRequired ? "Not inspected" : "Not required",
                         ["category"] = wis.TryGetValue(r.WorkInstructionId, out var w) ? w.RepairCategory : null,
                         ["testStatus"] = wis.TryGetValue(r.WorkInstructionId, out var w2) && w2.Type == WorkInstructionType.RepairTest ? Words(r.Result) : "No test",
                         ["_url"] = $"/sequfloh/record/{r.Id}",
@@ -186,49 +182,38 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                         C("dueAt", "Due", "datetime"), C("actualStart", "Actual start", "datetime"), C("actualCompletion", "Actual completion", "datetime"), C("minBenchmark", "Minimum (min)", "number"),
                         C("maxBenchmark", "Maximum (min)", "number"), C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number"), C("result", "Result")],
                     "validation" => [C("number", "Record"), C("instruction", "Instruction / revision"), C("part", "Part"), C("owner", "Owner"), C("plannedStart", "Planned", "datetime"), C("dueAt", "Due", "datetime"),
-                        C("status", "Status"), C("result", "Result"), C("reviewStatus", "Review status"), C("approvalStatus", "Approval status"), C("deviations", "Deviations")],
-                    "fai" => [C("number", "FAI number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("faiType", "FAI type"), C("inspectionStatus", "Inspection status"),
-                        C("characteristics", "Characteristics complete"), C("result", "Result"), C("qualityApproval", "Quality approval"), C("engineeringApproval", "Engineering approval")],
+                        C("status", "Status"), C("result", "Result"), C("deviations", "Deviations")],
+                    "fai" => [C("number", "FAI number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("faiType", "FAI type"), C("status", "Status"),
+                        C("characteristics", "Characteristics complete"), C("result", "Result")],
                     "repair" => [C("number", "Repair number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("category", "Category"), C("technician", "Technician"), C("status", "Status"),
-                        C("result", "Result"), C("testStatus", "Test status"), C("inspectionStatus", "Inspection status"), C("disposition", "Disposition")],
+                        C("result", "Result"), C("testStatus", "Test status"), C("disposition", "Disposition")],
                     "time-variance" => [C("number", "Task"), C("type", "Type"), C("part", "Part"), C("operation", "Operation"), C("minBenchmark", "Minimum (min)", "number"), C("maxBenchmark", "Maximum (min)", "number"),
                         C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number"), C("varianceReason", "Reason"), C("result", "Result")],
                     _ => [C("number", "Task"), C("instruction", "Instruction / revision"), C("part", "Part"), C("workOrder", "Work order"), C("operation", "Operation"), C("assigned", "Assigned"), C("status", "Status"),
                         C("priority", "Priority"), C("dueAt", "Due", "datetime"), C("actualCompletion", "Completed", "datetime"), C("elapsedMinutes", "Elapsed (min)", "number"), C("result", "Result")],
                 }, rows);
             }
-            case "work-instructions" or "approval-status":
+            case "work-instructions":
             {
                 var q = await instructions.QueryAsync(ct);
                 if (p.SiteId is { } s) q = q.Where(x => x.SiteId == s);
                 if (Enum.TryParse<WorkInstructionStatus>(p.Status, true, out var st)) q = q.Where(x => x.Status == st);
                 if (Enum.TryParse<WorkInstructionType>(p.Type, true, out var ty)) q = q.Where(x => x.Type == ty);
-                if (p.UserId is { } u) q = q.Where(x => x.OwnerId == u || x.AuthorId == u || x.ReviewerId == u || x.ApproverId == u);
+                if (p.UserId is { } u) q = q.Where(x => x.OwnerId == u || x.AuthorId == u || x.ReleasedById == u);
                 if (!string.IsNullOrWhiteSpace(p.Q)) { var like = $"%{p.Q.Trim()}%"; q = q.Where(x => EF.Functions.ILike(x.Number + " " + x.Title + " " + (x.PartNumber ?? ""), like)); }
                 var (from, to) = await RangeAsync(p, ct);
                 if (from is { } fr) q = q.Where(x => x.UpdatedAt >= fr);
                 if (to is { } tt) q = q.Where(x => x.UpdatedAt < tt);
                 var list = await q.OrderBy(x => x.Number).ThenBy(x => x.Revision).Take(limit).ToListAsync(ct);
-                var names = await NamesAsync(list.SelectMany(x => new[] { x.OwnerId, x.ReviewerId, x.ApproverId, x.ReviewedById, x.ApprovedById }), ct);
+                var names = await NamesAsync(list.SelectMany(x => new[] { x.OwnerId, x.ReleasedById }), ct);
                 foreach (var x in list)
                     rows.Add(new()
                     {
                         ["number"] = x.Number, ["type"] = WiLabel[x.Type], ["title"] = x.Title, ["revision"] = x.Revision, ["status"] = Words(x.Status), ["owner"] = N(names, x.OwnerId),
-                        ["reviewer"] = N(names, x.ReviewedById) ?? N(names, x.ReviewerId), ["approver"] = N(names, x.ApprovedById) ?? N(names, x.ApproverId), ["effectiveDate"] = x.EffectiveDate,
-                        ["updatedAt"] = x.UpdatedAt, ["reviewedAt"] = x.ReviewedAt, ["approvedAt"] = x.ApprovedAt, ["releasedAt"] = x.ReleasedAt, ["kind"] = "Work instruction",
-                        ["approval"] = x.ApprovedAt is not null ? "Approved" : x.Status == WorkInstructionStatus.PendingApproval ? "Pending approval" : x.Status == WorkInstructionStatus.PendingReview ? "Pending review" : "Not approved",
+                        ["releasedBy"] = N(names, x.ReleasedById), ["effectiveDate"] = x.EffectiveDate, ["updatedAt"] = x.UpdatedAt, ["releasedAt"] = x.ReleasedAt,
                         ["_url"] = $"/sequfloh/instruction/{x.Id}",
                     });
-                if (key == "approval-status")
-                {
-                    var recs = await TrackingAsync(p with { Status = null, Type = null }, null, limit, ct);
-                    foreach (var r in recs.Where(r => r.ApprovalStatus != "NotRequired"))
-                        rows.Add(new() { ["kind"] = "Tracking record", ["number"] = r.Number, ["type"] = TypeLabel[r.Type], ["title"] = r.WorkInstructionTitle, ["revision"] = r.WorkInstructionRevision,
-                            ["status"] = Words(r.Status), ["approval"] = Words(r.ApprovalStatus), ["updatedAt"] = r.UpdatedAt, ["_url"] = $"/sequfloh/record/{r.Id}" });
-                    return ([C("kind", "Item"), C("number", "Number"), C("type", "Type"), C("title", "Title"), C("revision", "Revision"), C("status", "Status"), C("approval", "Approval status"),
-                        C("reviewer", "Reviewed by"), C("reviewedAt", "Reviewed", "datetime"), C("approver", "Approved by"), C("approvedAt", "Approved", "datetime"), C("updatedAt", "Last update", "datetime")], rows);
-                }
-                return ([C("number", "Instruction"), C("type", "Type"), C("title", "Title"), C("revision", "Revision"), C("status", "Status"), C("owner", "Owner"), C("reviewer", "Reviewer"), C("approver", "Approver"),
+                return ([C("number", "Instruction"), C("type", "Type"), C("title", "Title"), C("revision", "Revision"), C("status", "Status"), C("owner", "Owner"), C("releasedBy", "Released by"), C("releasedAt", "Released", "datetime"),
                     C("effectiveDate", "Effective date", "date"), C("updatedAt", "Last update", "datetime")], rows);
             }
             case "user-activity" or "audit":

@@ -69,8 +69,8 @@ public sealed class SequflohPartsTests(TestApp app)
         Assert.Equal(2, items.Count);
         await eng.PostOkAsync($"/api/sequfloh/parts-lists/{id}/items/reorder", new { ids = new[] { items[1].Id(), items[0].Id() } });
         Assert.Equal("OR-100", (await viewer.GetElAsync($"/api/sequfloh/parts-lists/{id}")).GetProperty("items")[0].Str("partNumber"));
-        Assert.Equal(HttpStatusCode.NoContent, (await eng.PostAsync($"/api/sequfloh/parts-lists/{id}/approve", new { })).StatusCode);
-        // approved lists are locked
+        Assert.Equal(HttpStatusCode.NoContent, (await eng.PostAsync($"/api/sequfloh/parts-lists/{id}/release", new { })).StatusCode);
+        // released lists are locked
         Assert.Equal(HttpStatusCode.Conflict, (await eng.PostAsync($"/api/sequfloh/parts-lists/{id}/items", new { partNumber = "X", quantity = 1, required = true, traceability = "None" })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await eng.PostAsync($"/api/sequfloh/parts-lists/{id}/revise", new { reason = "Add gasket" })).StatusCode);
         d = await viewer.GetElAsync($"/api/sequfloh/parts-lists/{id}");

@@ -16,7 +16,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 /// <item><c>table</c>: title, column headings and rows of cells.</item>
 /// <item><c>step</c>: operation number, title, body, and optional tools and expected result.</item>
 /// <item><c>caution</c>: level (note, caution or warning) and body.</item>
-/// <item><c>check</c>: label, kind (check or sign-off), who signs (a description, not a role in the system) and whether it is required.</item>
+/// <item><c>check</c>: label, who checks it (a description, not a role in the system) and whether it is required.</item>
 /// </list>
 /// The order of the array is the order on the page.
 /// </summary>
@@ -104,10 +104,8 @@ public static class SequflohBlocks
                 case "check":
                     {
                         Put("label", Str(b, "label", 500, $"{at} check", true));
-                        var ck = Str(b, "check", 20, $"{at} type") ?? "check";
-                        if (ck is not ("check" or "signoff")) throw new AppException($"{at}: the type must be check or sign-off.");
-                        o["check"] = ck;
-                        Put("signer", Str(b, "signer", 200, $"{at} signed by"));
+                        o["check"] = "check";
+                        Put("signer", Str(b, "signer", 200, $"{at} checked by"));
                         o["required"] = b["required"] is JsonValue rv && rv.TryGetValue<bool>(out var req) && req;
                         break;
                     }

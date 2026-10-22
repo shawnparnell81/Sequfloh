@@ -98,8 +98,8 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         string Name(Guid? u) => u is null ? "" : db.Users.Where(x => x.Id == u).Select(x => x.DisplayName).FirstOrDefault() ?? "";
         return new
         {
-            List = new { l.Id, l.Number, l.Title, l.ParentPartId, l.Revision, l.Status, l.Description, l.ListType, l.ApprovedAt, l.RowVersion, l.CreatedAt, l.UpdatedAt,
-                ApprovedBy = Name(l.ApprovedById), CreatedBy = Name(l.CreatedById), UpdatedBy = Name(l.UpdatedById),
+            List = new { l.Id, l.Number, l.Title, l.ParentPartId, l.Revision, l.Status, l.Description, l.ListType, l.ReleasedAt, l.RowVersion, l.CreatedAt, l.UpdatedAt,
+                ReleasedBy = Name(l.ReleasedById), CreatedBy = Name(l.CreatedById), UpdatedBy = Name(l.UpdatedById),
                 ParentPart = await db.Parts.Where(p => p.Id == l.ParentPartId).Select(p => new { p.Id, p.PartNumber, p.Name, p.Revision }).FirstOrDefaultAsync(ct) },
             Items = l.Items.OrderBy(i => i.ItemNumber),
             Revisions = await db.SequflohPartsListRevisions.AsNoTracking().Where(r => r.PartsListId == id).OrderByDescending(r => r.CreatedAt)
@@ -114,8 +114,8 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     public async Task<IActionResult> UpdateList(Guid id, PartsListInput r, CancellationToken ct) { await parts.UpdateListAsync(id, r, ct); return NoContent(); }
     [HttpPost("parts-lists/{id:guid}/duplicate")] [RequirePermission(Permissions.SequflohManagePartsLists)]
     public async Task<object> DuplicateList(Guid id, CancellationToken ct) { var l = await parts.DuplicateListAsync(id, ct); return new { l.Id, l.Number }; }
-    [HttpPost("parts-lists/{id:guid}/approve")] [RequirePermission(Permissions.SequflohManagePartsLists)]
-    public async Task<IActionResult> ApproveList(Guid id, CancellationToken ct) { await parts.ApproveListAsync(id, ct); return NoContent(); }
+    [HttpPost("parts-lists/{id:guid}/release")] [RequirePermission(Permissions.SequflohManagePartsLists)]
+    public async Task<IActionResult> ReleaseList(Guid id, CancellationToken ct) { await parts.ReleaseListAsync(id, ct); return NoContent(); }
     [HttpPost("parts-lists/{id:guid}/revise")] [RequirePermission(Permissions.SequflohManagePartsLists)]
     public async Task<IActionResult> ReviseList(Guid id, ReviseInput r, CancellationToken ct) { await parts.ReviseListAsync(id, r, ct); return NoContent(); }
     [HttpPost("parts-lists/{id:guid}/deactivate")] [RequirePermission(Permissions.SequflohManagePartsLists)]

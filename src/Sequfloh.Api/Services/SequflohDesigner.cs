@@ -41,10 +41,9 @@ public static class SequflohDesigner
         S("safety", "Safety", "Safety warnings:m", "Hazards:m", "PPE", "Lockout or isolation requirements:m", "Handling precautions:m", "Environmental precautions:m", "Critical safety notes:m"),
         S("tools", "Tools and equipment", "Required tools:m", "Tool identification", "Equipment", "Software or test equipment", "Calibration requirement:b", "Calibration verification", "Fixtures", "Gauges", "Consumables"),
         S("materials", "Materials and parts", "Required materials:m", "Required components:m", "Replacement parts:m", "Quantities", "Units:s:units-of-measure", "Approved alternates", "Lot-traceability requirement:b"),
-        S("preconditions", "Preconditions", "Prerequisite records", "Required approvals", "Receiving condition", "Setup requirements:m", "Environmental conditions", "Initial inspection:m", "Required documentation"),
+        S("preconditions", "Preconditions", "Prerequisite records", "Receiving condition", "Setup requirements:m", "Environmental conditions", "Initial inspection:m", "Required documentation"),
         S("acceptance", "Acceptance", "Acceptance criteria:m", "Rejection criteria:m", "Pass or fail rules:m", "Required inspection", "Required validation", "Required test", "Escalation instructions:m", "Nonconformance instructions:m"),
-        S("records", "Records", "Records generated:m", "Retention requirement", "Result fields", "Signoff requirements", "Evidence references", "Traceability requirements"),
-        S("approval", "Approval", "Prepared by", "Reviewed by", "Approved by", "Electronic acknowledgement:b", "Approval date:d", "Comments:m"),
+        S("records", "Records", "Records generated:m", "Retention requirement", "Result fields", "Evidence references", "Traceability requirements"),
     ];
     static readonly List<DesignerField> ProcedureSteps = Cols("Title", "Detailed instruction:m", "Specification", "Target:n", "Lower limit:n", "Upper limit:n", "Unit", "Tool", "Safety warning",
         "Quality checkpoint", "Expected result", "Actual result required:b", "Evidence requirement", "Visual aid reference", "Notes");
@@ -60,7 +59,7 @@ public static class SequflohDesigner
         S("conditions", "Conditions", "Temperature", "Humidity", "Voltage", "Pressure", "Load", "Speed", "Cycle count", "Duration", "Conditioning time", "Other controlled conditions:m"),
         S("validationAcceptance", "Validation acceptance", "Overall acceptance criteria:m", "Individual characteristic rules:m", "Allowed failures", "Retest rules:m", "Deviation rules:m", "Approval conditions:m", "Rejection conditions:m"),
         S("results", "Results", "Result status:s:validation-results", "Actual result:m", "Conditional acceptance:b", "Deviation number", "Nonconformance reference", "Evidence", "Technician comments:m", "Quality comments:m", "Engineering comments:m", "Conclusion:m", "Recommended action:m"),
-        S("validationApproval", "Validation approval", "Performed by", "Reviewed by Quality", "Reviewed by Engineering", "Approved by", "Dates", "Comments:m", "Final disposition"),
+        S("validationApproval", "Validation outcome", "Performed by", "Dates", "Comments:m", "Final disposition"),
     ];
     static readonly List<DesignerField> ValidationSteps = Cols("Title", "Detailed action:m", "Required setup", "Input condition", "Characteristic evaluated", "Specification", "Target:n", "Lower limit:n", "Upper limit:n",
         "Unit", "Sample size:n", "Equipment", "Method", "Evidence required", "Expected result", "Actual result required:b", "Pass or fail required:b", "Deviation instructions", "Responsible role", "Required signoff");
@@ -71,7 +70,7 @@ public static class SequflohDesigner
         S("faiIdentity", "FAI identity", "FAI type:s:fai-types", "Reason for FAI:m", "Part revision", "Drawing number", "Drawing revision", "Purchase order", "Manufacturing order", "Supplier", "Lot number", "Serial number",
             "Sample quantity:n", "Inspection location", "Inspector", "Required completion date:d"),
         S("faiVerification", "Verifications", "Material verification:m", "Special-process verification:m", "Certificate review:m", "Drawing balloon reference", "Dimensional inspection:m", "Visual inspection:m", "Functional inspection:m"),
-        S("faiDisposition", "Disposition and approval", "Final disposition:s:inspection-results", "Quality approval", "Engineering approval required:b", "Engineering approval"),
+        S("faiDisposition", "Disposition", "Final disposition:s:inspection-results", "Disposition comments:m"),
     ];
     static readonly List<DesignerField> Characteristic = Cols("Characteristic number", "Drawing zone", "Requirement", "Specification", "Target:n", "Lower limit:n", "Upper limit:n", "Unit", "Inspection method", "Gauge or equipment",
         "Equipment ID", "Sample quantity:n", "Actual result", "Result:s:characteristic-results", "Evidence reference", "Notes", "Nonconformance reference");
@@ -80,8 +79,7 @@ public static class SequflohDesigner
     static readonly DesignerSection[] RepairTest =
     [
         S("repairTest", "Repair test", "Applicable assembly", "Repair category:s:repair-categories", "Detected condition:m", "Test purpose:m", "Pre-test inspection:m", "Test equipment", "Equipment ID", "Calibration requirement:b",
-            "Fixture", "Setup conditions:m", "Safety precautions:m", "Test parameters:m", "Expected results:m", "Pass criteria:m", "Fail criteria:m", "Retest rules:m", "Escalation instructions:m", "Evidence requirements:m",
-            "Technician signoff required:b", "Quality signoff required:b"),
+            "Fixture", "Setup conditions:m", "Safety precautions:m", "Test parameters:m", "Expected results:m", "Pass criteria:m", "Fail criteria:m", "Retest rules:m", "Escalation instructions:m", "Evidence requirements:m"),
     ];
     static readonly List<DesignerField> TestSteps = Cols("Title", "Detailed action:m", "Equipment", "Parameter", "Target:n", "Minimum:n", "Maximum:n", "Unit", "Expected result", "Actual result required:b",
         "Pass or fail required:b", "Evidence requirement", "Notes");
@@ -98,10 +96,10 @@ public static class SequflohDesigner
         S("postRepair", "Post-repair", "Visual inspection:b", "Dimensional inspection:b", "Electrical test:b", "Mechanical test:b", "Functional test:b", "Leak test:b", "Load test:b", "Cycle test:b", "Final cleaning:b",
             "Labeling:b", "Packaging:b", "Final disposition:s:repair-dispositions"),
         S("acceptance", "Acceptance", "Restored condition:m", "Inspection requirements:m", "Test requirements:m", "Allowable conditions:m", "Rejection conditions:m", "Rework rules:m", "Escalation requirements:m", "Nonconformance instructions:m"),
-        S("approval", "Approval", "Performed by", "Inspected by", "Reviewed by", "Approved by", "Dates", "Comments:m", "Repair disposition:s:repair-dispositions"),
+        S("approval", "Completion", "Performed by", "Inspected by", "Dates", "Comments:m", "Repair disposition:s:repair-dispositions"),
     ];
     static readonly List<DesignerField> RepairSteps = Cols("Operation step", "Title", "Detailed repair action:m", "Tools required", "Parts consumed", "Quantity consumed:n", "Specification", "Torque value", "Minimum:n", "Maximum:n", "Unit",
-        "Visual checkpoint", "Quality checkpoint", "Expected result", "Evidence requirement", "Warning", "Technician result required:b", "Pass or fail required:b", "Technician acknowledgement:b", "Inspector verification:b", "Notes");
+        "Visual checkpoint", "Quality checkpoint", "Expected result", "Evidence requirement", "Warning", "Technician result required:b", "Pass or fail required:b", "Notes");
     static readonly List<DesignerField> PartsRowColumns = Cols("Replacement part number", "Description", "Quantity:n", "Unit", "Required:b", "Approved alternate", "Lot number required:b", "Serial number required:b",
         "Issued quantity:n", "Used quantity:n", "Returned quantity:n", "Scrap quantity:n");
 

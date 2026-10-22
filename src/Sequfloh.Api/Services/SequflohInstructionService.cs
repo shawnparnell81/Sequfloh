@@ -11,9 +11,9 @@ using Sequfloh.Infrastructure.Services;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
-public sealed record DevelopmentInput(Guid? AssignedEngineerId = null, DateOnly? TargetCompletionDate = null, string? Project = null, string? EngineeringNotes = null, string? DevelopmentStatus = null, bool? RecommendRelease = null);
+public sealed record DevelopmentInput(Guid? AssignedEngineerId = null, DateOnly? TargetCompletionDate = null, string? Project = null, string? EngineeringNotes = null, string? DevelopmentStatus = null);
 public sealed record InstructionCreateInput(WorkInstructionType Type, string Title, Guid SiteId, Guid? DepartmentId, Guid? PartId, Guid? TemplateId = null);
-public sealed record InstructionSaveInput(string Title, Guid SiteId, Guid? DepartmentId, Guid? OwnerId, Guid? ReviewerId, Guid? ApproverId, Guid? PartId, string? ProductFamily, string? Assembly,
+public sealed record InstructionSaveInput(string Title, Guid SiteId, Guid? DepartmentId, Guid? OwnerId, Guid? PartId, string? ProductFamily, string? Assembly,
     string? Model, string? Variant, string? Process, string? Operation, string? Workstation, string? Location, string? ValidationType, string? FaiType, string? RepairCategory, string? RepairType,
     string? RepairDescription, string? ResultStatus, DateOnly? EffectiveDate, JsonObject? Content, JsonArray? Steps, JsonArray? Characteristics, JsonArray? PartsRows, uint RowVersion = 0, JsonArray? Blocks = null);
 public sealed record InstructionActionInput(string? Comment, DateOnly? EffectiveDate, uint RowVersion = 0);
@@ -30,25 +30,18 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
     SequflohNotifications notify)
 {
     public const string EntityType = nameof(SequflohWorkInstruction);
-    public static readonly WorkInstructionStatus[] Editable = [WorkInstructionStatus.Draft, WorkInstructionStatus.InDevelopment, WorkInstructionStatus.ChangesRequested];
+    public static readonly WorkInstructionStatus[] Editable = [WorkInstructionStatus.Draft];
     static string? T(string? s, int max) { if (string.IsNullOrWhiteSpace(s)) return null; s = s.Trim(); return s.Length > max ? throw new AppException($"A value is limited to {max} characters.") : s; }
 
-    /// <summary>Lifecycle actions: allowed source statuses, target status, permission, comment rule.</summary>
-    public sealed record ActionRule(string Action, string Label, WorkInstructionStatus[] From, WorkInstructionStatus? To, string Permission, bool CommentRequired);
+    /// <summary>
+    /// Lifecycle actions. A work instruction is a draft until someone allowed to release it presses Release; there is no review or approval step.
+    /// Releasing a new revision supersedes the one before it. A draft or released instruction can be marked obsolete.
+    /// </summary>
+    public sealed record ActionRule(string Action, string Label, WorkInstructionStatus[] From, WorkInstructionStatus To, string Permission, bool CommentRequired);
     public static readonly IReadOnlyList<ActionRule> Actions =
     [
-        new("develop", "Start development", [WorkInstructionStatus.Draft], WorkInstructionStatus.InDevelopment, Permissions.SequflohEditDraftWorkInstruction, false),
-        new("submit-review", "Submit for review", [WorkInstructionStatus.Draft, WorkInstructionStatus.InDevelopment, WorkInstructionStatus.ChangesRequested], WorkInstructionStatus.PendingReview, Permissions.SequflohSubmitWorkInstruction, false),
-        new("return", "Return for changes", [WorkInstructionStatus.PendingReview, WorkInstructionStatus.PendingApproval], WorkInstructionStatus.ChangesRequested, Permissions.SequflohReviewWorkInstruction, true),
-        new("submit-approval", "Submit for approval", [WorkInstructionStatus.PendingReview], WorkInstructionStatus.PendingApproval, Permissions.SequflohReviewWorkInstruction, false),
-        new("approve", "Approve", [WorkInstructionStatus.PendingApproval], WorkInstructionStatus.Approved, Permissions.SequflohApproveWorkInstruction, false),
-        new("reject", "Reject", [WorkInstructionStatus.PendingReview, WorkInstructionStatus.PendingApproval], WorkInstructionStatus.Draft, Permissions.SequflohApproveWorkInstruction, true),
-        new("revoke-approval", "Reverse approval", [WorkInstructionStatus.Approved], WorkInstructionStatus.PendingApproval, Permissions.SequflohApproveWorkInstruction, true),
-        new("release", "Release", [WorkInstructionStatus.Approved], WorkInstructionStatus.Released, Permissions.SequflohReleaseWorkInstruction, false),
-        new("supersede", "Supersede", [WorkInstructionStatus.Released], WorkInstructionStatus.Superseded, Permissions.SequflohObsoleteWorkInstruction, true),
-        new("obsolete", "Mark obsolete", [WorkInstructionStatus.Released, WorkInstructionStatus.Superseded, WorkInstructionStatus.Approved], WorkInstructionStatus.Obsolete, Permissions.SequflohObsoleteWorkInstruction, true),
-        new("archive", "Archive", [WorkInstructionStatus.Draft, WorkInstructionStatus.InDevelopment, WorkInstructionStatus.ChangesRequested, WorkInstructionStatus.Superseded, WorkInstructionStatus.Obsolete], WorkInstructionStatus.Archived, Permissions.SequflohArchiveWorkInstruction, false),
-        new("restore", "Restore", [WorkInstructionStatus.Archived], null, Permissions.SequflohRestoreWorkInstruction, false),
+        new("release", "Release", [WorkInstructionStatus.Draft], WorkInstructionStatus.Released, Permissions.SequflohReleaseWorkInstruction, false),
+        new("obsolete", "Mark obsolete", [WorkInstructionStatus.Draft, WorkInstructionStatus.Released, WorkInstructionStatus.Superseded], WorkInstructionStatus.Obsolete, Permissions.SequflohObsoleteWorkInstruction, true),
     ];
 
     // ------------------------------------------------------------------ queries
@@ -80,7 +73,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         return list;
     }
 
-    static readonly WorkInstructionStatus[] Closed = [WorkInstructionStatus.Released, WorkInstructionStatus.Superseded, WorkInstructionStatus.Obsolete, WorkInstructionStatus.Archived];
+    static readonly WorkInstructionStatus[] Closed = [WorkInstructionStatus.Released, WorkInstructionStatus.Superseded, WorkInstructionStatus.Obsolete];
     Task<bool> InProgressRevisionAsync(SequflohWorkInstruction wi, CancellationToken ct) =>
         db.SequflohWorkInstructions.AnyAsync(x => x.FamilyId == wi.FamilyId && x.Id != wi.Id && !Closed.Contains(x.Status), ct);
 
@@ -137,10 +130,9 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
             await m.RequireAsync(Permissions.SequflohEditDraftWorkInstruction, r.SiteId, r.DepartmentId, ct);
             await m.ValidateLocationAsync(r.SiteId, r.DepartmentId, ct);
         }
-        foreach (var (u, label) in new[] { (r.OwnerId, "owner"), (r.ReviewerId, "reviewer"), (r.ApproverId, "approver") })
-            if (u is { } uid) await m.RequireActiveUserAsync(uid, label, ct);
+        if (r.OwnerId is { } uid) await m.RequireActiveUserAsync(uid, "owner", ct);
         await RequireOptionsAsync(wi.Type, r, ct);
-        wi.Title = r.Title.Trim(); wi.SiteId = r.SiteId; wi.DepartmentId = r.DepartmentId; wi.OwnerId = r.OwnerId; wi.ReviewerId = r.ReviewerId; wi.ApproverId = r.ApproverId;
+        wi.Title = r.Title.Trim(); wi.SiteId = r.SiteId; wi.DepartmentId = r.DepartmentId; wi.OwnerId = r.OwnerId;
         await ApplyPartAsync(wi, r.PartId, ct);
         wi.ProductFamily = T(r.ProductFamily, 100); wi.Assembly = T(r.Assembly, 100); wi.Model = T(r.Model, 100); wi.Variant = T(r.Variant, 100); wi.Process = T(r.Process, 200);
         wi.Operation = T(r.Operation, 200); wi.Workstation = T(r.Workstation, 100); wi.Location = T(r.Location, 200);
@@ -243,7 +235,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
     }
 
     // ------------------------------------------------------------------ release rules
-    /// <summary>Problems that block review, approval or release (sequence order, required content per instruction type).</summary>
+    /// <summary>Problems that block release (sequence order, required content per instruction type).</summary>
     public async Task<List<string>> ReleaseProblemsAsync(SequflohWorkInstruction wi, bool forRelease, CancellationToken ct)
     {
         var problems = new List<string>();
@@ -295,7 +287,6 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
     public async Task<SequflohWorkInstruction> ActAsync(Guid id, string action, InstructionActionInput r, CancellationToken ct)
     {
         var rule = Actions.FirstOrDefault(a => a.Action == action) ?? throw new NotFoundException("Action");
-        var settings = await f.GetSettingsAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var wi = await LockAsync(id, ct); // latest database state
         await m.RequireAsync(rule.Permission, wi.SiteId, wi.DepartmentId, ct);
@@ -304,32 +295,13 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         var comment = T(r.Comment, 4000);
         if (rule.CommentRequired && comment is null) throw new AppException($"Enter a comment to {rule.Label.ToLowerInvariant()}.");
         var from = wi.Status;
-        var to = rule.To ?? wi.StatusBeforeArchive ?? WorkInstructionStatus.Draft;
+        var to = rule.To;
         var superseded = new List<SequflohWorkInstruction>();
         switch (action)
         {
-            case "submit-review" or "submit-approval":
-                var p = await ReleaseProblemsAsync(wi, false, ct);
-                if (p.Count > 0) throw new AppException(string.Join(" ", p));
-                if (action == "submit-approval")
-                {
-                    foreach (var perm in settings.WorkInstructions.RequiredReviewPermissions)
-                        if (!await m.CanAsync(perm, wi.SiteId, wi.DepartmentId, ct)) throw new ForbiddenException();
-                    wi.ReviewedAt = m.Now; wi.ReviewedById = m.UserId;
-                }
-                break;
-            case "approve":
-                if (settings.WorkInstructions.PreventSelfApproval && wi.AuthorId == m.UserId) throw new AppException("The author cannot approve their own work instruction.");
-                var ap = await ReleaseProblemsAsync(wi, false, ct);
-                if (ap.Count > 0) throw new AppException(string.Join(" ", ap));
-                wi.ApprovedAt = m.Now; wi.ApprovedById = m.UserId;
-                break;
-            case "reject" or "return" or "revoke-approval":
-                wi.ApprovedAt = null; wi.ApprovedById = null;
-                break;
             case "release":
+                if (r.EffectiveDate is not null && wi.EffectiveDate is null) wi.EffectiveDate = r.EffectiveDate;
                 var rp = await ReleaseProblemsAsync(wi, true, ct);
-                if (r.EffectiveDate is not null && wi.EffectiveDate is null) { wi.EffectiveDate = r.EffectiveDate; rp = await ReleaseProblemsAsync(wi, true, ct); }
                 if (rp.Count > 0) throw new AppException(string.Join(" ", rp));
                 wi.ReleasedAt = m.Now; wi.ReleasedById = m.UserId;
                 // the previously released revision of this instruction is superseded by this release
@@ -341,10 +313,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
                     Transition(old, "supersede", WorkInstructionStatus.Released, WorkInstructionStatus.Superseded, $"Superseded by revision {wi.Revision}.");
                 }
                 break;
-            case "supersede": wi.SupersededAt = m.Now; break;
             case "obsolete": wi.ObsoleteAt = m.Now; break;
-            case "archive": wi.StatusBeforeArchive = wi.Status; break;
-            case "restore": wi.StatusBeforeArchive = null; break;
         }
         wi.Status = to;
         Transition(wi, action, from, to, comment);
@@ -368,14 +337,13 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
 
     // ------------------------------------------------------------------ revision / duplicate
     /// <summary>
-    /// Engineering development record on an instruction that is not yet released: assigned engineer, target date, project, notes, development status and a
-    /// release recommendation. These are planning fields, not controlled content, so they do not need a revision; changes are audited.
+    /// Engineering development record on an instruction that is not yet released: assigned engineer, target date, project, notes, development status. These are planning fields, not controlled content, so they do not need a revision; changes are audited.
     /// </summary>
     public async Task<SequflohWorkInstruction> SaveDevelopmentAsync(Guid id, DevelopmentInput r, CancellationToken ct)
     {
         var wi = await LoadAsync(id, true, ct);
         await m.RequireAsync(Permissions.SequflohEditEngineeringFolder, wi.SiteId, wi.DepartmentId, ct);
-        if (wi.Status is WorkInstructionStatus.Released or WorkInstructionStatus.Superseded or WorkInstructionStatus.Obsolete or WorkInstructionStatus.Archived)
+        if (wi.Status is WorkInstructionStatus.Released or WorkInstructionStatus.Superseded or WorkInstructionStatus.Obsolete)
             throw new ConflictException($"{wi.Number} rev {wi.Revision} is {Words(wi.Status.ToString()).ToLowerInvariant()}. Development details apply to instructions not yet released.");
         if (r.AssignedEngineerId is { } eng)
         {
@@ -390,16 +358,6 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         Set("project", wi.Project, T(r.Project, 100), v => wi.Project = v);
         Set("Engineering notes", wi.EngineeringNotes, T(r.EngineeringNotes, 4000), v => wi.EngineeringNotes = v);
         Set("development status", wi.DevelopmentStatus, T(r.DevelopmentStatus, 100), v => wi.DevelopmentStatus = v);
-        if (r.RecommendRelease is { } rec && rec != (wi.ReleaseRecommendedAt is not null))
-        {
-            if (rec)
-            {
-                var problems = await ReleaseProblemsAsync(wi, true, ct);
-                if (problems.Count > 0) throw new AppException("Release cannot be recommended yet: " + string.Join(" ", problems));
-                wi.ReleaseRecommendedAt = m.Now; wi.ReleaseRecommendedById = m.UserId; changed.Add("release recommended");
-            }
-            else { wi.ReleaseRecommendedAt = null; wi.ReleaseRecommendedById = null; changed.Add("release recommendation withdrawn"); }
-        }
         if (changed.Count == 0) return wi;
         f.Audit("DevelopmentUpdated", EntityType, wi.Id, $"{wi.Number} rev {wi.Revision}: {string.Join(", ", changed)}", wi.SiteId);
         await db.SaveChangesAsync(ct);
@@ -449,8 +407,8 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
 
     SequflohWorkInstruction Copy(SequflohWorkInstruction s) => new()
     {
-        Type = s.Type, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId, ReviewerId = s.ReviewerId,
-        ApproverId = s.ApproverId, PartId = s.PartId, PartNumber = s.PartNumber, PartDescription = s.PartDescription, ProductFamily = s.ProductFamily, Assembly = s.Assembly, Model = s.Model,
+        Type = s.Type, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId,
+        PartId = s.PartId, PartNumber = s.PartNumber, PartDescription = s.PartDescription, ProductFamily = s.ProductFamily, Assembly = s.Assembly, Model = s.Model,
         Variant = s.Variant, Process = s.Process, Operation = s.Operation, Workstation = s.Workstation, Location = s.Location, ValidationType = s.ValidationType, FaiType = s.FaiType,
         RepairCategory = s.RepairCategory, RepairType = s.RepairType, RepairDescription = s.RepairDescription, SourcePartsListId = s.SourcePartsListId,
         Content = s.Content, Steps = NewIds(s.Steps), Characteristics = NewIds(s.Characteristics), PartsRows = NewIds(s.PartsRows),

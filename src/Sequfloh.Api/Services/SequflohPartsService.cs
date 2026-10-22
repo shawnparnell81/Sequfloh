@@ -102,7 +102,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
 
     static void Editable(SequflohPartsList l)
     {
-        if (l.Status == PartsListStatus.Approved) throw new ConflictException("The parts list is approved; create a revision to change it.");
+        if (l.Status == PartsListStatus.Released) throw new ConflictException("The parts list is released; create a revision to change it.");
         if (l.Status == PartsListStatus.Inactive) throw new ConflictException("The parts list is inactive; reactivate it first.");
     }
 
@@ -202,7 +202,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         var l = await LoadListAsync(id, true, ct);
         Editable(l);
         var item = l.Items.FirstOrDefault(i => i.Id == itemId) ?? throw new NotFoundException("Parts list item");
-        db.SequflohPartsListItems.Remove(item); // draft content only; approved revisions are frozen in the revision history
+        db.SequflohPartsListItems.Remove(item); // draft content only; released revisions are frozen in the revision history
         var k = 1;
         foreach (var i in l.Items.Where(i => i.Id != itemId).OrderBy(i => i.ItemNumber)) i.ItemNumber = k++;
         await db.SaveChangesAsync(ct);
@@ -245,13 +245,13 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         return copy;
     }
 
-    public async Task ApproveListAsync(Guid id, CancellationToken ct)
+    public async Task ReleaseListAsync(Guid id, CancellationToken ct)
     {
         await RequireAsync(Permissions.SequflohManagePartsLists, ct);
         var l = await LoadListAsync(id, true, ct);
-        if (l.Status != PartsListStatus.Draft) throw new ConflictException("Only a draft parts list can be approved.");
-        if (l.Items.Count == 0) throw new AppException("Add at least one item before approving the parts list.");
-        l.Status = PartsListStatus.Approved; l.ApprovedById = m.UserId; l.ApprovedAt = m.Now;
+        if (l.Status != PartsListStatus.Draft) throw new ConflictException("Only a draft parts list can be released.");
+        if (l.Items.Count == 0) throw new AppException("Add at least one item before releasing the parts list.");
+        l.Status = PartsListStatus.Released; l.ReleasedById = m.UserId; l.ReleasedAt = m.Now;
         await db.SaveChangesAsync(ct);
     }
 
@@ -263,18 +263,18 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM sqf.sequfloh_parts_lists WHERE \"Id\" = {id} FOR UPDATE", ct);
         var l = await db.SequflohPartsLists.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Parts list");
-        if (l.Status != PartsListStatus.Approved) throw new ConflictException("Only an approved parts list can be revised; edit the draft instead.");
+        if (l.Status != PartsListStatus.Released) throw new ConflictException("Only a released parts list can be revised; edit the draft instead.");
         if (settings.WorkInstructions.RevisionReasonRequired && string.IsNullOrWhiteSpace(r.Reason)) throw new AppException("Enter the reason for the new revision.");
         db.SequflohPartsListRevisions.Add(new SequflohPartsListRevision { PartsListId = id, Revision = l.Revision, StatusAtRevision = l.Status, Reason = T(r.Reason, 2000), Snapshot = Snapshot(l) });
         l.Revision = SequflohFoundationService.NextRevision(l.Revision, settings.Numbering.RevisionFormat);
-        l.Status = PartsListStatus.Draft; l.ApprovedAt = null; l.ApprovedById = null;
+        l.Status = PartsListStatus.Draft; l.ReleasedAt = null; l.ReleasedById = null;
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
     }
 
     public static string Snapshot(SequflohPartsList l) => JsonSerializer.Serialize(new
     {
-        l.Number, l.Title, l.Revision, l.ParentPartId, l.Description, ListType = l.ListType.ToString(), l.ApprovedById, l.ApprovedAt,
+        l.Number, l.Title, l.Revision, l.ParentPartId, l.Description, ListType = l.ListType.ToString(), l.ReleasedById, l.ReleasedAt,
         Items = l.Items.OrderBy(i => i.ItemNumber).Select(i => new { i.ItemNumber, i.PartId, i.PartNumber, i.Description, i.Quantity, i.Unit, i.Required, i.AlternatePartNumber, Traceability = i.Traceability.ToString(), i.Notes })
     }, SequflohJson.Options);
 
@@ -285,7 +285,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (active)
         {
             if (l.Status != PartsListStatus.Inactive) throw new ConflictException("The parts list is already active.");
-            l.Status = l.ApprovedAt is null ? PartsListStatus.Draft : PartsListStatus.Approved;
+            l.Status = l.ReleasedAt is null ? PartsListStatus.Draft : PartsListStatus.Released;
         }
         else
         {

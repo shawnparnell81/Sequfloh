@@ -13,7 +13,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record TrackingCreateInput(TrackingType Type, Guid WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
-    DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null, bool EngineeringReviewRequired = false,
+    DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
     string? ReportedCondition = null);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
@@ -22,7 +22,6 @@ public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, strin
     JsonObject? Details = null, JsonArray? Steps = null, JsonArray? Characteristics = null, JsonArray? PartsRows = null);
 public sealed record TaskActionInput(Guid OperationId, int StateVersion, string? Reason = null, string? Comment = null, Guid? AssignedUserId = null, Guid? ExpectedAssignedUserId = null,
     TrackingStatus? TargetStatus = null, string? VarianceReason = null);
-public sealed record SignoffInput(Guid OperationId, int StateVersion, string Role, string? Meaning = null);
 
 /// <summary>
 /// SEQUFLOH operational tracking (validation, FAI, repair, production). A record is created from a released work instruction revision and keeps a copy of
@@ -34,10 +33,9 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     SequflohNotifications notify)
 {
     public const string EntityType = nameof(SequflohTrackingRecord);
-    public static readonly TrackingStatus[] Terminal = [TrackingStatus.Completed, TrackingStatus.Failed, TrackingStatus.Rejected, TrackingStatus.Canceled];
-    public static readonly TrackingStatus[] Open = [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold,
-        TrackingStatus.PendingInspection, TrackingStatus.PendingReview];
-    static readonly TrackingStatus[] Working = [TrackingStatus.InProgress, TrackingStatus.PendingInspection];
+    public static readonly TrackingStatus[] Terminal = [TrackingStatus.Completed, TrackingStatus.Failed, TrackingStatus.Canceled];
+    public static readonly TrackingStatus[] Open = [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold];
+    static readonly TrackingStatus[] Working = [TrackingStatus.InProgress];
     static string? T(string? s, int max) { if (string.IsNullOrWhiteSpace(s)) return null; s = s.Trim(); return s.Length > max ? throw new AppException($"A value is limited to {max} characters.") : s; }
 
     public static string CreatePermission(TrackingType t) => t switch
@@ -67,17 +65,12 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         new("start", "Start", [TrackingStatus.NotStarted, TrackingStatus.Assigned], TrackingStatus.InProgress, Permissions.SequflohStartTask, false, "Start"),
         new("pause", "Pause", [TrackingStatus.InProgress], TrackingStatus.Paused, Permissions.SequflohPauseTask, true, "Pause"),
         new("resume", "Resume", [TrackingStatus.Paused, TrackingStatus.OnHold], TrackingStatus.InProgress, Permissions.SequflohResumeTask, false, "Resume"),
-        new("hold", "Place on hold", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.PendingInspection], TrackingStatus.OnHold, Permissions.SequflohHoldTask, true, "Hold"),
-        new("restart", "Restart", [TrackingStatus.Failed, TrackingStatus.Rejected], TrackingStatus.Assigned, Permissions.SequflohDispatchTask, true, "Restart"),
-        new("submit-inspection", "Submit for inspection", [TrackingStatus.InProgress], TrackingStatus.PendingInspection, Permissions.SequflohCompleteTask, false, "InspectionSubmission"),
-        new("submit-review", "Submit for review", [TrackingStatus.InProgress, TrackingStatus.PendingInspection], TrackingStatus.PendingReview, Permissions.SequflohCompleteTask, false, "ReviewSubmission"),
-        new("approve", "Approve", [TrackingStatus.PendingReview], null, Permissions.SequflohEditQualityFolder, false, "Approval"),
-        new("complete", "Complete", [TrackingStatus.InProgress, TrackingStatus.PendingInspection], TrackingStatus.Completed, Permissions.SequflohCompleteTask, false, "Completion"),
-        new("fail", "Fail", [TrackingStatus.InProgress, TrackingStatus.PendingInspection, TrackingStatus.PendingReview], TrackingStatus.Failed, Permissions.SequflohFailTask, true, "Failure"),
-        new("reject", "Reject", [TrackingStatus.InProgress, TrackingStatus.PendingInspection, TrackingStatus.PendingReview], TrackingStatus.Rejected, Permissions.SequflohRejectTask, true, "Rejection"),
-        new("reassign", "Reassign", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold, TrackingStatus.PendingInspection], null, Permissions.SequflohReassignTask, false, "Reassignment"),
-        new("cancel", "Cancel", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold, TrackingStatus.PendingInspection, TrackingStatus.PendingReview], TrackingStatus.Canceled, Permissions.SequflohCancelTask, true, "Cancellation"),
-        new("reverse-result", "Reverse result", [TrackingStatus.Completed, TrackingStatus.Failed, TrackingStatus.Rejected], TrackingStatus.PendingReview, Permissions.SequflohEditQualityFolder, true, "ResultReversal"),
+        new("hold", "Place on hold", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused], TrackingStatus.OnHold, Permissions.SequflohHoldTask, true, "Hold"),
+        new("restart", "Restart", [TrackingStatus.Failed], TrackingStatus.Assigned, Permissions.SequflohDispatchTask, true, "Restart"),
+        new("complete", "Complete", [TrackingStatus.InProgress], TrackingStatus.Completed, Permissions.SequflohCompleteTask, false, "Completion"),
+        new("fail", "Fail", [TrackingStatus.InProgress], TrackingStatus.Failed, Permissions.SequflohFailTask, true, "Failure"),
+        new("reassign", "Reassign", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], null, Permissions.SequflohReassignTask, false, "Reassignment"),
+        new("cancel", "Cancel", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], TrackingStatus.Canceled, Permissions.SequflohCancelTask, true, "Cancellation"),
         new("override", "Administrative override", [.. Enum.GetValues<TrackingStatus>()], null, Permissions.SequflohManageSettings, true, "AdministrativeOverride"),
     ];
 
@@ -118,10 +111,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     {
         var list = new List<object>();
         foreach (var a in Rules.Where(a => a.From.Contains(r.Status) && a.Action != "override"))
-        {
-            var perm = a.Action == "approve" ? ApprovalPermission(r) : a.Permission;
-            if (perm is not null && await m.CanAsync(perm, r.SiteId, r.DepartmentId, ct)) list.Add(new { a.Action, a.Label, a.ReasonRequired });
-        }
+            if (await m.CanAsync(a.Permission, r.SiteId, r.DepartmentId, ct)) list.Add(new { a.Action, a.Label, a.ReasonRequired });
         return list;
     }
 
@@ -132,10 +122,9 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         TrackingStatus.Assigned => "Start the task.",
         TrackingStatus.Paused => $"Resume the task (paused: {r.PauseReason ?? "no reason"}).",
         TrackingStatus.OnHold => $"Resolve the hold and resume (hold: {r.HoldReason ?? "no reason"}).",
-        TrackingStatus.InProgress or TrackingStatus.PendingInspection when problems.Count > 0 => problems[0],
-        TrackingStatus.InProgress or TrackingStatus.PendingInspection => r.QualityReviewRequired || r.EngineeringReviewRequired ? "Submit for review." : "Complete the task.",
-        TrackingStatus.PendingReview => r.QualityReviewRequired && r.QualityReviewedAt is null ? "Quality review of the results." : "Engineering review of the results.",
-        TrackingStatus.Failed or TrackingStatus.Rejected => "Restart for rework when authorized.",
+        TrackingStatus.InProgress when problems.Count > 0 => problems[0],
+        TrackingStatus.InProgress => "Complete the task.",
+        TrackingStatus.Failed => "Restart for rework when authorized.",
         _ => "No action required."
     };
 
@@ -189,25 +178,6 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         if (content["samples"] is JsonObject smp) details["samplePlan"] = smp.DeepClone();
         if (content["conditions"] is JsonObject cnd) details["conditionLimits"] = cnd.DeepClone();
         rec.Details = details.ToJsonString();
-        switch (r.Type)
-        {
-            case TrackingType.Validation:
-                rec.QualityReviewRequired = settings.Validation.QualityReviewRequired || settings.Validation.ApprovalRequired;
-                rec.EngineeringReviewRequired = settings.Validation.EngineeringReviewRequired || r.EngineeringReviewRequired; break;
-            case TrackingType.Fai:
-                rec.QualityReviewRequired = settings.Fai.QualityApprovalRequired;
-                rec.EngineeringReviewRequired = settings.Fai.EngineeringApprovalRequired || r.EngineeringReviewRequired || content["faiDisposition"]?["engineeringApprovalRequired"]?.GetValue<bool>() == true; break;
-            case TrackingType.Repair:
-                rec.QualityReviewRequired = settings.Repair.QualityApprovalRequired; rec.EngineeringReviewRequired = r.EngineeringReviewRequired; break;
-            default:
-                rec.EngineeringReviewRequired = r.EngineeringReviewRequired; break;
-        }
-        rec.ApprovalStatus = rec.QualityReviewRequired || rec.EngineeringReviewRequired ? "Pending" : "NotRequired";
-        var signoffs = new JsonArray();
-        if (settings.Tracking.TechnicianSignoffRequired) signoffs.Add(new JsonObject { ["role"] = "Technician", ["required"] = true });
-        if (settings.Tracking.InspectorSignoffRequired || (r.Type == TrackingType.Repair && settings.Repair.InspectorVerificationRequired))
-            signoffs.Add(new JsonObject { ["role"] = "Inspector", ["required"] = true });
-        rec.Signoffs = signoffs.ToJsonString();
         rec.Number = await numbers.NextAsync(NumberingType(r.Type), null, ct);
         db.SequflohTrackingRecords.Add(rec);
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
@@ -228,7 +198,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     }
 
     // ------------------------------------------------------------------ save (data entry)
-    static readonly string[] StepEntry = ["result", "actualResult", "evidence", "comment", "completed", "acknowledged", "verified"];
+    static readonly string[] StepEntry = ["result", "actualResult", "evidence", "comment", "completed"];
     static readonly string[] CharEntry = ["actualResult", "result", "evidenceReference", "nonconformanceReference", "notes"];
     static readonly string[] PartsEntry = ["issuedQuantity", "usedQuantity", "returnedQuantity", "scrapQuantity", "lotNumber", "serialNumber"];
     static readonly string[] DetailKeys = ["sampleIdentification", "controlledConditions", "materialVerification", "specialProcessVerification", "certificateReview", "drawingBalloonReferences",
@@ -252,14 +222,14 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         {
             if (!await m.CanAsync(CreatePermission(rec.Type), rec.SiteId, rec.DepartmentId, ct) && !await m.CanAsync(Permissions.SequflohDispatchTask, rec.SiteId, rec.DepartmentId, ct))
                 throw new ForbiddenException();
-            if (Terminal.Contains(rec.Status) || rec.Status == TrackingStatus.PendingReview) throw new ConflictException("Planning details cannot change once the record is under review or closed.");
+            if (Terminal.Contains(rec.Status)) throw new ConflictException("Planning details cannot change once the record is closed.");
             await f.RequireOptionAsync("priorities", priority, "Priority", ct);
             if (r.PlannedStart is { } ps && r.DueAt is { } du && du < ps) throw new AppException("The due date cannot be before the planned start.");
             rec.SerialNumber = serial; rec.LotNumber = lot; rec.WorkOrder = wo; rec.RepairOrder = ro; rec.CustomerReturnReference = cr; rec.Project = project; rec.Priority = priority;
             rec.PlannedStart = r.PlannedStart; rec.DueAt = r.DueAt;
             changed.Add("planning details");
         }
-        // execution entry: the person working the record while it is in progress or pending inspection
+        // execution entry: the person working the record while it is in progress
         var tech = (Ev: T(r.EvidenceReferences, 4000), Tc: T(r.TechnicianComments, 4000), Dv: T(r.Deviations, 4000), Nc: T(r.NonconformanceReferences, 4000), Rc: T(r.ReportedCondition, 4000),
             Oc: T(r.ObservedCondition, 4000), Fd: T(r.FinalDisposition, 100), Vr: T(r.VarianceReason, 4000), Res: T(r.Result, 100));
         var steps = r.Steps is null ? rec.Steps : MergeRows(rec.Steps, r.Steps, StepEntry, "step");
@@ -274,10 +244,10 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         if (entryChanged)
         {
             await m.RequireAsync(Permissions.SequflohStartTask, rec.SiteId, rec.DepartmentId, ct);
-            if (!Working.Contains(rec.Status)) throw new ConflictException($"Results can be recorded only while the record is in progress or pending inspection. {rec.Number} is {Words(rec.Status)}.");
+            if (!Working.Contains(rec.Status)) throw new ConflictException($"Results can be recorded only while the record is in progress. {rec.Number} is {Words(rec.Status)}.");
             if (tech.Fd is not null)
                 await f.RequireOptionAsync(rec.Type == TrackingType.Fai ? "inspection-results" : "repair-dispositions", tech.Fd, "Final disposition", ct);
-            steps = await StampAsync(rec, steps, ct);
+            CheckStepResults(steps);
             ValidateQuantities(partsRows);
             if (rec.Type == TrackingType.Production && tech.Res is not null && tech.Res is not ("Pending" or "Pass" or "Fail" or "Conditional")) throw new AppException("The result must be Pending, Pass, Fail or Conditional.");
             var detailNode = JsonNode.Parse(details)!.AsObject();
@@ -337,7 +307,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                         : throw new AppException($"The {what} {Words(k)} must be a number.");
                     dst[k] = d;
                 }
-                else if (k is "completed" or "acknowledged" or "verified") dst[k] = jv.TryGetValue<bool>(out var b) ? b : throw new AppException($"The {what} {Words(k)} must be yes or no.");
+                else if (k is "completed") dst[k] = jv.TryGetValue<bool>(out var b) ? b : throw new AppException($"The {what} {Words(k)} must be yes or no.");
                 else { var t = jv.ToString().Trim(); if (t.Length > 2000) throw new AppException($"The {what} {Words(k)} is limited to 2000 characters."); dst[k] = t; }
             }
         }
@@ -357,35 +327,11 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         return o.ToJsonString();
     }
 
-    /// <summary>Acknowledgement and verification are stamped with the signed-in user and time; an inspector verification needs the Quality permission and another person.</summary>
-    async Task<string> StampAsync(SequflohTrackingRecord rec, string json, CancellationToken ct)
+    static void CheckStepResults(string json)
     {
-        var rows = JsonNode.Parse(json)!.AsArray();
-        var old = JsonNode.Parse(rec.Steps)!.AsArray().OfType<JsonObject>().ToDictionary(x => x["id"]!.ToString());
-        var name = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstAsync(ct);
-        var now = m.Now.ToString("O", CultureInfo.InvariantCulture);
-        foreach (var s in rows.OfType<JsonObject>())
-        {
-            old.TryGetValue(s["id"]!.ToString(), out var o);
-            foreach (var (flag, by, at) in new[] { ("acknowledged", "acknowledgedBy", "acknowledgedAt"), ("verified", "verifiedBy", "verifiedAt") })
-            {
-                var was = o?[flag]?.GetValue<bool>() == true; var isNow = s[flag]?.GetValue<bool>() == true;
-                if (isNow && !was)
-                {
-                    if (flag == "verified")
-                    {
-                        await m.RequireAsync(Permissions.SequflohEditQualityFolder, rec.SiteId, rec.DepartmentId, ct);
-                        if (s["acknowledgedById"]?.ToString() == m.UserId.ToString()) throw new AppException("The inspector verification must be made by someone other than the technician.");
-                    }
-                    s[by] = name; s[by + "Id"] = m.UserId.ToString(); s[at] = now;
-                }
-                else if (!isNow && was && o is not null) { s.Remove(by); s.Remove(by + "Id"); s.Remove(at); }
-                else if (o is not null) foreach (var k in new[] { by, by + "Id", at }) if (o[k] is { } keep) s[k] = keep.DeepClone();
-            }
+        foreach (var s in JsonNode.Parse(json)!.AsArray().OfType<JsonObject>())
             if (s["result"]?.ToString() is { } res && res is not ("Pass" or "Fail" or "Conditional" or "Not applicable" or "Complete"))
                 throw new AppException($"Step {s["sequence"]}: the result must be Pass, Fail, Conditional, Not applicable or Complete.");
-        }
-        return rows.ToJsonString();
     }
 
     static decimal? Num(JsonNode? n) => n is JsonValue v && v.TryGetValue<decimal>(out var d) ? d : null;
@@ -418,7 +364,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         return "Pass";
     }
 
-    /// <summary>Problems that block completion or submission: required steps, results, evidence, comments, signoffs, quantities, tests, disposition.</summary>
+    /// <summary>Problems that block completion or submission: required steps, results, evidence, comments, quantities, tests, disposition.</summary>
     public async Task<List<string>> CompletionProblemsAsync(SequflohTrackingRecord rec, CancellationToken ct)
     {
         var p = new List<string>();
@@ -459,8 +405,6 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                     if (!Flag(s, "completed") && !Has(s, "result")) { p.Add($"Operation {Seq(s)}: mandatory operation is incomplete."); continue; }
                     if (Flag(s, "passOrFailRequired") && s["result"]?.ToString() is not ("Pass" or "Fail")) p.Add($"Operation {Seq(s)}: record pass or fail.");
                     if (Flag(s, "technicianResultRequired") && !Has(s, "actualResult")) p.Add($"Operation {Seq(s)}: record the technician result.");
-                    if (Flag(s, "technicianAcknowledgement") && !Flag(s, "acknowledged")) p.Add($"Operation {Seq(s)}: technician acknowledgement is missing.");
-                    if (Flag(s, "inspectorVerification") && !Flag(s, "verified")) p.Add($"Operation {Seq(s)}: inspector verification is missing.");
                 }
                 foreach (var pr in JsonNode.Parse(rec.PartsRows)!.AsArray().OfType<JsonObject>())
                 {
@@ -480,43 +424,10 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 if (rec.Result is "Pending" or "") p.Add("Record the result.");
                 break;
         }
-        foreach (var s in JsonNode.Parse(rec.Signoffs)!.AsArray().OfType<JsonObject>())
-            if (s["required"]?.GetValue<bool>() == true && string.IsNullOrWhiteSpace(s["userId"]?.ToString())) p.Add($"The {s["role"]} signoff is missing.");
         return p;
     }
 
-    // ------------------------------------------------------------------ signoffs
-    public async Task<SequflohTrackingRecord> SignAsync(Guid id, SignoffInput r, CancellationToken ct)
-    {
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var rec = await LockAsync(id, ct);
-        if (await db.SequflohTaskEvents.AnyAsync(e => e.OperationId == r.OperationId, ct)) return rec;
-        if (r.StateVersion != rec.StateVersion) throw new ConflictException("The tracking record changed since you opened it. Reload and try again.");
-        if (!Working.Contains(rec.Status)) throw new ConflictException($"Signoffs are captured while the record is in progress or pending inspection. {rec.Number} is {Words(rec.Status)}.");
-        var list = JsonNode.Parse(rec.Signoffs)!.AsArray();
-        var s = list.OfType<JsonObject>().FirstOrDefault(x => string.Equals(x["role"]?.ToString(), r.Role, StringComparison.OrdinalIgnoreCase)) ?? throw new AppException($"{rec.Number} has no {r.Role} signoff.");
-        if (!string.IsNullOrWhiteSpace(s["userId"]?.ToString())) throw new ConflictException($"The {s["role"]} signoff is already captured.");
-        var role = s["role"]!.ToString();
-        await m.RequireAsync(role == "Inspector" ? Permissions.SequflohEditQualityFolder : Permissions.SequflohCompleteTask, rec.SiteId, rec.DepartmentId, ct);
-        if (list.OfType<JsonObject>().Any(o => o != s && o["userId"]?.ToString() == m.UserId.ToString())) throw new AppException("Each signoff must be made by a different person.");
-        var now = await DbNowAsync(ct);
-        s["userId"] = m.UserId.ToString(); s["userName"] = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstAsync(ct);
-        s["signedAt"] = now.ToString("O", CultureInfo.InvariantCulture); s["meaning"] = T(r.Meaning, 300) ?? (role == "Inspector" ? "Verified" : "Performed");
-        rec.Signoffs = list.ToJsonString();
-        rec.StateVersion++; rec.LastTransitionId = r.OperationId; rec.LastTransitionAt = now;
-        Event(rec, "Signoff", rec.Status, rec.Status, rec.AssignedUserId, rec.AssignedUserId, null, $"{role} signoff: {s["meaning"]}", r.OperationId, now);
-        f.Audit("TrackingSignoff", EntityType, rec.Id, $"{rec.Number}: {role} signoff captured ({s["meaning"]})", rec.SiteId);
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        return rec;
-    }
-
     // ------------------------------------------------------------------ transitions
-    /// <summary>Approval permission still needed: Quality first, then Engineering when required; null when nothing is pending.</summary>
-    static string? ApprovalPermission(SequflohTrackingRecord r) =>
-        r.QualityReviewRequired && r.QualityReviewedAt is null ? Permissions.SequflohEditQualityFolder
-        : r.EngineeringReviewRequired && r.EngineeringReviewedAt is null ? Permissions.SequflohEditEngineeringFolder : null;
-
     public async Task<SequflohTrackingRecord> ActAsync(Guid id, string action, TaskActionInput r, CancellationToken ct)
     {
         var rule = Rules.FirstOrDefault(a => a.Action == action) ?? throw new NotFoundException("Action");
@@ -524,8 +435,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var rec = await LockAsync(id, ct); // latest database state, locked until commit
         if (await db.SequflohTaskEvents.AnyAsync(e => e.OperationId == r.OperationId, ct)) return rec; // the same operation was already applied
-        var perm = action == "approve" ? ApprovalPermission(rec) ?? throw new ConflictException($"{rec.Number} has no review waiting.") : rule.Permission;
-        await m.RequireAsync(perm, rec.SiteId, rec.DepartmentId, ct);
+        await m.RequireAsync(rule.Permission, rec.SiteId, rec.DepartmentId, ct);
         if (r.StateVersion != rec.StateVersion) throw new ConflictException("The task changed since you opened it. Reload and try again.");
         if (!rule.From.Contains(rec.Status)) throw new ConflictException($"{rule.Label} is not possible while {rec.Number} is {Words(rec.Status)}.");
         var reason = T(r.Reason, 300); var comment = T(r.Comment, 4000);
@@ -553,40 +463,16 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 rec.AssignedUserId ??= m.UserId;
                 break;
             case "restart":
-                rec.Result = rec.Type == TrackingType.Production ? "Pending" : ComputeResult(rec); rec.ApprovalStatus = rec.QualityReviewRequired || rec.EngineeringReviewRequired ? "Pending" : "NotRequired";
-                rec.QualityReviewedAt = null; rec.QualityReviewedById = null; rec.EngineeringReviewedAt = null; rec.EngineeringReviewedById = null; rec.ActualCompletion = null; rec.CompletedById = null;
-                rec.FailureReason = null; rec.RejectionReason = null;
+                rec.Result = rec.Type == TrackingType.Production ? "Pending" : ComputeResult(rec); rec.ActualCompletion = null; rec.CompletedById = null;
+                rec.FailureReason = null;
                 to = rec.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned;
                 break;
-            case "submit-inspection":
-                break;
-            case "submit-review":
-                if (!rec.QualityReviewRequired && !rec.EngineeringReviewRequired) throw new AppException($"{rec.Number} needs no review. Complete it instead.");
-                await RequireCompleteAsync(rec, ct);
-                rec.ApprovalStatus = "Pending";
-                break;
             case "complete":
-                if (rec.QualityReviewRequired || rec.EngineeringReviewRequired) throw new AppException($"{rec.Number} requires review. Submit it for review.");
                 await RequireCompleteAsync(rec, ct);
                 if (rec.Result == "Fail") throw new AppException("The result is Fail. Record the failure instead of completing.");
                 break;
-            case "approve":
-                if (perm == Permissions.SequflohEditQualityFolder) { rec.QualityReviewedAt = m.Now; rec.QualityReviewedById = m.UserId; }
-                else { rec.EngineeringReviewedAt = m.Now; rec.EngineeringReviewedById = m.UserId; }
-                if (rec.CompletedById == m.UserId || rec.ActiveOperatorId == m.UserId) throw new AppException("The person who performed the work cannot approve its results.");
-                if (ApprovalPermission(rec) is null)
-                {
-                    rec.ApprovalStatus = "Approved";
-                    to = rec.Result == "Fail" ? TrackingStatus.Failed : TrackingStatus.Completed;
-                }
-                break;
             case "fail": rec.FailureReason = reason; if (rec.Type == TrackingType.Production || rec.Result != "Fail") rec.Result = "Fail"; break;
-            case "reject": rec.RejectionReason = reason; if (from == TrackingStatus.PendingReview) rec.ApprovalStatus = "Rejected"; break;
             case "cancel": rec.CancelReason = reason; break;
-            case "reverse-result":
-                rec.ApprovalStatus = "Pending"; rec.QualityReviewRequired = true; rec.QualityReviewedAt = null; rec.QualityReviewedById = null; rec.EngineeringReviewedAt = null; rec.EngineeringReviewedById = null;
-                rec.ActualCompletion = null;
-                break;
             case "override":
                 to = r.TargetStatus ?? throw new AppException("Choose the status to set.");
                 if (to == from) throw new AppException("The task already has that status.");
@@ -601,19 +487,17 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 rec.VarianceMinutes = Variance(rec);
                 var vr = T(r.VarianceReason, 4000);
                 if (vr is not null) rec.VarianceReason = vr;
-                if (to is TrackingStatus.Completed or TrackingStatus.PendingReview && rec.VarianceMinutes is not null and not 0 && settings.Tracking.VarianceReasonRequired && string.IsNullOrWhiteSpace(rec.VarianceReason))
+                if (to is TrackingStatus.Completed && rec.VarianceMinutes is not null and not 0 && settings.Tracking.VarianceReasonRequired && string.IsNullOrWhiteSpace(rec.VarianceReason))
                     throw new AppException($"The time is outside the benchmark range by {Math.Abs(rec.VarianceMinutes.Value).ToString("0.##", CultureInfo.InvariantCulture)} minutes. Enter the variance reason.");
             }
             if (to == TrackingStatus.InProgress) { rec.ActiveOperatorId = rec.AssignedUserId ?? m.UserId; rec.ActualStart ??= now; }
             else if (from == TrackingStatus.InProgress) rec.ActiveOperatorId = to is TrackingStatus.Paused or TrackingStatus.OnHold ? rec.ActiveOperatorId : null;
-            if (Terminal.Contains(to)) { rec.ActualCompletion = now; rec.CompletedById ??= action == "approve" ? rec.AssignedUserId : m.UserId; rec.ActiveOperatorId = null; }
-            if (to is TrackingStatus.Completed && from != TrackingStatus.PendingReview) rec.CompletedById = m.UserId;
-            if (to == TrackingStatus.PendingReview && from != TrackingStatus.PendingReview) rec.CompletedById = action == "reverse-result" ? rec.CompletedById : m.UserId;
+            if (Terminal.Contains(to)) { rec.ActualCompletion = now; rec.CompletedById ??= m.UserId; rec.ActiveOperatorId = null; }
+            if (to is TrackingStatus.Completed) rec.CompletedById = m.UserId;
         }
         rec.Status = to;
         rec.StateVersion++; rec.LastTransitionId = r.OperationId; rec.LastTransitionAt = now;
-        var evType = action == "approve" && to == TrackingStatus.PendingReview ? "Approval" : rule.EventType;
-        Event(rec, evType, from, to, before, rec.AssignedUserId, reason, comment, r.OperationId, now);
+        Event(rec, rule.EventType, from, to, before, rec.AssignedUserId, reason, comment, r.OperationId, now);
         var who = before != rec.AssignedUserId ? $" (assigned {await NameAsync(before, ct)} -> {await NameAsync(rec.AssignedUserId, ct)})" : "";
         f.Audit("Task" + string.Concat(action.Split('-').Select(Cap)), EntityType, rec.Id, $"{rec.Number}: {rule.Label.ToLowerInvariant()}, {Words(from)} -> {Words(to)}{who}", rec.SiteId, reason ?? comment,
             new { operationId = r.OperationId, stateVersion = rec.StateVersion });

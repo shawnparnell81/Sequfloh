@@ -33,15 +33,14 @@ internal static class SequflohTrackingQuery
             "open" => query.Where(x => SequflohTrackingService.Open.Contains(x.Status)),
             "completed" => query.Where(x => x.Status == TrackingStatus.Completed),
             "on-hold" => query.Where(x => x.Status == TrackingStatus.OnHold),
-            "rejected" => query.Where(x => x.Status == TrackingStatus.Rejected),
             "dispatch" => query.Where(x => x.Status == TrackingStatus.NotStarted || x.Status == TrackingStatus.Assigned),
-            "active" => query.Where(x => x.Status == TrackingStatus.InProgress || x.Status == TrackingStatus.PendingInspection),
+            "active" => query.Where(x => x.Status == TrackingStatus.InProgress),
             "paused" => query.Where(x => x.Status == TrackingStatus.Paused),
             "finished" => query.Where(x => SequflohTrackingService.Terminal.Contains(x.Status)),
             "mine" => query.Where(x => x.AssignedUserId == me && SequflohTrackingService.Open.Contains(x.Status)),
             "overdue" => query.Where(x => SequflohTrackingService.Open.Contains(x.Status) && x.DueAt != null && x.DueAt < overdueCutoff),
             "station" => query.Where(x => (x.AssignedUserId == me || x.ActiveOperatorId == me) && (x.Status == TrackingStatus.Assigned || x.Status == TrackingStatus.InProgress
-                || x.Status == TrackingStatus.Paused || x.Status == TrackingStatus.OnHold || x.Status == TrackingStatus.PendingInspection)),
+                || x.Status == TrackingStatus.Paused || x.Status == TrackingStatus.OnHold)),
             _ => query
         };
         if (p.Status is not null) query = query.Where(x => x.Status == p.Status);
@@ -81,7 +80,7 @@ internal static class SequflohTrackingQuery
             "actualCompletion:asc" => query.OrderBy(x => x.ActualCompletion), "actualCompletion:desc" => query.OrderByDescending(x => x.ActualCompletion),
             "pausedAt:asc" => query.OrderBy(x => x.CurrentStateStartedAt), "pausedAt:desc" => query.OrderByDescending(x => x.CurrentStateStartedAt),
             "updatedAt:asc" => query.OrderBy(x => x.UpdatedAt), "updatedAt:desc" => query.OrderByDescending(x => x.UpdatedAt),
-            "station" => query.OrderBy(x => x.Status == TrackingStatus.InProgress ? 0 : x.Status == TrackingStatus.PendingInspection ? 1 : x.Status == TrackingStatus.Paused ? 2 : x.Status == TrackingStatus.OnHold ? 3 : 4)
+            "station" => query.OrderBy(x => x.Status == TrackingStatus.InProgress ? 0 :  x.Status == TrackingStatus.Paused ? 2 : x.Status == TrackingStatus.OnHold ? 3 : 4)
                 .ThenBy(x => x.DueAt == null).ThenBy(x => x.DueAt),
             "createdAt:asc" => query.OrderBy(x => x.CreatedAt), _ => query.OrderByDescending(x => x.CreatedAt)
         };
@@ -99,9 +98,9 @@ internal static class SequflohTrackingQuery
             var (active, paused, hold) = SequflohTrackingService.Durations(x, now);
             items.Add(new
             {
-                x.Id, x.Number, x.Type, x.Status, x.Result, x.ApprovalStatus, x.Priority, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle,
+                x.Id, x.Number, x.Type, x.Status, x.Result, x.Priority, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle,
                 x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber, x.WorkOrder, x.RepairOrder, x.Operation, x.PlannedStart, x.DueAt, x.ActualStart, x.ActualCompletion, x.CreatedAt, x.UpdatedAt,
-                x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes, x.VarianceReason, x.StateVersion, x.AssignedUserId, x.PauseReason, x.HoldReason, x.FailureReason, x.RejectionReason, x.CancelReason,
+                x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes, x.VarianceReason, x.StateVersion, x.AssignedUserId, x.PauseReason, x.HoldReason, x.FailureReason, x.CancelReason,
                 PausedAt = x.Status == TrackingStatus.Paused ? x.CurrentStateStartedAt : null, HeldAt = x.Status == TrackingStatus.OnHold ? x.CurrentStateStartedAt : null,
                 Owner = U(x.OwnerId), AssignedUser = U(x.AssignedUserId), CompletedBy = U(x.CompletedById), ActiveOperator = U(x.ActiveOperatorId),
                 Department = x.DepartmentId is { } d && depts.TryGetValue(d, out var dn) ? dn : null, Site = sites.TryGetValue(x.SiteId, out var sc) ? sc : null,

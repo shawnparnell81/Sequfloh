@@ -26,7 +26,8 @@ export async function api<T = unknown>(method: string, url: string, body?: unkno
     const p = await r.json().catch(() => ({}));
     throw new ApiError(r.status, p.title ?? `Request failed (${r.status})`, p.errors, p.code, p);
   }
-  if (method !== 'GET') window.dispatchEvent(new Event('sqf:saved'));
+  // bookkeeping such as the recent-items list is not a save of the user's work
+  if (method !== 'GET' && !/\/my-items(\/|$)/.test(url)) window.dispatchEvent(new Event('sqf:saved'));
   if (r.status === 204) return undefined as T;
   const text = await r.text();
   return (text ? JSON.parse(text) : undefined) as T;

@@ -5,7 +5,7 @@ using Sequfloh.Application.Security;
 
 namespace Sequfloh.Api.Auth;
 
-/// <summary>Use [RequirePermission("ncr.edit")] on endpoints. Checked on the server against the database on every request.</summary>
+/// <summary>Use [RequirePermission("parts.edit")] on endpoints. Checked on the server against the database on every request.</summary>
 public sealed class RequirePermissionAttribute(string permission) : AuthorizeAttribute(PermissionPolicyProvider.Prefix + permission);
 
 public sealed record PermissionRequirement(string Permission) : IAuthorizationRequirement;

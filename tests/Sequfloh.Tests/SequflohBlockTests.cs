@@ -15,7 +15,7 @@ public sealed class SequflohBlockTests(TestApp app)
 
     static object Save(JsonElement wi, Guid site, object[] blocks) => new
     {
-        title = wi.GetProperty("instruction").Str("title"), siteId = site, departmentId = (Guid?)null, ownerId = (Guid?)null, reviewerId = (Guid?)null, approverId = (Guid?)null, partId = (Guid?)null,
+        title = wi.GetProperty("instruction").Str("title"), siteId = site, departmentId = (Guid?)null, ownerId = (Guid?)null, partId = (Guid?)null,
         content = new { }, steps = Array.Empty<object>(), characteristics = Array.Empty<object>(), partsRows = Array.Empty<object>(), blocks
     };
 
@@ -27,7 +27,7 @@ public sealed class SequflohBlockTests(TestApp app)
         new { kind = "image", caption = "Cover bolt pattern", alt = "Four bolts numbered 1 to 4" },
         new { kind = "table", title = "Torque", columns = new[] { "Bolt", "Torque (N m)" }, rows = new[] { new[] { "1-4", "25" } } },
         new { kind = "step", operation = "20", title = "Fit the new seal" },
-        new { kind = "check", label = "Leak test passed at 6 bar", check = "signoff", signer = "Inspector", required = true },
+        new { kind = "check", label = "Leak test passed at 6 bar", check = "check", signer = "Inspector", required = true },
     ];
 
     [Fact]

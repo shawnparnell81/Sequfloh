@@ -7,8 +7,8 @@ using Sequfloh.Domain.Execution;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 /// <summary>
-/// SEQUFLOH notifications on the shared notification service: assigned work, pending review and approval, requested changes,
-/// failed and rejected records, released and superseded instructions. Each kind can be turned off in the SEQUFLOH notification settings, and a person
+/// SEQUFLOH notifications on the shared notification service: assigned work, failed records,
+/// released and superseded instructions. Each kind can be turned off in the SEQUFLOH notification settings, and a person
 /// is notified only while they still have SEQUFLOH access to the record's site and department. Overdue and approaching-due reminders come from the daily
 /// reminder job.
 /// </summary>
@@ -18,7 +18,7 @@ public sealed class SequflohNotifications(INotifier notifier, IAccessService acc
     public const string TrackingType = SequflohTrackingService.EntityType;
 
     public static RecordInfo Info(SequflohWorkInstruction x) => new(WiType, x.Id, x.SiteId, x.DepartmentId, $"{x.Number} rev {x.Revision}", x.Title, x.Status.ToString(),
-        Permissions.SequflohAccess, Permissions.SequflohEditDraftWorkInstruction, $"/sequfloh/instruction/{x.Id}", x.Status is not (WorkInstructionStatus.Draft or WorkInstructionStatus.InDevelopment or WorkInstructionStatus.ChangesRequested));
+        Permissions.SequflohAccess, Permissions.SequflohEditDraftWorkInstruction, $"/sequfloh/instruction/{x.Id}", x.Status is not WorkInstructionStatus.Draft);
     public static RecordInfo Info(SequflohTrackingRecord x) => new(TrackingType, x.Id, x.SiteId, x.DepartmentId, x.Number, $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision} {x.WorkInstructionTitle}".Trim(),
         x.Status.ToString(), Permissions.SequflohAccess, Permissions.SequflohAccess, $"/sequfloh/record/{x.Id}", x.Status is TrackingStatus.Completed or TrackingStatus.Canceled);
 
@@ -39,20 +39,8 @@ public sealed class SequflohNotifications(INotifier notifier, IAccessService acc
         var label = $"{x.Number} rev {x.Revision}";
         switch (action)
         {
-            case "submit-review" when n.PendingReview:
-                await SendAsync(x.ReviewerId is { } rv ? [rv] : (await HoldersAsync(Permissions.SequflohReviewWorkInstruction, x.SiteId, x.DepartmentId, ct)).Cast<Guid?>(), $"Work instruction {label} is waiting for your review: {x.Title}", info, ct);
-                break;
-            case "submit-approval" when n.PendingApproval:
-                await SendAsync(x.ApproverId is { } ap ? [ap] : (await HoldersAsync(Permissions.SequflohApproveWorkInstruction, x.SiteId, x.DepartmentId, ct)).Cast<Guid?>(), $"Work instruction {label} is waiting for your approval: {x.Title}", info, ct);
-                break;
-            case "return" or "request-changes" when n.ChangesRequested:
-                await SendAsync([x.AuthorId, x.OwnerId, x.AssignedEngineerId], $"Changes were requested on work instruction {label}: {x.Title}", info, ct);
-                break;
-            case "reject" when n.RejectedRecords:
-                await SendAsync([x.AuthorId, x.OwnerId], $"Work instruction {label} was rejected: {x.Title}", info, ct);
-                break;
             case "release" when n.ReleasedInstructions:
-                await SendAsync([x.AuthorId, x.OwnerId, x.ReviewerId, x.ApproverId, x.AssignedEngineerId], $"Work instruction {label} was released: {x.Title}", info, ct);
+                await SendAsync([x.AuthorId, x.OwnerId, x.AssignedEngineerId], $"Work instruction {label} was released: {x.Title}", info, ct);
                 break;
         }
         if (n.SupersededInstructions)
@@ -66,14 +54,7 @@ public sealed class SequflohNotifications(INotifier notifier, IAccessService acc
         var info = Info(x);
         if (n.AssignedWork && x.AssignedUserId is { } a && a != assignedBefore)
             await SendAsync([a], $"{x.Number} was assigned to you ({x.WorkInstructionNumber} rev {x.WorkInstructionRevision}{(x.Operation is null ? "" : ", " + x.Operation)})", info, ct);
-        if (n.PendingReview && x.Status == TrackingStatus.PendingReview && action != "approve")
-        {
-            var perm = x.QualityReviewRequired && x.QualityReviewedAt is null ? Permissions.SequflohEditQualityFolder : Permissions.SequflohEditEngineeringFolder;
-            await SendAsync((await HoldersAsync(perm, x.SiteId, x.DepartmentId, ct)).Cast<Guid?>(), $"{x.Number} is waiting for review", info, ct);
-        }
         if (n.FailedRecords && x.Status == TrackingStatus.Failed)
             await SendAsync([x.OwnerId, x.AssignedUserId, .. (await HoldersAsync(Permissions.SequflohEditQualityFolder, x.SiteId, x.DepartmentId, ct)).Cast<Guid?>()], $"{x.Number} failed and needs attention", info, ct);
-        if (n.RejectedRecords && x.Status == TrackingStatus.Rejected)
-            await SendAsync([x.OwnerId, x.AssignedUserId], $"{x.Number} was rejected", info, ct);
     }
 }

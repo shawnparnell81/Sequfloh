@@ -5,11 +5,11 @@ namespace Sequfloh.Domain.Execution;
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum PartsListType { Standard = 0, RepairKit = 1, AssemblyBom = 2, RepairParts = 3, Custom = 4 }
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
-public enum PartsListStatus { Draft = 0, Approved = 1, Inactive = 2 }
+public enum PartsListStatus { Draft = 0, Released = 1, Inactive = 2 }
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum TraceabilityRequirement { None = 0, Lot = 1, Serial = 2, LotAndSerial = 3 }
 
-/// <summary>Controlled parts list (standard list, repair kit, assembly BOM, repair parts, custom). An approved list is changed only through a new revision.</summary>
+/// <summary>Controlled parts list (standard list, repair kit, assembly BOM, repair parts, custom). A released list is changed only through a new revision.</summary>
 public class SequflohPartsList : Entity, IAudited
 {
     public string Number { get; set; } = "";
@@ -19,8 +19,8 @@ public class SequflohPartsList : Entity, IAudited
     public PartsListStatus Status { get; set; }
     public string? Description { get; set; }
     public PartsListType ListType { get; set; }
-    public Guid? ApprovedById { get; set; }
-    public DateTimeOffset? ApprovedAt { get; set; }
+    public Guid? ReleasedById { get; set; }
+    public DateTimeOffset? ReleasedAt { get; set; }
     public List<SequflohPartsListItem> Items { get; set; } = [];
     public string AuditLabel => $"parts list {Number} rev {Revision}";
 }
