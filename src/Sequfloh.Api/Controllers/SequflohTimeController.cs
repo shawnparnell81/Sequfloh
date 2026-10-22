@@ -17,6 +17,8 @@ public sealed class SequflohTimeController(SequflohTimeService time, SequflohTra
 
     [HttpGet("time")] public Task<object> Time(Guid id, CancellationToken ct) => time.SummaryAsync(id, ct);
     [HttpPost("time/start")] public async Task<object> Start(Guid id, CancellationToken ct) { await time.StartAsync(id, ct); return await time.SummaryAsync(id, ct); }
+    [HttpPost("time/pause")] public async Task<object> Pause(Guid id, CancellationToken ct) { await time.PauseAsync(id, ct); return await time.SummaryAsync(id, ct); }
+    [HttpPost("time/resume")] public async Task<object> Resume(Guid id, CancellationToken ct) { await time.ResumeAsync(id, ct); return await time.SummaryAsync(id, ct); }
     [HttpPost("time/stop")] public async Task<object> Stop(Guid id, CancellationToken ct) { await time.StopAsync(id, ct); return await time.SummaryAsync(id, ct); }
 
     [HttpGet("assignees")]

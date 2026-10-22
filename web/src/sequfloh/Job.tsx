@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+import { Alert, Box, Button, Checkbox, Chip, FormControlLabel, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Tooltip, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { fmtDateTime } from '../components/Status';
+import type { CostLine, Findings } from './Findings';
 import { ErrorState, Loading, Mono, S, SqfPage, useOptions } from './common';
 
 // ------------------------------------------------------------------ Official status in NetSuite
@@ -68,8 +69,8 @@ export function downloadCsv(name: string, head: string[], rows: (string | number
 }
 
 // ------------------------------------------------------------------ Job panel
-interface PartLine { partNumber: string; description?: string | null; perAssembly: number; quantity?: number | null; total?: number }
-interface TestFile { id: string; fileName: string; batch?: string; testDate?: string; uploadedByName: string; uploadedAt: string; tested?: number; passed?: number; failed?: number }
+interface PartLine { partNumber: string; description?: string | null; perAssembly: number; quantity?: number | null; unitCost?: number | null; total?: number }
+interface TestFile { id: string; kind?: string; fileName: string; batch?: string; testDate?: string; uploadedByName: string; uploadedAt: string; tested?: number; passed?: number; failed?: number }
 interface ColumnMap { resultColumn?: string | null; passValues?: string[] | null; valueColumns?: string[] | null; batchColumn?: string | null; dateColumn?: string | null }
 interface JobData { quantityTarget?: number | null; quantityCompleted: number; quantityNotRepaired: number; parts: PartLine[]; columns: ColumnMap; files: TestFile[];
   tests: { tested: number; passed: number; failed: number } }
@@ -88,6 +89,7 @@ export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
   if (q.error) return <ErrorState error={q.error} retry={q.refetch} />;
   const j = q.data!;
   const lines = parts ?? j.parts;
+  const tests = j.files.filter((f) => (f.kind ?? 'test') === 'test');
   const n = (s: string) => (s.trim() === '' ? null : Number(s));
   return <Stack gap={2}>
     {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
@@ -111,16 +113,17 @@ export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="subtitle1">Parts replaced</Typography>
         {canWork && !parts && <Button onClick={() => setParts(j.parts.map((p) => ({ ...p })))}>Edit parts</Button>}</Stack>
-      <Table size="small"><TableHead><TableRow><TableCell>Part number</TableCell><TableCell>Description</TableCell><TableCell>Per assembly</TableCell><TableCell>Quantity (blank = auto)</TableCell>{parts && <TableCell />}</TableRow></TableHead>
-        <TableBody>{lines.length === 0 && <TableRow><TableCell colSpan={5}>No parts recorded yet.</TableCell></TableRow>}
+      <Table size="small"><TableHead><TableRow><TableCell>Part number</TableCell><TableCell>Description</TableCell><TableCell>Per assembly</TableCell><TableCell>Quantity (blank = auto)</TableCell><TableCell>Unit cost (optional)</TableCell>{parts && <TableCell />}</TableRow></TableHead>
+        <TableBody>{lines.length === 0 && <TableRow><TableCell colSpan={6}>No parts recorded yet.</TableCell></TableRow>}
           {lines.map((p, i) => parts ? <TableRow key={i}>
             <TableCell><TextField size="small" value={p.partNumber} onChange={(e) => setParts(lines.map((x, k) => k === i ? { ...x, partNumber: e.target.value } : x))} inputProps={{ 'aria-label': 'Part number' }} /></TableCell>
             <TableCell><TextField size="small" value={p.description ?? ''} onChange={(e) => setParts(lines.map((x, k) => k === i ? { ...x, description: e.target.value } : x))} inputProps={{ 'aria-label': 'Description' }} /></TableCell>
             <TableCell><TextField size="small" type="number" value={p.perAssembly} onChange={(e) => setParts(lines.map((x, k) => k === i ? { ...x, perAssembly: Number(e.target.value) } : x))} sx={{ width: 100 }} inputProps={{ 'aria-label': 'Per assembly' }} /></TableCell>
             <TableCell><TextField size="small" type="number" value={p.quantity ?? ''} placeholder={String(p.perAssembly * j.quantityCompleted)} onChange={(e) => setParts(lines.map((x, k) => k === i ? { ...x, quantity: n(e.target.value) } : x))} sx={{ width: 130 }} inputProps={{ 'aria-label': 'Quantity override' }} /></TableCell>
+            <TableCell><TextField size="small" type="number" value={p.unitCost ?? ''} onChange={(e) => setParts(lines.map((x, k) => k === i ? { ...x, unitCost: n(e.target.value) } : x))} sx={{ width: 110 }} inputProps={{ 'aria-label': 'Unit cost' }} /></TableCell>
             <TableCell><IconButton aria-label="Remove part" onClick={() => setParts(lines.filter((_, k) => k !== i))}><DeleteOutline /></IconButton></TableCell>
           </TableRow> : <TableRow key={i}><TableCell><Mono>{p.partNumber}</Mono></TableCell><TableCell>{p.description ?? '—'}</TableCell><TableCell>{p.perAssembly}</TableCell>
-            <TableCell>{p.total}{p.quantity != null ? ' (entered)' : ''}</TableCell></TableRow>)}</TableBody></Table>
+            <TableCell>{p.total}{p.quantity != null ? ' (entered)' : ''}</TableCell><TableCell>{p.unitCost != null ? p.unitCost.toFixed(2) : '—'}</TableCell></TableRow>)}</TableBody></Table>
       {parts && <Stack direction="row" gap={1} sx={{ mt: 1 }}>
         <Button onClick={() => setParts([...lines, { partNumber: '', perAssembly: 1 }])}>Add part</Button><Box flex={1} />
         <Button onClick={() => setParts(null)}>Cancel</Button>
@@ -143,8 +146,8 @@ export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
         }} /></Button>
       </Stack>}
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>CSV or Excel exports are read for pass/fail counts; PDF and text files are attached as they are. The column choice is remembered for this job.</Typography>
-      {j.files.length > 0 && <Table size="small"><TableHead><TableRow><TableCell>File</TableCell><TableCell>Batch</TableCell><TableCell>Test date</TableCell><TableCell>Tested</TableCell><TableCell>Passed</TableCell><TableCell>Failed</TableCell><TableCell>Uploaded</TableCell><TableCell /></TableRow></TableHead>
-        <TableBody>{j.files.map((f) => <TableRow key={f.id}>
+      {tests.length > 0 && <Table size="small"><TableHead><TableRow><TableCell>File</TableCell><TableCell>Batch</TableCell><TableCell>Test date</TableCell><TableCell>Tested</TableCell><TableCell>Passed</TableCell><TableCell>Failed</TableCell><TableCell>Uploaded</TableCell><TableCell /></TableRow></TableHead>
+        <TableBody>{tests.map((f) => <TableRow key={f.id}>
           <TableCell><a href={`${S}/tracking/job/test-files/${f.id}`}>{f.fileName}</a></TableCell><TableCell>{f.batch ?? '—'}</TableCell><TableCell>{f.testDate ?? '—'}</TableCell>
           <TableCell>{f.tested ?? '—'}</TableCell><TableCell>{f.passed ?? '—'}</TableCell><TableCell>{f.failed ?? '—'}</TableCell><TableCell>{`${f.uploadedByName} · ${fmtDateTime(f.uploadedAt)}`}</TableCell>
           <TableCell sx={{ whiteSpace: 'nowrap' }}>{canWork && f.tested != null && <Button size="small" onClick={() => setMapFile(f.id)}>Columns</Button>}
@@ -184,43 +187,85 @@ function ColumnsDialog({ id, fileId, onClose, onSaved }: { id: string; fileId: s
 }
 
 // ------------------------------------------------------------------ report page
+interface Opts { perTech: boolean; timeLog: boolean; findings: boolean; tests: boolean; attachments: boolean; photos: boolean; cost: boolean }
+interface Att { id: string; fileName: string; uploadedByName: string; uploadedAt: string }
 interface Report { id: string; number: string; type: string; status: string; title: string; partNumber?: string; partDescription?: string; workOrder?: string;
-  quantityTarget?: number; quantityCompleted: number; quantityNotRepaired: number; people: { name: string; seconds: number }[]; totalSeconds: number;
-  parts: { partNumber: string; description?: string; perAssembly: number; quantity: number }[]; partsTotal: number;
-  files: { fileName: string; batch?: string; testDate?: string; tested?: number; passed?: number; failed?: number }[]; tested: number; passed: number; failed: number; generatedAt: string }
+  quantityTarget?: number; quantityCompleted: number; quantityNotRepaired: number; people: { name: string; seconds: number; pausedSeconds: number; sessions: number }[]; totalSeconds: number;
+  pausedSeconds: number; parts: { partNumber: string; description?: string; perAssembly: number; quantity: number; overridden: boolean; unitCost?: number | null }[]; partsTotal: number;
+  files: { fileName: string; batch?: string; testDate?: string; tested?: number; passed?: number; failed?: number }[]; tested: number; passed: number; failed: number; generatedAt: string;
+  timeLog: { name: string; kind: string; at: string }[]; findings: Findings; costLines: CostLine[]; options: Opts; attachments: Att[]; photos: Att[];
+  workInstructionNumber: string; workInstructionRevision: string; partsCost: number; otherCost: number }
 
 const hrs = (s: number) => (s / 3600).toFixed(2);
 const money = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const SECTIONS: [keyof Opts, string][] = [['perTech', 'Per-technician summary'], ['timeLog', 'Detailed time log'], ['findings', 'Findings'], ['tests', 'Test results'],
+  ['attachments', 'Attachments'], ['photos', 'Photos / evidence'], ['cost', 'Cost breakdown']];
+const NONE: Opts = { perTech: false, timeLog: false, findings: false, tests: false, attachments: false, photos: false, cost: false };
+const ALL: Opts = { perTech: true, timeLog: true, findings: true, tests: true, attachments: true, photos: true, cost: true };
 
 export function JobReportPage() {
   const { id } = useParams();
   const q = useQuery({ queryKey: ['sqf-job-report', id], queryFn: () => get<Report>(`${S}/tracking/${id}/job/report`) });
   const [supplier, setSupplier] = useState(''); const [reference, setReference] = useState(''); const [rate, setRate] = useState('');
+  const [opts, setOpts] = useState<Opts | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const r = q.data;
+  const o = opts ?? r?.options ?? NONE;
+  const choose = async (next: Opts) => {
+    setOpts(next); setErr(null);
+    try { await put(`${S}/tracking/${id}/job/report-options`, next); } catch (e) { setErr((e as Error).message); }
+  };
   const rateN = rate.trim() && !Number.isNaN(Number(rate)) ? Number(rate) : null;
   const pdf = `${S}/tracking/${id}/job/report/pdf?${new URLSearchParams({ ...(supplier && { supplier }), ...(reference && { reference }), ...(rateN != null && { rate: String(rateN) }) })}`;
-  const blank = (v: string) => v || '________________';
+  const blank = (v: string | null | undefined) => v || '________________';
+  const fd = r?.findings ?? {};
+  const hasFindings = Object.values(fd).some((v) => v != null && v !== '');
+  const labour = r && rateN != null ? Math.round(rateN * r.totalSeconds / 36) / 100 : null;
+  const total = r ? (labour ?? 0) + r.partsCost + r.otherCost : 0;
+  const opt = (pairs: [string, unknown][]) => pairs.filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)] as [string, string]);
   return <SqfPage title={r ? `Job report · ${r.number}` : 'Job report'} crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work orders', to: '/sequfloh/tracking' }, { label: r?.number ?? '…', to: `/sequfloh/record/${id}` }, { label: 'Job report' }]}
     actions={<Stack direction="row" gap={1} className="no-print"><Button component={RouterLink} to={`/sequfloh/record/${id}`}>Back</Button>
       <Button variant="outlined" onClick={() => window.print()}>Print</Button><Button variant="contained" href={pdf}>Download PDF</Button></Stack>}>
     <style>{'@media print { .no-print, header, nav, .MuiDrawer-root, .MuiAppBar-root { display: none !important; } .job-report { border: none !important; } }'}</style>
     <Paper variant="outlined" className="no-print" sx={{ p: 2, mb: 2 }}><Stack direction="row" gap={1} flexWrap="wrap">
-      <TextField size="small" label="Supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
-      <TextField size="small" label="Chargeback reference" value={reference} onChange={(e) => setReference(e.target.value)} />
+      <TextField size="small" label="Supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder={fd.supplier ?? undefined} />
+      <TextField size="small" label="Chargeback reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder={fd.purchaseOrder ?? undefined} />
       <TextField size="small" label="Rate per hour (optional)" type="number" value={rate} onChange={(e) => setRate(e.target.value)} />
-    </Stack><Typography variant="caption" color="text.secondary">These are used for this printout only and are not saved. Without a rate, cost lines stay blank.</Typography></Paper>
+    </Stack><Typography variant="caption" color="text.secondary">These are used for this printout only and are not saved. Without a rate, labor cost stays blank.</Typography>
+      <Typography variant="subtitle2" sx={{ mt: 2 }}>Include in the report</Typography>
+      <Stack direction="row" flexWrap="wrap" alignItems="center" data-testid="report-options">
+        {SECTIONS.map(([k, l]) => <FormControlLabel key={k} label={l} control={<Checkbox size="small" checked={o[k]} onChange={(e) => choose({ ...o, [k]: e.target.checked })} inputProps={{ 'aria-label': l }} />} />)}
+        <Button size="small" variant="outlined" data-testid="full-detail" onClick={() => choose(ALL)}>Full detail</Button>
+        <Button size="small" sx={{ ml: 1 }} data-testid="summary-only" onClick={() => choose(NONE)}>Summary only</Button>
+      </Stack>
+      <Typography variant="caption" color="text.secondary">Your choice is remembered for this work order. Sections with nothing in them are left out.</Typography>
+      {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}</Paper>
     {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : r && <Paper variant="outlined" className="job-report" sx={{ p: 3 }} data-testid="job-report">
       <Typography variant="h5" sx={{ color: '#1257C4' }}>Chargeback job report</Typography>
       <Typography variant="body2" color="text.secondary" gutterBottom>Generated {fmtDateTime(r.generatedAt)}</Typography>
-      <Sec title="Chargeback"><Rows rows={[['Supplier', blank(supplier)], ['Reference', blank(reference)]]} /></Sec>
-      <Sec title="Job"><Rows rows={[['Work order', r.workOrder ?? r.number], ['Record', r.number], ['Work instruction', r.title], ['Assembly', [r.partNumber, r.partDescription].filter(Boolean).join(' · ') || '—'],
-        ['Status', r.status], ['Completed / repaired', String(r.quantityCompleted)], ...(r.quantityNotRepaired ? [['Could not repair', String(r.quantityNotRepaired)] as [string, string]] : []),
-        ...(r.quantityTarget != null ? [['Target', String(r.quantityTarget)] as [string, string]] : [])]} /></Sec>
-      <Sec title="Man hours"><Grid2 head={['Person', 'Hours']} rows={[...r.people.map((p) => [p.name, hrs(p.seconds)]), ['Total', hrs(r.totalSeconds)]]} /></Sec>
-      <Sec title="Parts replaced"><Grid2 head={['Part number', 'Description', 'Per assembly', 'Quantity']} rows={[...r.parts.map((p) => [p.partNumber, p.description ?? '', String(p.perAssembly), String(p.quantity)]), ['Total', '', '', String(r.partsTotal)]]} /></Sec>
-      <Sec title="Cost"><Rows rows={[['Total hours', hrs(r.totalSeconds)], ['Rate per hour', rateN != null ? money(rateN) : '____'], ['Labour cost', rateN != null ? money(rateN * r.totalSeconds / 3600) : '____']]} /></Sec>
-      <Sec title="Test results summary">{r.files.length === 0 ? <Typography variant="body2">No test results attached.</Typography>
-        : <Grid2 head={['File', 'Batch', 'Test date', 'Tested', 'Passed', 'Failed']} rows={[...r.files.map((f) => [f.fileName, f.batch ?? '', f.testDate ?? '', f.tested ?? '', f.passed ?? '', f.failed ?? ''].map(String)), ['Total', '', '', String(r.tested), String(r.passed), String(r.failed)]]} />}</Sec>
+      <Sec title="Chargeback"><Rows rows={[['Supplier', blank(supplier || fd.supplier)], ['Reference / PO', blank(reference || fd.purchaseOrder)]]} /></Sec>
+      <Sec title="Job"><Rows rows={[['Work order', r.workOrder ?? r.number], ['Record', r.number], ['Work instruction', `${r.workInstructionNumber} rev ${r.workInstructionRevision} ${r.title}`],
+        ['Assembly', [r.partNumber, r.partDescription].filter(Boolean).join(' · ') || '—'], ['Status', r.status], ['Completed / repaired', String(r.quantityCompleted)],
+        ...opt([['Could not repair', r.quantityNotRepaired || null], ['Target', r.quantityTarget]]), ['Total man hours', `${hrs(r.totalSeconds)} (paused time excluded)`]]} /></Sec>
+      {r.parts.length > 0 && <Sec title="Parts replaced"><Grid2 head={['Part number', 'Description', 'Per assembly', 'Quantity']} rows={[...r.parts.map((p) => [p.partNumber, p.description ?? '', String(p.perAssembly), String(p.quantity)]), ['Total', '', '', String(r.partsTotal)]]} /></Sec>}
+      {o.findings && hasFindings && <Sec title="Findings / nonconformance"><Rows rows={opt([['Discovery method', fd.discoveryMethod], ['Date discovered', fd.dateDiscovered], ['Discovered by', fd.discoveredBy],
+        ['Site', fd.site], ['Supplier', fd.supplier], ['Supplier part #', fd.supplierPartNumber], ['Lot / date codes', fd.lotDateCodes], ['PO', fd.purchaseOrder], ['Qty inspected', fd.qtyInspected],
+        ['Qty nonconforming', fd.qtyNonconforming], ['Qty affected', fd.qtyAffected], ['Warranty claim #', fd.warrantyClaim], ['Alert / recall #', fd.alertRecall], ['ERP reference', fd.erpReference],
+        ['Description', fd.description], ['Repair method', fd.repairMethod], ['Work instruction used', fd.repairMethod ? `${r.workInstructionNumber} rev ${r.workInstructionRevision}` : null], ['Supplier root cause', fd.rootCause]])} /></Sec>}
+      {o.perTech && r.people.length > 0 && <Sec title="Man hours by technician"><Grid2 head={['Technician', 'Sessions', 'Worked hours', 'Paused hours (not counted)']}
+        rows={[...r.people.map((p) => [p.name, String(p.sessions), hrs(p.seconds), hrs(p.pausedSeconds)]), ['Total', String(r.people.reduce((a, p) => a + p.sessions, 0)), hrs(r.totalSeconds), hrs(r.pausedSeconds)]]} /></Sec>}
+      {o.timeLog && r.timeLog.length > 0 && <Sec title="Detailed time log"><Grid2 noTotal head={['When', 'Technician', 'Event']} rows={r.timeLog.map((e) => [fmtDateTime(e.at), e.name, e.kind])} /></Sec>}
+      {o.tests && r.files.length > 0 && <Sec title="Test results"><Grid2 head={['File', 'Batch', 'Test date', 'Tested', 'Passed', 'Failed']} rows={[...r.files.map((f) => [f.fileName, f.batch ?? '', f.testDate ?? '', f.tested ?? '', f.passed ?? '', f.failed ?? ''].map(String)), ['Total', '', '', String(r.tested), String(r.passed), String(r.failed)]]} /></Sec>}
+      {o.attachments && r.attachments.length > 0 && <Sec title="Attachments"><Grid2 noTotal head={['File', 'Added by', 'Added']} rows={r.attachments.map((a) => [a.fileName, a.uploadedByName, fmtDateTime(a.uploadedAt)])} /></Sec>}
+      {o.photos && r.photos.length > 0 && <Sec title="Photos and evidence"><Stack direction="row" gap={2} flexWrap="wrap">{r.photos.map((p) => <Box key={p.id} sx={{ width: 260 }}>
+        <Box component="img" src={`${S}/tracking/job/test-files/${p.id}`} alt={p.fileName} sx={{ width: '100%', border: '1px solid #ddd' }} />
+        <Typography variant="caption">{p.fileName} · {p.uploadedByName}</Typography></Box>)}</Stack></Sec>}
+      <Sec title="Chargeback summary">
+        {o.cost && <Grid2 noTotal head={['Item', 'Basis', 'Amount']} rows={[['Labor', `${hrs(r.totalSeconds)} h × ${rateN != null ? money(rateN) : '____'}`, labour != null ? money(labour) : '____'],
+          ...r.parts.filter((p) => p.unitCost != null).map((p) => [`Part ${p.partNumber}`, `${p.quantity} × ${money(p.unitCost!)}`, money(p.quantity * p.unitCost!)]),
+          ...r.costLines.map((c) => [c.description, '', money(c.amount)])]} />}
+        <Rows rows={[['Labor', labour != null ? money(labour) : '____ (computed when a rate is entered)'], ...opt([['Parts', r.partsCost ? money(r.partsCost) : null], ['Other costs', r.otherCost ? money(r.otherCost) : null]]),
+          ['Total chargeback', labour == null && total === 0 ? '____' : money(total) + (labour == null ? ' (labor not included: no rate entered)' : '')]]} /></Sec>
       <Sec title="Sign-off"><Rows rows={[['Prepared by', '________________'], ['Date', '________________'], ['Supplier acknowledgement', '________________']]} /></Sec>
     </Paper>}
   </SqfPage>;
@@ -231,7 +276,7 @@ function Sec({ title, children }: { title: string; children: React.ReactNode }) 
 function Rows({ rows }: { rows: [string, string][] }) {
   return <Table size="small"><TableBody>{rows.map(([k, v]) => <TableRow key={k}><TableCell sx={{ width: 220, fontWeight: 600 }}>{k}</TableCell><TableCell>{v}</TableCell></TableRow>)}</TableBody></Table>;
 }
-function Grid2({ head, rows }: { head: string[]; rows: string[][] }) {
+function Grid2({ head, rows, noTotal }: { head: string[]; rows: string[][]; noTotal?: boolean }) {
   return <Table size="small"><TableHead><TableRow>{head.map((h) => <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>)}</TableRow></TableHead>
-    <TableBody>{rows.map((r, i) => <TableRow key={i} sx={i === rows.length - 1 ? { '& td': { fontWeight: 600 } } : undefined}>{r.map((c, k) => <TableCell key={k}>{c}</TableCell>)}</TableRow>)}</TableBody></Table>;
+    <TableBody>{rows.map((r, i) => <TableRow key={i} sx={!noTotal && i === rows.length - 1 ? { '& td': { fontWeight: 600 } } : undefined}>{r.map((c, k) => <TableCell key={k}>{c}</TableCell>)}</TableRow>)}</TableBody></Table>;
 }

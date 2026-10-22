@@ -1007,6 +1007,13 @@ namespace Sequfloh.Data.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("test");
+
                     b.Property<int?>("Passed")
                         .HasColumnType("integer");
 
@@ -1063,6 +1070,18 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<Guid?>("CreatedById")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Events")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
+                    b.Property<DateTimeOffset?>("PausedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("PausedSeconds")
+                        .HasColumnType("bigint");
 
                     b.Property<uint>("RowVersion")
                         .IsConcurrencyToken()
@@ -1145,6 +1164,12 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("CompletedById")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CostLines")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1195,6 +1220,12 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("FinalDisposition")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Findings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'{}'::jsonb");
 
                     b.Property<string>("HoldReason")
                         .HasMaxLength(300)
@@ -1301,6 +1332,12 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("RepairOrder")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ReportOptions")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValueSql("'{}'::jsonb");
 
                     b.Property<string>("ReportedCondition")
                         .HasMaxLength(4000)

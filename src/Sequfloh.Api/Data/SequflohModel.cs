@@ -180,6 +180,9 @@ public partial class AppDbContext
             e.HasIndex(x => x.WorkInstructionId);
             e.Property(x => x.TestColumns).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
             e.Property(x => x.PartsReplaced).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
+            e.Property(x => x.ReportOptions).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+            e.Property(x => x.Findings).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+            e.Property(x => x.CostLines).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.HasIndex(x => x.PartId);
             e.HasOne<SequflohWorkInstruction>().WithMany().HasForeignKey(x => x.WorkInstructionId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Part>().WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
@@ -221,6 +224,7 @@ public partial class AppDbContext
             e.Property(x => x.FileName).HasMaxLength(300);
             e.Property(x => x.Batch).HasMaxLength(100);
             e.Property(x => x.KeyValues).HasColumnType("jsonb");
+            e.Property(x => x.Kind).HasMaxLength(20).HasDefaultValue("test");
             e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
         });
         b.Entity<SequflohTimeEntry>(e =>
@@ -233,6 +237,7 @@ public partial class AppDbContext
             e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            e.Property(x => x.Events).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.Property(x => x.UserName).HasMaxLength(200);
         });
         b.Entity<SequflohTaskEvent>(e =>

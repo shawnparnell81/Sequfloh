@@ -7,6 +7,8 @@ public abstract record PrintBlock;
 public sealed record PrintHeading(string Text) : PrintBlock;
 public sealed record PrintFields(IReadOnlyList<(string Label, string? Value)> Items) : PrintBlock;
 public sealed record PrintParagraph(string Text) : PrintBlock;
+/// <summary>A JPEG photo with a caption.</summary>
+public sealed record PrintImage(byte[] Jpeg, string Caption) : PrintBlock;
 public sealed record PrintTable(IReadOnlyList<(string Name, double Weight)> Columns, IReadOnlyList<string?[]> Rows, bool Wrap = true) : PrintBlock;
 
 /// <summary>Header and footer of a SEQUFLOH printed document (organization, module, title, number, revision, status, controlled-copy notice).</summary>
@@ -47,6 +49,12 @@ public static class SequflohPdfRenderer
                     foreach (var l in PdfCanvas.Wrap(x.Text, Fs, c.Inner)) { c.Need(12); pdf.Text(M, c.Y, Fs, l); c.Y += 12; }
                     c.Y += 4; break;
                 case PrintTable x: Table(c, x); break;
+                case PrintImage x:
+                    c.Need(230);
+                    pdf.Jpeg(M, c.Y, c.Inner * 0.6, 200, x.Jpeg);
+                    var (iw, ih) = PdfCanvas.JpegSize(x.Jpeg)!.Value;
+                    c.Y += Math.Min(c.Inner * 0.6 / iw, 200.0 / ih) * ih + 4;
+                    pdf.TextFit(M, c.Y, 8, c.Inner, x.Caption); c.Y += 16; break;
             }
         // footers with the final page count
         for (var i = 0; i < pdf.PageCount; i++)

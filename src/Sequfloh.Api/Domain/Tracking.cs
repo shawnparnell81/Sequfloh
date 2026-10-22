@@ -42,6 +42,12 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string PartsReplaced { get; set; } = "[]";
     /// <summary>How the columns of this job's tester result files are read (JSON), remembered once set.</summary>
     public string TestColumns { get; set; } = "{}";
+    /// <summary>Report sections to include (JSON object of section name to true/false). Empty means the summary only.</summary>
+    public string ReportOptions { get; set; } = "{}";
+    /// <summary>Findings / nonconformance for a supplier chargeback (JSON object; every field optional).</summary>
+    public string Findings { get; set; } = "{}";
+    /// <summary>Other chargeback cost lines (JSON array of description and amount).</summary>
+    public string CostLines { get; set; } = "[]";
     public string? LotNumber { get; set; }
     public string? WorkOrder { get; set; }
     public string? RepairOrder { get; set; }
@@ -141,7 +147,12 @@ public class SequflohTimeEntry : Entity, IAudited
     public string UserName { get; set; } = "";
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? StoppedAt { get; set; }
+    /// <summary>Worked seconds, paused time excluded.</summary>
     public long Seconds { get; set; }
+    public long PausedSeconds { get; set; }
+    public DateTimeOffset? PausedAt { get; set; }
+    /// <summary>Start, pause, resume and stop with their times (JSON array of kind and at).</summary>
+    public string Events { get; set; } = "[]";
     public string AuditLabel => $"time on {TrackingNumber} for {UserName}";
 }
 
@@ -163,5 +174,7 @@ public class SequflohTestFile : Entity, IAudited
     public int? Failed { get; set; }
     /// <summary>Key values read from the file (JSON array of column, min, average, max).</summary>
     public string KeyValues { get; set; } = "[]";
+    /// <summary>test, attachment or evidence (photos).</summary>
+    public string Kind { get; set; } = "test";
     public string AuditLabel => $"test file {FileName} on {TrackingNumber}";
 }
