@@ -46,6 +46,9 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
         return File(content, type, name);
     }
 
+    [HttpGet("{id:guid}/history"), RequirePermission(Permissions.SequflohViewImportedFiles)]
+    public Task<object> History(Guid id, CancellationToken ct) => files.HistoryAsync(id, ct);
+
     [HttpPut("{id:guid}/title"), RequirePermission(Permissions.SequflohImportFiles)]
     public async Task<IActionResult> Rename(Guid id, RenameRequest r, CancellationToken ct) { await files.RenameAsync(id, r.Title, ct); return NoContent(); }
 

@@ -116,6 +116,10 @@ public static class DocxReader
         public Dictionary<string, (string Target, bool External)> Rels = [];
         public DocModel Model = new();
         public Dictionary<XElement, int> ParaIndex = [];
+        /// <summary>List numbering set on a paragraph style (built-in list styles carry it there instead of on each paragraph).</summary>
+        public Dictionary<string, (string NumId, int Level)> StyleNumbering = [];
+        /// <summary>Borders set on a table style (such as Table Grid).</summary>
+        public Dictionary<string, XElement> TableBorders = [];
     }
 
     static XDocument Load(ZipArchive zip, string path)
@@ -192,6 +196,9 @@ public static class DocxReader
             var ppr = s.Element(W + "pPr");
             int? outline = int.TryParse((string?)ppr?.Element(W + "outlineLvl")?.Attribute(W + "val"), out var o) ? o : null;
             ctx.Styles[id] = (name, (string?)s.Element(W + "basedOn")?.Attribute(W + "val"), RunStyle(rpr, null, ctx), (string?)ppr?.Element(W + "jc")?.Attribute(W + "val"), outline);
+            if (ppr?.Element(W + "numPr") is { } snp && (string?)snp.Element(W + "numId")?.Attribute(W + "val") is { } sn && sn != "0")
+                ctx.StyleNumbering[id] = (sn, int.TryParse((string?)snp.Element(W + "ilvl")?.Attribute(W + "val"), out var sl) ? sl : 0);
+            if (s.Element(W + "tblPr")?.Element(W + "tblBorders") is { } tbb) ctx.TableBorders[id] = tbb;
         }
     }
 
@@ -349,9 +356,21 @@ public static class DocxReader
             para.ListLevel = int.TryParse((string?)np.Element(W + "ilvl")?.Attribute(W + "val"), out var il) ? il : 0;
             para.ListLabel = ListLabel(numId, para.ListLevel, ctx);
         }
+        else if (ppr?.Element(W + "numPr") is null && StyleNumbering(para.StyleId, ctx) is { } sn)
+        {
+            para.ListLevel = sn.Level;
+            para.ListLabel = ListLabel(sn.NumId, sn.Level, ctx);
+        }
         var field = new FieldState();
         Inline(p.Elements(), para, baseRun, ctx, field, null);
         return para;
+    }
+
+    static (string NumId, int Level)? StyleNumbering(string? id, Ctx ctx)
+    {
+        for (var (cur, n) = (id, 0); cur is not null && n < 10 && ctx.Styles.TryGetValue(cur, out var s); cur = s.BasedOn, n++)
+            if (ctx.StyleNumbering.TryGetValue(cur, out var x)) return x;
+        return null;
     }
 
     sealed class FieldState { public int Depth; public StringBuilder Instr = new(); public bool InResult; public XElement? FfData; public List<WSeg> Result = []; }
@@ -476,6 +495,12 @@ public static class DocxReader
         var tb = new WTable();
         foreach (var g in t.Element(W + "tblGrid")?.Elements(W + "gridCol") ?? []) tb.Grid.Add(Tw((string?)g.Attribute(W + "w")));
         var tblBorders = t.Element(W + "tblPr")?.Element(W + "tblBorders");
+        if (tblBorders is null && (string?)t.Element(W + "tblPr")?.Element(W + "tblStyle")?.Attribute(W + "val") is { } ts)
+            for (var (cur, n) = ((string?)ts, 0); cur is not null && n < 10 && tblBorders is null; n++)
+            {
+                if (ctx.TableBorders.TryGetValue(cur, out var tb2)) tblBorders = tb2;
+                cur = ctx.Styles.TryGetValue(cur, out var st) ? st.BasedOn : null;
+            }
         foreach (var tr in RowsOf(t))
         {
             var row = new WRow();

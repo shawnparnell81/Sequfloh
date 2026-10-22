@@ -342,6 +342,14 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         return (new MemoryStream(bytes), v.ContentType, name);
     }
 
+    /// <summary>Who did what and when to this file, newest first.</summary>
+    public async Task<object> HistoryAsync(Guid id, CancellationToken ct)
+    {
+        await LoadAsync(id, Permissions.SequflohViewImportedFiles, ct);
+        return await db.AuditEntries.AsNoTracking().Where(a => a.EntityId == id).OrderByDescending(a => a.OccurredAt).ThenByDescending(a => a.Id).Take(200)
+            .Select(a => new { a.OccurredAt, a.UserName, a.Action, a.Description, a.Reason }).ToListAsync(ct);
+    }
+
     public async Task RenameAsync(Guid id, string title, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);

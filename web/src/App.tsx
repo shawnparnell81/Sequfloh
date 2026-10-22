@@ -40,6 +40,8 @@ const SqfEDash = lazy(() => import('./sequfloh/Personnel').then((m) => ({ defaul
 const SqfEVal = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.EngineeringValidationPage })));
 const SqfEDev = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.DevelopmentPage })));
 const SqfReport = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ReportPage })));
+const ImportedFilesPage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilesPage })));
+const ImportedFilePage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilePage })));
 const SqfExportCenter = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ExportCenterPage })));
 const SqfAudit = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.AuditPage })));
 const SqfSearch = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.SearchPage })));
@@ -142,6 +144,8 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/sequfloh/reports/:slug" element={<SqfReport />} />
         <Route path="/sequfloh/audit/:view" element={<SqfAudit />} />
         <Route path="/sequfloh/search" element={<SqfSearch />} />
+        <Route path="/sequfloh/imported-files" element={<ImportedFilesPage />} />
+        <Route path="/sequfloh/imported-files/:id" element={<ImportedFilePage />} />
         <Route path="/sequfloh/quality" element={<SqfQDash />} />
         <Route path="/sequfloh/quality/validation" element={<SqfQVal />} />
         <Route path="/sequfloh/quality/repair" element={<SqfQRep />} />

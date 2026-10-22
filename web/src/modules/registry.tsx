@@ -12,6 +12,7 @@ import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
 import AdminPanelSettingsOutlined from '@mui/icons-material/AdminPanelSettingsOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import GroupOutlined from '@mui/icons-material/GroupOutlined';
+import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 
 /**
  * A menu entry. Top-level entries are the sections shown down the left; a section's children are its pages,
@@ -67,6 +68,11 @@ export const sequfloh: ModuleDef = {
         { label: 'Assemblies', path: '/sequfloh/parts?view=assemblies' },
         { label: 'Reusable Operation Steps', path: '/sequfloh/operation-steps' },
         { label: 'Revision History', path: '/sequfloh/revision-history' },
+      ] },
+      { label: 'Imported Files', path: '/sequfloh/imported-files', permission: 'sequfloh.view_imported_files', icon: <UploadFileOutlined fontSize="small" />, match: ['/sequfloh/imported-files'], children: [
+        { label: 'All Imported Files', path: '/sequfloh/imported-files' },
+        { label: 'Spreadsheets', path: '/sequfloh/imported-files?kind=spreadsheet' },
+        { label: 'Word Documents', path: '/sequfloh/imported-files?kind=document' },
       ] },
       { label: 'Quality', path: '/sequfloh/quality', permission: 'sequfloh.view_quality_folder', icon: <VerifiedOutlined fontSize="small" />, match: ['/sequfloh/quality'], children: [
         { label: 'Quality Dashboard', path: '/sequfloh/quality' },

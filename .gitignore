@@ -9,3 +9,5 @@ src/Sequfloh.Api/data/
 .vscode/
 .env
 TestResults/
+web/test-results/
+web/playwright-report/
