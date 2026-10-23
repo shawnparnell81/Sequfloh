@@ -5,8 +5,32 @@ using Sequfloh.Domain.Security;
 namespace Sequfloh.Drawings;
 
 [ApiController, Route("api/drawings")]
-public sealed class DrawingsController(DrawingService drawings) : ControllerBase
+public sealed class DrawingsController(DrawingService drawings, DrawingImportService imports) : ControllerBase
 {
+    // ---- bulk import: the browser uploads file bytes straight to file storage; these calls only carry names, sizes and keys ----
+
+    [HttpPost("import/plan"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public Task<object> ImportPlan(DrawingImportService.PlanRequest r, CancellationToken ct) => imports.PlanAsync(r, ct);
+
+    [HttpPost("import/folders"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public Task<Dictionary<string, Guid>> ImportFolders(DrawingImportService.FoldersRequest r, CancellationToken ct) => imports.FoldersAsync(r, ct);
+
+    [HttpPost("import/start"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public Task<object> ImportStart(DrawingImportService.StartRequest r, CancellationToken ct) => imports.StartAsync(r, ct);
+
+    /// <summary>Only used when files are kept on local disk.</summary>
+    [HttpPut("import/file"), RequirePermission(Permissions.SequflohManageDrawings), DisableRequestSizeLimit]
+    public async Task<IActionResult> ImportFile(string token, CancellationToken ct) { await imports.ReceiveAsync(token, Request.Body, ct); return NoContent(); }
+
+    [HttpPost("import/finish"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public Task<object> ImportFinish(DrawingImportService.FinishRequest r, CancellationToken ct) => imports.FinishAsync(r, ct);
+
+    [HttpPost("import/abort"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public async Task<IActionResult> ImportAbort(DrawingImportService.AbortRequest r, CancellationToken ct) { await imports.AbortAsync(r, ct); return NoContent(); }
+
+    [HttpPost("import/summary"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public async Task<IActionResult> ImportSummary(DrawingImportService.SummaryRequest r, CancellationToken ct) { await imports.SummaryAsync(r, ct); return NoContent(); }
+
     public sealed record ArchiveRequest(bool Archived = true);
     public sealed record LinksRequest(List<Guid>? Ids);
     const long Limit = DrawingService.MaxBytes + 64 * 1024;
@@ -62,6 +86,7 @@ public sealed class DrawingsController(DrawingService drawings) : ControllerBase
     [HttpGet("{id:guid}/file"), RequirePermission(Permissions.SequflohViewDrawings)]
     public async Task<IActionResult> File(Guid id, string? revision, bool view = false, CancellationToken ct = default)
     {
+        if (await drawings.DirectDownloadAsync(id, revision, ct) is { } direct) return Redirect(direct);
         var (content, type, name, viewable) = await drawings.FileAsync(id, revision, ct);
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         if (view && viewable)

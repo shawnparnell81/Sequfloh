@@ -15,7 +15,24 @@ public interface IFileStorage
     Task EnsureReadyAsync(CancellationToken ct);
     /// <summary>Removes a stored file. A file that is already gone is not an error.</summary>
     Task DeleteAsync(string key, CancellationToken ct);
+    /// <summary>The stored size and first bytes of a file, or null when it is not there.</summary>
+    Task<(long Size, byte[] Start)?> PeekAsync(string key, CancellationToken ct);
+    /// <summary>
+    /// Addresses the browser can upload to directly, so file bytes never pass through this server; null when the storage cannot hand them out
+    /// (local disk), in which case the caller uploads through the API instead.
+    /// </summary>
+    Task<DirectUpload?> BeginDirectAsync(string key, string contentType, long size, CancellationToken ct);
+    /// <summary>Joins the parts of a multipart upload into the final file.</summary>
+    Task CompleteDirectAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct);
+    /// <summary>Drops an unfinished upload and anything already stored under the key.</summary>
+    Task AbortDirectAsync(string key, string? uploadId, CancellationToken ct);
+    /// <summary>A short-lived download address for the file, or null when files are served by the API.</summary>
+    string? DownloadUrl(string key, string fileName, TimeSpan valid);
 }
+
+/// <summary>One upload: a single PUT address, or a multipart upload with one PUT address per part (each part except the last is PartSize bytes).</summary>
+public sealed record DirectUpload(string? Url, string? UploadId, long PartSize, IReadOnlyList<string> PartUrls);
+public sealed record UploadedPart(int PartNumber, string ETag);
 
 public sealed class StorageOptions
 {
@@ -57,6 +74,21 @@ public sealed class LocalFileStorage(StorageOptions o) : IFileStorage
         if (File.Exists(path)) File.Delete(path);
         return Task.CompletedTask;
     }
+
+    public async Task<(long Size, byte[] Start)?> PeekAsync(string key, CancellationToken ct)
+    {
+        var path = PathOf(key);
+        if (!File.Exists(path)) return null;
+        await using var f = File.OpenRead(path);
+        var b = new byte[Math.Min(16, f.Length)];
+        await f.ReadExactlyAsync(b, ct);
+        return (f.Length, b);
+    }
+
+    public Task<DirectUpload?> BeginDirectAsync(string key, string contentType, long size, CancellationToken ct) => Task.FromResult<DirectUpload?>(null);
+    public Task CompleteDirectAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct) => Task.CompletedTask;
+    public Task AbortDirectAsync(string key, string? uploadId, CancellationToken ct) => DeleteAsync(key, ct);
+    public string? DownloadUrl(string key, string fileName, TimeSpan valid) => null;
 
     public Task EnsureReadyAsync(CancellationToken ct) { Directory.CreateDirectory(Path.GetFullPath(o.LocalPath)); return Task.CompletedTask; }
 }
@@ -132,6 +164,69 @@ public sealed class S3FileStorage : IFileStorage
         catch (AmazonS3Exception e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
         catch (Exception e) when (Unreachable(e)) { throw Fail("delete", key, e); }
     }
+
+    /// <summary>Files up to this size go up in one PUT; larger ones in parts of this size (S3 allows up to 10,000 parts).</summary>
+    public const long PartSize = 64L * 1024 * 1024;
+    static readonly TimeSpan UploadWindow = TimeSpan.FromHours(6);
+
+    string Presign(string key, HttpVerb verb, TimeSpan valid, string? uploadId = null, int part = 0, string? contentType = null, string? download = null)
+    {
+        var r = new GetPreSignedUrlRequest { BucketName = _bucket, Key = key, Verb = verb, Expires = DateTime.UtcNow.Add(valid), Protocol = _https ? Protocol.HTTPS : Protocol.HTTP };
+        if (uploadId is not null) { r.UploadId = uploadId; r.PartNumber = part; }
+        if (contentType is not null) r.ContentType = contentType;
+        if (download is not null) r.ResponseHeaderOverrides.ContentDisposition = download;
+        return _s3.GetPreSignedURL(r);
+    }
+
+    public async Task<DirectUpload?> BeginDirectAsync(string key, string contentType, long size, CancellationToken ct)
+    {
+        if (size <= PartSize) return new DirectUpload(Presign(key, HttpVerb.PUT, UploadWindow, contentType: contentType), null, size, []);
+        try
+        {
+            var m = await _s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest { BucketName = _bucket, Key = key, ContentType = contentType }, ct);
+            var count = (int)((size + PartSize - 1) / PartSize);
+            return new DirectUpload(null, m.UploadId, PartSize, Enumerable.Range(1, count).Select(n => Presign(key, HttpVerb.PUT, UploadWindow, m.UploadId, n)).ToList());
+        }
+        catch (Exception e) when (Unreachable(e)) { throw Fail("start an upload of", key, e); }
+    }
+
+    public async Task CompleteDirectAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct)
+    {
+        try
+        {
+            await _s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest { BucketName = _bucket, Key = key, UploadId = uploadId,
+                PartETags = parts.OrderBy(p => p.PartNumber).Select(p => new PartETag(p.PartNumber, p.ETag)).ToList() }, ct);
+        }
+        catch (Exception e) when (Unreachable(e)) { throw Fail("finish the upload of", key, e); }
+    }
+
+    public async Task AbortDirectAsync(string key, string? uploadId, CancellationToken ct)
+    {
+        try
+        {
+            if (uploadId is not null) await _s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = _bucket, Key = key, UploadId = uploadId }, ct);
+            else await DeleteAsync(key, ct);
+        }
+        catch (AmazonS3Exception e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+    }
+
+    public async Task<(long Size, byte[] Start)?> PeekAsync(string key, CancellationToken ct)
+    {
+        try
+        {
+            var meta = await _s3.GetObjectMetadataAsync(_bucket, key, ct);
+            if (meta.ContentLength == 0) return (0, []);
+            using var r = await _s3.GetObjectAsync(new GetObjectRequest { BucketName = _bucket, Key = key, ByteRange = new ByteRange(0, Math.Min(16, meta.ContentLength) - 1) }, ct);
+            using var ms = new MemoryStream();
+            await r.ResponseStream.CopyToAsync(ms, ct);
+            return (meta.ContentLength, ms.ToArray());
+        }
+        catch (AmazonS3Exception e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+        catch (Exception e) when (Unreachable(e)) { throw Fail("read", key, e); }
+    }
+
+    public string? DownloadUrl(string key, string fileName, TimeSpan valid) =>
+        Presign(key, HttpVerb.GET, valid, download: new System.Net.Mime.ContentDisposition { FileName = fileName }.ToString());
 
     static bool Unreachable(Exception e) => e is AmazonServiceException or AmazonClientException or HttpRequestException or IOException;
 

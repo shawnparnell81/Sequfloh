@@ -1,5 +1,37 @@
 # Changes
 
+## Import drawings in bulk
+
+- Drawings has an "Import drawings" button inside a folder (for people who can manage drawings). Choose a folder, with all its subfolders, or several files. The folder tree is recreated inside the current folder and each file becomes a drawing titled with its file name.
+- "Revision for all" is given to every new drawing and starts as A.
+- The preview shows the number of folders (and how many are new), files, total size, PDF files, files already imported and what will be imported. Files that are not PDF but are a drawing type (DWG, DXF, STEP and so on) are listed and left out unless "Import these too" is ticked. Other files are skipped.
+- "Link to parts by matching name": a folder or file name equal to a part's OR # or SENSEN # links the folder (and the drawings in it) or the drawing to that part. The preview lists the matches.
+- Files go from the browser straight to file storage, three at a time, in 64 MB parts above 64 MB, so the server never carries the file contents. Each file is checked (size and file type) and recorded once it has arrived. A progress bar shows files and GB, and Cancel import stops it.
+- Choosing the same folder again skips files already imported to the same folder with the same name and size, so a stopped or failed import carries on where it stopped. One "Imported drawings" entry with the totals goes to the folder's History and the Audit Trail.
+- Files of up to 5 GB each can be imported. Drawings larger than 50 MB open with a short-lived link straight from file storage.
+
+### Cloudflare R2 setting needed for Import drawings
+
+Browsers upload straight to the R2 bucket, so the bucket must allow the app's address:
+
+1. In the Cloudflare dashboard open R2 Object Storage and choose the bucket named in STORAGE_BUCKET.
+2. Open Settings, find CORS Policy and choose Add CORS policy (or Edit).
+3. Paste this, with the address people use to open the app (no trailing slash), and save:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://your-app-address"],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["content-type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+ETag must be exposed: large files are uploaded in parts, and the app joins them using each part's ETag. Nothing else changes: the same storage keys are used. If the policy is missing, the import shows "The upload could not reach file storage".
+
 ## Closing the browser signs you out; sign-in starts with Home only
 
 - The sign-in cookie is now a session cookie: closing the browser signs you out. A session also still ends 12 hours after sign-in, whatever the browser does.
