@@ -15,6 +15,7 @@ import { fmtDateTime } from '../components/Status';
 import { ImportPartsDialog } from './PartsImport';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { StatusEditor, downloadCsv, useStatusFilter } from './Job';
+import { partNo } from './partLabel';
 import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, type Col, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
 const crumbs = (label: string, extra?: { label: string; to?: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts and Items', to: '/sequfloh/parts' }, { label, to: extra ? undefined : undefined }, ...(extra ? [extra] : [])];
@@ -300,7 +301,7 @@ export function PartsListsPage() {
 function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChange: (id: string, pn?: string) => void; label?: string }) {
   const parts = useQuery({ queryKey: ['sqf-part-pick'], queryFn: () => get<Paged<PartRow>>(`${S}/parts?view=active&pageSize=200`) });
   return <TextField select label={label} value={value} onChange={(e) => onChange(e.target.value, parts.data?.items.find((p) => p.id === e.target.value)?.partNumber)}>
-    <MenuItem value="">—</MenuItem>{(parts.data?.items ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{p.partNumber} · {p.name}</MenuItem>)}{setupOptions('sqfPart', parts.data?.items)}</TextField>;
+    <MenuItem value="">—</MenuItem>{(parts.data?.items ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{partNo(p)} · {p.name}</MenuItem>)}{setupOptions('sqfPart', parts.data?.items)}</TextField>;
 }
 
 interface ListDetail { list: { id: string; number: string; title: string; parentPartId?: string; revision: string; status: string; description?: string; listType: string; releasedAt?: string; releasedBy: string;

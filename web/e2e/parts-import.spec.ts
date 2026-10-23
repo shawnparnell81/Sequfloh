@@ -28,12 +28,12 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await shot('01-column-mapping');
   await dlg.getByRole('button', { name: 'Preview' }).click();
   const counts = dlg.getByTestId('import-counts');
-  await expect(counts).toContainText('Add 4'); await expect(counts).toContainText('Skip 1'); await expect(counts).toContainText('Errors 2');
-  await expect(dlg.getByText('Duplicate OR # (Part number)')).toBeVisible();
+  await expect(counts).toContainText('Add 4'); await expect(counts).toContainText('Skip 2'); await expect(counts).toContainText('Errors 1');
+  await expect(dlg.getByText(/Same OR # \(Part number\) as row/)).toBeVisible();
   await expect(dlg.getByText('Repairable must be Yes or No.')).toBeVisible();
   await shot('02-preview');
   await dlg.getByRole('button', { name: 'Import 4 parts' }).click();
-  await expect(dlg.getByTestId('import-done')).toContainText('4 added, 0 updated, 1 skipped, 2 rows with errors not imported');
+  await expect(dlg.getByTestId('import-done')).toContainText('4 added, 0 updated, 2 skipped, 1 row with errors not imported');
   await shot('03-imported');
   await dlg.getByRole('button', { name: 'Close' }).click();
 
@@ -42,10 +42,17 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await dlg.getByTestId('import-file').setInputFiles({ name: 'example-parts.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await dlg.getByRole('button', { name: 'Read file' }).click();
   await dlg.getByRole('button', { name: 'Preview' }).click();
-  await expect(counts).toContainText('Add 0'); await expect(counts).toContainText('Skip 5');
+  await expect(counts).toContainText('Add 0'); await expect(counts).toContainText('Skip 6');
   await dlg.getByLabel('Update existing').check();
   await expect(counts).toContainText('Update 4');
   await shot('04-update-existing');
+  // keeping the repeated OR # row adds it as its own part with the same number
+  await dlg.getByLabel('Skip existing').check();
+  await dlg.getByLabel('Keep rows that repeat an OR # but differ').check();
+  await dlg.getByRole('button', { name: 'Preview' }).click();
+  await expect(counts).toContainText('Add 1');
+  await expect(dlg.getByText('Add (repeat OR #, different values)')).toBeVisible();
+  await shot('04b-keep-repeats');
   await dlg.getByRole('button', { name: 'Cancel' }).click();
 
   await page.goto(`/sequfloh/parts?view=repair-parts&q=EX-${k}`);

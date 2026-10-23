@@ -10,6 +10,7 @@ import { Facts, useSites } from '../components/Kit';
 import { FilesPanel } from '../components/Files';
 import { fmtDateTime } from '../components/Status';
 import { DeleteButton, Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, words } from './common';
+import { partNo } from './partLabel';
 import { type AuditRow, HistoryTable } from './Parts';
 
 const A = `${S}/inspection-requests`;
@@ -18,7 +19,7 @@ export interface InspectionRequest {
   requirement?: string | null; workInstructionId?: string | null; workInstructionLabel?: string | null; requestedDate?: string | null; priority: string; status: string;
   requestedByName?: string | null; createdAt: string; workOrderId?: string | null; workOrderNumber?: string | null; overdue: boolean;
 }
-interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null }
+interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null ; attributes?: string | null }
 interface WiOpt { id: string; number: string; revision: string; title: string; type?: string }
 
 const prColor: Record<string, 'error' | 'warning' | 'primary' | 'default'> = { Critical: 'error', High: 'warning', Normal: 'primary', Low: 'default' };
@@ -41,7 +42,7 @@ function RequestForm({ value, onChange }: { value: Form; onChange: (v: Form) => 
         {sites.data!.map((s) => <MenuItem key={s.id} value={s.id}>{s.code} — {s.name}</MenuItem>)}</TextField>}
       <Autocomplete freeSolo options={parts.data?.items ?? []} inputValue={text}
         getOptionLabel={(o) => (typeof o === 'string' ? o : o.partNumber)}
-        renderOption={(props, o) => <li {...props} key={o.id}><Box><Mono>{o.partNumber}</Mono><Typography variant="caption" display="block" color="text.secondary">{o.name ?? o.description}</Typography></Box></li>}
+        renderOption={(props, o) => <li {...props} key={o.id}><Box><Mono>{partNo(o)}</Mono><Typography variant="caption" display="block" color="text.secondary">{o.name ?? o.description}</Typography></Box></li>}
         onInputChange={(_, v, reason) => { setText(v); if (reason === 'input') set({ partNumber: v, partId: null }); }}
         onChange={(_, o) => { if (o && typeof o !== 'string') set({ partNumber: o.partNumber, partId: o.id, partDescription: o.name ?? o.description ?? value.partDescription }); }}
         renderInput={(p) => <TextField {...p} required label="Part number" helperText="Pick from the Part Master to fill the description, or type any part number." />} />

@@ -1,5 +1,17 @@
 # Changes
 
+## Parts that share an OR #
+
+- Several parts can now have the same OR # (Part number), for example one per Position. The OR # is kept exactly as entered and nothing is added to it.
+- Import:
+  - Rows without an OR # are skipped and not counted as errors. A missing SENSEN # is fine.
+  - A row that is an exact copy of an earlier row is skipped.
+  - A row with the same OR # as another row but different values (for example another Position) is skipped unless you tick "Keep rows that repeat an OR # but differ". When ticked, it is added as its own part and the preview shows "Add (repeat OR #, different values)".
+  - Existing parts are matched by OR # and Position, or by OR # alone when only one part has it. Importing the same file again skips or updates each part and adds no copies.
+- Part pickers for work orders, instructions, repair parts, parts lists, drawings and inspection requests show the Position beside the OR #, so parts that share an OR # can be told apart.
+- An inspection request with a typed OR # is linked to a part only when one part has that number.
+- Editing a part that shares its OR # works as before. A new part, or a changed number, still can't use an OR # that is already taken.
+
 ## Product families and cross-reference numbers
 
 - Product family is now a dropdown from a new Product Families list under Parts (Setup). It starts with Complete Strut Assembly (CSA), Fuel Pump, Fuel Injector, Strut, Brake Wear Sensor, Air Strut, Gas Lift and Electric Lift. Admins can add, rename and retire families. A renamed family shows its new name on every part. A retired family stays on the parts that already have it but cannot be picked for new ones.

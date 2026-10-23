@@ -7,7 +7,7 @@ import { useSites } from '../components/Kit';
 import { S } from './common';
 
 interface ImportTable { fileName: string; headers: string[]; rows: string[][]; mapping: Record<string, number>; warnings: string[]; headerRow: number; rowNumbers?: number[]; top?: { row: number; cells: string[] }[] }
-interface PlanRow { row: number; action: 'Add' | 'Update' | 'Skip' | 'Error'; partNumber?: string; name?: string; messages: string[] }
+interface PlanRow { row: number; action: 'Add' | 'Update' | 'Skip' | 'Error'; partNumber?: string; name?: string; messages: string[]; repeat?: boolean }
 interface Plan { rows: PlanRow[]; add: number; update: number; skip: number; errors: number }
 const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'error' } as const;
 
@@ -28,8 +28,9 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [defaultType, setDefaultType] = useState('');
+  const [keepRepeats, setKeepRepeats] = useState(false);
   const site = siteId || sites.data?.[0]?.id || '';
-  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setDefaultType(''); };
+  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setDefaultType(''); setKeepRepeats(false); };
   const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(''); try { await fn(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
   const read = (headerRow?: number) => run(async () => {
     const fd = new FormData(); fd.append('file', file!);
@@ -37,7 +38,7 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
     setTable(t); setMapping(t.mapping); setPlan(null);
   });
   const body = (upd = update, map = mapping) => ({ fileName: table!.fileName, headers: table!.headers, rows: table!.rows, mapping: map, siteId: site, updateExisting: upd,
-    rowNumbers: table!.rowNumbers, defaultTypeId: defaultType || null });
+    rowNumbers: table!.rowNumbers, defaultTypeId: defaultType || null, keepRepeats });
   const preview = (upd = update, map = mapping) => run(async () => setPlan(await post<Plan>(`${S}/parts/import/preview`, body(upd, map))));
   const confirm = () => run(async () => { setDone(await post<Plan>(`${S}/parts/import`, body())); qc.invalidateQueries({ queryKey: ['sqf-parts'] }); });
   const setMap = (key: string, v: string) => { const n = { ...mapping }; if (v === '') delete n[key]; else n[key] = Number(v); setMapping(n); setPlan(null); };
@@ -47,7 +48,7 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
       <DialogTitle>Import parts</DialogTitle>
       <DialogContent>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-        {done ? <Alert severity="success" data-testid="import-done">Imported from {table?.fileName}: {done.add} added, {done.update} updated, {done.skip} skipped{done.errors ? `, ${done.errors} rows with errors not imported` : ''}.</Alert> : <>
+        {done ? <Alert severity="success" data-testid="import-done">Imported from {table?.fileName}: {done.add} added, {done.update} updated, {done.skip} skipped{done.errors ? `, ${done.errors} row${done.errors === 1 ? '' : 's'} with errors not imported` : ''}.</Alert> : <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Excel (.xlsx, .xlsm, .xls), CSV or a Word (.docx, .doc) table with a header row. The file is only read; macros never run. Serial numbers are not imported.
           </Typography>
@@ -91,6 +92,8 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
                 <FormControlLabel value="skip" control={<Radio size="small" />} label="Skip existing" />
                 <FormControlLabel value="update" control={<Radio size="small" />} label="Update existing" />
               </RadioGroup>
+              <FormControlLabel control={<Checkbox size="small" checked={keepRepeats} data-testid="keep-repeats" onChange={(e) => { setKeepRepeats(e.target.checked); setPlan(null); }} />}
+                label="Keep rows that repeat an OR # but differ" title="A row with the same OR # as another row but other values (for example another Position) is added as its own part. Exact duplicate rows are always skipped." />
               <Button variant="outlined" disabled={busy} onClick={() => preview()}>Preview</Button>
             </Stack>
           </Box>}
@@ -101,7 +104,7 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
             <TableContainer sx={{ maxHeight: 340 }}><Table size="small" stickyHeader>
               <TableHead><TableRow><TableCell>Row</TableCell><TableCell>Action</TableCell><TableCell>OR # (Part number)</TableCell><TableCell>Name</TableCell><TableCell>Notes</TableCell></TableRow></TableHead>
               <TableBody>{plan.rows.map((r) => (
-                <TableRow key={r.row}><TableCell>{r.row}</TableCell><TableCell><Chip size="small" color={actionColor[r.action]} label={r.action} /></TableCell>
+                <TableRow key={r.row}><TableCell>{r.row}</TableCell><TableCell><Chip size="small" color={actionColor[r.action]} label={r.repeat ? 'Add (repeat OR #, different values)' : r.action} /></TableCell>
                   <TableCell>{r.partNumber}</TableCell><TableCell>{r.name}</TableCell><TableCell>{r.messages.join(' ')}</TableCell></TableRow>))}
               </TableBody></Table></TableContainer>
           </Box>}

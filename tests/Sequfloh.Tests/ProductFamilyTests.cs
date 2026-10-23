@@ -196,13 +196,13 @@ public sealed class ProductFamilyTests(TestApp app)
             siteId = site, updateExisting = false, defaultTypeId = csa };
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import", req)).JsonAsync();
         Assert.Equal(3, plan.GetProperty("add").GetInt32());
-        Assert.Equal(1, plan.GetProperty("skip").GetInt32());
-        Assert.Equal(1, plan.GetProperty("errors").GetInt32());
+        Assert.Equal(2, plan.GetProperty("skip").GetInt32());
+        Assert.Equal(0, plan.GetProperty("errors").GetInt32());
         var byRow = plan.GetProperty("rows").EnumerateArray().ToDictionary(x => x.GetProperty("row").GetInt32());
-        Assert.Equal("Error", byRow[5].Str("action"));
-        Assert.Contains("OR # (Part number) is empty", byRow[5].GetProperty("messages")[0].GetString());
+        Assert.Equal("Skip", byRow[5].Str("action"));
+        Assert.Contains("No OR # (Part number)", byRow[5].GetProperty("messages")[0].GetString());
         Assert.Equal("Skip", byRow[6].Str("action"));
-        Assert.Contains("row 3 is used", byRow[6].GetProperty("messages")[0].GetString());
+        Assert.Contains("Same OR # (Part number) as row 3", byRow[6].GetProperty("messages")[0].GetString());
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

@@ -29,11 +29,49 @@ public sealed class PartsImportTests(TestApp app)
         return JsonDocument.Parse(body).RootElement;
     }
 
-    static object Request(JsonElement t, Guid site, bool update) => new
+    static object Request(JsonElement t, Guid site, bool update, bool keepRepeats = false) => new
     {
         fileName = t.GetProperty("fileName").GetString(),
-        headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = t.GetProperty("mapping"), siteId = site, updateExisting = update,
+        headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = t.GetProperty("mapping"), siteId = site, updateExisting = update, keepRepeats,
     };
+
+    [Fact]
+    public async Task Repeated_OR_numbers_with_other_values_can_be_kept_as_separate_parts_and_exact_copies_are_skipped()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var k = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var csv = $"OR #,Key Application,Position,NAPA US #\nRP-{k}-1,Example sedan,Front Left,N1\nRP-{k}-1,Example sedan,Front Left,N1\nRP-{k}-1,Example sedan,Front Right,N1\nRP-{k}-2,Example coupe,Rear,N2\n,Example van,Rear,N3\n";
+        var t = await Read(eng, "repeats.csv", Encoding.UTF8.GetBytes(csv));
+
+        var off = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false))).JsonAsync();
+        Assert.Equal(2, off.GetProperty("add").GetInt32());
+        Assert.Equal(3, off.GetProperty("skip").GetInt32());
+        var on = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false, true))).JsonAsync();
+        var rows = on.GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal(["Add", "Skip", "Add", "Add", "Skip"], rows.Select(r => r.GetProperty("action").GetString()).ToList());
+        Assert.Contains("Exact duplicate of row 1", rows[1].GetProperty("messages")[0].GetString());
+        Assert.True(rows[2].GetProperty("repeat").GetBoolean());
+        Assert.False(rows[0].GetProperty("repeat").GetBoolean());
+        Assert.Contains("No OR #", rows[4].GetProperty("messages")[0].GetString());
+        var done = await (await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, false, true))).JsonAsync();
+        Assert.Equal(3, done.GetProperty("add").GetInt32());
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var same = await db.Parts.AsNoTracking().Where(p => p.PartNumber == $"RP-{k}-1").ToListAsync();
+            Assert.Equal(2, same.Count); // the OR # is kept exactly, no suffix
+            Assert.Equal(["Front Left", "Front Right"], same.Select(p => Sequfloh.Infrastructure.Modules.Execution.PartAttributes.Read(p.Attributes)["position"]).Order().ToList());
+        }
+
+        // the same file again: each part is matched by OR # and Position
+        var again = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true, true))).JsonAsync();
+        Assert.Equal(0, again.GetProperty("add").GetInt32());
+        Assert.Equal(3, again.GetProperty("update").GetInt32());
+        var skip = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false, true))).JsonAsync();
+        Assert.Equal(0, skip.GetProperty("add").GetInt32());
+    }
 
     public static byte[] Docx(params string[][][] tables)
     {
@@ -81,10 +119,10 @@ public sealed class PartsImportTests(TestApp app)
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false))).JsonAsync();
         Assert.Equal(1, plan.GetProperty("add").GetInt32());
         Assert.Equal(0, plan.GetProperty("update").GetInt32());
-        Assert.Equal(2, plan.GetProperty("skip").GetInt32()); // existing + duplicate in file
-        Assert.Equal(2, plan.GetProperty("errors").GetInt32()); // no number, bad Yes/No
+        Assert.Equal(3, plan.GetProperty("skip").GetInt32()); // existing, repeat in file, no number
+        Assert.Equal(1, plan.GetProperty("errors").GetInt32()); // bad Yes/No
         var actions = plan.GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("action").GetString()).ToList();
-        Assert.Equal(["Skip", "Add", "Skip", "Error", "Error"], actions);
+        Assert.Equal(["Skip", "Add", "Skip", "Skip", "Error"], actions);
 
         var upd = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true))).JsonAsync();
         Assert.Equal(1, upd.GetProperty("update").GetInt32());
@@ -101,7 +139,7 @@ public sealed class PartsImportTests(TestApp app)
             Assert.Equal("Example screw M4", parts[1].Name); Assert.Equal("B", parts[1].Revision); Assert.False(parts[1].IsRepairable);
             Assert.True(await db.PartRevisions.AnyAsync(r => r.PartId == parts[1].Id && r.Revision == "B"));
             var audit = await db.AuditEntries.AsNoTracking().Where(a => a.EntityType == "PartsImport" && a.SiteId == site).SingleAsync();
-            Assert.Contains("parts.csv: 1 added, 1 updated, 1 skipped, 2 with errors", audit.Description);
+            Assert.Contains("parts.csv: 1 added, 1 updated, 2 skipped, 1 with errors", audit.Description);
         }
     }
 

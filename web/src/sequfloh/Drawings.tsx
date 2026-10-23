@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { fmtDateTime } from '../components/Status';
 import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, Paged, S, SqfPage, qs } from './common';
+import { partNo } from './partLabel';
 import { HistoryTable, SimpleTable, type AuditRow } from './Parts';
 
 const D = '/api/drawings';
@@ -82,8 +83,8 @@ export function DrawingPicker({ value, onChange, label: l = 'Link drawing(s)' }:
 /** Picks parts from Parts and Items. */
 export function PartsPicker({ value, onChange, label: l = 'Link to part number(s)' }: { value: Opt[]; onChange: (v: Opt[]) => void; label?: string }) {
   const [text, setText] = useState('');
-  const q = useQuery({ queryKey: ['drawing-part-pick', text], queryFn: () => get<Paged<{ id: string; partNumber: string; name: string }>>(`${S}/parts?${qs({ q: text, pageSize: 20 })}`) });
-  const opts = (q.data?.items ?? []).map((p) => ({ id: p.id, label: `${p.partNumber} — ${p.name}` }));
+  const q = useQuery({ queryKey: ['drawing-part-pick', text], queryFn: () => get<Paged<{ id: string; partNumber: string; name: string; attributes?: string | null }>>(`${S}/parts?${qs({ q: text, pageSize: 20 })}`) });
+  const opts = (q.data?.items ?? []).map((p) => ({ id: p.id, label: `${partNo(p)} — ${p.name}` }));
   return <Autocomplete multiple options={opts} value={value} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => o.label}
     onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label={l} placeholder="Search parts" />} />;
 }

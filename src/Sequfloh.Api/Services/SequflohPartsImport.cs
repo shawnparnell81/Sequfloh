@@ -17,8 +17,9 @@ public sealed record PartsImportTable(string FileName, List<string> Headers, Lis
     int HeaderRow = 1, List<int>? RowNumbers = null, List<PartsImportTopRow>? Top = null);
 public sealed record PartsImportTopRow(int Row, List<string> Cells);
 public sealed record PartsImportRequest(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, Guid SiteId, bool UpdateExisting,
-    List<int>? RowNumbers = null, Guid? DefaultTypeId = null);
-public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages);
+    List<int>? RowNumbers = null, Guid? DefaultTypeId = null, bool KeepRepeats = false);
+/// <summary>Repeat is true for an added row whose OR # is already used by another row or part but whose values differ.</summary>
+public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages, bool Repeat = false);
 public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Update, int Skip, int Errors);
 
 /// <summary>
@@ -191,7 +192,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         if (!await m.CanAnyAsync(Permissions.SequflohEditParts, ct) || !await m.CanAnyAsync(Permissions.MasterDataEdit, ct)) throw new ForbiddenException();
     }
 
-    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply);
+    /// <summary>Key is the row's mapped values, used to find exact duplicates; Position tells parts with the same OR # apart.</summary>
+    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null);
 
     static bool? Flag(string v) => Norm(v) switch
     {
@@ -223,7 +225,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             // without a name column the name comes from the description, then key application and position, then the part number
             var fallback = string.Join(" ", new[] { attrs.GetValueOrDefault("keyApplication"), attrs.GetValueOrDefault("position") }.Where(x => !string.IsNullOrEmpty(x)));
             var name = Text("name", "Name", 200) ?? Cut(desc) ?? Cut(fallback.Length > 0 ? fallback : null) ?? pn;
-            if (pn is null) errors.Add("OR # (Part number) is empty.");
+
             var rev = Text("revision", "Revision", 10);
             var uom = Text("unitOfMeasure", "Unit of measure", 20);
             PartType? type = null;
@@ -242,6 +244,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             string? tag = null;
             var tg = Get("statusTag");
             if (tg.Length > 0) { tag = tags.FirstOrDefault(x => string.Equals(x, tg, StringComparison.OrdinalIgnoreCase)); if (tag is null) errors.Add($"\"{tg}\" is not an official status in the list."); }
+            var key = string.Join("\u001f", r.Mapping.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => x.Key + "=" + Get(x.Key)));
             list.Add(new Parsed(r.RowNumbers?[i] ?? i + 1, pn, name, rev, errors, p =>
             {
                 // only mapped, non-empty values are written, so an update never blanks existing data
@@ -259,7 +262,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (tag is not null) p.StatusTag = tag;
                 if (typeId is not null) { p.TypeId = typeId; p.ProductFamily = partTypes.First(x => x.Id == typeId).Label; }
                 PartAttributes.Merge(p, attrs);
-            }));
+            }, key, attrs.GetValueOrDefault("position")));
         }
         return list;
     }
@@ -270,37 +273,59 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         return plan;
     }
 
-    async Task<(PartsImportPlan Plan, List<Parsed> Parsed, Dictionary<string, Part> Existing)> PlanAsync(PartsImportRequest r, CancellationToken ct)
+    /// <summary>
+    /// Rows without an OR # and exact repeats of an earlier row are skipped. A row that repeats an OR # with other values (for example another
+    /// Position) is skipped, or added as its own part when KeepRepeats is on; the OR # is never changed. An existing part is matched by OR # and
+    /// Position, or by OR # alone when only one part has it.
+    /// </summary>
+    async Task<(PartsImportPlan Plan, List<Parsed> Parsed, Dictionary<int, Part> Targets)> PlanAsync(PartsImportRequest r, CancellationToken ct)
     {
         await m.RequireAsync(Permissions.SequflohEditParts, r.SiteId, null, ct);
         await m.RequireAsync(Permissions.MasterDataEdit, r.SiteId, null, ct);
         await m.ValidateLocationAsync(r.SiteId, null, ct);
         var parsed = await ParseAsync(r, ct);
         var numbers = parsed.Where(p => p.PartNumber is not null).Select(p => p.PartNumber!).Distinct().ToList();
-        var existing = await db.Parts.Where(p => numbers.Contains(p.PartNumber)).ToDictionaryAsync(p => p.PartNumber, ct);
-        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var existing = (await db.Parts.Where(p => numbers.Contains(p.PartNumber)).ToListAsync(ct))
+            .GroupBy(p => p.PartNumber, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        var exact = new Dictionary<string, int>(StringComparer.Ordinal);
+        var firstOf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var claimed = new HashSet<Guid>();
+        var targets = new Dictionary<int, Part>();
         var rows = new List<PartsImportRow>();
+        static string Pos(Part x) => PartAttributes.Read(x.Attributes).GetValueOrDefault("position") ?? "";
         foreach (var p in parsed)
         {
+            if (p.PartNumber is null) { rows.Add(new(p.Row, "Skip", null, p.Name, ["No OR # (Part number)."])); continue; }
             if (p.Errors.Count > 0) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, p.Errors)); continue; }
-            if (seen.TryGetValue(p.PartNumber!, out var first)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Duplicate OR # (Part number); row {first} is used."])); continue; }
-            seen[p.PartNumber!] = p.Row;
-            if (existing.TryGetValue(p.PartNumber!, out var ex))
+            if (exact.TryGetValue(p.PartNumber + "\u001e" + p.Key, out var same)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Exact duplicate of row {same}."])); continue; }
+            exact[p.PartNumber + "\u001e" + p.Key] = p.Row;
+            var repeatOf = firstOf.TryGetValue(p.PartNumber, out var fr) ? fr : (int?)null;
+            firstOf.TryAdd(p.PartNumber, p.Row);
+            // an existing part with this OR #: the one with the same Position, or the only one when the file has not used the number yet
+            var candidates = existing.GetValueOrDefault(p.PartNumber)?.Where(x => !claimed.Contains(x.Id)).ToList() ?? [];
+            var match = candidates.FirstOrDefault(x => string.Equals(Pos(x), p.Position ?? "", StringComparison.OrdinalIgnoreCase))
+                ?? (repeatOf is null && existing.GetValueOrDefault(p.PartNumber)?.Count == 1 ? candidates.FirstOrDefault() : null);
+            if (match is not null)
             {
+                claimed.Add(match.Id);
                 if (!r.UpdateExisting) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, ["Already in the Part Master."]));
-                else if (!await m.CanAsync(Permissions.MasterDataEdit, ex.SiteId, ex.DepartmentId, ct) || !await m.CanAsync(Permissions.SequflohEditParts, ex.SiteId, ex.DepartmentId, ct))
+                else if (!await m.CanAsync(Permissions.MasterDataEdit, match.SiteId, match.DepartmentId, ct) || !await m.CanAsync(Permissions.SequflohEditParts, match.SiteId, match.DepartmentId, ct))
                     rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, ["You cannot edit this existing part."]));
-                else rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, []));
+                else { rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, [])); targets[p.Row] = match; }
                 continue;
             }
-            rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, []));
+            var used = repeatOf is not null || existing.ContainsKey(p.PartNumber);
+            if (!used) { rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [])); continue; }
+            var where = repeatOf is { } rr ? $"row {rr}" : "a part already in the Part Master";
+            if (!r.KeepRepeats) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Same OR # (Part number) as {where} with different values. Turn on \"Keep rows that repeat an OR # but differ\" to add it as its own part."]));
+            else rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [$"Same OR # (Part number) as {where}; added as its own part."], Repeat: true));
         }
-        return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error")), parsed, existing);
+        return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error")), parsed, targets);
     }
 
     public async Task<PartsImportPlan> ImportAsync(PartsImportRequest r, CancellationToken ct)
     {
-        var (plan, parsed, existing) = await PlanAsync(r, ct);
+        var (plan, parsed, targets) = await PlanAsync(r, ct);
         if (plan.Add + plan.Update == 0) throw new AppException("There is nothing to import.");
         var today = await m.TodayAsync(r.SiteId, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -316,7 +341,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 db.Parts.Add(part);
                 db.PartRevisions.Add(new PartRevision { PartId = part.Id, Revision = part.Revision, Reason = "Initial release (imported)", EffectiveOn = today });
             }
-            else if (row.Action == "Update") p.Apply(existing[p.PartNumber!]);
+            else if (row.Action == "Update") p.Apply(targets[row.Row]);
         }
         var file = Path.GetFileName(r.FileName);
         db.AuditEntries.Add(new AuditEntry
