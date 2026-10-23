@@ -70,13 +70,13 @@ public sealed class ImportFormatTests(TestApp app)
 
         (st, body) = await Upload(editor, "Archive.doc", Encoding.ASCII.GetBytes(Mht));
         Assert.Equal(HttpStatusCode.BadRequest, st);
-        Assert.Contains("really a web page saved with a .doc name. Open it in Word and Save As .docx.", body);
+        Assert.Contains("has no page content", body); // a web archive without a page is a clear error, not a request to re-save
 
         if (!ConverterAvailable())
         {
             (st, body) = await Upload(editor, "Example.doc", Encoding.ASCII.GetBytes(Rtf));
             Assert.Equal(HttpStatusCode.BadRequest, st);
-            Assert.Contains("really an RTF document saved with a .doc name. Open it in Word and Save As .docx.", body);
+            Assert.Contains("cannot be converted on this server", body);
             return;
         }
         foreach (var (name, bytes) in new[] { ("Example RTF.doc", Encoding.ASCII.GetBytes(Rtf)), ("Example web page.doc", Encoding.UTF8.GetBytes(Html)) })

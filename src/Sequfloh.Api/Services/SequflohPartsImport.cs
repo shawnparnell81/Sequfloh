@@ -24,7 +24,7 @@ public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Upd
 /// </summary>
 public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, SequflohFoundationService f, ILegacyOfficeConverter legacy)
 {
-    public static readonly string[] Accepted = [".xlsx", ".xlsm", ".xls", ".csv", ".docx"];
+    public static readonly string[] Accepted = [".xlsx", ".xlsm", ".xls", ".csv", ".docx", ".doc"];
     public const int MaxRows = 5000;
 
     /// <summary>Importable fields and the header words that suggest them.</summary>
@@ -74,20 +74,25 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     {
         await RequireCanImportAsync(ct);
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        if (!Accepted.Contains(ext)) throw new AppException("Choose an Excel (.xlsx, .xlsm, .xls), CSV or Word (.docx) file.");
+        if (!Accepted.Contains(ext)) throw new AppException("Choose an Excel (.xlsx, .xlsm, .xls), CSV or Word (.docx, .doc) file.");
         var ms = new MemoryStream();
         await input.CopyToAsync(ms, ct);
         ms.Position = 0;
-        if (await ImportSecurity.DetectAsync(ms, ct) is "xlsx" && ext is ".xls") ext = ".xlsx";
+        (ext, var word) = await ImportedFileService.EffectiveFormatAsync(ms, ext, ct);
         ms.Position = 0;
         if (await ImportSecurity.InspectAsync(ms, ext, ct) is { } problem) throw new AppException(problem);
         ms.Position = 0;
         var warnings = new List<string>();
+        if (ext is ".xls" or ".doc" or ".rtf" or ".html" or ".mht")
+        {
+            // older and web-page formats are read from a converted copy; the upload itself is not changed
+            ms = new MemoryStream(await ImportedFileService.ConvertLegacyAsync(legacy, ms, ext, word, ct));
+            ext = word ? ".docx" : ".xlsx";
+        }
         List<List<string>> grid = ext switch
         {
             ".csv" => ReadCsv(ms),
             ".docx" => ReadDocx(ms, allTables, warnings),
-            ".xls" => await ReadLegacyAsync(ms, ct),
             _ => ReadWorkbook(ms, ext, warnings),
         };
         if (ext is ".xlsm") warnings.Add("Macros in the workbook were ignored; only cell values were read.");
@@ -132,13 +137,6 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             grid.Add(row);
         }
         return grid;
-    }
-
-    async Task<List<List<string>>> ReadLegacyAsync(Stream s, CancellationToken ct)
-    {
-        if (!legacy.Available) throw new AppException("Older .xls files cannot be read here. Open the file in Excel and Save As .xlsx, then import it.");
-        await using var x = await legacy.ConvertAsync(s, "xls", "xlsx", ct);
-        return ReadWorkbook(x, ".xlsx", []);
     }
 
     static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";

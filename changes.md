@@ -1,12 +1,19 @@
 # Changes
 
+## Older Word and Excel files are converted on upload
+
+- The server now converts older .doc and .xls files, RTF files and Word pages saved as web pages (HTML or MHT, often named .doc) into .docx or .xlsx when they are uploaded. Files no longer need to be saved again in a newer format first.
+- This works for document and blank form import and for Import parts, which now also accepts .doc.
+- The file is stored exactly as uploaded; the converted copy is what is read and shown. Macros never run, one file is converted at a time and a conversion that takes too long is stopped.
+- If a file cannot be converted, for example because it is damaged or password protected, the message says so.
+
 ## Import parts into the Part Master
 
 - Import parts on the Parts list reads Excel (.xlsx, .xlsm, .xls), CSV or the tables of a Word .docx (the first table, or all tables with the same headings). Files are only read; macros never run.
 - Columns are matched from their headings (part number, name, description, revision, type, unit, family or category, Repairable, Repair part, lot controlled, Official status in NetSuite and others). Each match can be changed before the preview.
 - The preview shows every row as Add, Update, Skip or Error with the reason. A part number repeated in the file is skipped after its first row. Parts already in the Part Master are skipped by default, or updated when Update existing is chosen; an update only writes mapped values that are not empty and never changes the revision.
 - Import saves all rows in one step and adds an audit entry with the file name and the counts. Serial number columns are ignored.
-- Only people who can create parts see the button. Older .xls files need the office converter; without it the message asks for the file to be saved as .xlsx.
+- Only people who can create parts see the button.
 
 ## Repairable is separate from Repair Parts
 

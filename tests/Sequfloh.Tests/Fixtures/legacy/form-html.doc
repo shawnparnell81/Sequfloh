@@ -1,0 +1,4 @@
+<html><head><meta charset="utf-8"><title>Example inspection form</title></head><body>
+<h1>Example inspection form</h1><p>Part: EXAMPLE-100. Check the housing for cracks.</p>
+<table border="1"><tr><th>Part Number</th><th>Description</th><th>Repairable</th></tr>
+<tr><td>LG-001</td><td>Example housing</td><td>Yes</td></tr><tr><td>LG-002</td><td>Example screw M3</td><td>No</td></tr></table></body></html>

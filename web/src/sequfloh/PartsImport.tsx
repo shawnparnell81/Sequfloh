@@ -38,7 +38,7 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
   const preview = (upd = update, map = mapping) => run(async () => setPlan(await post<Plan>(`${S}/parts/import/preview`, body(upd, map))));
   const confirm = () => run(async () => { setDone(await post<Plan>(`${S}/parts/import`, body())); qc.invalidateQueries({ queryKey: ['sqf-parts'] }); });
   const setMap = (key: string, v: string) => { const n = { ...mapping }; if (v === '') delete n[key]; else n[key] = Number(v); setMapping(n); setPlan(null); };
-  const isDocx = !!file?.name.toLowerCase().endsWith('.docx');
+  const isDocx = /\.docx?$/i.test(file?.name ?? '');
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" TransitionProps={{ onEnter: reset }}>
       <DialogTitle>Import parts</DialogTitle>
@@ -46,10 +46,10 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         {done ? <Alert severity="success" data-testid="import-done">Imported from {table?.fileName}: {done.add} added, {done.update} updated, {done.skip} skipped{done.errors ? `, ${done.errors} rows with errors not imported` : ''}.</Alert> : <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Excel (.xlsx, .xlsm, .xls), CSV or a Word (.docx) table with a header row. The file is only read; macros never run. Serial numbers are not imported.
+            Excel (.xlsx, .xlsm, .xls), CSV or a Word (.docx, .doc) table with a header row. The file is only read; macros never run. Serial numbers are not imported.
           </Typography>
           <Stack direction="row" gap={2} alignItems="center" flexWrap="wrap">
-            <Button variant="outlined" component="label">Choose file<input hidden type="file" data-testid="import-file" accept=".xlsx,.xlsm,.xls,.csv,.docx"
+            <Button variant="outlined" component="label">Choose file<input hidden type="file" data-testid="import-file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc"
               onChange={(e) => { setFile(e.target.files?.[0] ?? null); setTable(null); setPlan(null); e.target.value = ''; }} /></Button>
             <Typography variant="body2">{file?.name ?? 'No file chosen'}</Typography>
             {isDocx && <FormControlLabel control={<Checkbox checked={allTables} onChange={(e) => setAllTables(e.target.checked)} />} label="Read all tables (same headings)" />}
