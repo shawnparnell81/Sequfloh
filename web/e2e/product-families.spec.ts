@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { choosePartType, settledShot, signIn, view } from './support';
+import { choosePartType, settledShot, signIn, view, choosePartName } from './support';
 
 /** Product families from the admin list, the cross-reference fields, list columns and import detection. Made-up parts only. */
 test('product families and cross-reference fields', async ({ page }) => {
@@ -14,7 +14,7 @@ test('product families and cross-reference fields', async ({ page }) => {
 
   // the admin list under Parts, seeded with the product families
   await page.goto('/sequfloh/admin/dropdowns?list=product-families');
-  for (const t of ['Complete Strut Assembly (CSA)', 'Fuel Pump', 'Fuel Injector', 'Strut', 'Brake Wear Sensor', 'Air Strut', 'Gas Lift', 'Electric Lift'])
+  for (const t of ['Complete Strut Assembly (CSA)', 'Fuel Pump', 'Fuel Injector', 'Brake Wear Sensor', 'Gas Lift', 'Electric Lift', 'Coil Spring', 'Struts', 'Air Struts'])
     await expect(view(page).getByRole('cell', { name: t, exact: true }).first()).toBeVisible();
   await shot('01-product-families-setup');
 
@@ -25,7 +25,7 @@ test('product families and cross-reference fields', async ({ page }) => {
   await expect(dlg.getByLabel('OR # (Part number)')).toBeVisible();
   await expect(dlg.getByLabel('SENSEN # (Dwg #)')).toBeVisible();
   await dlg.getByLabel('OR # (Part number)').fill(`OR-${k}`);
-  await dlg.getByLabel('Name').fill('Example front strut');
+  await choosePartName(page, 'Struts');
   await dlg.getByLabel('SENSEN # (Dwg #)').fill(`SN-${k}`);
   const site_ = dlg.getByLabel('Site');
   if (!(await site_.textContent())?.trim().replace('\u200b', '')) { await site_.click(); await page.getByRole('option').first().click(); }
@@ -87,10 +87,10 @@ test('product families and cross-reference fields', async ({ page }) => {
   await imp.getByTestId('import-file').setInputFiles({ name: 'example-cross-reference.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await imp.getByRole('button', { name: 'Read file' }).click();
   await expect(imp.locator('input[data-testid="header-row"]')).toHaveValue('2');
-  await expect(imp.locator('input[data-field="partNumber"]')).toHaveValue('1');
-  await expect(imp.locator('input[data-field="drawingNumber"]')).toHaveValue('0');
-  await expect(imp.locator('input[data-field="attr:napaCa"]')).toHaveValue('4');
-  await expect(imp.locator('input[data-field="attr:position"]')).toHaveValue('6');
+  await expect(imp.locator('input[data-field="partNumber"]')).toHaveValue('col:1');
+  await expect(imp.locator('input[data-field="drawingNumber"]')).toHaveValue('col:0');
+  await expect(imp.locator('input[data-field="attr:napaCa"]')).toHaveValue('col:4');
+  await expect(imp.locator('input[data-field="attr:position"]')).toHaveValue('col:6');
   await imp.getByRole('combobox', { name: /^Product family/ }).last().click();
   await page.getByRole('option', { name: 'Complete Strut Assembly (CSA)' }).click();
   await shot('09-import-mapping');

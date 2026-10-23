@@ -105,7 +105,7 @@ public sealed class PartsImportTests(TestApp app)
             db.Parts.Add(new Sequfloh.Domain.MasterData.Part { PartNumber = $"IMP-{k}-1", Name = "Old name", Revision = "A", UnitOfMeasure = "EA", SiteId = site });
             await db.SaveChangesAsync();
         }
-        var csv = $"Item Number,Description,Rev,Category,Repairable,Serial Number\nIMP-{k}-1,Example bracket,A,Strut,yes,S1\nIMP-{k}-2,Example screw M4,B,gas lift,no,S2\nIMP-{k}-2,Example screw again,B,gas lift,no,S3\n,No number,A,gas lift,no,\nIMP-{k}-3,Example nut,A,gas lift,maybe,\n";
+        var csv = $"Item Number,Description,Rev,Category,Repairable,Serial Number\nIMP-{k}-1,Example bracket,A,Struts,yes,S1\nIMP-{k}-2,Example screw M4,B,gas lift,no,S2\nIMP-{k}-2,Example screw again,B,gas lift,no,S3\n,No number,A,gas lift,no,\nIMP-{k}-3,Example nut,A,gas lift,maybe,\n";
         var t = await Read(eng, "parts.csv", Encoding.UTF8.GetBytes(csv));
         var map = t.GetProperty("mapping");
         Assert.Equal(0, map.GetProperty("partNumber").GetInt32());
@@ -135,8 +135,8 @@ public sealed class PartsImportTests(TestApp app)
             var parts = await db.Parts.AsNoTracking().Where(p => p.PartNumber.StartsWith($"IMP-{k}-")).OrderBy(p => p.PartNumber).ToListAsync();
             Assert.Equal(2, parts.Count);
             Assert.Equal("Old name", parts[0].Name); // no Name column: the name of an existing part is kept
-            Assert.Equal("Example bracket", parts[0].Description); Assert.True(parts[0].IsRepairable); Assert.Equal("Strut", parts[0].ProductFamily); Assert.NotNull(parts[0].TypeId);
-            Assert.Equal("Example screw M4", parts[1].Name); Assert.Equal("B", parts[1].Revision); Assert.False(parts[1].IsRepairable);
+            Assert.Equal("Example bracket", parts[0].Description); Assert.True(parts[0].IsRepairable); Assert.Equal("Struts", parts[0].ProductFamily); Assert.NotNull(parts[0].TypeId);
+            Assert.Equal("Gas Lift", parts[1].Name); // no Name column: a new part is named after its product family Assert.Equal("B", parts[1].Revision); Assert.False(parts[1].IsRepairable);
             Assert.True(await db.PartRevisions.AnyAsync(r => r.PartId == parts[1].Id && r.Revision == "B"));
             var audit = await db.AuditEntries.AsNoTracking().Where(a => a.EntityType == "PartsImport" && a.SiteId == site).SingleAsync();
             Assert.Contains("parts.csv: 1 added, 1 updated, 2 skipped, 1 with errors", audit.Description);

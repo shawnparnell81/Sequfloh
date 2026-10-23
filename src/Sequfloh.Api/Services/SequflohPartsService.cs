@@ -12,7 +12,8 @@ using Sequfloh.Infrastructure.Services;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
-public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false);
+public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false,
+    string? PartClass = null, bool? IsAssembly = null, string? LotControl = null);
 /// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
 public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null);
 public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0);
@@ -40,6 +41,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await m.RequireAsync(Permissions.SequflohEditParts, r.Part.SiteId, r.Part.DepartmentId, ct);
         // the New part form requires a part type; other callers (import, older clients) may leave it empty and set it later
         await CheckTypeAsync(r.TypeId, null, ct);
+        await CheckChoicesAsync(r.Execution, null, ct);
         if (r.Attributes is not null) PartAttributes.Clean(r.Attributes); // checked before anything is saved
         var p = await master.SavePartAsync(null, r.Part, ct); // shared Part Master rules: masterdata.edit, unique number, initial revision
         await ApplyExecutionAsync(p.Id, r.Execution with { RowVersion = 0 }, ct);
@@ -53,6 +55,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await m.RequireAsync(Permissions.SequflohEditParts, part.SiteId, part.DepartmentId, ct);
         if (r.TypeId is null && part.TypeId is not null) throw new AppException("Choose the part type.");
         await CheckTypeAsync(r.TypeId, part.TypeId, ct);
+        await CheckChoicesAsync(r.Execution, part.PartClass, ct);
         if (r.Attributes is not null) PartAttributes.Clean(r.Attributes);
         await master.SavePartAsync(id, r.Part, ct);
         await ApplyExecutionAsync(id, r.Execution with { RowVersion = 0 }, ct);
@@ -65,6 +68,15 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (typeId is null || typeId == current) return;
         if (!await db.SequflohReferenceValues.AnyAsync(x => x.Id == typeId && x.ListKey == SequflohCatalog.ProductFamilies && x.IsActive, ct))
             throw new AppException("The product family is not an active value of the product families list.");
+    }
+
+    /// <summary>A new or changed part class must be an active value of the product families list; lot control must be one of its choices. Checked before anything is saved.</summary>
+    async Task CheckChoicesAsync(PartExecutionInput r, string? current, CancellationToken ct)
+    {
+        var pc = T(r.PartClass, 100);
+        if (pc is not null && pc != current && !await db.SequflohReferenceValues.AnyAsync(x => x.ListKey == SequflohCatalog.ProductFamilies && x.IsActive && x.Label == pc, ct))
+            throw new AppException("The part class is not an active value of the product families list.");
+        if (r.LotControl is not null && PartChoices.Lot(r.LotControl) is null) throw new AppException("Lot controlled must be Yes, No or Not applicable.");
     }
 
     async Task ApplyTypeAndAttributesAsync(Guid id, SqfPartInput r, CancellationToken ct)
@@ -85,6 +97,15 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (r.RowVersion != 0) db.Entry(p).Property(x => x.RowVersion).OriginalValue = r.RowVersion;
         p.ProductFamily = T(r.ProductFamily, 100); p.AssemblyType = T(r.AssemblyType, 100); p.IsRepairable = r.IsRepairable; p.IsRepairPart = r.IsRepairPart; p.IsSerialized = r.IsSerialized;
         p.IsLotControlled = r.IsLotControlled; p.DrawingNumber = T(r.DrawingNumber, 100); p.Specification = T(r.Specification, 200);
+        // older clients send only the lot flag; the form sends Yes, No or Not applicable
+        if (r.LotControl is not null)
+        {
+            p.LotControl = PartChoices.Lot(r.LotControl) ?? throw new AppException("Lot controlled must be Yes, No or Not applicable.");
+            p.IsLotControlled = p.LotControl == "Yes";
+        }
+        else p.LotControl = r.IsLotControlled ? "Yes" : p.LotControl == "Not applicable" ? "Not applicable" : "No";
+        if (r.IsAssembly is { } asm) p.IsAssembly = asm;
+        p.PartClass = T(r.PartClass, 100);
         await db.SaveChangesAsync(ct);
     }
 
@@ -103,7 +124,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (view == "active") query = query.Where(x => x.Status == MasterStatus.Active);
         if (view == "repairable") query = query.Where(x => x.IsRepairable);
         if (view == "repair-parts") query = query.Where(x => x.IsRepairPart);
-        if (view == "assemblies") query = query.Where(x => x.PartType == PartType.Assembly || x.PartType == PartType.Subassembly || x.AssemblyType != null);
+        if (view == "assemblies") query = query.Where(x => x.IsAssembly);
         if (!string.IsNullOrWhiteSpace(family)) query = query.Where(x => x.ProductFamily == family);
         if (status is not null) query = query.Where(x => x.Status == status);
         if (type is not null) query = query.Where(x => x.PartType == type);

@@ -20,12 +20,18 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public string? Description { get; set; }
     public PartType PartType { get; set; }
     public string Revision { get; set; } = "A";
-    public string UnitOfMeasure { get; set; } = "EA";
+    public string UnitOfMeasure { get; set; } = "Each";
     public Guid? ProductId { get; set; }
     public string? Material { get; set; }
     public bool HasSpecialCharacteristics { get; set; }
     public string? ProductFamily { get; set; }
     public string? AssemblyType { get; set; }
+    /// <summary>Part class, chosen from the product families list.</summary>
+    public string? PartClass { get; set; }
+    /// <summary>The part is an assembly (Yes / No).</summary>
+    public bool IsAssembly { get; set; }
+    /// <summary>Lot controlled: Yes, No or Not applicable. IsLotControlled is true only for Yes.</summary>
+    public string? LotControl { get; set; }
     /// <summary>The part itself can be repaired (it can be the subject of a repair work order).</summary>
     public bool IsRepairable { get; set; }
     /// <summary>A component or replacement part ordered to carry out repairs (screws, nuts, mounts). Set on its own, never from Repairable.</summary>
