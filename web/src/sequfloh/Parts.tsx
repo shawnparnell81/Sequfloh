@@ -16,12 +16,11 @@ import { ImportPartsDialog } from './PartsImport';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { StatusEditor, downloadCsv, useStatusFilter } from './Job';
 import { partNo } from './partLabel';
-import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, type Col, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
+import { LOT_CHOICES, UNITS, Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, type Col, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
 const crumbs = (label: string, extra?: { label: string; to?: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts and Items', to: '/sequfloh/parts' }, { label, to: extra ? undefined : undefined }, ...(extra ? [extra] : [])];
 const yes = (b?: boolean) => (b ? 'Yes' : 'No');
 /** Shared Part Master enums (numeric on the wire, as in the Master Data module). */
-const partTypes = ['Component', 'Assembly', 'Material', 'Subassembly', 'Consumable', 'Packaging', 'Other'];
 const partTypeValue: Record<string, number> = { Component: 0, Assembly: 1, Material: 2, Subassembly: 3, Consumable: 4, Packaging: 5, Other: 9 };
 const masterStatuses = ['Active', 'Inactive', 'Obsolete'];
 /** Labels of the Part Master number fields: the OR # is the part number and the SENSEN # is the drawing number. */
@@ -35,10 +34,12 @@ const usePartTypes = () => useQuery({ queryKey: ['sqf-part-types'], queryFn: () 
 const useAttrDefs = () => useQuery({ queryKey: ['sqf-part-attrs'], queryFn: () => get<AttrDef[]>(`${S}/parts/attributes`), staleTime: 300_000 });
 const attrsOf = (json?: string | null): Record<string, string> => { try { return json ? JSON.parse(json) : {}; } catch { return {}; } };
 const COLS_KEY = 'sqf-parts-hidden-cols';
-const defaultHidden = ['assemblyType', 'attr:keyApplication'];
+const defaultHidden = ['attr:keyApplication'];
+/** The choices plus the current value when it is not one of them, so an older value is shown rather than lost. */
+const withCurrent = (list: string[], current?: string) => (current && !list.some((x) => x.toLowerCase() === current.toLowerCase()) ? [...list, current] : list);
 
 // ------------------------------------------------------------------ Part Master
-interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; unitOfMeasure: string;
+interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; partClass?: string | null; isAssembly?: boolean; lotControl?: string | null; unitOfMeasure: string;
   status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string; statusTag?: string | null; statusNote?: string | null;
   typeId?: string | null; typeName?: string | null; attributes?: string | null }
 const viewHelp: Record<string, string> = {
@@ -74,9 +75,9 @@ export function PartMasterPage() {
   const allCols: Col<PartRow>[] = [{ key: 'partNumber', label: PN_LABEL, sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'typeName', label: 'Product family', sort: true, render: (r) => r.typeName ?? r.productFamily ?? '—' },
           { key: 'drawingNumber', label: DWG_LABEL, render: (r) => r.drawingNumber ?? '—' },
           ...(attrDefs.data ?? []).map((d): Col<PartRow> => ({ key: `attr:${d.key}`, label: d.label, render: (r) => attrsOf(r.attributes)[d.key] ?? '—' })), { key: 'revision', label: 'Rev' },
-          { key: 'partType', label: 'Part class', render: (r) => words(r.partType) },
-          { key: 'assemblyType', label: 'Assembly type', render: (r) => r.assemblyType ?? '—' }, { key: 'unitOfMeasure', label: 'UoM' },
-          { key: 'flags', label: 'Repairable / Serialized / Lot', render: (r) => `${yes(r.isRepairable)} / ${yes(r.isSerialized)} / ${yes(r.isLotControlled)}` },
+          { key: 'partClass', label: 'Part class', render: (r) => r.partClass ?? '—' },
+          { key: 'isAssembly', label: 'Assembly', render: (r) => yes(r.isAssembly) }, { key: 'unitOfMeasure', label: 'UoM' },
+          { key: 'flags', label: 'Repairable / Serialized / Lot', render: (r) => `${yes(r.isRepairable)} / ${yes(r.isSerialized)} / ${r.lotControl ?? yes(r.isLotControlled)}` },
           { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
           { key: 'statusTag', label: 'Official status in NetSuite', render: (r) => <StatusEditor compact kind="part" id={r.id} tag={r.statusTag} note={r.statusNote} canEdit={can('sequfloh.edit_parts')} onSaved={() => qc.invalidateQueries({ queryKey: ['sqf-parts'] })} /> },
           { key: 'updatedAt', label: 'Updated', sort: true, render: (r) => fmtDateTime(r.updatedAt) }];
@@ -94,7 +95,7 @@ export function PartMasterPage() {
         onClear={() => { setSp(view ? { view } : {}); setPage(1); }}
         filters={[{ key: 'partType', label: 'Product family', options: [['none', 'No product family'], ...(types.data ?? []).map((t): [string, string] => [t.id, t.isActive ? t.label : `${t.label} (inactive)`])] },
           { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) },
-          { key: 'type', label: 'Part class', options: partTypes.map((t) => [t, words(t)]) }, tagFilter]} />
+          tagFilter]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
         cols={allCols.filter((c) => !hidden.includes(c.key))} />
       <PartDialog open={open} onClose={() => setOpen(false)} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
@@ -119,21 +120,25 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
   const [attrs, setAttrs] = useState<Record<string, string>>({});
   const typeCode = types.data?.find((t) => t.id === typeId)?.code;
   const shownAttrs = (attrDefs.data ?? []).filter((d) => !d.types?.length || (typeCode && d.types.includes(typeCode)));
-  const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'EA', material: '', siteId: '', status: 'Active',
-    productFamily: '', assemblyType: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, drawingNumber: '', specification: '' };
+  const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'Each', material: '', siteId: '', status: 'Active',
+    productFamily: '', assemblyType: '', partClass: '', isAssembly: false, lotControl: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, drawingNumber: '', specification: '' };
   const [f, setF] = useState(blank);
   const [err, setErr] = useState<string | null>(null);
   const init = () => {
     setLinks([]); setInline(null); setTypeId(edit?.typeId ?? ''); setAttrs({ ...(edit?.attributes ?? {}) });
     if (edit && drawingsOk) get<PartDrawing[]>(`/api/drawings/for-part?partId=${edit.id}`).then((l) => setLinks(l.map((d) => ({ id: d.id, label: `${d.drawingNumber ? d.drawingNumber + ' · ' : ''}${d.title} (rev ${d.currentRevision})` })))).catch(() => undefined);
-    setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])) } as typeof blank : { ...blank, siteId: sites.data?.[0]?.id ?? '' }); };
+    const lc = (e?: PartDetail['part']) => (e ? (e.lotControl || (e.isLotControlled ? 'Yes' : 'No')) : '');
+    setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, siteId: sites.data?.[0]?.id ?? '' }); };
+  const familyLabels = (types.data ?? []).filter((t) => t.isActive).map((t) => t.label);
+  const yn = (k: 'isAssembly' | 'isRepairable') => ({ value: f[k] ? 'Yes' : 'No', onChange: (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value === 'Yes' }) });
   const s = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const b = (k: keyof typeof blank) => (_: unknown, c: boolean) => setF({ ...f, [k]: c });
   const save = async () => {
     setErr(null);
     const body = { part: { partNumber: f.partNumber, name: f.name, description: nul(f.description), partType: partTypeValue[f.partType] ?? 0, revision: f.revision, unitOfMeasure: f.unitOfMeasure, productId: edit?.productId ?? null,
       material: nul(f.material), hasSpecialCharacteristics: edit?.hasSpecialCharacteristics ?? false, siteId: f.siteId, departmentId: edit?.departmentId ?? null, status: Math.max(0, masterStatuses.indexOf(f.status)), rowVersion: edit?.rowVersion ?? 0 },
-      execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isRepairPart: f.isRepairPart, isSerialized: f.isSerialized, isLotControlled: f.isLotControlled,
+      execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isRepairPart: f.isRepairPart, isSerialized: f.isSerialized, isLotControlled: f.lotControl === 'Yes',
+        partClass: nul(f.partClass), isAssembly: f.isAssembly, lotControl: nul(f.lotControl),
         drawingNumber: nul(f.drawingNumber), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 },
       typeId: typeId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])) };
     try {
@@ -159,12 +164,18 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
           <TextField select label="Product family" required value={typeId} onChange={(e) => setTypeId(e.target.value)} inputProps={{ 'data-testid': 'part-type-select' }}
             error={!!edit && !typeId} helperText={edit && !typeId ? 'Choose the product family for this part.' : undefined}>
             {(types.data ?? []).filter((t) => t.isActive || t.id === typeId).map((t) => <MenuItem key={t.id} value={t.id}>{t.isActive ? t.label : `${t.label} (inactive)`}</MenuItem>)}</TextField>
-          <TextField label="Name" required value={f.name} onChange={s('name')} />
+          <TextField select label="Name" required value={f.name} onChange={s('name')} inputProps={{ 'data-testid': 'part-name' }}>
+            {withCurrent(familyLabels, f.name).map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
           <TextField label="Revision" required value={f.revision} onChange={s('revision')} />
-          <TextField select label="Part class" value={f.partType} onChange={s('partType')}>{partTypes.map((t) => <MenuItem key={t} value={t}>{words(t)}</MenuItem>)}</TextField>
-          <TextField label="Unit of measure" value={f.unitOfMeasure} onChange={s('unitOfMeasure')} />
+          <TextField select label="Part class" value={f.partClass} onChange={s('partClass')} inputProps={{ 'data-testid': 'part-class' }}>
+            <MenuItem value=""><em>None</em></MenuItem>{withCurrent(familyLabels, f.partClass).map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
+          <TextField select label="Unit of measure" value={f.unitOfMeasure} onChange={s('unitOfMeasure')} inputProps={{ 'data-testid': 'part-uom' }}>
+            {withCurrent(UNITS, f.unitOfMeasure).map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
           <TextField select label="Site" required value={f.siteId} onChange={s('siteId')}>{(sites.data ?? []).map((x) => <MenuItem key={x.id} value={x.id}>{x.code} · {x.name}</MenuItem>)}{setupOptions('site', sites.data)}</TextField>
-          <TextField label="Assembly type" value={f.assemblyType} onChange={s('assemblyType')} />
+          <TextField select label="Assembly" {...yn('isAssembly')} inputProps={{ 'data-testid': 'part-assembly' }}>{['Yes', 'No'].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
+          <TextField select label="Lot controlled" value={f.lotControl} onChange={s('lotControl')} inputProps={{ 'data-testid': 'part-lot' }}>
+            <MenuItem value=""><em>Not set</em></MenuItem>{LOT_CHOICES.map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
+          <TextField select label="Repairable" {...yn('isRepairable')} inputProps={{ 'data-testid': 'part-repairable' }} helperText="Yes: the part can be repaired if required.">{['Yes', 'No'].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
           <TextField select label="Status" value={f.status} onChange={s('status')}>{masterStatuses.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
           <TextField label={DWG_LABEL} value={f.drawingNumber} onChange={s('drawingNumber')} />
           <TextField label="Specification" value={f.specification} onChange={s('specification')} />
@@ -175,10 +186,8 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
             multiline={d.maxLength > 200} inputProps={{ maxLength: d.maxLength }} />)}</Grid></>}
         <TextField label="Description" fullWidth multiline minRows={2} value={f.description} onChange={s('description')} sx={{ mt: 2 }} />
         <Stack direction="row" gap={2} sx={{ mt: 1 }}>
-          <FormControlLabel control={<Checkbox checked={f.isRepairable} onChange={b('isRepairable')} />} label="Repairable" />
           <FormControlLabel control={<Checkbox checked={!!f.isRepairPart} onChange={b('isRepairPart')} />} label="Repair part" />
           <FormControlLabel control={<Checkbox checked={f.isSerialized} onChange={b('isSerialized')} />} label="Serialized" />
-          <FormControlLabel control={<Checkbox checked={f.isLotControlled} onChange={b('isLotControlled')} />} label="Lot controlled" />
         </Stack>
         <Typography variant="caption" color="text.secondary" component="p" data-testid="repair-flags-help">
           Repairable: the part itself can be repaired. Repair part: a component or replacement part ordered to carry out repairs (screws, nuts, top mounts); only these appear in Repair Parts.
@@ -225,8 +234,8 @@ export function PartDetailPage() {
           {!q.data!.canEditMaster && q.data!.canEdit && <Alert severity="info" sx={{ mb: 2 }}>You can change SEQUFLOH execution attributes. Core Part Master fields need Master Data edit permission.</Alert>}
           <Grid cols={4}>
             <Field label={PN_LABEL}><Mono>{p.partNumber}</Mono></Field><Field label="Name">{p.name}</Field><Field label="Revision">{p.revision}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
-            <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class">{words(p.partType)}</Field><Field label="Assembly type">{p.assemblyType}</Field><Field label="Unit of measure">{p.unitOfMeasure}</Field>
-            <Field label="Repairable">{yes(p.isRepairable)}</Field><Field label="Repair part">{yes(!!p.isRepairPart)}</Field><Field label="Serialized">{yes(p.isSerialized)}</Field><Field label="Lot controlled">{yes(p.isLotControlled)}</Field><Field label="Material">{p.material}</Field>
+            <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class">{p.partClass}</Field><Field label="Assembly">{yes(p.isAssembly)}</Field><Field label="Unit of measure">{p.unitOfMeasure}</Field>
+            <Field label="Repairable">{yes(p.isRepairable)}</Field><Field label="Repair part">{yes(!!p.isRepairPart)}</Field><Field label="Serialized">{yes(p.isSerialized)}</Field><Field label="Lot controlled">{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material">{p.material}</Field>
             {(attrDefs.data ?? []).map((d) => <Field key={d.key} label={d.label}>{p.attributes?.[d.key]}</Field>)}
             <Field label={DWG_LABEL}>{p.drawingNumber}</Field><Field label="Specification">{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>

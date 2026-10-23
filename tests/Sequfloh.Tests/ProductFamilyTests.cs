@@ -35,7 +35,7 @@ public sealed class ProductFamilyTests(TestApp app)
     {
         var admin = await app.AdminAsync();
         var types = await TypesAsync(admin);
-        foreach (var name in new[] { "Complete Strut Assembly (CSA)", "Fuel Pump", "Fuel Injector", "Strut", "Brake Wear Sensor", "Air Strut", "Gas Lift", "Electric Lift" })
+        foreach (var name in new[] { "Complete Strut Assembly (CSA)", "Fuel Pump", "Fuel Injector", "Brake Wear Sensor", "Gas Lift", "Electric Lift", "Coil Spring", "Struts", "Air Struts" })
             Assert.Contains(types, t => t.Label == name);
         var values = await admin.GetElAsync("/api/sequfloh/reference/product-families");
         Assert.DoesNotContain(values.EnumerateArray(), v => v.GetProperty("isDefault").GetBoolean());
@@ -65,13 +65,13 @@ public sealed class ProductFamilyTests(TestApp app)
     {
         var site = await app.CreateSiteAsync();
         var (_, eng) = await app.CreateUserAsync(Editor, site);
-        var strut = (await TypesAsync(eng)).First(t => t.Code == "STRUT").Id;
+        var strut = (await TypesAsync(eng)).First(t => t.Code == "STRUTS").Id;
         var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
         var id = (await (await eng.PostOkAsync("/api/sequfloh/parts", Body("OR-" + tag, site, strut,
             new Dictionary<string, string?> { ["nissanVa"] = "NVA-" + tag, ["napaUs"] = "NUS-" + tag, ["napaCa"] = " ", ["keyApplication"] = "Example sedan 2019-2023 front" }, "SN-" + tag))).JsonAsync()).Id();
 
         var p = (await eng.GetElAsync($"/api/sequfloh/parts/{id}")).GetProperty("part");
-        Assert.Equal("Strut", p.Str("typeName"));
+        Assert.Equal("Struts", p.Str("typeName"));
         var attrs = p.GetProperty("attributes");
         Assert.Equal("NVA-" + tag, attrs.Str("nissanVa"));
         Assert.False(attrs.TryGetProperty("napaCa", out _)); // blank values are not stored
@@ -90,7 +90,7 @@ public sealed class ProductFamilyTests(TestApp app)
         var lines = csv.TrimStart('\uFEFF').Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
         Assert.StartsWith("OR # (Part number),Name,Description,Revision,Product family,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
         Assert.Contains("SENSEN # (Dwg #)", lines[0]);
-        Assert.StartsWith($"OR-{tag},Example part OR-{tag},,A,Strut,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
+        Assert.StartsWith($"OR-{tag},Example part OR-{tag},,A,Struts,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
         Assert.Contains("SN-" + tag, lines[1]);
     }
 
@@ -101,7 +101,7 @@ public sealed class ProductFamilyTests(TestApp app)
         var (_, eng) = await app.CreateUserAsync(Editor, site);
         var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
         var csv = $"OR#,SENSEN #,Description,Product Family,Nissan VA,NAPA US,NAPA CA,Key Application\n" +
-                  $"I-{tag}-1,SN-{tag}-1,Example strut,Strut,NV1,NU1,NC1,Example coupe rear\n" +
+                  $"I-{tag}-1,SN-{tag}-1,Example strut,Struts,NV1,NU1,NC1,Example coupe rear\n" +
                   $"I-{tag}-2,SN-{tag}-2,Example pump,Fuel pump,NV2,,,\n" +
                   $"I-{tag}-3,,Example thing,Not A Type,,,,\n" +
                   $"I-{tag}-4,,Example untyped,,,,,\n" +
@@ -132,7 +132,7 @@ public sealed class ProductFamilyTests(TestApp app)
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var parts = await db.Parts.AsNoTracking().Where(p => p.PartNumber.StartsWith($"I-{tag}-")).OrderBy(p => p.PartNumber).ToListAsync();
         var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == "product-families").ToDictionaryAsync(v => v.Id, v => v.Label);
-        Assert.Equal("Strut", types[parts[0].TypeId!.Value]);
+        Assert.Equal("Struts", types[parts[0].TypeId!.Value]);
         Assert.Equal($"SN-{tag}-1", parts[0].DrawingNumber);
         Assert.Equal("Example coupe rear", JsonDocument.Parse(parts[0].Attributes!).RootElement.Str("keyApplication"));
         Assert.Equal("Fuel Pump", types[parts[1].TypeId!.Value]);
@@ -210,8 +210,9 @@ public sealed class ProductFamilyTests(TestApp app)
         var a = parts[$"X{tag}1"]; var b = parts[$"X{tag}2"]; var c3 = parts[$"X{tag}3"];
         Assert.All(parts.Values, p => { Assert.Equal(csa, p.TypeId); Assert.Equal("Complete Strut Assembly (CSA)", p.ProductFamily); });
         Assert.Equal("9000-0001", a.DrawingNumber);
-        Assert.Equal("2000-2006 Example Sedan Rear", a.Name);
-        Assert.Equal($"X{tag}3", c3.Name);
+        // without a name column the name is the product family
+        Assert.Equal("Complete Strut Assembly (CSA)", a.Name);
+        Assert.Equal("Complete Strut Assembly (CSA)", c3.Name);
         var av = JsonDocument.Parse(a.Attributes!).RootElement; var bv = JsonDocument.Parse(b.Attributes!).RootElement;
         Assert.Equal("00123", av.Str("napaCa"));
         Assert.Equal("2000-2006 Example Sedan", av.Str("keyApplication"));
@@ -242,5 +243,78 @@ public sealed class ProductFamilyTests(TestApp app)
 
         await Put(admin, $"/api/sequfloh/reference/values/{added.Id}", new { code = added.Code, label = "Renamed family " + tag, isActive = true, isDefault = false });
         Assert.Equal("Renamed family " + tag, await db.Parts.AsNoTracking().Where(p => p.Id == parts[1].Id).Select(p => p.ProductFamily).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Choice_fields_take_one_value_for_all_rows_or_a_matching_column_value()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var fields = (await eng.GetElAsync("/api/sequfloh/parts/import/fields")).EnumerateArray().ToDictionary(x => x.Str("key")!, x => x.GetProperty("choices"));
+        Assert.Equal("families", fields["name"].GetString());
+        Assert.Equal("families", fields["partClass"].GetString());
+        Assert.Equal("units", fields["unitOfMeasure"].GetString());
+        Assert.Equal("yesNo", fields["isAssembly"].GetString());
+        Assert.Equal("lot", fields["isLotControlled"].GetString());
+        Assert.Equal(JsonValueKind.Null, fields["material"].ValueKind);
+
+        string[] headers = ["OR#", "UOM", "Lot", "Repairable", "Class"];
+        string[][] rows =
+        [
+            [$"C{tag}1", "ea", "n/a", "yes", "fuel pump"],
+            [$"C{tag}2", "SKID", "No", "No", "Struts"],
+            [$"C{tag}3", "Pallet", "Maybe", "No", "Widget"], // three values that are not choices
+        ];
+        var req = new { fileName = "choices.csv", headers, rows, siteId = site, updateExisting = false,
+            mapping = new Dictionary<string, int> { ["partNumber"] = 0, ["unitOfMeasure"] = 1, ["isLotControlled"] = 2, ["isRepairable"] = 3, ["partClass"] = 4 },
+            @fixed = new Dictionary<string, string> { ["typeName"] = "CSA", ["name"] = "Coil Spring", ["isAssembly"] = "Yes" } };
+        var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import", req)).JsonAsync();
+        Assert.Equal(2, plan.GetProperty("add").GetInt32());
+        Assert.Equal(1, plan.GetProperty("errors").GetInt32());
+        var bad = plan.GetProperty("rows").EnumerateArray().Single(x => x.Str("action") == "Error");
+        var msgs = string.Join(" ", bad.GetProperty("messages").EnumerateArray().Select(x => x.GetString()));
+        Assert.Contains("Unit of measure \"Pallet\"", msgs);
+        Assert.Contains("Lot controlled \"Maybe\"", msgs);
+        Assert.Contains("Part class \"Widget\"", msgs);
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var parts = await db.Parts.AsNoTracking().Where(p => p.PartNumber.StartsWith("C" + tag)).OrderBy(p => p.PartNumber).ToListAsync();
+        Assert.Equal(2, parts.Count);
+        Assert.All(parts, p => { Assert.Equal("Coil Spring", p.Name); Assert.Equal("Complete Strut Assembly (CSA)", p.ProductFamily); Assert.True(p.IsAssembly); Assert.False(p.IsRepairPart); });
+        Assert.Equal(("Each", "Not applicable", false, true, "Fuel Pump"), (parts[0].UnitOfMeasure, parts[0].LotControl, parts[0].IsLotControlled, parts[0].IsRepairable, parts[0].PartClass));
+        Assert.Equal(("Skid", "No", false, "Struts"), (parts[1].UnitOfMeasure, parts[1].LotControl, parts[1].IsRepairable, parts[1].PartClass));
+
+        // a text field cannot be the same for all rows
+        var r = await eng.Http.PostAsJsonAsync("/api/sequfloh/parts/import/preview", new { fileName = "x.csv", headers, rows, siteId = site, updateExisting = false,
+            mapping = new Dictionary<string, int> { ["partNumber"] = 0 }, @fixed = new Dictionary<string, string> { ["material"] = "Steel" } });
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task Part_form_saves_part_class_assembly_and_lot_control()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var pn = "F-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var fuel = (await TypesAsync(eng)).Single(x => x.Label == "Fuel Pump").Id;
+        object Make(string? partClass, string lot) => new
+        {
+            part = new { partNumber = pn, name = "Fuel Pump", description = "", partType = 0, revision = "A", unitOfMeasure = "Batch", productId = (Guid?)null, material = "",
+                hasSpecialCharacteristics = false, siteId = site, departmentId = (Guid?)null, status = 0, rowVersion = 0u },
+            execution = new { isRepairable = true, isSerialized = false, isLotControlled = false, partClass, isAssembly = true, lotControl = lot },
+            typeId = fuel,
+        };
+        var bad = await eng.Http.PostAsJsonAsync("/api/sequfloh/parts", Make("Not a family", "Yes"));
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        var id = (await (await eng.PostOkAsync("/api/sequfloh/parts", Make("Gas Lift", "Yes"))).JsonAsync()).GetProperty("id").GetGuid();
+        var p = (await eng.GetElAsync($"/api/sequfloh/parts/{id}")).GetProperty("part");
+        Assert.Equal("Gas Lift", p.Str("partClass"));
+        Assert.True(p.GetProperty("isAssembly").GetBoolean());
+        Assert.Equal("Yes", p.Str("lotControl"));
+        Assert.True(p.GetProperty("isLotControlled").GetBoolean());
+        Assert.False(p.GetProperty("isRepairPart").GetBoolean());
+        Assert.Equal(1, (await eng.GetElAsync($"/api/sequfloh/parts?view=assemblies&q={pn}")).GetProperty("total").GetInt32());
     }
 }

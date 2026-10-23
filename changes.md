@@ -1,5 +1,17 @@
 # Changes
 
+## Set choices on parts and in Parts import
+
+- Name, Product family and Part class are dropdowns with the same list: Complete Strut Assembly (CSA), Fuel Pump, Fuel Injector, Brake Wear Sensor, Gas Lift, Electric Lift, Coil Spring, Struts and Air Struts. Strut and Air Strut were renamed Struts and Air Struts, and Coil Spring was added. Parts that had them keep their family under the new name.
+- Unit of measure is a dropdown: Each, Lot, Batch or Skid. Parts that had EA now show Each. Any other older unit stays on the part until it is changed.
+- Assembly type is replaced by Assembly, Yes or No. Parts whose class was Assembly or Subassembly, or that had an assembly type typed in, are set to Yes. The Assemblies view lists the parts set to Yes.
+- Lot controlled is a dropdown: Yes, No or Not applicable.
+- Repairable is a dropdown: Yes means the part can be repaired if required. It still does not add the part to Repair Parts.
+- Material, Specification, OR #, SENSEN #, Nissan VA #, NAPA US #, NAPA CA #, Key Application and Position stay as typed fields.
+- Import parts: each dropdown with set choices offers Not imported, "Same for all rows" with the choices, and "From file column" with the file's columns. A value from a column must match a choice (capital letters don't matter, and EA counts as Each). A row that doesn't match is shown as an error in the preview. Typed fields still take a column.
+- Import parts: the separate product family setting at the bottom of the dialog is gone. Use "Same for all rows" in the Product family dropdown instead.
+- Import parts: with no Name chosen, a new part is named after its product family.
+
 ## Parts that share an OR #
 
 - Several parts can now have the same OR # (Part number), for example one per Position. The OR # is kept exactly as entered and nothing is added to it.

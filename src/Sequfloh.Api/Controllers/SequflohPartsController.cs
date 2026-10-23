@@ -24,7 +24,11 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     }
 
     [HttpGet("parts/import/fields")]
-    public object ImportFields() => SequflohPartsImport.Fields.Select(x => new { x.Key, x.Label });
+    public object ImportFields() => SequflohPartsImport.Fields.Select(x => new { x.Key, x.Label, Choices = SequflohPartsImport.ChoiceKind(x.Key) });
+
+    /// <summary>The fixed choices of the part form; Name, Product family and Part class come from the product families list.</summary>
+    [HttpGet("parts/choices")]
+    public object Choices() => new { PartChoices.Units, PartChoices.YesNo, PartChoices.LotControl };
 
     [HttpPost("parts/import/preview")]
     public Task<PartsImportPlan> ImportPreview(PartsImportRequest r, CancellationToken ct) => import.PreviewAsync(r, ct);
@@ -56,7 +60,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         var types = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.ProductFamilies);
         return await Paging.PageAsync(query.Select(p => new
         {
-            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
+            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
             p.DrawingNumber, p.Specification, p.SiteId, p.UpdatedAt, p.TypeId, TypeName = types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes
         }), page, pageSize, ct);
     }
@@ -75,7 +79,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         var rows = await query.Take(50_000).ToListAsync(ct);
         var head = new List<string> { "OR # (Part number)", "Name", "Description", "Revision", "Product family" };
         head.AddRange(PartAttributes.All.Select(a => a.Label));
-        head.AddRange(["Part class", "Assembly type", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "SENSEN # (Dwg #)", "Specification", "Status", "Official status in NetSuite"]);
+        head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "SENSEN # (Dwg #)", "Specification", "Status", "Official status in NetSuite"]);
         var sb = new System.Text.StringBuilder();
         sb.Append(string.Join(",", head.Select(Csv))).Append("\r\n");
         foreach (var p in rows)
@@ -83,7 +87,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             var attrs = PartAttributes.Read(p.Attributes);
             var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.Revision, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : p.ProductFamily };
             cells.AddRange(PartAttributes.All.Select(a => attrs.GetValueOrDefault(a.Key)));
-            cells.AddRange([p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.IsLotControlled ? "Yes" : "No",
+            cells.AddRange([p.PartClass, p.IsAssembly ? "Yes" : "No", p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.LotControl ?? (p.IsLotControlled ? "Yes" : "No"),
                 p.DrawingNumber, p.Specification, p.Status.ToString(), p.StatusTag]);
             sb.Append(string.Join(",", cells.Select(Csv))).Append("\r\n");
         }
@@ -112,7 +116,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             Part = new
             {
                 p.Id, p.PartNumber, p.Name, p.Description, p.StatusTag, p.StatusNote, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
-                p.ProductFamily, p.AssemblyType, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.RowVersion, p.CreatedAt, p.UpdatedAt,
+                p.ProductFamily, p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.RowVersion, p.CreatedAt, p.UpdatedAt,
                 p.TypeId, TypeName = await db.SequflohReferenceValues.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefaultAsync(ct), Attributes = PartAttributes.Read(p.Attributes),
                 CreatedBy = Name(p.CreatedById), UpdatedBy = Name(p.UpdatedById)
             },

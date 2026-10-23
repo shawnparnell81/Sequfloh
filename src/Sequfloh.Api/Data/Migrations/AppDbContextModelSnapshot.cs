@@ -2115,6 +2115,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<bool>("HasSpecialCharacteristics")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsAssembly")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsLotControlled")
                         .HasColumnType("boolean");
 
@@ -2127,6 +2130,10 @@ namespace Sequfloh.Data.Migrations
                     b.Property<bool>("IsSerialized")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("LotControl")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("Material")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -2135,6 +2142,10 @@ namespace Sequfloh.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PartClass")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("PartNumber")
                         .IsRequired()

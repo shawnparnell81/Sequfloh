@@ -221,3 +221,7 @@ export function DeleteButton({ what, url, perm = 'sequfloh.delete_records', extr
     </>
   );
 }
+
+/** Fixed choices of the part form and Parts import. */
+export const UNITS = ['Each', 'Lot', 'Batch', 'Skid'];
+export const LOT_CHOICES = ['Yes', 'No', 'Not applicable'];

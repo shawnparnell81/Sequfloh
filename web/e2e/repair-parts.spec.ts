@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { choosePartType, settledShot, signIn, view } from './support';
+import { choosePartType, settledShot, signIn, view, choosePartName } from './support';
 
 /** Ticking Repairable never lists a part under Repair Parts; only the Repair part tick does. */
 test('repairable flag is separate from the repair parts list', async ({ page }) => {
@@ -12,19 +12,20 @@ test('repairable flag is separate from the repair parts list', async ({ page }) 
     await view(page).getByRole('button', { name: 'New part' }).click();
     const dlg = page.getByRole('dialog');
     await dlg.getByLabel('Part number').fill(pn);
-    await dlg.getByLabel('Name').fill(name);
+    await choosePartName(page, name);
     await choosePartType(page);
     const site = dlg.getByLabel('Site');
     if (!(await site.textContent())?.trim().replace('\u200b', '')) { await site.click(); await page.getByRole('option').first().click(); }
-    await dlg.getByLabel(flag, { exact: true }).check();
+    if (flag === 'Repairable') { await dlg.getByRole('combobox', { name: /^Repairable/ }).click(); await page.getByRole('option', { name: 'Yes', exact: true }).click(); }
+    else await dlg.getByLabel(flag, { exact: true }).check();
     await expect(dlg.getByTestId('repair-flags-help')).toBeVisible();
     if (flag === 'Repair part') await shot('01-new-part-repair-flags-help');
     await dlg.getByRole('button', { name: 'Save' }).click();
     await expect(dlg).toBeHidden();
   };
   await signIn(page);
-  await make(`RPB-${id}`, 'Example gearbox', 'Repairable');
-  await make(`RPS-${id}`, 'Example screw M4', 'Repair part');
+  await make(`RPB-${id}`, 'Gas Lift', 'Repairable');
+  await make(`RPS-${id}`, 'Coil Spring', 'Repair part');
   await page.goto(`/sequfloh/parts?view=repair-parts&q=${id}`); // filtered, so earlier runs' parts don't page it out
   await expect(view(page).getByText(`RPS-${id}`)).toBeVisible();
   await expect(view(page).getByText(`RPB-${id}`)).toHaveCount(0);

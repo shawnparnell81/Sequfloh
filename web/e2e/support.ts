@@ -30,3 +30,9 @@ export async function choosePartType(page: Page, name?: string) {
   await page.getByRole('dialog').getByRole('combobox', { name: /^Product family/ }).click();
   await (name ? page.getByRole('option', { name, exact: true }) : page.getByRole('option').first()).click();
 }
+
+/** Picks the part Name, which offers the product families list. */
+export async function choosePartName(page: Page, name?: string) {
+  await page.getByRole('dialog').getByRole('combobox', { name: /^Name/ }).click();
+  await (name ? page.getByRole('option', { name, exact: true }) : page.getByRole('option').first()).click();
+}

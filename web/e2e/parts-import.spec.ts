@@ -8,11 +8,11 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   const shot = async (name: string) => { if (shots) await settledShot(page, path.join(shots, `${name}.png`)); };
   const k = Date.now().toString(36).toUpperCase();
   const csv = ['Item Number,Description,Rev,Category,Repairable,Repair part,NetSuite Status',
-    `EX-${k}-01,Example gearbox housing,A,Strut,Yes,No,`,
+    `EX-${k}-01,Example gearbox housing,A,Struts,Yes,No,`,
     `EX-${k}-02,Example screw M4 x 10,A,Gas Lift,No,Yes,`,
     `EX-${k}-03,Example hex nut M4,A,Gas Lift,No,Yes,`,
     `EX-${k}-03,Example hex nut M4 (repeat),A,Gas Lift,No,Yes,`,
-    `EX-${k}-04,Example top mount,B,Air Strut,No,Yes,`,
+    `EX-${k}-04,Example top mount,B,Air Struts,No,Yes,`,
     `,Row without a part number,A,Gas Lift,No,No,`,
     `EX-${k}-05,Example bracket,A,Fuel Pump,Maybe,No,`].join('\n');
   await signIn(page);
@@ -22,9 +22,9 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await dlg.getByTestId('import-file').setInputFiles({ name: 'example-parts.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await dlg.getByRole('button', { name: 'Read file' }).click();
   await expect(dlg.getByText('7 rows found')).toBeVisible();
-  await expect(dlg.locator('input[data-field="partNumber"]')).toHaveValue('0');
-  await expect(dlg.locator('input[data-field="isRepairPart"]')).toHaveValue('5');
-  await expect(dlg.locator('input[data-field="statusTag"]')).toHaveValue('6');
+  await expect(dlg.locator('input[data-field="partNumber"]')).toHaveValue('col:0');
+  await expect(dlg.locator('input[data-field="isRepairPart"]')).toHaveValue('col:5');
+  await expect(dlg.locator('input[data-field="statusTag"]')).toHaveValue('col:6');
   await shot('01-column-mapping');
   await dlg.getByRole('button', { name: 'Preview' }).click();
   const counts = dlg.getByTestId('import-counts');

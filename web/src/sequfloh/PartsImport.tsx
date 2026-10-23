@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Radio, RadioGroup, Stack, Table, TableBody, TableCell,
+import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, ListSubheader, MenuItem, Radio, RadioGroup, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post } from '../api';
 import { useSites } from '../components/Kit';
-import { S } from './common';
+import { LOT_CHOICES, S, UNITS } from './common';
 
 interface ImportTable { fileName: string; headers: string[]; rows: string[][]; mapping: Record<string, number>; warnings: string[]; headerRow: number; rowNumbers?: number[]; top?: { row: number; cells: string[] }[] }
 interface PlanRow { row: number; action: 'Add' | 'Update' | 'Skip' | 'Error'; partNumber?: string; name?: string; messages: string[]; repeat?: boolean }
@@ -15,7 +15,7 @@ const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'e
 export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const sites = useSites();
   const types = useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/product-families`), enabled: open });
-  const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string }[]>(`${S}/parts/import/fields`), enabled: open });
+  const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'units' | 'yesNo' | 'lot' | null }[]>(`${S}/parts/import/fields`), enabled: open });
   const qc = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [allTables, setAllTables] = useState(false);
@@ -27,21 +27,30 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
   const [done, setDone] = useState<Plan | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [defaultType, setDefaultType] = useState('');
+  const [fixed, setFixed] = useState<Record<string, string>>({});
   const [keepRepeats, setKeepRepeats] = useState(false);
   const site = siteId || sites.data?.[0]?.id || '';
-  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setDefaultType(''); setKeepRepeats(false); };
+  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setFixed({}); setKeepRepeats(false); };
   const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(''); try { await fn(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
   const read = (headerRow?: number) => run(async () => {
     const fd = new FormData(); fd.append('file', file!);
     const t = await post<ImportTable>(`${S}/parts/import/read?allTables=${allTables}${headerRow ? `&headerRow=${headerRow}` : ''}`, fd);
-    setTable(t); setMapping(t.mapping); setPlan(null);
+    setTable(t); setMapping(t.mapping); setFixed({}); setPlan(null);
   });
   const body = (upd = update, map = mapping) => ({ fileName: table!.fileName, headers: table!.headers, rows: table!.rows, mapping: map, siteId: site, updateExisting: upd,
-    rowNumbers: table!.rowNumbers, defaultTypeId: defaultType || null, keepRepeats });
+    rowNumbers: table!.rowNumbers, keepRepeats, fixed });
   const preview = (upd = update, map = mapping) => run(async () => setPlan(await post<Plan>(`${S}/parts/import/preview`, body(upd, map))));
   const confirm = () => run(async () => { setDone(await post<Plan>(`${S}/parts/import`, body())); qc.invalidateQueries({ queryKey: ['sqf-parts'] }); });
-  const setMap = (key: string, v: string) => { const n = { ...mapping }; if (v === '') delete n[key]; else n[key] = Number(v); setMapping(n); setPlan(null); };
+  /** A field's dropdown value: '' not imported, 'col:<index>' a file column, 'fix:<choice>' the same choice for all rows. */
+  const valueOf = (key: string) => (fixed[key] ? `fix:${fixed[key]}` : mapping[key] !== undefined ? `col:${mapping[key]}` : '');
+  const setMap = (key: string, v: string) => {
+    const n = { ...mapping }; const x = { ...fixed }; delete n[key]; delete x[key];
+    if (v.startsWith('col:')) n[key] = Number(v.slice(4)); else if (v.startsWith('fix:')) x[key] = v.slice(4);
+    setMapping(n); setFixed(x); setPlan(null);
+  };
+  const choiceList = (kind?: string | null): string[] => kind === 'families' ? (types.data ?? []).filter((t) => t.isActive).map((t) => t.label)
+    : kind === 'units' ? UNITS : kind === 'yesNo' ? ['Yes', 'No'] : kind === 'lot' ? LOT_CHOICES : [];
+  const columnItems = (key: string) => table!.headers.map((h, i) => <MenuItem key={`${key}-c${i}`} value={`col:${i}`} sx={{ pl: 4 }}>{h || `Column ${i + 1}`}</MenuItem>);
   const isDocx = /\.docx?$/i.test(file?.name ?? '');
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" TransitionProps={{ onEnter: reset }}>
@@ -71,21 +80,25 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
               <Typography variant="body2" color="text.secondary">Rows above the header row are not imported.</Typography>
             </Stack>}
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Column mapping · {table.rows.length} rows found</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              For each field, pick the column in your file that fills it. Fields with set choices (Name, Product family, Part class, Unit of measure, Assembly, Repairable, Lot controlled)
+              can also use one choice for every row. Values from a column must match a choice; rows that do not are listed as errors in the preview.
+            </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 1.5 }}>
               {(fields.data ?? []).map((f) => (
-                <TextField key={f.key} select size="small" label={f.label} value={mapping[f.key] ?? ''} onChange={(e) => setMap(f.key, e.target.value)} inputProps={{ 'data-field': f.key }}>
+                <TextField key={f.key} select size="small" label={f.label} value={valueOf(f.key)} onChange={(e) => setMap(f.key, e.target.value)} inputProps={{ 'data-field': f.key }}
+                  SelectProps={{ renderValue: (v) => { const x = String(v); return x.startsWith('fix:') ? `All rows: ${x.slice(4)}` : x.startsWith('col:') ? `Column: ${table.headers[Number(x.slice(4))] || `Column ${Number(x.slice(4)) + 1}`}` : 'Not imported'; }, displayEmpty: true }}
+                  InputLabelProps={{ shrink: true }}>
                   <MenuItem value=""><em>Not imported</em></MenuItem>
-                  {table.headers.map((h, i) => <MenuItem key={i} value={i}>{h || `Column ${i + 1}`}</MenuItem>)}
+                  {f.choices ? [
+                    <ListSubheader key="h1">Same for all rows</ListSubheader>,
+                    ...choiceList(f.choices).map((c) => <MenuItem key={`${f.key}-f${c}`} value={`fix:${c}`} sx={{ pl: 4 }}>{c}</MenuItem>),
+                    <ListSubheader key="h2">From file column</ListSubheader>,
+                    ...columnItems(f.key),
+                  ] : columnItems(f.key)}
                 </TextField>
               ))}
             </Box>
-            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>For all rows (used where the file has no value)</Typography>
-            <Stack direction="row" gap={1.5} flexWrap="wrap">
-              <TextField select size="small" label="Product family" value={defaultType} onChange={(e) => { setDefaultType(e.target.value); setPlan(null); }} sx={{ minWidth: 230 }} inputProps={{ 'data-testid': 'default-type' }}>
-                <MenuItem value=""><em>None</em></MenuItem>
-                {(types.data ?? []).filter((t) => t.isActive).map((t) => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
-              </TextField>
-            </Stack>
             <Stack direction="row" gap={2} alignItems="center" sx={{ mt: 2 }}>
               <Typography variant="body2">Parts already in the Part Master:</Typography>
               <RadioGroup row value={update ? 'update' : 'skip'} onChange={(e) => { const u = e.target.value === 'update'; setUpdate(u); if (plan) preview(u); }}>
