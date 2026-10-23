@@ -2111,6 +2111,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<bool>("IsLotControlled")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsRepairPart")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsRepairable")
                         .HasColumnType("boolean");
 

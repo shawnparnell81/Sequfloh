@@ -34,6 +34,7 @@ test('inspection work order type: offered in the dropdown and the default on con
   await shot('01-work-order-type-dropdown');
   await page.getByRole('option', { name: 'Inspection' }).click();
   await cd.getByLabel('Work instruction').click();
+  await cd.getByLabel('Work instruction').fill(String(stamp)); // narrow the list once many instructions exist
   await page.getByRole('option', { name: new RegExp(`Inspect remaining inventory ${stamp}`) }).click();
   await cd.getByRole('button', { name: 'Create work order' }).click();
   await expect(page).toHaveURL(/sequfloh\/record\//);

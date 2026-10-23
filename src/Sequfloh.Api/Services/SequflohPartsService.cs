@@ -12,7 +12,7 @@ using Sequfloh.Infrastructure.Services;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
-public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0);
+public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false);
 public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution);
 public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0);
 public sealed record PartsListItemInput(Guid? PartId, string? PartNumber, string? Description, decimal Quantity, string? Unit, bool Required, string? AlternatePartNumber,
@@ -56,7 +56,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         var p = await db.Parts.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Part");
         await m.RequireAsync(Permissions.SequflohEditParts, p.SiteId, p.DepartmentId, ct);
         if (r.RowVersion != 0) db.Entry(p).Property(x => x.RowVersion).OriginalValue = r.RowVersion;
-        p.ProductFamily = T(r.ProductFamily, 100); p.AssemblyType = T(r.AssemblyType, 100); p.IsRepairable = r.IsRepairable; p.IsSerialized = r.IsSerialized;
+        p.ProductFamily = T(r.ProductFamily, 100); p.AssemblyType = T(r.AssemblyType, 100); p.IsRepairable = r.IsRepairable; p.IsRepairPart = r.IsRepairPart; p.IsSerialized = r.IsSerialized;
         p.IsLotControlled = r.IsLotControlled; p.DrawingNumber = T(r.DrawingNumber, 100); p.Specification = T(r.Specification, 200);
         await db.SaveChangesAsync(ct);
     }
@@ -75,6 +75,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         var query = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
         if (view == "active") query = query.Where(x => x.Status == MasterStatus.Active);
         if (view == "repairable") query = query.Where(x => x.IsRepairable);
+        if (view == "repair-parts") query = query.Where(x => x.IsRepairPart);
         if (view == "assemblies") query = query.Where(x => x.PartType == PartType.Assembly || x.PartType == PartType.Subassembly || x.AssemblyType != null);
         if (!string.IsNullOrWhiteSpace(family)) query = query.Where(x => x.ProductFamily == family);
         if (status is not null) query = query.Where(x => x.Status == status);

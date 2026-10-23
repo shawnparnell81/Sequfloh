@@ -25,7 +25,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         else if (!string.IsNullOrWhiteSpace(tag)) query = query.Where(x => x.StatusTag == tag);
         return await Paging.PageAsync(query.Select(p => new
         {
-            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsSerialized, p.IsLotControlled,
+            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
             p.DrawingNumber, p.Specification, p.SiteId, p.UpdatedAt
         }), page, pageSize, ct);
     }
@@ -44,7 +44,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             Part = new
             {
                 p.Id, p.PartNumber, p.Name, p.Description, p.StatusTag, p.StatusNote, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
-                p.ProductFamily, p.AssemblyType, p.IsRepairable, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.RowVersion, p.CreatedAt, p.UpdatedAt,
+                p.ProductFamily, p.AssemblyType, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.RowVersion, p.CreatedAt, p.UpdatedAt,
                 CreatedBy = Name(p.CreatedById), UpdatedBy = Name(p.UpdatedById)
             },
             Revisions = await db.PartRevisions.AsNoTracking().Where(r => r.PartId == id).OrderByDescending(r => r.CreatedAt).Select(r => new { r.Id, r.Revision, r.Reason, r.EffectiveOn, r.CreatedAt }).ToListAsync(ct),
