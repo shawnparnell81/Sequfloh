@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { choosePartType, settledShot, signIn, view } from './support';
 
 /** Ticking Repairable never lists a part under Repair Parts; only the Repair part tick does. */
 test('repairable flag is separate from the repair parts list', async ({ page }) => {
@@ -13,6 +13,7 @@ test('repairable flag is separate from the repair parts list', async ({ page }) 
     const dlg = page.getByRole('dialog');
     await dlg.getByLabel('Part number').fill(pn);
     await dlg.getByLabel('Name').fill(name);
+    await choosePartType(page);
     const site = dlg.getByLabel('Site');
     if (!(await site.textContent())?.trim().replace('\u200b', '')) { await site.click(); await page.getByRole('option').first().click(); }
     await dlg.getByLabel(flag, { exact: true }).check();

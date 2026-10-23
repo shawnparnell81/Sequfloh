@@ -33,18 +33,69 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     public Task<PartsImportPlan> Import(PartsImportRequest r, CancellationToken ct) => import.ImportAsync(r, ct);
 
     // ---------------- Part Master (shared parts table)
-    [HttpGet("parts")]
-    public async Task<object> Parts([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
-        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
+    async Task<IQueryable<Part>> FilteredAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, string? partType, string? sort, string? tag, CancellationToken ct)
     {
-        var query = SequflohPartsService.SortParts(await parts.PartsQueryAsync(q, view, family, status, type, ct), sort);
+        var query = await parts.PartsQueryAsync(q, view, family, status, type, ct, partType);
         if (tag == "none") query = query.Where(x => x.StatusTag == null);
         else if (!string.IsNullOrWhiteSpace(tag)) query = query.Where(x => x.StatusTag == tag);
+        var types = db.SequflohReferenceValues.Where(v => v.ListKey == "part-types");
+        return sort switch
+        {
+            // parts without a type come last
+            "typeName:asc" => query.OrderBy(x => types.Where(v => v.Id == x.TypeId).Select(v => v.Label).FirstOrDefault() ?? "\uffff").ThenBy(x => x.PartNumber),
+            "typeName:desc" => query.OrderByDescending(x => types.Where(v => v.Id == x.TypeId).Select(v => v.Label).FirstOrDefault() ?? "").ThenBy(x => x.PartNumber),
+            _ => SequflohPartsService.SortParts(query, sort)
+        };
+    }
+
+    [HttpGet("parts")]
+    public async Task<object> Parts([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
+        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
+    {
+        var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
+        var types = db.SequflohReferenceValues.Where(v => v.ListKey == "part-types");
         return await Paging.PageAsync(query.Select(p => new
         {
             p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
-            p.DrawingNumber, p.Specification, p.SiteId, p.UpdatedAt
+            p.DrawingNumber, p.Specification, p.SiteId, p.UpdatedAt, p.TypeId, TypeName = types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes
         }), page, pageSize, ct);
+    }
+
+    /// <summary>The attribute fields (cross-reference numbers and others) shown on the part form, list, export and import.</summary>
+    [HttpGet("parts/attributes")]
+    public object Attributes() => PartAttributes.All.Select(a => new { a.Key, a.Label, a.MaxLength, a.Types });
+
+    /// <summary>Every part that matches the filters as CSV, with the part type and all attribute columns.</summary>
+    [HttpGet("parts/export")]
+    public async Task<IActionResult> Export([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
+        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, CancellationToken ct = default)
+    {
+        var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
+        var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == "part-types").ToDictionaryAsync(v => v.Id, v => v.Label, ct);
+        var rows = await query.Take(50_000).ToListAsync(ct);
+        var head = new List<string> { "OR # (Part number)", "Name", "Description", "Revision", "Part type" };
+        head.AddRange(PartAttributes.All.Select(a => a.Label));
+        head.AddRange(["Part class", "Product family", "Assembly type", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "SENSEN # (Dwg #)", "Specification", "Status", "Official status in NetSuite"]);
+        var sb = new System.Text.StringBuilder();
+        sb.Append(string.Join(",", head.Select(Csv))).Append("\r\n");
+        foreach (var p in rows)
+        {
+            var attrs = PartAttributes.Read(p.Attributes);
+            var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.Revision, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : "" };
+            cells.AddRange(PartAttributes.All.Select(a => attrs.GetValueOrDefault(a.Key)));
+            cells.AddRange([p.PartType.ToString(), p.ProductFamily, p.AssemblyType, p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.IsLotControlled ? "Yes" : "No",
+                p.DrawingNumber, p.Specification, p.Status.ToString(), p.StatusTag]);
+            sb.Append(string.Join(",", cells.Select(Csv))).Append("\r\n");
+        }
+        return File(System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray(), "text/csv", "parts.csv");
+    }
+
+    /// <summary>A CSV cell; values that a spreadsheet would run as a formula are prefixed with an apostrophe.</summary>
+    static string Csv(string? v)
+    {
+        var s = v ?? "";
+        if (s.Length > 0 && "=+-@\t\r".Contains(s[0])) s = "'" + s;
+        return s.IndexOfAny([',', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
     }
 
     [HttpGet("parts/families")]
@@ -62,6 +113,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             {
                 p.Id, p.PartNumber, p.Name, p.Description, p.StatusTag, p.StatusNote, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
                 p.ProductFamily, p.AssemblyType, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.RowVersion, p.CreatedAt, p.UpdatedAt,
+                p.TypeId, TypeName = await db.SequflohReferenceValues.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefaultAsync(ct), Attributes = PartAttributes.Read(p.Attributes),
                 CreatedBy = Name(p.CreatedById), UpdatedBy = Name(p.UpdatedById)
             },
             Revisions = await db.PartRevisions.AsNoTracking().Where(r => r.PartId == id).OrderByDescending(r => r.CreatedAt).Select(r => new { r.Id, r.Revision, r.Reason, r.EffectiveOn, r.CreatedAt }).ToListAsync(ct),

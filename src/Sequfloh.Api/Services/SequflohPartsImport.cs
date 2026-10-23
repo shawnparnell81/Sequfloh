@@ -30,21 +30,23 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     /// <summary>Importable fields and the header words that suggest them.</summary>
     public static readonly (string Key, string Label, string[] Words)[] Fields =
     [
-        ("partNumber", "Part number", ["part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
+        ("partNumber", "OR # (Part number)", ["or #", "or#", "or no", "or number", "part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
         ("name", "Name", ["name", "part name", "item name", "title"]),
         ("description", "Description", ["description", "desc", "details", "purchase description", "sales description"]),
         ("revision", "Revision", ["revision", "rev", "rev level"]),
-        ("partType", "Part type", ["part type", "type", "item type"]),
+        ("typeName", "Part type", ["part type", "type", "product type"]),
+        ("partType", "Part class", ["part class", "item type", "class"]),
         ("unitOfMeasure", "Unit of measure", ["unit of measure", "uom", "unit", "units"]),
-        ("productFamily", "Product family / category", ["product family", "family", "category", "class", "item category"]),
+        ("productFamily", "Product family / category", ["product family", "family", "category", "item category"]),
         ("assemblyType", "Assembly type", ["assembly type"]),
         ("material", "Material", ["material"]),
-        ("drawingNumber", "Drawing number", ["drawing number", "drawing", "drawing no", "dwg"]),
+        ("drawingNumber", "SENSEN # (Dwg #)", ["sensen", "sensen #", "sensen no", "sensen number", "dwg #", "dwg#", "drawing number", "drawing", "drawing no", "dwg"]),
         ("specification", "Specification", ["specification", "spec"]),
         ("isRepairable", "Repairable", ["repairable", "can be repaired"]),
         ("isRepairPart", "Repair part", ["repair part", "repair parts", "spare part"]),
         ("isLotControlled", "Lot controlled", ["lot controlled", "lot control", "lot"]),
         ("statusTag", "Official status in NetSuite", ["netsuite status", "official status", "status in netsuite", "netsuite"]),
+        .. PartAttributes.All.Select(a => ("attr:" + a.Key, a.Label, a.Words)),
     ];
 
     static string Norm(string s) => Regex.Replace(s.ToLowerInvariant().Replace('_', ' ').Replace('-', ' '), @"[^a-z0-9# ]", "").Trim().Replace("  ", " ");
@@ -184,6 +186,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         if (!r.Mapping.ContainsKey("name") && !r.Mapping.ContainsKey("description")) throw new AppException("Choose a column for the name or the description.");
         if (r.Rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
         var tags = await f.OptionsAsync("status-tags", ct);
+        var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == "part-types" && v.IsActive).Select(v => new { v.Id, v.Code, v.Label }).ToListAsync(ct);
         var list = new List<Parsed>();
         for (var i = 0; i < r.Rows.Count; i++)
         {
@@ -205,6 +208,15 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var family = Text("productFamily", "Product family", 100); var asm = Text("assemblyType", "Assembly type", 100);
             var mat = Text("material", "Material", 200); var dwg = Text("drawingNumber", "Drawing number", 100); var spec = Text("specification", "Specification", 200);
             var rep = FlagOf("isRepairable", "Repairable"); var rp = FlagOf("isRepairPart", "Repair part"); var lot = FlagOf("isLotControlled", "Lot controlled");
+            Guid? typeId = null;
+            var tn = Get("typeName");
+            if (tn.Length > 0)
+            {
+                typeId = partTypes.FirstOrDefault(x => string.Equals(x.Label, tn, StringComparison.OrdinalIgnoreCase) || string.Equals(x.Code, tn.Replace(' ', '_'), StringComparison.OrdinalIgnoreCase))?.Id;
+                if (typeId is null) errors.Add($"Part type \"{tn}\" is not in the part types list.");
+            }
+            var attrs = new Dictionary<string, string>();
+            foreach (var a in PartAttributes.All) if (Text("attr:" + a.Key, a.Label, a.MaxLength) is { } av) attrs[a.Key] = av;
             string? tag = null;
             var tg = Get("statusTag");
             if (tg.Length > 0) { tag = tags.FirstOrDefault(x => string.Equals(x, tg, StringComparison.OrdinalIgnoreCase)); if (tag is null) errors.Add($"\"{tg}\" is not an official status in the list."); }
@@ -224,6 +236,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (rp is not null) p.IsRepairPart = rp.Value;
                 if (lot is not null) p.IsLotControlled = lot.Value;
                 if (tag is not null) p.StatusTag = tag;
+                if (typeId is not null) p.TypeId = typeId;
+                PartAttributes.Merge(p, attrs);
             }));
         }
         return list;

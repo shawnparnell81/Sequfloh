@@ -1,5 +1,14 @@
 # Changes
 
+## Part types and cross-reference numbers
+
+- New Part Types list under Parts (Setup), filled with Fuel Pump, Fuel Injector, CSA, Strut, Brake Wear Sensor, Air Strut, Gas Lift and Electric Lift. Admins can add, rename and retire types. A renamed type shows its new name on every part. A retired type stays on the parts that already have it but cannot be picked for new ones.
+- A part type is required when adding a part. Parts added before this have no type. They still work, and the Parts list and the part page ask you to set one. Once set, a type can be changed but not cleared.
+- New fields on a part: Nissan VA #, NAPA US #, NAPA CA # and Key Application. They show on the form, the part page and the Parts list, and search finds them.
+- Part number is now labelled "OR # (Part number)" and drawing number "SENSEN # (Dwg #)" on the form, part page, list, export and parts report.
+- The Parts list has a Part type filter and column, a Columns menu to show or hide columns, and an Export CSV button.
+- Import recognizes OR#, SENSEN #, Dwg #, Part type and the new cross-reference headings. The old "Part type" choice (Component, Assembly and so on) is now called "Part class".
+
 ## Older Word and Excel files are converted on upload
 
 - The server now converts older .doc and .xls files, RTF files and Word pages saved as web pages (HTML or MHT, often named .doc) into .docx or .xlsx when they are uploaded. Files no longer need to be saved again in a newer format first.

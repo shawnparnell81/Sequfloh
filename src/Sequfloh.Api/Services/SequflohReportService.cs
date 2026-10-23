@@ -255,11 +255,12 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
             {
                 var q = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
                 if (p.SiteId is { } s) q = q.Where(x => x.SiteId == s);
-                if (!string.IsNullOrWhiteSpace(p.Q)) { var like = $"%{p.Q.Trim()}%"; q = q.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? ""), like)); }
+                if (!string.IsNullOrWhiteSpace(p.Q)) { var like = $"%{p.Q.Trim()}%"; q = q.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.AttributeText ?? ""), like)); }
+                var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == "part-types").ToDictionaryAsync(v => v.Id, v => v.Label, ct);
                 foreach (var x in await q.OrderBy(x => x.PartNumber).Take(limit).ToListAsync(ct))
-                    rows.Add(new() { ["partNumber"] = x.PartNumber, ["name"] = x.Name, ["revision"] = x.Revision, ["type"] = Words(x.PartType), ["family"] = x.ProductFamily, ["uom"] = x.UnitOfMeasure,
+                    rows.Add(new() { ["partNumber"] = x.PartNumber, ["name"] = x.Name, ["revision"] = x.Revision, ["drawing"] = x.DrawingNumber, ["partTypeName"] = x.TypeId is { } ti && partTypes.TryGetValue(ti, out var tl) ? tl : null, ["type"] = Words(x.PartType), ["family"] = x.ProductFamily, ["uom"] = x.UnitOfMeasure,
                         ["repairable"] = x.IsRepairable, ["serialized"] = x.IsSerialized, ["status"] = Words(x.Status), ["_url"] = $"/sequfloh/parts/{x.Id}" });
-                return ([C("partNumber", "Part number"), C("name", "Name"), C("revision", "Revision"), C("type", "Part type"), C("family", "Product family"), C("uom", "Unit"), C("repairable", "Repairable"),
+                return ([C("partNumber", "OR # (Part number)"), C("name", "Name"), C("revision", "Revision"), C("partTypeName", "Part type"), C("drawing", "SENSEN # (Dwg #)"), C("type", "Part class"), C("family", "Product family"), C("uom", "Unit"), C("repairable", "Repairable"),
                     C("serialized", "Serialized"), C("status", "Status")], rows);
             }
             case "parts-lists":

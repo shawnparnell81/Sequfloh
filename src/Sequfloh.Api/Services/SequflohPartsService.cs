@@ -13,7 +13,8 @@ using Sequfloh.Infrastructure.Services;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false);
-public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution);
+/// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
+public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null);
 public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0);
 public sealed record PartsListItemInput(Guid? PartId, string? PartNumber, string? Description, decimal Quantity, string? Unit, bool Required, string? AlternatePartNumber,
     TraceabilityRequirement Traceability, string? Notes);
@@ -37,8 +38,12 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
     public async Task<Part> CreatePartAsync(SqfPartInput r, CancellationToken ct)
     {
         await m.RequireAsync(Permissions.SequflohEditParts, r.Part.SiteId, r.Part.DepartmentId, ct);
+        // the New part form requires a part type; other callers (import, older clients) may leave it empty and set it later
+        await CheckTypeAsync(r.TypeId, null, ct);
+        if (r.Attributes is not null) PartAttributes.Clean(r.Attributes); // checked before anything is saved
         var p = await master.SavePartAsync(null, r.Part, ct); // shared Part Master rules: masterdata.edit, unique number, initial revision
         await ApplyExecutionAsync(p.Id, r.Execution with { RowVersion = 0 }, ct);
+        await ApplyTypeAndAttributesAsync(p.Id, r, ct);
         return p;
     }
 
@@ -46,8 +51,28 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
     {
         var part = await db.Parts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Part");
         await m.RequireAsync(Permissions.SequflohEditParts, part.SiteId, part.DepartmentId, ct);
+        if (r.TypeId is null && part.TypeId is not null) throw new AppException("Choose the part type.");
+        await CheckTypeAsync(r.TypeId, part.TypeId, ct);
+        if (r.Attributes is not null) PartAttributes.Clean(r.Attributes);
         await master.SavePartAsync(id, r.Part, ct);
         await ApplyExecutionAsync(id, r.Execution with { RowVersion = 0 }, ct);
+        await ApplyTypeAndAttributesAsync(id, r, ct);
+    }
+
+    /// <summary>A new or changed part type must be an active value of the part types list; a part may keep a type that was deactivated later.</summary>
+    async Task CheckTypeAsync(Guid? typeId, Guid? current, CancellationToken ct)
+    {
+        if (typeId is null || typeId == current) return;
+        if (!await db.SequflohReferenceValues.AnyAsync(x => x.Id == typeId && x.ListKey == "part-types" && x.IsActive, ct))
+            throw new AppException("The part type is not an active value of the part types list.");
+    }
+
+    async Task ApplyTypeAndAttributesAsync(Guid id, SqfPartInput r, CancellationToken ct)
+    {
+        var p = await db.Parts.FirstAsync(x => x.Id == id, ct);
+        p.TypeId = r.TypeId;
+        if (r.Attributes is not null) PartAttributes.Write(p, r.Attributes);
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>Saves only the SEQUFLOH execution attributes (repairable, serialized, lot-controlled, family, assembly type, drawing, specification).</summary>
@@ -70,7 +95,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<IQueryable<Part>> PartsQueryAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, CancellationToken ct)
+    public async Task<IQueryable<Part>> PartsQueryAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, CancellationToken ct, string? partType = null)
     {
         var query = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
         if (view == "active") query = query.Where(x => x.Status == MasterStatus.Active);
@@ -80,7 +105,9 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (!string.IsNullOrWhiteSpace(family)) query = query.Where(x => x.ProductFamily == family);
         if (status is not null) query = query.Where(x => x.Status == status);
         if (type is not null) query = query.Where(x => x.PartType == type);
-        if (!string.IsNullOrWhiteSpace(q)) { var like = $"%{q.Trim()}%"; query = query.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.ProductFamily ?? ""), like)); }
+        if (partType == "none") query = query.Where(x => x.TypeId == null);
+        else if (Guid.TryParse(partType, out var tid)) query = query.Where(x => x.TypeId == tid);
+        if (!string.IsNullOrWhiteSpace(q)) { var like = $"%{q.Trim()}%"; query = query.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.ProductFamily ?? "") + " " + (x.AttributeText ?? ""), like)); }
         return query;
     }
 

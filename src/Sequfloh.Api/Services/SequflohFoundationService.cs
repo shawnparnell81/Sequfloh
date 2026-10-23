@@ -293,7 +293,7 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         {
             var code = CodeOf(def.Seed[i]);
             var v = values.FirstOrDefault(x => x.Code == code);
-            if (v is null) { db.SequflohReferenceValues.Add(new SequflohReferenceValue { ListKey = key, Code = code, Label = def.Seed[i], SortOrder = (i + 1) * 10, IsSeeded = true, IsDefault = i == 0 && values.All(x => !x.IsDefault) }); changed++; continue; }
+            if (v is null) { db.SequflohReferenceValues.Add(new SequflohReferenceValue { ListKey = key, Code = code, Label = def.Seed[i], SortOrder = (i + 1) * 10, IsSeeded = true, IsDefault = i == 0 && !def.NoDefault && values.All(x => !x.IsDefault) }); changed++; continue; }
             if (v.Label != def.Seed[i] || v.SortOrder != (i + 1) * 10 || !v.IsActive) { v.Label = def.Seed[i]; v.SortOrder = (i + 1) * 10; v.IsActive = true; changed++; }
         }
         Audit("SeedReset", "SequflohReferenceList", Guid.Empty, $"Reset SEQUFLOH reference list {def.Label} to seeded values ({changed} changed)", context: new { list = key });
@@ -430,7 +430,7 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
             {
                 var code = CodeOf(l.Seed[i]);
                 if (existing.Any(e => e.ListKey == l.Key && e.Code == code)) continue;
-                db.SequflohReferenceValues.Add(new SequflohReferenceValue { ListKey = l.Key, Code = code, Label = l.Seed[i], SortOrder = (i + 1) * 10, IsSeeded = true, IsDefault = i == 0 && existing.All(e => e.ListKey != l.Key) });
+                db.SequflohReferenceValues.Add(new SequflohReferenceValue { ListKey = l.Key, Code = code, Label = l.Seed[i], SortOrder = (i + 1) * 10, IsSeeded = true, IsDefault = i == 0 && !l.NoDefault && existing.All(e => e.ListKey != l.Key) });
                 added++;
             }
         if (added > 0) await db.SaveChangesAsync(ct);

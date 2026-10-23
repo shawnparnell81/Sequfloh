@@ -25,3 +25,8 @@ export async function settledShot(page: Page, file: string) {
   await page.waitForFunction(() => [...document.querySelectorAll('.MuiDialog-root .MuiBackdrop-root')].every((b) => { const o = getComputedStyle(b).opacity; return o === '1' || o === '0'; }), undefined, { timeout: 5000 }).catch(() => {});
   await page.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
 }
+/** Chooses a part type in the open part dialog (the first active type unless one is named). */
+export async function choosePartType(page: Page, name?: string) {
+  await page.getByRole('dialog').getByRole('combobox', { name: /^Part type/ }).click();
+  await (name ? page.getByRole('option', { name, exact: true }) : page.getByRole('option').first()).click();
+}

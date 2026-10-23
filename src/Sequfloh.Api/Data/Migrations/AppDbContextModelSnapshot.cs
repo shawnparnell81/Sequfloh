@@ -2088,6 +2088,13 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("AttributeText")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Attributes")
+                        .HasColumnType("jsonb");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2173,6 +2180,9 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("TypeId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("UnitOfMeasure")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -2192,6 +2202,8 @@ namespace Sequfloh.Data.Migrations
                         .IsUnique();
 
                     b.HasIndex("SiteId");
+
+                    b.HasIndex("TypeId");
 
                     b.HasIndex("Status", "PartNumber");
 

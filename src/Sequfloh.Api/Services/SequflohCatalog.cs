@@ -2,7 +2,7 @@ using Sequfloh.Domain.Security;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
-public sealed record ReferenceListDef(string Key, string Label, string Description, string[] Seed);
+public sealed record ReferenceListDef(string Key, string Label, string Description, string[] Seed, bool NoDefault = false);
 public sealed record NumberingDef(string RecordType, string Label, string Prefix);
 
 /// <summary>Seed content for SEQUFLOH: reference lists, numbering sequences and suggested permission sets. Every value stays editable.</summary>
@@ -38,6 +38,8 @@ public static class SequflohCatalog
         new("cancellation-reasons", "Cancellation reasons", "Why a task is canceled.", ["Order canceled", "Duplicate task", "Created in error", "Superseded by another task", "Other"]),
         new("units-of-measure", "Units of measure", "Units used in steps, characteristics and parts lists.", ["EA", "mm", "in", "N·m", "lbf·in", "V", "A", "Ω", "°C", "%RH", "kPa", "psi", "s", "min", "g", "kg"]),
         new("qualification-labels", "Qualification labels", "Qualifications required for steps and technicians.", ["Trained operator", "Certified technician", "Senior technician", "Qualified inspector", "ESD trained", "Soldering certified"]),
+        new("part-types", "Part types", "Kinds of parts offered when a part is added, for example Fuel Pump or Strut. Renaming a type renames it on every part; a deactivated type stays on existing parts but is no longer offered.",
+            ["Fuel Pump", "Fuel Injector", "CSA", "Strut", "Brake Wear Sensor", "Air Strut", "Gas Lift", "Electric Lift"], NoDefault: true),
         new("operation-categories", "Operation categories", "Categories of reusable operation steps.", ["Inspection", "Disassembly", "Assembly", "Cleaning", "Test", "Adjustment", "Packaging", "Labeling", "Safety"]),
         new("equipment-types", "Equipment types", "Equipment types used in instructions.", ["Hand tool", "Torque tool", "Gauge", "Test equipment", "Fixture", "Software", "Environmental monitor"]),
         new("lifecycle-actions", "Lifecycle actions", "Display labels of work instruction actions.", ["Release", "Create revision", "Mark obsolete"]),

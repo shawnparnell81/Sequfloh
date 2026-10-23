@@ -279,6 +279,9 @@ public partial class AppDbContext
             e.Property(x => x.AssemblyType).HasMaxLength(100);
             e.Property(x => x.DrawingNumber).HasMaxLength(100);
             e.Property(x => x.Specification).HasMaxLength(200);
+            e.Property(x => x.Attributes).HasColumnType("jsonb");
+            e.Property(x => x.AttributeText).HasMaxLength(4000);
+            e.HasIndex(x => x.TypeId);
             e.HasIndex(x => new { x.Status, x.PartNumber });
         });
     }
