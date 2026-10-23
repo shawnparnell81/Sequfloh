@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { useUsers } from '../components/Kit';
@@ -7,9 +7,9 @@ import { fmtDateTime } from '../components/Status';
 import { S, fmtSeconds } from './common';
 
 export interface Person { id: string; displayName: string }
-interface TimePerson { userId: string; name: string; seconds: number; pausedSeconds: number; entries: number; runningSince?: string | null; pausedSince?: string | null }
-interface TimeEvent { userId: string; userName: string; kind: string; at: string }
-interface TimeSummary { totalSeconds: number; pausedSeconds: number; people: TimePerson[]; serverTime: string; mineRunning: boolean; minePaused: boolean; log: TimeEvent[] }
+interface TimePerson { userId: string; name: string; seconds: number; pausedSeconds: number; entries: number; runningSince?: string | null; pausedSince?: string | null; pauseReason?: string | null }
+interface TimeEvent { userId: string; userName: string; kind: string; reason?: string | null; label: string; at: string }
+interface TimeSummary { totalSeconds: number; pausedSeconds: number; people: TimePerson[]; serverTime: string; mineRunning: boolean; minePaused: boolean; minePauseReason?: string | null; log: TimeEvent[] }
 
 /** People on a work order. The first one is the lead. */
 export function AssigneesPanel({ recordId, people, canAssign }: { recordId: string; people: Person[]; canAssign: boolean }) {
@@ -46,7 +46,7 @@ export function AssigneesPanel({ recordId, people, canAssign }: { recordId: stri
   );
 }
 
-/** Live time per person. Anyone signed in can start or stop their own timer. */
+/** Job time per person. Anyone signed in can clock on and off a job. Job time only, not a payroll clock. */
 export function TimePanel({ recordId }: { recordId: string }) {
   const qc = useQueryClient();
   const key = ['sqf-time', recordId];
@@ -61,9 +61,9 @@ export function TimePanel({ recordId }: { recordId: string }) {
   const live = (p: TimePerson) => p.seconds + (p.runningSince ? Math.max(0, (now - skew - new Date(p.runningSince).getTime()) / 1000) : 0);
   const livePaused = (p: TimePerson) => p.pausedSeconds + (p.pausedSince ? Math.max(0, (now - skew - new Date(p.pausedSince).getTime()) / 1000) : 0);
   const total = d ? d.people.reduce((a, p) => a + live(p), 0) : 0;
-  const go = async (what: 'start' | 'stop' | 'pause' | 'resume') => {
+  const go = async (what: 'start' | 'stop' | 'pause' | 'resume', reason?: 'Break' | 'Lunch') => {
     setBusy(true); setErr(null);
-    try { await post(`${S}/tracking/${recordId}/time/${what}`); await qc.invalidateQueries(); }
+    try { await post(`${S}/tracking/${recordId}/time/${what}`, reason ? { reason } : undefined); await qc.invalidateQueries(); }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   return (
@@ -73,30 +73,34 @@ export function TimePanel({ recordId }: { recordId: string }) {
         <Typography variant="h3" data-testid="time-total" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(total)}</Typography>
         <Box sx={{ flex: 1 }} />
         {d && d.mineRunning && (d.minePaused
-          ? <Button variant="contained" disabled={busy} data-testid="resume-timer" onClick={() => go('resume')}>Resume my timer</Button>
-          : <Button variant="outlined" disabled={busy} data-testid="pause-timer" onClick={() => go('pause')}>Pause my timer</Button>)}
+          ? <Tooltip describeChild title={`Paused for ${(d.minePauseReason ?? 'a break').toLowerCase()}. Clock back on to keep logging time on this job.`}>
+            <Button variant="contained" disabled={busy} data-testid="resume-timer" onClick={() => go('resume')}>Clock back on job</Button></Tooltip>
+          : <>
+            <Tooltip describeChild title="Pause your job time for a break. Paused time is not counted in man hours."><Button variant="outlined" disabled={busy} data-testid="pause-break" onClick={() => go('pause', 'Break')}>Pause job – Break</Button></Tooltip>
+            <Tooltip describeChild title="Pause your job time for lunch. Paused time is not counted in man hours."><Button variant="outlined" disabled={busy} data-testid="pause-lunch" onClick={() => go('pause', 'Lunch')}>Pause job – Lunch</Button></Tooltip>
+          </>)}
         {d && (d.mineRunning
-          ? <Button variant="contained" color="error" disabled={busy} data-testid="stop-timer" onClick={() => go('stop')}>Stop my timer</Button>
-          : <Button variant="contained" color="success" disabled={busy} data-testid="start-timer" onClick={() => go('start')}>Start my timer</Button>)}
+          ? <Tooltip describeChild title="Stop logging your time on this job."><Button variant="contained" color="error" disabled={busy} data-testid="stop-timer" onClick={() => go('stop')}>Clock off job</Button></Tooltip>
+          : <Tooltip describeChild title="Start logging your time on this job. Job time only, not payroll."><Button variant="contained" color="success" disabled={busy} data-testid="start-timer" onClick={() => go('start')}>Clock on job</Button></Tooltip>)}
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
-      {d && (d.people.length === 0 ? <Typography variant="body2" color="text.secondary">No time logged yet. Anyone can start a timer.</Typography> :
+      {d && (d.people.length === 0 ? <Typography variant="body2" color="text.secondary">No time logged yet. Anyone can clock on this job.</Typography> :
         <Table size="small" data-testid="time-people">
           <TableHead><TableRow><TableCell>Person</TableCell><TableCell align="right">Worked</TableCell><TableCell align="right">Paused (not counted)</TableCell><TableCell align="right">Sessions</TableCell><TableCell>Now</TableCell></TableRow></TableHead>
           <TableBody>{d.people.map((p) => <TableRow key={p.userId}>
             <TableCell>{p.name}</TableCell><TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(live(p))}</TableCell>
             <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', color: 'text.secondary' }}>{fmtSeconds(livePaused(p))}</TableCell>
             <TableCell align="right">{p.entries}</TableCell>
-            <TableCell>{p.runningSince ? <Chip size="small" color="success" label={`Running since ${fmtDateTime(p.runningSince)}`} />
-              : p.pausedSince ? <Chip size="small" color="warning" label={`Paused since ${fmtDateTime(p.pausedSince)}`} /> : '—'}</TableCell></TableRow>)}</TableBody>
+            <TableCell>{p.runningSince ? <Chip size="small" color="success" label={`Clocked on since ${fmtDateTime(p.runningSince)}`} />
+              : p.pausedSince ? <Chip size="small" color="warning" label={`Paused for ${(p.pauseReason ?? 'break').toLowerCase()} since ${fmtDateTime(p.pausedSince)}`} /> : '—'}</TableCell></TableRow>)}</TableBody>
         </Table>)}
       {d && d.log.length > 0 && <Box sx={{ mt: 1 }}>
         <Button size="small" data-testid="toggle-time-log" onClick={() => setShowLog(!showLog)}>{showLog ? 'Hide time log' : `Show time log (${d.log.length})`}</Button>
         {showLog && <Table size="small" data-testid="time-log">
           <TableHead><TableRow><TableCell>When</TableCell><TableCell>Person</TableCell><TableCell>Event</TableCell></TableRow></TableHead>
-          <TableBody>{d.log.map((l, i) => <TableRow key={i}><TableCell>{fmtDateTime(l.at)}</TableCell><TableCell>{l.userName}</TableCell><TableCell>{l.kind}</TableCell></TableRow>)}</TableBody>
+          <TableBody>{d.log.map((l, i) => <TableRow key={i}><TableCell>{fmtDateTime(l.at)}</TableCell><TableCell>{l.userName}</TableCell><TableCell>{l.label ?? l.kind}</TableCell></TableRow>)}</TableBody>
         </Table>}
-        <Typography variant="caption" color="text.secondary" component="div">Paused time is shown for the record but is not counted in man hours.</Typography>
+        <Typography variant="caption" color="text.secondary" component="div">Paused time (break or lunch) is shown for the record but is not counted in man hours. Job time only, not payroll.</Typography>
       </Box>}
     </Paper>
   );

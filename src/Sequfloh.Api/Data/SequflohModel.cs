@@ -248,7 +248,7 @@ public partial class AppDbContext
         {
             e.ToTable("sequfloh_time_entries");
             e.HasIndex(x => new { x.UserId, x.StartedAt });
-            // one running timer per person per work order
+            // one open clock-on per person per work order
             e.HasIndex(x => new { x.TrackingRecordId, x.UserId }, "IX_sequfloh_time_entries_running").HasFilter("\"StoppedAt\" IS NULL").IsUnique();
             e.HasIndex(x => x.TrackingRecordId);
             e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);

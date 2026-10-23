@@ -44,8 +44,10 @@ public sealed class JobReportDetailTests(TestApp app)
     {
         var (id, _, plain) = await JobAsync();
         await plain.PostOkAsync($"{U}/{id}/time/start");
-        await plain.PostOkAsync($"{U}/{id}/time/pause");
-        Assert.Equal(HttpStatusCode.Conflict, (await plain.PostAsync($"{U}/{id}/time/pause")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await plain.PostAsync($"{U}/{id}/time/pause", new { reason = "Payroll" })).StatusCode);
+        await plain.PostOkAsync($"{U}/{id}/time/pause", new { reason = "Lunch" });
+        Assert.Equal("Lunch", (await plain.GetElAsync($"{U}/{id}/time")).GetProperty("minePauseReason").GetString());
+        Assert.Equal(HttpStatusCode.Conflict, (await plain.PostAsync($"{U}/{id}/time/pause", new { reason = "Break" })).StatusCode);
         // move the clock back: started 3 h ago, paused for the last 1 h
         using (var scope = app.Services.CreateScope())
         {
@@ -63,9 +65,12 @@ public sealed class JobReportDetailTests(TestApp app)
         Assert.InRange(person.GetProperty("pausedSeconds").GetInt64(), 3590, 3660);
         var kinds = time.GetProperty("log").EnumerateArray().Select(l => l.GetProperty("kind").GetString()).ToList();
         Assert.Equal(["Start", "Pause", "Resume", "Stop"], kinds);
+        var labels = time.GetProperty("log").EnumerateArray().Select(l => l.GetProperty("label").GetString()).ToList();
+        Assert.Equal(["Clocked on job", "Paused for lunch", "Clocked back on job", "Clocked off job"], labels);
         var report = await plain.GetElAsync($"{U}/{id}/job/report");
         Assert.InRange(report.GetProperty("totalSeconds").GetInt64(), 7190, 7260);
         Assert.Equal(1, report.GetProperty("people")[0].GetProperty("sessions").GetInt32());
+        Assert.Equal("Paused for lunch", report.GetProperty("timeLog")[1].GetProperty("kind").GetString());
     }
 
     [Fact]

@@ -70,7 +70,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   await expect(view(page).getByTestId('stop-timer')).toBeVisible();
   await page.waitForTimeout(2500);
   await expect(view(page).getByTestId('time-total')).not.toHaveText('00:00:00');
-  await expect(view(page).getByTestId('time-people')).toContainText('Running since');
+  await expect(view(page).getByTestId('time-people')).toContainText('Clocked on since');
   await shot('timer-running-per-person');
   await view(page).getByTestId('stop-timer').click();
   await expect(view(page).getByTestId('start-timer')).toBeVisible();
