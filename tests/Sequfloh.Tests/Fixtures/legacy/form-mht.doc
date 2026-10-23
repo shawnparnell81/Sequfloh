@@ -1,0 +1,22 @@
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="----=_NextPart_01"
+
+This document is a Single File Web Page, also known as a Web Archive file.
+
+------=_NextPart_01
+Content-Location: file:///C:/form.htm
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/html; charset="windows-1252"
+
+<html><head><meta charset=3D"windows-1252"><title>Example inspection form</=
+title></head><body>
+<h1>Example inspection form</h1><p>Part: EXAMPLE-100. Check the housing for=
+ cracks.</p>
+<table border=3D"1"><tr><th>Part Number</th><th>Description</th><th>Repaira=
+ble</th></tr>
+<tr><td>LG-001</td><td>Example housing =96 caf=E9</td><td>Yes</td></tr><tr>=
+<td>LG-002</td><td>Example screw M3</td><td>No</td></tr></table></body></ht=
+ml>
+
+
+------=_NextPart_01--

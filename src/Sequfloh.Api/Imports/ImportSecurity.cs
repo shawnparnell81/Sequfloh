@@ -64,8 +64,8 @@ public static class ImportSecurity
                 catch (InvalidDataException) { return "The document is damaged."; }
                 finally { s.Position = 0; }
                 return null;
-            case ".xls" or ".doc" or ".rtf" or ".html":
-                return ext is ".rtf" or ".html" || Starts(Ole) ? null : "The file content is not a legacy Office document.";
+            case ".xls" or ".doc" or ".rtf" or ".html" or ".mht":
+                return ext is ".rtf" or ".html" or ".mht" || Starts(Ole) ? null : "The file content is not a legacy Office document.";
             case ".csv" or ".txt" or ".tsv":
                 var buf = new byte[8192];
                 var m = await s.ReadAsync(buf, ct);

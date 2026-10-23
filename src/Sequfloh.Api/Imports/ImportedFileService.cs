@@ -122,29 +122,40 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     /// <summary>
     /// The format to handle the file as, from its content rather than its name: an Office Open XML package named .doc or .xls is read as .docx or .xlsx,
-    /// a legacy binary file named .docx or .xlsx is converted like .doc or .xls, and RTF or a Word web page saved with a .doc name is converted to .docx when
-    /// the conversion adapter is available. The upload itself is always stored exactly as it came.
+    /// a legacy binary file named .docx or .xlsx is converted like .doc or .xls, and RTF or a web page (HTML or MHT) saved with an Office name is converted
+    /// to .docx, or to .xlsx when it was named as a spreadsheet. Word tells whether the file is a document. The upload itself is always stored exactly as it came.
     /// </summary>
-    async Task<string> EffectiveExtensionAsync(Stream original, string ext, CancellationToken ct)
+    public static async Task<(string Ext, bool Word)> EffectiveFormatAsync(Stream original, string ext, CancellationToken ct)
     {
-        if (ext is ".csv") return ext;
         var word = ext is ".doc" or ".docx";
+        if (ext is ".csv") return (ext, false);
         switch (await ImportSecurity.DetectAsync(original, ct))
         {
-            case "ole": return word ? ".doc" : ".xls";
-            case "docx": return ".docx";
-            case "xlsx": return ext == ".xlsm" ? ".xlsm" : ".xlsx";
-            case "rtf" or "html" or "mht" when !word:
-                throw new AppException("This file is a Word document or web page, not a spreadsheet. Open it in Excel and Save As .xlsx.");
-            case "rtf" when legacy.Available: return ".rtf";
-            case "html" when legacy.Available: return ".html";
-            case "rtf": throw new AppException("This file is really an RTF document saved with a .doc name. Open it in Word and Save As .docx.");
-            case "html" or "mht": throw new AppException("This file is really a web page saved with a .doc name. Open it in Word and Save As .docx.");
-            default: return ext;
+            case "ole": return (word ? ".doc" : ".xls", word);
+            case "docx": return (".docx", true);
+            case "xlsx": return (ext == ".xlsm" ? ".xlsm" : ".xlsx", false);
+            case "rtf" when !word: throw new AppException("This file is an RTF document, not a spreadsheet. Upload it as a Word document.");
+            case "rtf": return (".rtf", true);
+            case "html": return (".html", word);
+            case "mht": return (".mht", word);
+            default: return (ext, word);
         }
     }
 
-    static string ConvertedNote(string ext) => ext is ".csv" or ".xls" or ".doc" or ".rtf" or ".html" ? $"Converted from {ext.TrimStart('.').ToUpperInvariant()}" : "As uploaded";
+    /// <summary>Converts an older or web-page format to .docx or .xlsx with the office converter. The input stream is left as it is.</summary>
+    public static async Task<byte[]> ConvertLegacyAsync(ILegacyOfficeConverter legacy, MemoryStream original, string ext, bool word, CancellationToken ct)
+    {
+        var to = word ? "docx" : "xlsx";
+        original.Position = 0;
+        Stream input = original; var from = ext.TrimStart('.');
+        if (ext == ".mht") { input = new MemoryStream(MhtReader.ToHtml(original.ToArray())); from = "html"; }
+        await using var converted = await legacy.ConvertAsync(input, from, to, ct);
+        var ms = new MemoryStream(); await converted.CopyToAsync(ms, ct);
+        original.Position = 0;
+        return ms.ToArray();
+    }
+
+    static string ConvertedNote(string ext) => ext is ".csv" or ".xls" or ".doc" or ".rtf" or ".html" or ".mht" ? $"Converted from {ext.TrimStart('.').ToUpperInvariant()}" : "As uploaded";
 
     /// <summary>Checks an upload and works out the working copy the app opens and edits (CSV and legacy formats are converted).</summary>
     async Task<(string Name, string Ext, MemoryStream Original, ImportedFileKind Kind, byte[] Working, string WorkingExt, string WorkingType, string Summary)> PrepareAsync(Stream content, string fileName, CancellationToken ct)
@@ -157,23 +168,18 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (original.Length == 0) throw new AppException("The file is empty.");
         if (original.Length > MaxBytes) throw new AppException("Files are limited to 20 MB.");
         original.Position = 0;
-        ext = await EffectiveExtensionAsync(original, ext, ct);
+        (ext, var word) = await EffectiveFormatAsync(original, ext, ct);
         if (await ImportSecurity.InspectAsync(original, ext, ct) is { } problem) throw new AppException(problem);
 
         // the working copy that the app opens and edits
-        byte[] working; string workingExt; string workingType; var kind = ext is ".docx" or ".doc" or ".rtf" or ".html" ? ImportedFileKind.Document : ImportedFileKind.Spreadsheet;
+        byte[] working; string workingExt; string workingType; var kind = word ? ImportedFileKind.Document : ImportedFileKind.Spreadsheet;
         switch (ext)
         {
             case ".csv": working = CsvToWorkbook(original, Path.GetFileNameWithoutExtension(name)); workingExt = ".xlsx"; workingType = XlsxType; break;
-            case ".xls" or ".doc" or ".rtf" or ".html":
-            {
-                var to = ext == ".xls" ? "xlsx" : "docx";
-                original.Position = 0;
-                await using var converted = await legacy.ConvertAsync(original, ext.TrimStart('.'), to, ct);
-                var ms = new MemoryStream(); await converted.CopyToAsync(ms, ct);
-                working = ms.ToArray(); workingExt = "." + to; workingType = to == "xlsx" ? XlsxType : DocxType;
+            case ".xls" or ".doc" or ".rtf" or ".html" or ".mht":
+                working = await ConvertLegacyAsync(legacy, original, ext, word, ct);
+                workingExt = word ? ".docx" : ".xlsx"; workingType = word ? DocxType : XlsxType;
                 break;
-            }
             default: working = original.ToArray(); workingExt = ext; workingType = ext == ".docx" ? DocxType : ext == ".xlsm" ? XlsmType : XlsxType; break;
         }
         string summary;
@@ -197,7 +203,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     static string ContentTypeOf(string ext) => ext switch
     {
-        ".xlsx" => XlsxType, ".xlsm" => XlsmType, ".xls" => "application/vnd.ms-excel", ".csv" => "text/csv", ".docx" => DocxType, ".doc" => "application/msword", ".rtf" => "application/rtf", ".html" => "text/html", _ => "application/octet-stream",
+        ".xlsx" => XlsxType, ".xlsm" => XlsmType, ".xls" => "application/vnd.ms-excel", ".csv" => "text/csv", ".docx" => DocxType, ".doc" => "application/msword", ".rtf" => "application/rtf", ".html" => "text/html", ".mht" => "multipart/related", _ => "application/octet-stream",
     };
 
     async Task<ImportedFileVersion> StoreVersionAsync(ImportedFile f, int version, byte[] bytes, string ext, string type, string? note, CancellationToken ct)
