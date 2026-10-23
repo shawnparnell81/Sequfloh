@@ -16,7 +16,8 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record PartReplaced(string PartNumber, string? Description, decimal PerAssembly, decimal? Quantity, decimal? UnitCost = null);
 public sealed record CostLine(string Description, decimal Amount);
-/// <summary>Report sections beyond the summary. All off means the summary only.</summary>
+/// <summary>Report sections beyond the summary. All off means the summary only. <see cref="Tests"/> is the explicit "Include test results report?" choice:
+/// when it is No, nothing about test results appears anywhere on the report, Full detail included.</summary>
 public sealed record ReportOptions(bool PerTech = false, bool TimeLog = false, bool Findings = false, bool Tests = false, bool Attachments = false, bool Photos = false, bool Cost = false)
 {
     public static readonly ReportOptions Full = new(true, true, true, true, true, true, true);
@@ -334,7 +335,9 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         var log = entries.SelectMany(e => SequflohTimeService.EventsOf(e).Select(v => new ReportTimeEvent(e.UserName, SequflohTimeService.Label(v), v.At))).OrderBy(v => v.At).ToList();
         var parts = Parts(r.PartsReplaced).Select(p => new ReportPart(p.PartNumber, p.Description, p.PerAssembly, Total(p, r.QuantityCompleted), p.Quantity is not null, p.UnitCost)).ToList();
         var all = await db.SequflohTestFiles.AsNoTracking().Where(x => x.TrackingRecordId == id).ToListAsync(ct);
-        var files = all.Where(x => x.Kind == "test")
+        var opts = Options(r.ReportOptions);
+        // "Include test results report?" No: the report carries no test results at all
+        var files = !opts.Tests ? [] : all.Where(x => x.Kind == "test")
             .OrderBy(x => x.TestDate ?? DateOnly.FromDateTime(x.CreatedAt.UtcDateTime)).ThenBy(x => x.Batch).ThenBy(x => x.CreatedAt)
             .Select(x => new ReportFile(x.FileName, x.Batch, x.TestDate, x.Tested, x.Passed, x.Failed, JsonSerializer.Deserialize<List<KeyValue>>(x.KeyValues, SequflohJson.Options) ?? [], x.UploadedByName, x.CreatedAt)).ToList();
         ReportAttachment A(SequflohTestFile x) => new(x.Id, x.FileName, x.Kind, x.UploadedByName, x.CreatedAt);
@@ -342,7 +345,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         return new JobReport(r.Id, r.Number, r.Type.ToString(), r.Status.ToString(), r.WorkInstructionTitle, r.PartNumber, r.PartDescription, r.WorkOrder,
             r.QuantityTarget, r.QuantityCompleted, r.QuantityNotRepaired, people, people.Sum(p => p.Seconds), parts, parts.Sum(p => p.Quantity),
             files, files.Sum(x => x.Tested ?? 0), files.Sum(x => x.Passed ?? 0), files.Sum(x => x.Failed ?? 0), now,
-            people.Sum(p => p.PausedSeconds), log, FindingsOf(r.Findings), lines, Options(r.ReportOptions),
+            people.Sum(p => p.PausedSeconds), log, FindingsOf(r.Findings), lines, opts,
             [.. all.Where(x => x.Kind == "attachment").OrderBy(x => x.CreatedAt).Select(A)], [.. all.Where(x => x.Kind == "evidence").OrderBy(x => x.CreatedAt).Select(A)],
             r.WorkInstructionNumber, r.WorkInstructionRevision,
             parts.Sum(p => p.UnitCost is { } u ? Math.Round(u * p.Quantity, 2) : 0), lines.Sum(l => l.Amount));
@@ -361,7 +364,8 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     {
         var x = await ReportAsync(id, ct);
         var rec = await tracking.LoadAsync(id, false, ct);
-        var o = full ? ReportOptions.Full : x.Options ?? new();
+        var saved = x.Options ?? new();
+        var o = full ? ReportOptions.Full with { Tests = saved.Tests } : saved;
         var (printed, local) = await print.ClockAsync(rec.SiteId, ct);
         var org = await print.OrganizationAsync(ct);
         string Blank(string? s) => string.IsNullOrWhiteSpace(s) ? "____" : s.Trim();
@@ -451,7 +455,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         return (pdf, $"{x.Number}-job-report.pdf");
     }
 
-    public static bool HasFindings(JobFindings f) => f != new JobFindings();
+    public static bool HasFindings(JobFindings f) => f with { ErpReference = null } != new JobFindings();
 
     static void AddFindings(List<PrintBlock> blocks, JobFindings fd, JobReport x)
     {
@@ -459,7 +463,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         blocks.Add(new PrintFields([("Discovery method", fd.DiscoveryMethod), ("Date discovered", fd.DateDiscovered?.ToString("yyyy-MM-dd")), ("Discovered by", fd.DiscoveredBy), ("Site", fd.Site),
             ("Supplier", fd.Supplier), ("Supplier part number", fd.SupplierPartNumber), ("Lot / date codes", fd.LotDateCodes), ("PO", fd.PurchaseOrder),
             ("Qty inspected", I(fd.QtyInspected)), ("Qty nonconforming", I(fd.QtyNonconforming)), ("Qty affected", I(fd.QtyAffected)),
-            ("Warranty claim #", fd.WarrantyClaim), ("Alert / recall #", fd.AlertRecall), ("ERP reference", fd.ErpReference)]));
+            ("Warranty claim #", fd.WarrantyClaim), ("Alert / recall #", fd.AlertRecall)])); // the ERP reference stays on the Findings tab and is not printed
         if (fd.Description is { } d) blocks.Add(new PrintFields([("Description", d)]));
         if (fd.RepairMethod is not null || fd.RootCause is not null)
         {

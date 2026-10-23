@@ -1,5 +1,13 @@
 # Changes
 
+## Report: test results Yes / No, ERP reference off the report
+
+- The chargeback report (print page and PDF) no longer shows the ERP reference. The field stays on the Findings tab because it belongs to the work order's findings.
+- The "Test results" checkbox is replaced by an explicit "Include test results report?" No / Yes choice. No is the default and the answer is remembered per work order.
+- With No, the report has no test results at all: no section, file list, totals or other mention, on the print page or in the PDF.
+- Full detail and Summary only leave the Yes / No answer as it is.
+- New tests: no "test" wording in the report or PDF when the answer is No (including Full detail), the section comes back with Yes, and the ERP reference is never printed.
+
 ## Clock on / clock off job time
 - Time buttons now read "Clock on job", "Pause job – Break", "Pause job – Lunch", "Clock back on job" and "Clock off job", with matching tooltips.
 - A pause records why (Break or Lunch). The reason shows in the Time tab ("Paused for lunch since …"), the time log and the detailed time log on the job report and PDF.

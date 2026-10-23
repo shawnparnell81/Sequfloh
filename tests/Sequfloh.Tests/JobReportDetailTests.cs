@@ -96,6 +96,44 @@ public sealed class JobReportDetailTests(TestApp app)
         Assert.Contains("Findings / nonconformance", await PdfText(plain, $"{U}/{id}/job/report/pdf?full=true"));
     }
 
+    /// <summary>The words a reader sees in the PDF: the text shown by each Tj / TJ operator.</summary>
+    static string Shown(string pdf) => string.Join(" ", System.Text.RegularExpressions.Regex.Matches(pdf, @"\(((?:\\.|[^\\)])*)\)\s*Tj|\[(.*?)\]\s*TJ").Select(m => m.Value));
+
+    [Fact]
+    public async Task Test_results_are_left_out_completely_when_the_answer_is_no_and_the_erp_reference_is_never_printed()
+    {
+        var (id, _, plain) = await JobAsync();
+        var csv = "Serial,Result,Volts\nA1,PASS,12.1\nA2,FAIL,11.2\n"u8.ToArray();
+        var form = new MultipartFormDataContent { { new ByteArrayContent(csv), "files", "tester-run.csv" }, { new StringContent("2026-10-20"), "testDate" } };
+        Assert.True((await plain.Http.PostAsync($"{U}/{id}/job/test-files", form)).IsSuccessStatusCode);
+        await plain.PutAsync($"{U}/{id}/job/findings", new { description = "Made-up cracked housings", erpReference = "ERP-998877" });
+        // default: No
+        Assert.False((await plain.GetElAsync($"{U}/{id}/job")).GetProperty("reportOptions").GetProperty("tests").GetBoolean());
+        foreach (var url in new[] { $"{U}/{id}/job/report/pdf", $"{U}/{id}/job/report/pdf?full=true" })
+        {
+            // the test fixture's own organisation and user names are not report wording
+            var text = System.Text.RegularExpressions.Regex.Replace(Shown(await PdfText(plain, url)), @"Test Organization|Test u[0-9a-f]+", "");
+            Assert.NotEmpty(text);
+            Assert.True(System.Text.RegularExpressions.Regex.Matches(text, "test", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count == 0, text);
+            Assert.DoesNotContain("Pass rate", text);
+            Assert.DoesNotContain("ERP", text);
+            Assert.DoesNotContain("998877", text);
+        }
+        var noJson = await plain.GetElAsync($"{U}/{id}/job/report");
+        Assert.Empty(noJson.GetProperty("files").EnumerateArray());
+        Assert.Equal(0, noJson.GetProperty("tested").GetInt32());
+        // Yes: the section and the file list come back, remembered for the work order; the ERP reference still stays off
+        await plain.PutAsync($"{U}/{id}/job/report-options", new { findings = true, tests = true });
+        Assert.True((await plain.GetElAsync($"{U}/{id}/job")).GetProperty("reportOptions").GetProperty("tests").GetBoolean());
+        var yes = Shown(await PdfText(plain, $"{U}/{id}/job/report/pdf?full=true"));
+        Assert.Contains("Test results", yes);
+        Assert.Contains("tester-run.csv", yes);
+        Assert.Contains("Findings / nonconformance", yes);
+        Assert.DoesNotContain("998877", yes);
+        // the ERP reference is kept on the work order's findings
+        Assert.Equal("ERP-998877", (await plain.GetElAsync($"{U}/{id}/job")).GetProperty("findings").GetProperty("erpReference").GetString());
+    }
+
     [Fact]
     public async Task Findings_are_validated_and_audited_and_costs_add_up()
     {
