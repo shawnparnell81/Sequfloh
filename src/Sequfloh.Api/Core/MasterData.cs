@@ -15,6 +15,8 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     /// <summary>Optional free-text note that goes with the status.</summary>
     [System.ComponentModel.DataAnnotations.MaxLength(300)]
     public string? StatusNote { get; set; }
+    /// <summary>Free notes about the part, shown at the top of the part and where it is picked.</summary>
+    public string? Notes { get; set; }
     public string PartNumber { get; set; } = "";
     public string Name { get; set; } = "";
     public string? Description { get; set; }

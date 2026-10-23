@@ -4,10 +4,10 @@ using Sequfloh.Application.Abstractions;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 /// <summary>
-/// One cross-reference number or other attribute of a part. Types lists the part type codes the field belongs to; null means every type.
+/// One cross-reference number or other attribute of a part. Types lists the part type codes the field belongs to (null means every type); NotTypes lists codes it is not shown for.
 /// Words are the column headings that suggest the field in Parts import.
 /// </summary>
-public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null);
+public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null, string[]? NotTypes = null);
 
 /// <summary>
 /// The attribute fields of a part. The OR # is the part number and the SENSEN # is the drawing number, so neither is an attribute.
@@ -16,13 +16,21 @@ public sealed record PartAttributeDef(string Key, string Label, string[] Words, 
 /// </summary>
 public static class PartAttributes
 {
+    static readonly string[] FuelPump = ["FUEL_PUMP"];
+
     public static readonly PartAttributeDef[] All =
     [
-        new("nissanVa", "Nissan VA #", ["nissan va", "nissan va #", "nissan va no", "nissan va number", "nissan va part number"]),
-        new("napaUs", "NAPA US #", ["napa us", "napa us #", "napa us no", "napa us number", "napa usa"]),
-        new("napaCa", "NAPA CA #", ["napa ca", "napa ca #", "napa ca no", "napa ca number", "napa canada"]),
-        new("keyApplication", "Key Application", ["key application", "key applications", "key app", "application", "applications"], 1000),
-        new("position", "Position", ["position", "pos", "location on vehicle", "mounting position"]),
+        new("nissanVa", "Nissan VA #", ["nissan va", "nissan va #", "nissan va no", "nissan va number", "nissan va part number"], NotTypes: FuelPump),
+        new("napaUs", "NAPA US #", ["napa us", "napa us #", "napa us no", "napa us number", "napa usa"], NotTypes: FuelPump),
+        new("napaCa", "NAPA CA #", ["napa ca", "napa ca #", "napa ca no", "napa ca number", "napa canada"], NotTypes: FuelPump),
+        new("keyApplication", "Key Application", ["key application", "key applications", "key app", "application", "applications"], 1000, NotTypes: FuelPump),
+        new("position", "Position", ["position", "pos", "location on vehicle", "mounting position"], NotTypes: FuelPump),
+        // the columns of the fuel pump sheet: OR PN is the part number, the rest are these fields
+        new("napaPn", "NAPA PN", ["napa pn"], Types: FuelPump),
+        new("dmaPn", "DMA PN", ["dma pn"], Types: FuelPump),
+        new("cross", "Cross", ["cross"], Types: FuelPump),
+        new("jhPn", "JH PN", ["jh pn"], Types: FuelPump),
+        new("boxSize", "Individual Box Size", ["individual box size"], Types: FuelPump),
     ];
 
     public static PartAttributeDef? Find(string key) => All.FirstOrDefault(a => a.Key == key);

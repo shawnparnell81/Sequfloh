@@ -35,10 +35,9 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     /// <summary>Importable fields and the header words that suggest them.</summary>
     public static readonly (string Key, string Label, string[] Words)[] Fields =
     [
-        ("partNumber", "OR # (Part number)", ["or #", "or#", "or no", "or number", "part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
+        ("partNumber", "OR # (Part number)", ["or pn", "or #", "or#", "or no", "or number", "part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
         ("name", "Name", ["name", "part name", "item name", "title"]),
         ("description", "Description", ["description", "desc", "details", "purchase description", "sales description"]),
-        ("revision", "Revision", ["revision", "rev", "rev level"]),
         ("typeName", "Product family", ["product family", "family", "category", "item category", "product category", "part type", "type", "product type"]),
         ("partClass", "Part class", ["part class", "item type", "class"]),
         ("unitOfMeasure", "Unit of measure", ["unit of measure", "uom", "unit", "units"]),
@@ -243,7 +242,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var chosenName = Family("name", "Name");
             var pclass = Family("partClass", "Part class");
 
-            var rev = Text("revision", "Revision", 10);
+            string? rev = null; // parts have no revision; new parts keep the internal default
             string? uom = null;
             if (Get("unitOfMeasure") is { Length: > 0 } u && (uom = PartChoices.Unit(u)) is null) errors.Add($"Unit of measure \"{u}\" must be Each, Lot, Batch or Skid.");
             var asm = FlagOf("isAssembly", "Assembly");
