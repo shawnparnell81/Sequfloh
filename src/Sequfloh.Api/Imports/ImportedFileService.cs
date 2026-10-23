@@ -88,6 +88,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false)
     {
         var (name, ext, original, kind, working, workingExt, workingType, summary) = await PrepareAsync(content, fileName, ct);
+        var storedExt = Path.GetExtension(name).ToLowerInvariant();
 
         var site = siteId ?? await db.Users.Where(u => u.Id == UserId).Select(u => u.DefaultSiteId).FirstOrDefaultAsync(ct) ?? await db.Sites.Select(s => (Guid?)s.Id).FirstOrDefaultAsync(ct)
             ?? throw new AppException("Set up a site first.");
@@ -97,11 +98,11 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var f = new ImportedFile
         {
             Number = await numbers.NextAsync("SqfImportedFile", site, ct),
-            Title = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(name) : title.Trim(),
+            Title = string.IsNullOrWhiteSpace(title) ? DefaultTitle(name) : title.Trim(),
             Kind = kind, SourceFormat = ext.TrimStart('.'), OriginalFileName = name, SiteId = site, DepartmentId = departmentId, Summary = summary, IsBlankForm = blankForm,
         };
         if (f.Title.Length > 300) f.Title = f.Title[..300];
-        f.OriginalStorageKey = $"imports/{f.Id:N}/original{ext}";
+        f.OriginalStorageKey = $"imports/{f.Id:N}/original{storedExt}";
         original.Position = 0;
         await storage.PutAsync(f.OriginalStorageKey, original, ContentTypeOf(ext), ct);
         db.ImportedFiles.Add(f);
@@ -111,7 +112,39 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         return f;
     }
 
-    static string ConvertedNote(string ext) => ext is ".csv" or ".xls" or ".doc" ? $"Converted from {ext.TrimStart('.').ToUpperInvariant()}" : "As uploaded";
+    /// <summary>File name without its extension; a doubled extension such as "Report.doc.doc" is removed too.</summary>
+    public static string DefaultTitle(string name)
+    {
+        var t = Path.GetFileName(name);
+        while (Accepted.Contains(Path.GetExtension(t).ToLowerInvariant()) && Path.GetFileNameWithoutExtension(t).Length > 0) t = Path.GetFileNameWithoutExtension(t);
+        return t.Trim();
+    }
+
+    /// <summary>
+    /// The format to handle the file as, from its content rather than its name: an Office Open XML package named .doc or .xls is read as .docx or .xlsx,
+    /// a legacy binary file named .docx or .xlsx is converted like .doc or .xls, and RTF or a Word web page saved with a .doc name is converted to .docx when
+    /// the conversion adapter is available. The upload itself is always stored exactly as it came.
+    /// </summary>
+    async Task<string> EffectiveExtensionAsync(Stream original, string ext, CancellationToken ct)
+    {
+        if (ext is ".csv") return ext;
+        var word = ext is ".doc" or ".docx";
+        switch (await ImportSecurity.DetectAsync(original, ct))
+        {
+            case "ole": return word ? ".doc" : ".xls";
+            case "docx": return ".docx";
+            case "xlsx": return ext == ".xlsm" ? ".xlsm" : ".xlsx";
+            case "rtf" or "html" or "mht" when !word:
+                throw new AppException("This file is a Word document or web page, not a spreadsheet. Open it in Excel and Save As .xlsx.");
+            case "rtf" when legacy.Available: return ".rtf";
+            case "html" when legacy.Available: return ".html";
+            case "rtf": throw new AppException("This file is really an RTF document saved with a .doc name. Open it in Word and Save As .docx.");
+            case "html" or "mht": throw new AppException("This file is really a web page saved with a .doc name. Open it in Word and Save As .docx.");
+            default: return ext;
+        }
+    }
+
+    static string ConvertedNote(string ext) => ext is ".csv" or ".xls" or ".doc" or ".rtf" or ".html" ? $"Converted from {ext.TrimStart('.').ToUpperInvariant()}" : "As uploaded";
 
     /// <summary>Checks an upload and works out the working copy the app opens and edits (CSV and legacy formats are converted).</summary>
     async Task<(string Name, string Ext, MemoryStream Original, ImportedFileKind Kind, byte[] Working, string WorkingExt, string WorkingType, string Summary)> PrepareAsync(Stream content, string fileName, CancellationToken ct)
@@ -124,14 +157,15 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (original.Length == 0) throw new AppException("The file is empty.");
         if (original.Length > MaxBytes) throw new AppException("Files are limited to 20 MB.");
         original.Position = 0;
+        ext = await EffectiveExtensionAsync(original, ext, ct);
         if (await ImportSecurity.InspectAsync(original, ext, ct) is { } problem) throw new AppException(problem);
 
         // the working copy that the app opens and edits
-        byte[] working; string workingExt; string workingType; var kind = ext is ".docx" or ".doc" ? ImportedFileKind.Document : ImportedFileKind.Spreadsheet;
+        byte[] working; string workingExt; string workingType; var kind = ext is ".docx" or ".doc" or ".rtf" or ".html" ? ImportedFileKind.Document : ImportedFileKind.Spreadsheet;
         switch (ext)
         {
             case ".csv": working = CsvToWorkbook(original, Path.GetFileNameWithoutExtension(name)); workingExt = ".xlsx"; workingType = XlsxType; break;
-            case ".xls" or ".doc":
+            case ".xls" or ".doc" or ".rtf" or ".html":
             {
                 var to = ext == ".xls" ? "xlsx" : "docx";
                 original.Position = 0;
@@ -163,7 +197,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     static string ContentTypeOf(string ext) => ext switch
     {
-        ".xlsx" => XlsxType, ".xlsm" => XlsmType, ".xls" => "application/vnd.ms-excel", ".csv" => "text/csv", ".docx" => DocxType, ".doc" => "application/msword", _ => "application/octet-stream",
+        ".xlsx" => XlsxType, ".xlsm" => XlsmType, ".xls" => "application/vnd.ms-excel", ".csv" => "text/csv", ".docx" => DocxType, ".doc" => "application/msword", ".rtf" => "application/rtf", ".html" => "text/html", _ => "application/octet-stream",
     };
 
     async Task<ImportedFileVersion> StoreVersionAsync(ImportedFile f, int version, byte[] bytes, string ext, string type, string? note, CancellationToken ct)

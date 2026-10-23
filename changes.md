@@ -1,5 +1,14 @@
 # Changes
 
+## Word files with the wrong extension
+
+- Imports now check what a file really contains instead of trusting its name. A Word .docx or Excel .xlsx file renamed .doc or .xls opens normally, and a legacy binary file named .docx or .xlsx is converted like .doc or .xls.
+- RTF documents and Word web pages saved with a .doc name are converted to a working Word copy. If the server cannot convert them, the message says what the file really is and to open it in Word and Save As .docx. Single-file web pages (.mht) always get that message.
+- Files that are not a recognised document are still refused.
+- The uploaded file is always kept exactly as it came. Macros are never run.
+- The default title drops a doubled extension, so "Procedure - Rev C.doc.doc" becomes "Procedure - Rev C".
+- New tests with made-up files: a .docx named .doc, RTF and web pages named .doc, a real legacy .doc, and random bytes.
+
 ## Inspection layout templates
 
 - Eight standard inspection layout templates are added under Work Instructions > Templates > Layout templates: AQL Sample Result, Product Alert, Validation Result, Warranty Claim Return, Supplier Request, Customer Request / Complaint, Random Inspection, and Recall / Containment Sort.
