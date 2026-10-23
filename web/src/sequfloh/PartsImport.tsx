@@ -35,7 +35,7 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
   const read = (headerRow?: number) => run(async () => {
     const fd = new FormData(); fd.append('file', file!);
     const t = await post<ImportTable>(`${S}/parts/import/read?allTables=${allTables}${headerRow ? `&headerRow=${headerRow}` : ''}`, fd);
-    setTable(t); setMapping(t.mapping); setFixed({}); setPlan(null);
+    const { name: _n, ...m } = t.mapping; setTable(t); setMapping(m); setFixed({}); setPlan(null);
   });
   const body = (upd = update, map = mapping) => ({ fileName: table!.fileName, headers: table!.headers, rows: table!.rows, mapping: map, siteId: site, updateExisting: upd,
     rowNumbers: table!.rowNumbers, keepRepeats, fixed });
@@ -81,20 +81,19 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
             </Stack>}
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Column mapping · {table.rows.length} rows found</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              For each field, pick the column in your file that fills it. Fields with set choices (Name, Product family, Part class, Unit of measure, Assembly, Repairable, Lot controlled)
+              For each field, pick the column in your file that fills it. Name is picked here for every row and never comes from the file. Fields with set choices (Product family, Part class, Unit of measure, Assembly, Repairable, Lot controlled)
               can also use one choice for every row. Values from a column must match a choice; rows that do not are listed as errors in the preview.
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 1.5 }}>
               {(fields.data ?? []).map((f) => (
-                <TextField key={f.key} select size="small" label={f.label} value={valueOf(f.key)} onChange={(e) => setMap(f.key, e.target.value)} inputProps={{ 'data-field': f.key }}
-                  SelectProps={{ renderValue: (v) => { const x = String(v); return x.startsWith('fix:') ? `All rows: ${x.slice(4)}` : x.startsWith('col:') ? `Column: ${table.headers[Number(x.slice(4))] || `Column ${Number(x.slice(4)) + 1}`}` : 'Not imported'; }, displayEmpty: true }}
+                <TextField key={f.key} select size="small" label={f.key === 'name' ? 'Name (required, same for all rows)' : f.label} error={f.key === 'name' && !fixed.name} value={valueOf(f.key)} onChange={(e) => setMap(f.key, e.target.value)} inputProps={{ 'data-field': f.key }}
+                  SelectProps={{ renderValue: (v) => { const x = String(v); return x.startsWith('fix:') ? `All rows: ${x.slice(4)}` : x.startsWith('col:') ? `Column: ${table.headers[Number(x.slice(4))] || `Column ${Number(x.slice(4)) + 1}`}` : f.key === 'name' ? 'Choose a name' : 'Not imported'; }, displayEmpty: true }}
                   InputLabelProps={{ shrink: true }}>
-                  <MenuItem value=""><em>Not imported</em></MenuItem>
+                  {f.key !== 'name' && <MenuItem value=""><em>Not imported</em></MenuItem>}
                   {f.choices ? [
                     <ListSubheader key="h1">Same for all rows</ListSubheader>,
                     ...choiceList(f.choices).map((c) => <MenuItem key={`${f.key}-f${c}`} value={`fix:${c}`} sx={{ pl: 4 }}>{c}</MenuItem>),
-                    <ListSubheader key="h2">From file column</ListSubheader>,
-                    ...columnItems(f.key),
+                    ...(f.key === 'name' ? [] : [<ListSubheader key="h2">From file column</ListSubheader>, ...columnItems(f.key)]),
                   ] : columnItems(f.key)}
                 </TextField>
               ))}
@@ -107,8 +106,9 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
               </RadioGroup>
               <FormControlLabel control={<Checkbox size="small" checked={keepRepeats} data-testid="keep-repeats" onChange={(e) => { setKeepRepeats(e.target.checked); setPlan(null); }} />}
                 label="Keep rows that repeat an OR # but differ" title="A row with the same OR # as another row but other values (for example another Position) is added as its own part. Exact duplicate rows are always skipped." />
-              <Button variant="outlined" disabled={busy} onClick={() => preview()}>Preview</Button>
+              <Button variant="outlined" disabled={busy || !fixed.name} onClick={() => preview()}>Preview</Button>
             </Stack>
+            {!fixed.name && <Alert severity="warning" sx={{ mt: 2 }} data-testid="name-required">Choose the Name for all rows before you preview or import. The name is never taken from the file.</Alert>}
           </Box>}
           {plan && <Box sx={{ mt: 2 }}>
             <Stack direction="row" gap={1} sx={{ mb: 1 }} data-testid="import-counts">
@@ -125,7 +125,7 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>{done ? 'Close' : 'Cancel'}</Button>
-        {!done && <Button variant="contained" disabled={!plan || busy || plan.add + plan.update === 0} onClick={confirm}>Import {plan ? plan.add + plan.update : ''} parts</Button>}
+        {!done && <Button variant="contained" disabled={!plan || busy || !fixed.name || plan.add + plan.update === 0} onClick={confirm}>Import {plan ? plan.add + plan.update : ''} parts</Button>}
       </DialogActions>
     </Dialog>
   );

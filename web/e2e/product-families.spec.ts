@@ -93,6 +93,8 @@ test('product families and cross-reference fields', async ({ page }) => {
   await expect(imp.locator('input[data-field="attr:position"]')).toHaveValue('col:6');
   await imp.getByRole('combobox', { name: /^Product family/ }).last().click();
   await page.getByRole('option', { name: 'Complete Strut Assembly (CSA)' }).click();
+  await imp.getByRole('combobox', { name: /^Name/ }).click();
+  await page.getByRole('option', { name: 'Struts', exact: true }).click();
   await shot('09-import-mapping');
   await imp.getByRole('button', { name: 'Preview' }).click();
   await expect(imp.getByTestId('import-counts')).toContainText('Add 2');

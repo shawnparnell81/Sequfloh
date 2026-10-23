@@ -25,6 +25,9 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await expect(dlg.locator('input[data-field="partNumber"]')).toHaveValue('col:0');
   await expect(dlg.locator('input[data-field="isRepairPart"]')).toHaveValue('col:5');
   await expect(dlg.locator('input[data-field="statusTag"]')).toHaveValue('col:6');
+  await expect(dlg.getByRole('button', { name: 'Preview' })).toBeDisabled();
+  await dlg.getByRole('combobox', { name: /^Name/ }).click();
+  await page.getByRole('option', { name: 'Gas Lift', exact: true }).click();
   await shot('01-column-mapping');
   await dlg.getByRole('button', { name: 'Preview' }).click();
   const counts = dlg.getByTestId('import-counts');
@@ -41,6 +44,8 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await view(page).getByRole('button', { name: 'Import parts' }).click();
   await dlg.getByTestId('import-file').setInputFiles({ name: 'example-parts.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await dlg.getByRole('button', { name: 'Read file' }).click();
+  await dlg.getByRole('combobox', { name: /^Name/ }).click();
+  await page.getByRole('option', { name: 'Gas Lift', exact: true }).click();
   await dlg.getByRole('button', { name: 'Preview' }).click();
   await expect(counts).toContainText('Add 0'); await expect(counts).toContainText('Skip 6');
   await dlg.getByLabel('Update existing').check();

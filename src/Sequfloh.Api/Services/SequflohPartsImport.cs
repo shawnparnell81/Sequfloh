@@ -207,11 +207,13 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         "" => null, "y" or "yes" or "true" or "1" or "x" => true, "n" or "no" or "false" or "0" => false, _ => throw new FormatException(),
     };
 
-    static string? Cut(string? v) => v is null ? null : v.Length > 200 ? v[..200] : v;
 
     async Task<List<Parsed>> ParseAsync(PartsImportRequest r, CancellationToken ct)
     {
         if (r.Fixed?.Keys.FirstOrDefault(k => ChoiceKind(k) is null) is { } bad) throw new AppException($"\"{bad}\" cannot be the same for all rows.");
+        // the name is always chosen in the dialog, never read from the file
+        if (r.Mapping.ContainsKey("name")) throw new AppException("Name cannot come from a file column. Choose the Name for all rows.");
+        if (string.IsNullOrWhiteSpace(r.Fixed?.GetValueOrDefault("name"))) throw new AppException("Choose the Name for all rows before you preview or import.");
         if (!r.Mapping.TryGetValue("partNumber", out _)) throw new AppException("Choose the column that holds the part number.");
         if (r.Rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
         var tags = await f.OptionsAsync("status-tags", ct);
@@ -230,8 +232,6 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var desc = Text("description", "Description", 4000);
             var attrs = new Dictionary<string, string>();
             foreach (var a in PartAttributes.All) if (Text("attr:" + a.Key, a.Label, a.MaxLength) is { } av) attrs[a.Key] = av;
-            // without a name column the name comes from the description, then key application and position, then the part number
-            var fallback = string.Join(" ", new[] { attrs.GetValueOrDefault("keyApplication"), attrs.GetValueOrDefault("position") }.Where(x => !string.IsNullOrEmpty(x)));
             string? Family(string key, string label)
             {
                 var v = Get(key);
@@ -257,8 +257,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 typeId = partTypes.FirstOrDefault(x => SequflohFoundationService.ProductFamilyMatches(x.Code, x.Label, tn))?.Id;
                 if (typeId is null) errors.Add($"Product family \"{tn}\" is not in the product families list.");
             }
-            // without a name the name is the product family, then the description, key application and position, then the part number
-            var name = chosenName ?? (typeId is { } nt ? partTypes.First(x => x.Id == nt).Label : null) ?? Cut(desc) ?? Cut(fallback.Length > 0 ? fallback : null) ?? pn;
+            var name = chosenName;
             string? tag = null;
             var tg = Get("statusTag");
             if (tg.Length > 0) { tag = tags.FirstOrDefault(x => string.Equals(x, tg, StringComparison.OrdinalIgnoreCase)); if (tag is null) errors.Add($"\"{tg}\" is not an official status in the list."); }
@@ -266,7 +265,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             list.Add(new Parsed(r.RowNumbers?[i] ?? i + 1, pn, name, rev, errors, p =>
             {
                 // only mapped, non-empty values are written, so an update never blanks existing data
-                if (name is not null && (chosenName is not null || p.Name is null or "")) p.Name = name;
+                if (name is not null) p.Name = name;
                 if (desc is not null) p.Description = desc;
                 if (uom is not null) p.UnitOfMeasure = uom;
                 if (pclass is not null) p.PartClass = pclass;
