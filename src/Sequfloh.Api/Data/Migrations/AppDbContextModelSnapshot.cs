@@ -2143,6 +2143,10 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
                     b.Property<string>("PartClass")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

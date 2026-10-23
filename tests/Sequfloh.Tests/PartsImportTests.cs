@@ -110,10 +110,10 @@ public sealed class PartsImportTests(TestApp app)
         var map = t.GetProperty("mapping");
         Assert.Equal(0, map.GetProperty("partNumber").GetInt32());
         Assert.Equal(1, map.GetProperty("description").GetInt32());
-        Assert.Equal(2, map.GetProperty("revision").GetInt32());
+        Assert.False(map.TryGetProperty("revision", out _)); // parts have no revision, so a Rev column is not offered
         Assert.Equal(3, map.GetProperty("typeName").GetInt32());
         Assert.Equal(4, map.GetProperty("isRepairable").GetInt32());
-        Assert.Equal(5, map.EnumerateObject().Count());
+        Assert.Equal(4, map.EnumerateObject().Count());
         Assert.Contains(t.GetProperty("warnings").EnumerateArray(), w => w.GetString()!.Contains("Serial"));
 
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false))).JsonAsync();
@@ -136,8 +136,7 @@ public sealed class PartsImportTests(TestApp app)
             Assert.Equal(2, parts.Count);
             Assert.Equal("Fuel Pump", parts[0].Name); // the Name chosen for all rows
             Assert.Equal("Example bracket", parts[0].Description); Assert.True(parts[0].IsRepairable); Assert.Equal("Struts", parts[0].ProductFamily); Assert.NotNull(parts[0].TypeId);
-            Assert.Equal("Fuel Pump", parts[1].Name); Assert.Equal("B", parts[1].Revision); Assert.False(parts[1].IsRepairable);
-            Assert.True(await db.PartRevisions.AnyAsync(r => r.PartId == parts[1].Id && r.Revision == "B"));
+            Assert.Equal("Fuel Pump", parts[1].Name); Assert.False(parts[1].IsRepairable);
             var audit = await db.AuditEntries.AsNoTracking().Where(a => a.EntityType == "PartsImport" && a.SiteId == site).SingleAsync();
             Assert.Contains("parts.csv: 1 added, 1 updated, 2 skipped, 1 with errors", audit.Description);
         }

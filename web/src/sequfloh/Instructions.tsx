@@ -439,7 +439,7 @@ function RepairControls({ doc, upd, ro, withSave, id }: { doc: WiDoc; upd: (p: P
         <Box><Typography variant="body2" sx={{ mb: 0.5 }}>4. Parts list</Typography>{ro ? <Typography variant="body2" color="text.secondary">{doc.partsRows.length} parts row(s)</Typography> :
           <CopyPartsButton withSave={withSave} id={id} />}</Box>
       </Grid>
-      {doc.partId && <Box sx={{ mt: 2 }}>{part.isLoading ? <Loading /> : p ? <Facts items={[['Part number', <Mono>{p.partNumber}</Mono>], ['Description', p.name], ['Current revision', p.revision],
+      {doc.partId && <Box sx={{ mt: 2 }}>{part.isLoading ? <Loading /> : p ? <Facts items={[['Part number', <Mono>{p.partNumber}</Mono>], ['Description', p.name],
         ['Product family', p.productFamily ?? '—'], ['Assembly classification', p.assemblyType ?? words(p.partType)], ['Active status', words(p.status)]]} /> : null}</Box>}
       <Typography variant="h3" sx={{ mt: 2, mb: 1.5 }}>Part identification</Typography>
       <Grid cols={3}>

@@ -61,13 +61,13 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         return await Paging.PageAsync(query.Select(p => new
         {
             p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
-            p.DrawingNumber, p.Specification, p.SiteId, p.UpdatedAt, p.TypeId, TypeName = types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes
+            p.DrawingNumber, p.Specification, p.Notes, p.SiteId, p.UpdatedAt, p.TypeId, TypeName = types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes
         }), page, pageSize, ct);
     }
 
     /// <summary>The attribute fields (cross-reference numbers and others) shown on the part form, list, export and import.</summary>
     [HttpGet("parts/attributes")]
-    public object Attributes() => PartAttributes.All.Select(a => new { a.Key, a.Label, a.MaxLength, a.Types });
+    public object Attributes() => PartAttributes.All.Select(a => new { a.Key, a.Label, a.MaxLength, a.Types, a.NotTypes });
 
     /// <summary>Every part that matches the filters as CSV, with the part type and all attribute columns.</summary>
     [HttpGet("parts/export")]
@@ -77,7 +77,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
         var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
         var rows = await query.Take(50_000).ToListAsync(ct);
-        var head = new List<string> { "OR # (Part number)", "Name", "Description", "Revision", "Product family" };
+        var head = new List<string> { "OR # (Part number)", "Name", "Description", "Product family" };
         head.AddRange(PartAttributes.All.Select(a => a.Label));
         head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "SENSEN # (Dwg #)", "Specification", "Status", "Official status in NetSuite"]);
         var sb = new System.Text.StringBuilder();
@@ -85,7 +85,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         foreach (var p in rows)
         {
             var attrs = PartAttributes.Read(p.Attributes);
-            var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.Revision, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : p.ProductFamily };
+            var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : p.ProductFamily };
             cells.AddRange(PartAttributes.All.Select(a => attrs.GetValueOrDefault(a.Key)));
             cells.AddRange([p.PartClass, p.IsAssembly ? "Yes" : "No", p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.LotControl ?? (p.IsLotControlled ? "Yes" : "No"),
                 p.DrawingNumber, p.Specification, p.Status.ToString(), p.StatusTag]);
@@ -102,10 +102,10 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         return s.IndexOfAny([',', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
     }
 
-    /// <summary>Number of parts per product family; parts without a family are counted under a null id.</summary>
+    /// <summary>Number of distinct OR # part numbers per product family (parts that share an OR # count once); parts without a family are counted under a null id.</summary>
     [HttpGet("parts/family-counts")]
     public async Task<object> FamilyCounts(CancellationToken ct) =>
-        await (await parts.PartsQueryAsync(null, null, null, null, null, ct, null)).GroupBy(p => p.TypeId).Select(g => new { TypeId = g.Key, Count = g.Count() }).ToListAsync(ct);
+        await (await parts.PartsQueryAsync(null, null, null, null, null, ct, null)).GroupBy(p => p.TypeId).Select(g => new { TypeId = g.Key, Count = g.Select(p => p.PartNumber).Distinct().Count() }).ToListAsync(ct);
 
     [HttpGet("parts/families")]
     public async Task<List<string>> Families(CancellationToken ct) =>
@@ -121,7 +121,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             Part = new
             {
                 p.Id, p.PartNumber, p.Name, p.Description, p.StatusTag, p.StatusNote, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
-                p.ProductFamily, p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.RowVersion, p.CreatedAt, p.UpdatedAt,
+                p.ProductFamily, p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.Notes, p.RowVersion, p.CreatedAt, p.UpdatedAt,
                 p.TypeId, TypeName = await db.SequflohReferenceValues.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefaultAsync(ct), Attributes = PartAttributes.Read(p.Attributes),
                 CreatedBy = Name(p.CreatedById), UpdatedBy = Name(p.UpdatedById)
             },

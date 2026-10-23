@@ -1,5 +1,13 @@
 # Changes
 
+## Parts have no revision; notes, editable OR # and fuel pump fields
+
+- Parts no longer show or ask for a revision: it is gone from the part form, part details (including the Revisions tab), the parts list and Columns menu, Export CSV, search results, the parts report and the Import parts mapping. Existing revision records are kept in the database. Work instructions, parts lists and drawings still have revisions.
+- Every field of a part, including the OR #, can be changed with Edit after import. A new OR # may match another part only when the Positions differ. Each change is in the part's History and the Audit Trail with who, when and old and new values.
+- Each part has one Notes box, edited in the part form and shown at the top of the part page. Changes to notes are kept in History.
+- Family cards count distinct OR # values, for example "1,180 part numbers". Stock stays in NetSuite.
+- Fuel Pump parts use the fuel pump sheet titles: OR PN (the OR #), NAPA PN, DMA PN, Cross, JH PN and Individual Box Size. The Fuel Pump list shows those six columns in that order (others can be added with Columns). SENSEN #, Nissan VA #, NAPA US #, NAPA CA #, Key Application and Position are not shown for Fuel Pump. Import parts matches these headers by name.
+
 ## Part Master home page
 
 - The Part Master home page no longer lists every part. It has a search box and one card per product family with its number of parts. Every family has a card, even with no parts yet, and parts with no product family get their own card.

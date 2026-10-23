@@ -81,7 +81,7 @@ public sealed class SequflohPartsTests(TestApp app)
         var copy = await PostEl(eng, $"/api/sequfloh/parts-lists/{id}/duplicate", new { });
         Assert.Equal(2, (await viewer.GetElAsync($"/api/sequfloh/parts-lists/{copy.Id()}")).GetProperty("items").GetArrayLength());
         var hist = await viewer.GetElAsync($"/api/sequfloh/revision-history?q={pn}");
-        Assert.True(hist.GetProperty("total").GetInt32() >= 1);
+        Assert.DoesNotContain(hist.GetProperty("items").EnumerateArray(), x => x.Str("type") == "Part"); // parts have no revisions to list
         Assert.Equal(1, (await viewer.GetElAsync($"/api/sequfloh/parts/{partId}")).GetProperty("related").GetProperty("partsLists").GetInt32() >= 1 ? 1 : 0);
     }
 

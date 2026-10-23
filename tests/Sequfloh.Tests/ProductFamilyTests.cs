@@ -88,9 +88,9 @@ public sealed class ProductFamilyTests(TestApp app)
 
         var csv = await eng.Http.GetStringAsync($"/api/sequfloh/parts/export?q={tag}");
         var lines = csv.TrimStart('\uFEFF').Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
-        Assert.StartsWith("OR # (Part number),Name,Description,Revision,Product family,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
+        Assert.StartsWith("OR # (Part number),Name,Description,Product family,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
         Assert.Contains("SENSEN # (Dwg #)", lines[0]);
-        Assert.StartsWith($"OR-{tag},Example part OR-{tag},,A,Struts,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
+        Assert.StartsWith($"OR-{tag},Example part OR-{tag},,Struts,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
         Assert.Contains("SN-" + tag, lines[1]);
     }
 
@@ -349,5 +349,78 @@ public sealed class ProductFamilyTests(TestApp app)
         Assert.True(p.GetProperty("isLotControlled").GetBoolean());
         Assert.False(p.GetProperty("isRepairPart").GetBoolean());
         Assert.Equal(1, (await eng.GetElAsync($"/api/sequfloh/parts?view=assemblies&q={pn}")).GetProperty("total").GetInt32());
+    }
+
+    [Fact]
+    public async Task Or_number_and_notes_can_be_changed_after_import_with_an_audit_entry()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        string[] headers = ["OR#", "Position"];
+        string[][] rows = [[$"N{tag}1", "Front"], [$"N{tag}2", "Rear"], [$"N{tag}3", "Rear"]];
+        await eng.PostOkAsync("/api/sequfloh/parts/import", new { fileName = "example-notes.csv", headers, rows, siteId = site, updateExisting = false,
+            mapping = new Dictionary<string, int> { ["partNumber"] = 0, ["attr:position"] = 1 }, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump", ["typeName"] = "Fuel Pump" } });
+        Guid IdOf(string pn) { using var sc = app.Services.CreateScope(); return sc.ServiceProvider.GetRequiredService<AppDbContext>().Parts.Single(p => p.PartNumber == pn).Id; }
+        var id = IdOf($"N{tag}2");
+        async Task<HttpResponseMessage> Save(string pn, string? notes)
+        {
+            var p = (await eng.GetElAsync($"/api/sequfloh/parts/{id}")).GetProperty("part");
+            return await eng.Http.PutAsJsonAsync($"/api/sequfloh/parts/{id}", new
+            {
+                part = new { partNumber = pn, name = "Fuel Pump", description = "", partType = 0, revision = p.Str("revision"), unitOfMeasure = "Each", productId = (Guid?)null, material = "",
+                    hasSpecialCharacteristics = false, siteId = site, departmentId = (Guid?)null, status = 0, rowVersion = p.GetProperty("rowVersion").GetUInt32() },
+                execution = new { isRepairable = false, isSerialized = false, isLotControlled = false },
+                typeId = p.GetProperty("typeId").GetGuid(), attributes = new Dictionary<string, string?> { ["position"] = "Rear" }, notes,
+            });
+        }
+        var fuelId = (await TypesAsync(eng)).Single(t => t.Label == "Fuel Pump").Id;
+        async Task<int> Numbers() => (await eng.GetElAsync("/api/sequfloh/parts/family-counts")).EnumerateArray()
+            .Where(x => x.GetProperty("typeId").ValueKind != JsonValueKind.Null && x.GetProperty("typeId").GetGuid() == fuelId).Sum(x => x.GetProperty("count").GetInt32());
+        var before = await Numbers();
+        // another part already has this OR # with the same Position
+        var clash = await Save($"N{tag}3", null);
+        Assert.Equal(HttpStatusCode.Conflict, clash.StatusCode);
+        // the same OR # with a different Position is fine
+        var ok = await Save($"N{tag}1", "Example note: check the seal.\nSecond line.");
+        Assert.True(ok.IsSuccessStatusCode, await ok.Content.ReadAsStringAsync());
+        var part = (await eng.GetElAsync($"/api/sequfloh/parts/{id}")).GetProperty("part");
+        Assert.Equal($"N{tag}1", part.Str("partNumber"));
+        Assert.Equal("Example note: check the seal.\nSecond line.", part.Str("notes"));
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var audit = await db.AuditEntries.AsNoTracking().Where(a => a.EntityId == id && a.Action != "Created").OrderByDescending(a => a.OccurredAt).ToListAsync();
+        var all = string.Join(" ", audit.Select(a => a.Description + " " + a.Changes));
+        Assert.Contains($"N{tag}2", all); Assert.Contains($"N{tag}1", all); Assert.Contains("check the seal", all);
+        Assert.All(audit, a => Assert.False(string.IsNullOrEmpty(a.UserName)));
+
+        // family cards count distinct OR # part numbers: N1 is now shared by two parts and counts once
+        var fuel = (await TypesAsync(eng)).Single(t => t.Label == "Fuel Pump").Id;
+        var list = await eng.GetElAsync($"/api/sequfloh/parts?partType={fuel}&q=N{tag}");
+        Assert.Equal(3, list.GetProperty("total").GetInt32());
+        var distinct = list.GetProperty("items").EnumerateArray().Select(x => x.Str("partNumber")).Distinct().Count();
+        Assert.Equal(2, distinct);
+        Assert.Equal(before - 1, await Numbers());
+    }
+
+    [Fact]
+    public async Task Fuel_pump_sheet_headers_are_matched_and_imported()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var csv = $"OR PN,NAPA PN,DMA PN,Cross,JH PN,Individual Box Size\nFP{tag}1,NP-1,DM-1,CR-1,JH-1,10 x 8 x 6 in\nFP{tag}2,NP-2,DM-2,CR-2,JH-2,12 x 10 x 8 in\n";
+        var form = new MultipartFormDataContent { { new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(csv)), "file", "example-fuel-pumps.csv" } };
+        var t = await (await eng.Http.PostAsync("/api/sequfloh/parts/import/read", form)).JsonAsync();
+        var map = t.GetProperty("mapping").EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetInt32());
+        Assert.Equal(new Dictionary<string, int> { ["partNumber"] = 0, ["attr:napaPn"] = 1, ["attr:dmaPn"] = 2, ["attr:cross"] = 3, ["attr:jhPn"] = 4, ["attr:boxSize"] = 5 }, map);
+        await eng.PostOkAsync("/api/sequfloh/parts/import", new { fileName = "example-fuel-pumps.csv", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = map, siteId = site,
+            updateExisting = false, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump", ["typeName"] = "Fuel Pump" } });
+        var p = (await eng.GetElAsync($"/api/sequfloh/parts?q=JH-2")).GetProperty("items").EnumerateArray().Single(x => x.Str("partNumber") == $"FP{tag}2");
+        var a = System.Text.Json.JsonDocument.Parse(p.Str("attributes")!).RootElement;
+        Assert.Equal(("NP-2", "DM-2", "CR-2", "JH-2", "12 x 10 x 8 in"), (a.Str("napaPn"), a.Str("dmaPn"), a.Str("cross"), a.Str("jhPn"), a.Str("boxSize")));
+        var defs = (await eng.GetElAsync("/api/sequfloh/parts/attributes")).EnumerateArray().ToDictionary(x => x.Str("key")!, x => x.Str("label"));
+        Assert.Equal("Individual Box Size", defs["boxSize"]); Assert.Equal("JH PN", defs["jhPn"]); Assert.Equal("NAPA PN", defs["napaPn"]);
     }
 }

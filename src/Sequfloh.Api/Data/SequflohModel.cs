@@ -279,6 +279,7 @@ public partial class AppDbContext
             e.Property(x => x.AssemblyType).HasMaxLength(100);
             e.Property(x => x.PartClass).HasMaxLength(100);
             e.Property(x => x.LotControl).HasMaxLength(20);
+            e.Property(x => x.Notes).HasMaxLength(4000);
             e.Property(x => x.DrawingNumber).HasMaxLength(100);
             e.Property(x => x.Specification).HasMaxLength(200);
             e.Property(x => x.Attributes).HasColumnType("jsonb");

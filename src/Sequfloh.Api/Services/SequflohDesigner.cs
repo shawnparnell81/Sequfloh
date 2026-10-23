@@ -67,7 +67,7 @@ public static class SequflohDesigner
     // ---------------------------------------------------------------- FAI (section 19)
     static readonly DesignerSection[] Fai =
     [
-        S("faiIdentity", "FAI identity", "FAI type:s:fai-types", "Reason for FAI:m", "Part revision", "Drawing number", "Drawing revision", "Purchase order", "Manufacturing order", "Supplier", "Lot number", "Serial number",
+        S("faiIdentity", "FAI identity", "FAI type:s:fai-types", "Reason for FAI:m", "Drawing number", "Drawing revision", "Purchase order", "Manufacturing order", "Supplier", "Lot number", "Serial number",
             "Sample quantity:n", "Inspection location", "Inspector", "Required completion date:d"),
         S("faiVerification", "Verifications", "Material verification:m", "Special-process verification:m", "Certificate review:m", "Drawing balloon reference", "Dimensional inspection:m", "Visual inspection:m", "Functional inspection:m"),
         S("faiDisposition", "Disposition", "Final disposition:s:inspection-results", "Disposition comments:m"),

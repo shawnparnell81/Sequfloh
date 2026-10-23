@@ -15,7 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false,
     string? PartClass = null, bool? IsAssembly = null, string? LotControl = null);
 /// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
-public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null);
+public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null);
 public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0);
 public sealed record PartsListItemInput(Guid? PartId, string? PartNumber, string? Description, decimal Quantity, string? Unit, bool Required, string? AlternatePartNumber,
     TraceabilityRequirement Traceability, string? Notes);
@@ -57,7 +57,16 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await CheckTypeAsync(r.TypeId, part.TypeId, ct);
         await CheckChoicesAsync(r.Execution, part.PartClass, ct);
         if (r.Attributes is not null) PartAttributes.Clean(r.Attributes);
-        await master.SavePartAsync(id, r.Part, ct);
+        // the OR # can be changed; it may match other parts only when this part's Position differs from theirs
+        var number = r.Part.PartNumber?.Trim() ?? "";
+        if (number != part.PartNumber)
+        {
+            var pos = (r.Attributes is not null ? r.Attributes.GetValueOrDefault("position") : PartAttributes.Read(part.Attributes).GetValueOrDefault("position"))?.Trim() ?? "";
+            var others = await db.Parts.AsNoTracking().Where(x => x.PartNumber == number && x.Id != id).Select(x => x.Attributes).ToListAsync(ct);
+            if (others.Any(a => string.Equals(PartAttributes.Read(a).GetValueOrDefault("position")?.Trim() ?? "", pos, StringComparison.OrdinalIgnoreCase)))
+                throw new ConflictException(pos.Length > 0 ? $"A part with this OR # and Position {pos} already exists." : "A part with this OR # already exists. Give the part a Position that differs from the others.");
+        }
+        await master.SavePartAsync(id, r.Part, ct, numberChecked: true);
         await ApplyExecutionAsync(id, r.Execution with { RowVersion = 0 }, ct);
         await ApplyTypeAndAttributesAsync(id, r, ct);
     }
@@ -86,6 +95,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         // the label is copied to ProductFamily so work instructions and filters that read the text keep working
         if (r.TypeId is { } t) p.ProductFamily = await db.SequflohReferenceValues.Where(x => x.Id == t).Select(x => x.Label).FirstAsync(ct);
         if (r.Attributes is not null) PartAttributes.Write(p, r.Attributes);
+        if (r.Notes is not null) p.Notes = r.Notes.Trim() is { Length: > 0 } n ? (n.Length <= 4000 ? n : throw new AppException("Notes can be at most 4000 characters.")) : null;
         await db.SaveChangesAsync(ct);
     }
 
