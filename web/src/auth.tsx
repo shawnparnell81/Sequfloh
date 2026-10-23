@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, type ReactNode } from 'react';
+import { clearTabs } from './tabs/model';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post } from './api';
 import { setBusinessZone } from './components/Status';
@@ -37,10 +38,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     needsSetup: !!q.data?.needsSetup,
     loading: q.isLoading,
     can: (p) => !!me?.grants.some((g) => g.permission === p),
-    login: async (email, password) => { await post('/api/auth/login', { email, password }); await qc.invalidateQueries(); },
+    login: async (email, password) => { await post('/api/auth/login', { email, password }); clearTabs(); await qc.invalidateQueries(); },
     refresh: async () => { await qc.invalidateQueries(); },
     logout: async () => {
       await post('/api/auth/logout');
+      clearTabs();
       await qc.cancelQueries();
       qc.setQueryData(['me'], { authenticated: false, needsSetup: false, user: null });
       qc.removeQueries({ predicate: (x) => x.queryKey[0] !== 'me' });

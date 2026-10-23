@@ -35,6 +35,18 @@ public sealed class AuthTests(TestApp app)
     }
 
     [Fact]
+    public async Task The_session_cookie_ends_when_the_browser_closes()
+    {
+        var raw = app.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        var r = await raw.PostAsJsonAsync("/api/auth/login", new { email = TestApp.AdminEmail, password = TestApp.AdminPassword });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var cookie = r.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(AuthSettings.CookieName + "="));
+        Assert.DoesNotContain("expires=", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("max-age=", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Passwords_are_hashed_and_a_bearer_token_works_for_api_clients()
     {
         var anon = await app.AnonymousAsync();

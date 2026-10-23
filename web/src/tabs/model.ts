@@ -14,9 +14,10 @@ export const useTabsKey = (userId: string) => `sqf.useTabs.${userId}`;
 let seq = 0;
 export const newId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`;
 
+/** Open tabs live in this browser tab only: a reload keeps them, closing the tab or browser forgets them. */
 export function loadState(key: string): TabState {
   try {
-    const raw = JSON.parse(localStorage.getItem(key) ?? 'null') as TabState | null;
+    const raw = JSON.parse(sessionStorage.getItem(key) ?? 'null') as TabState | null;
     if (raw && Array.isArray(raw.tabs)) {
       const rest = raw.tabs.filter((t) => t && t.id !== HOME_ID && typeof t.url === 'string' && t.url.startsWith('/')).slice(0, MAX_TABS - 1);
       const tabs = [homeTab(), ...rest];
@@ -27,7 +28,14 @@ export function loadState(key: string): TabState {
 }
 
 export function saveState(key: string, s: TabState) {
-  try { localStorage.setItem(key, JSON.stringify(s)); } catch { /* storage full or blocked */ }
+  try { sessionStorage.setItem(key, JSON.stringify(s)); } catch { /* storage full or blocked */ }
+}
+
+/** Forgets every stored tab set (this browser tab and any left by older versions), so each sign-in starts with Home only. */
+export function clearTabs() {
+  for (const st of [sessionStorage, localStorage]) {
+    try { Object.keys(st).filter((k) => k.startsWith('sqf.tabs.')).forEach((k) => st.removeItem(k)); } catch { /* storage blocked */ }
+  }
 }
 
 /** Same page, ignoring a trailing slash. */
