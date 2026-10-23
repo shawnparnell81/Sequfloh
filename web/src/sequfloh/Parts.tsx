@@ -25,8 +25,12 @@ const masterStatuses = ['Active', 'Inactive', 'Obsolete'];
 
 // ------------------------------------------------------------------ Part Master
 interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; unitOfMeasure: string;
-  status: string; isRepairable: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string; statusTag?: string | null; statusNote?: string | null }
-const views: Record<string, string> = { '': 'Part Master', repairable: 'Repair Parts', assemblies: 'Assemblies' };
+  status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string; statusTag?: string | null; statusNote?: string | null }
+const viewHelp: Record<string, string> = {
+  repairable: 'Parts marked Repairable: the part itself can be repaired and can be the subject of a repair work order.',
+  'repair-parts': 'Component and replacement parts ordered to carry out repairs, such as screws, nuts and top mounts. A part is listed here only when Repair part is ticked; Repairable does not add it.',
+};
+const views: Record<string, string> = { '': 'Part Master', repairable: 'Repairable Parts', 'repair-parts': 'Repair Parts', assemblies: 'Assemblies' };
 
 export function PartMasterPage() {
   const { can } = useAuth();
@@ -43,7 +47,7 @@ export function PartMasterPage() {
   const qc = useQueryClient();
   const title = views[view] ?? 'Part Master';
   return (
-    <SqfPage title={title} crumbs={crumbs(title)} description="The part master with execution attributes for each part and revision."
+    <SqfPage title={title} crumbs={crumbs(title)} description={viewHelp[view] ?? 'The part master with execution attributes for each part and revision.'}
       actions={can('sequfloh.edit_parts') && can('parts.edit') && <Button variant="contained" onClick={() => setOpen(true)}>New part</Button>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ family: v('family'), status: v('status'), type: v('type'), tag: v('tag') }} onChange={set}
         onClear={() => { setSp(view ? { view } : {}); setPage(1); }}
@@ -74,7 +78,7 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
   const [links, setLinks] = useState<{ id: string; label: string }[]>([]);
   const [inline, setInline] = useState<ReturnType<typeof blankDrawing> | null>(null);
   const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'EA', material: '', siteId: '', status: 'Active',
-    productFamily: '', assemblyType: '', isRepairable: false, isSerialized: false, isLotControlled: false, drawingNumber: '', specification: '' };
+    productFamily: '', assemblyType: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, drawingNumber: '', specification: '' };
   const [f, setF] = useState(blank);
   const [err, setErr] = useState<string | null>(null);
   const init = () => {
@@ -87,7 +91,7 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
     setErr(null);
     const body = { part: { partNumber: f.partNumber, name: f.name, description: nul(f.description), partType: partTypeValue[f.partType] ?? 0, revision: f.revision, unitOfMeasure: f.unitOfMeasure, productId: edit?.productId ?? null,
       material: nul(f.material), hasSpecialCharacteristics: edit?.hasSpecialCharacteristics ?? false, siteId: f.siteId, departmentId: edit?.departmentId ?? null, status: Math.max(0, masterStatuses.indexOf(f.status)), rowVersion: edit?.rowVersion ?? 0 },
-      execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isSerialized: f.isSerialized, isLotControlled: f.isLotControlled,
+      execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isRepairPart: f.isRepairPart, isSerialized: f.isSerialized, isLotControlled: f.isLotControlled,
         drawingNumber: nul(f.drawingNumber), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 } };
     try {
       let id = edit?.id;
@@ -124,9 +128,13 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
         <TextField label="Description" fullWidth multiline minRows={2} value={f.description} onChange={s('description')} sx={{ mt: 2 }} />
         <Stack direction="row" gap={2} sx={{ mt: 1 }}>
           <FormControlLabel control={<Checkbox checked={f.isRepairable} onChange={b('isRepairable')} />} label="Repairable" />
+          <FormControlLabel control={<Checkbox checked={!!f.isRepairPart} onChange={b('isRepairPart')} />} label="Repair part" />
           <FormControlLabel control={<Checkbox checked={f.isSerialized} onChange={b('isSerialized')} />} label="Serialized" />
           <FormControlLabel control={<Checkbox checked={f.isLotControlled} onChange={b('isLotControlled')} />} label="Lot controlled" />
         </Stack>
+        <Typography variant="caption" color="text.secondary" component="p" data-testid="repair-flags-help">
+          Repairable: the part itself can be repaired. Repair part: a component or replacement part ordered to carry out repairs (screws, nuts, top mounts); only these appear in Repair Parts.
+        </Typography>
         {drawingsOk && <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
           <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Drawings</Typography>
           <DrawingPicker value={links} onChange={setLinks} />
@@ -167,7 +175,7 @@ export function PartDetailPage() {
           <Grid cols={4}>
             <Field label="Part number"><Mono>{p.partNumber}</Mono></Field><Field label="Name">{p.name}</Field><Field label="Revision">{p.revision}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
             <Field label="Product family">{p.productFamily}</Field><Field label="Part type">{words(p.partType)}</Field><Field label="Assembly type">{p.assemblyType}</Field><Field label="Unit of measure">{p.unitOfMeasure}</Field>
-            <Field label="Repairable">{yes(p.isRepairable)}</Field><Field label="Serialized">{yes(p.isSerialized)}</Field><Field label="Lot controlled">{yes(p.isLotControlled)}</Field><Field label="Material">{p.material}</Field>
+            <Field label="Repairable">{yes(p.isRepairable)}</Field><Field label="Repair part">{yes(!!p.isRepairPart)}</Field><Field label="Serialized">{yes(p.isSerialized)}</Field><Field label="Lot controlled">{yes(p.isLotControlled)}</Field><Field label="Material">{p.material}</Field>
             <Field label="Drawing number">{p.drawingNumber}</Field><Field label="Specification">{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}

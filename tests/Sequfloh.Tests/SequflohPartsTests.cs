@@ -106,4 +106,29 @@ public sealed class SequflohPartsTests(TestApp app)
         all.Reverse();
         Assert.Equal(HttpStatusCode.NoContent, (await eng.PostAsync("/api/sequfloh/operation-steps/reorder", new { ids = all })).StatusCode);
     }
+
+    [Fact]
+    public async Task Repairable_does_not_put_a_part_on_the_repair_parts_list()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohEditParts, Permissions.MasterDataEdit, Permissions.MasterDataView], site);
+        var repairable = (await PostEl(eng, "/api/sequfloh/parts", PartBody("RPB-" + Guid.NewGuid().ToString("N")[..8], site))).Id(); // repairable, not a repair part
+        var screw = "RPS-" + Guid.NewGuid().ToString("N")[..8];
+        var body = new
+        {
+            part = new { partNumber = screw, name = "Example screw", description = "", partType = 0, revision = "A", unitOfMeasure = "EA", productId = (Guid?)null,
+                material = "", hasSpecialCharacteristics = false, siteId = site, departmentId = (Guid?)null, status = 0 },
+            execution = new { productFamily = "Hardware", assemblyType = (string?)null, isRepairable = false, isRepairPart = true, isSerialized = false, isLotControlled = false, drawingNumber = (string?)null, specification = (string?)null }
+        };
+        var screwId = (await PostEl(eng, "/api/sequfloh/parts", body)).Id();
+        var repairParts = (await eng.GetElAsync("/api/sequfloh/parts?view=repair-parts&pageSize=200")).GetProperty("items").EnumerateArray().Select(x => x.Id()).ToList();
+        Assert.Contains(screwId, repairParts);
+        Assert.DoesNotContain(repairable, repairParts);
+        var repairables = (await eng.GetElAsync("/api/sequfloh/parts?view=repairable&pageSize=200")).GetProperty("items").EnumerateArray().Select(x => x.Id()).ToList();
+        Assert.Contains(repairable, repairables);
+        Assert.DoesNotContain(screwId, repairables);
+        var one = (await eng.GetElAsync($"/api/sequfloh/parts/{screwId}")).GetProperty("part");
+        Assert.True(one.GetProperty("isRepairPart").GetBoolean());
+        Assert.False(one.GetProperty("isRepairable").GetBoolean());
+    }
 }

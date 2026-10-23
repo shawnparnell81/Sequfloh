@@ -26,7 +26,10 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public bool HasSpecialCharacteristics { get; set; }
     public string? ProductFamily { get; set; }
     public string? AssemblyType { get; set; }
+    /// <summary>The part itself can be repaired (it can be the subject of a repair work order).</summary>
     public bool IsRepairable { get; set; }
+    /// <summary>A component or replacement part ordered to carry out repairs (screws, nuts, mounts). Set on its own, never from Repairable.</summary>
+    public bool IsRepairPart { get; set; }
     public bool IsSerialized { get; set; }
     public bool IsLotControlled { get; set; }
     public string? DrawingNumber { get; set; }

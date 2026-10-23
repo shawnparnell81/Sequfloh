@@ -65,7 +65,8 @@ export const sequfloh: ModuleDef = {
       { label: 'Parts and Items', path: '/sequfloh/parts', icon: <CategoryOutlined fontSize="small" />, match: ['/sequfloh/parts', '/sequfloh/parts-lists', '/sequfloh/operation-steps', '/sequfloh/revision-history'], children: [
         { label: 'Part Master', path: '/sequfloh/parts' },
         { label: 'Parts Lists', path: '/sequfloh/parts-lists' },
-        { label: 'Repair Parts', path: '/sequfloh/parts?view=repairable' },
+        { label: 'Repairable Parts', path: '/sequfloh/parts?view=repairable' },
+        { label: 'Repair Parts', path: '/sequfloh/parts?view=repair-parts' },
         { label: 'Assemblies', path: '/sequfloh/parts?view=assemblies' },
         { label: 'Reusable Operation Steps', path: '/sequfloh/operation-steps' },
         { label: 'Revision History', path: '/sequfloh/revision-history' },

@@ -1,5 +1,12 @@
 # Changes
 
+## Repairable is separate from Repair Parts
+
+- Repair Parts used to show every part with Repairable ticked. It now lists only parts with the new Repair part flag: components and replacement parts ordered for repairs, such as screws, nuts and top mounts.
+- Repairable still only means the part itself can be repaired. Repair work orders and repair instructions still pick from Repairable parts, now under the Repairable Parts view.
+- The part form and both views explain the two flags.
+- No existing data is changed or deleted. Repair part starts unticked on every existing part, so Repair Parts starts empty until parts are marked.
+
 ## Starter templates for every instruction type
 
 - Each work instruction type now has a starter layout template tied to it: Starter - Validation, Starter - Validation / FAI, Starter - FAI, Starter - Repair Test and Starter - Repair Work Instruction.

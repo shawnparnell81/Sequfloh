@@ -69,6 +69,7 @@ test('inspection requests: quick action, list order, convert to work order, dele
   await view(page).getByRole('button', { name: 'Convert to work order' }).click();
   const cd = page.getByRole('dialog');
   await cd.getByLabel('Work instruction').click();
+  await cd.getByLabel('Work instruction').fill(String(stamp)); // narrow the list once many instructions exist
   await page.getByRole('option', { name: new RegExp(`Inspection instruction ${stamp}`) }).click();
   await shot('convert-dialog');
   await cd.getByRole('button', { name: 'Create work order' }).click();
