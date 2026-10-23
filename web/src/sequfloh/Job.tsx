@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, Chip, FormControlLabel, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+import { Alert, Box, Button, Checkbox, Chip, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Tooltip, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -198,10 +198,11 @@ interface Report { id: string; number: string; type: string; status: string; tit
 
 const hrs = (s: number) => (s / 3600).toFixed(2);
 const money = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const SECTIONS: [keyof Opts, string][] = [['perTech', 'Per-technician summary'], ['timeLog', 'Detailed time log'], ['findings', 'Findings'], ['tests', 'Test results'],
+const SECTIONS: [keyof Opts, string][] = [['perTech', 'Per-technician summary'], ['timeLog', 'Detailed time log'], ['findings', 'Findings'],
   ['attachments', 'Attachments'], ['photos', 'Photos / evidence'], ['cost', 'Cost breakdown']];
 const NONE: Opts = { perTech: false, timeLog: false, findings: false, tests: false, attachments: false, photos: false, cost: false };
-const ALL: Opts = { perTech: true, timeLog: true, findings: true, tests: true, attachments: true, photos: true, cost: true };
+/** Every section; test results keep the explicit Yes / No choice. */
+const ALL = (tests: boolean): Opts => ({ perTech: true, timeLog: true, findings: true, tests, attachments: true, photos: true, cost: true });
 
 export function JobReportPage() {
   const { id } = useParams();
@@ -213,13 +214,13 @@ export function JobReportPage() {
   const o = opts ?? r?.options ?? NONE;
   const choose = async (next: Opts) => {
     setOpts(next); setErr(null);
-    try { await put(`${S}/tracking/${id}/job/report-options`, next); } catch (e) { setErr((e as Error).message); }
+    try { await put(`${S}/tracking/${id}/job/report-options`, next); if (next.tests !== o.tests) await q.refetch(); } catch (e) { setErr((e as Error).message); }
   };
   const rateN = rate.trim() && !Number.isNaN(Number(rate)) ? Number(rate) : null;
   const pdf = `${S}/tracking/${id}/job/report/pdf?${new URLSearchParams({ ...(supplier && { supplier }), ...(reference && { reference }), ...(rateN != null && { rate: String(rateN) }) })}`;
   const blank = (v: string | null | undefined) => v || '________________';
   const fd = r?.findings ?? {};
-  const hasFindings = Object.values(fd).some((v) => v != null && v !== '');
+  const hasFindings = Object.entries(fd).some(([k, v]) => k !== 'erpReference' && v != null && v !== '');
   const labour = r && rateN != null ? Math.round(rateN * r.totalSeconds / 36) / 100 : null;
   const total = r ? (labour ?? 0) + r.partsCost + r.otherCost : 0;
   const opt = (pairs: [string, unknown][]) => pairs.filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)] as [string, string]);
@@ -235,10 +236,16 @@ export function JobReportPage() {
       <Typography variant="subtitle2" sx={{ mt: 2 }}>Include in the report</Typography>
       <Stack direction="row" flexWrap="wrap" alignItems="center" data-testid="report-options">
         {SECTIONS.map(([k, l]) => <FormControlLabel key={k} label={l} control={<Checkbox size="small" checked={o[k]} onChange={(e) => choose({ ...o, [k]: e.target.checked })} inputProps={{ 'aria-label': l }} />} />)}
-        <Button size="small" variant="outlined" data-testid="full-detail" onClick={() => choose(ALL)}>Full detail</Button>
-        <Button size="small" sx={{ ml: 1 }} data-testid="summary-only" onClick={() => choose(NONE)}>Summary only</Button>
+        <Button size="small" variant="outlined" data-testid="full-detail" onClick={() => choose(ALL(o.tests))}>Full detail</Button>
+        <Button size="small" sx={{ ml: 1 }} data-testid="summary-only" onClick={() => choose({ ...NONE, tests: o.tests })}>Summary only</Button>
       </Stack>
-      <Typography variant="caption" color="text.secondary">Your choice is remembered for this work order. Sections with nothing in them are left out.</Typography>
+      <FormControl sx={{ mt: 1 }} data-testid="include-tests">
+        <FormLabel id="include-tests-label" sx={{ fontSize: 14 }}>Include test results report?</FormLabel>
+        <RadioGroup row aria-labelledby="include-tests-label" value={o.tests ? 'yes' : 'no'} onChange={(e) => choose({ ...o, tests: e.target.value === 'yes' })}>
+          <FormControlLabel value="no" control={<Radio size="small" />} label="No" /><FormControlLabel value="yes" control={<Radio size="small" />} label="Yes" />
+        </RadioGroup>
+      </FormControl>
+      <Typography variant="caption" color="text.secondary" component="div">Your choices are remembered for this work order. Sections with nothing in them are left out. Full detail and Summary only keep the Yes / No answer above.</Typography>
       {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}</Paper>
     {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : r && <Paper variant="outlined" className="job-report" sx={{ p: 3 }} data-testid="job-report">
       <Typography variant="h5" sx={{ color: '#1257C4' }}>Chargeback job report</Typography>
@@ -250,7 +257,7 @@ export function JobReportPage() {
       {r.parts.length > 0 && <Sec title="Parts replaced"><Grid2 head={['Part number', 'Description', 'Per assembly', 'Quantity']} rows={[...r.parts.map((p) => [p.partNumber, p.description ?? '', String(p.perAssembly), String(p.quantity)]), ['Total', '', '', String(r.partsTotal)]]} /></Sec>}
       {o.findings && hasFindings && <Sec title="Findings / nonconformance"><Rows rows={opt([['Discovery method', fd.discoveryMethod], ['Date discovered', fd.dateDiscovered], ['Discovered by', fd.discoveredBy],
         ['Site', fd.site], ['Supplier', fd.supplier], ['Supplier part #', fd.supplierPartNumber], ['Lot / date codes', fd.lotDateCodes], ['PO', fd.purchaseOrder], ['Qty inspected', fd.qtyInspected],
-        ['Qty nonconforming', fd.qtyNonconforming], ['Qty affected', fd.qtyAffected], ['Warranty claim #', fd.warrantyClaim], ['Alert / recall #', fd.alertRecall], ['ERP reference', fd.erpReference],
+        ['Qty nonconforming', fd.qtyNonconforming], ['Qty affected', fd.qtyAffected], ['Warranty claim #', fd.warrantyClaim], ['Alert / recall #', fd.alertRecall],
         ['Description', fd.description], ['Repair method', fd.repairMethod], ['Work instruction used', fd.repairMethod ? `${r.workInstructionNumber} rev ${r.workInstructionRevision}` : null], ['Supplier root cause', fd.rootCause]])} /></Sec>}
       {o.perTech && r.people.length > 0 && <Sec title="Man hours by technician"><Grid2 head={['Technician', 'Sessions', 'Worked hours', 'Paused hours (not counted)']}
         rows={[...r.people.map((p) => [p.name, String(p.sessions), hrs(p.seconds), hrs(p.pausedSeconds)]), ['Total', String(r.people.reduce((a, p) => a + p.sessions, 0)), hrs(r.totalSeconds), hrs(r.pausedSeconds)]]} /></Sec>}

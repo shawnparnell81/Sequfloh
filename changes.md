@@ -1,5 +1,48 @@
 # Changes
 
+## Starter templates for every instruction type
+
+- Each work instruction type now has a starter layout template tied to it: Starter - Validation, Starter - Validation / FAI, Starter - FAI, Starter - Repair Test and Starter - Repair Work Instruction.
+- Each one has a purpose, required tools and gauges, numbered steps for that type and a record results step. Quantities are job level. There are no serial numbers, approvals or signatures.
+- The picker on New work instruction offers the starter for the chosen type, together with the templates that suit any type.
+- They are added at start-up when one with the same name is missing, so existing databases get them and edited copies are left alone. Instruction types are unchanged.
+- New tests: every type has exactly one starter tied to it, and the picker offers it for that type.
+
+## Word files with the wrong extension
+
+- Imports now check what a file really contains instead of trusting its name. A Word .docx or Excel .xlsx file renamed .doc or .xls opens normally, and a legacy binary file named .docx or .xlsx is converted like .doc or .xls.
+- RTF documents and Word web pages saved with a .doc name are converted to a working Word copy. If the server cannot convert them, the message says what the file really is and to open it in Word and Save As .docx. Single-file web pages (.mht) always get that message.
+- Files that are not a recognised document are still refused.
+- The uploaded file is always kept exactly as it came. Macros are never run.
+- The default title drops a doubled extension, so "Procedure - Rev C.doc.doc" becomes "Procedure - Rev C".
+- New tests with made-up files: a .docx named .doc, RTF and web pages named .doc, a real legacy .doc, and random bytes.
+
+## Inspection layout templates
+
+- Eight standard inspection layout templates are added under Work Instructions > Templates > Layout templates: AQL Sample Result, Product Alert, Validation Result, Warranty Claim Return, Supplier Request, Customer Request / Complaint, Random Inspection, and Recall / Containment Sort.
+- Each one has a purpose, required tools and gauges, numbered steps (identification, visual, dimensional and functional checks as they apply), record results, segregate counts and next step (create a repair work order for any failures).
+- AQL Sample Result records the sampling plan reference, sample size and accept / reject numbers. Recall / Containment Sort is a 100% inspection of the remaining inventory.
+- Quantities are job level. There are no serial numbers, approvals or signatures. Holds, quarantine and inventory moves are noted as handled in NetSuite.
+- The templates are added at start-up when one with the same name is missing, so existing databases get them and edited copies are left alone. They can be used with any instruction type, so they fit Inspection work orders.
+- New tests: the eight templates are present once with their common steps, and the templates page lists and opens them.
+
+## Inspection work order type
+
+- "Inspection" is now a work order type, alongside Production, FAI, Validation and Repair.
+- Converting an inspection request to a work order starts with the type set to Inspection. It can still be changed before the work order is created.
+- Inspection work orders work like production tasks: the same result choices (Pending, Pass, Fail, Conditional), default time ranges and create permission.
+- Inspection shows in the work order type filters, lists, the record title, and the task performance and time variance reports.
+- Existing types are unchanged. No database change is needed.
+- New tests: a converted request defaults to Inspection, and the dropdown lists Inspection first.
+
+## Report: test results Yes / No, ERP reference off the report
+
+- The chargeback report (print page and PDF) no longer shows the ERP reference. The field stays on the Findings tab because it belongs to the work order's findings.
+- The "Test results" checkbox is replaced by an explicit "Include test results report?" No / Yes choice. No is the default and the answer is remembered per work order.
+- With No, the report has no test results at all: no section, file list, totals or other mention, on the print page or in the PDF.
+- Full detail and Summary only leave the Yes / No answer as it is.
+- New tests: no "test" wording in the report or PDF when the answer is No (including Full detail), the section comes back with Yes, and the ERP reference is never printed.
+
 ## Clock on / clock off job time
 - Time buttons now read "Clock on job", "Pause job – Break", "Pause job – Lunch", "Clock back on job" and "Clock off job", with matching tooltips.
 - A pause records why (Break or Lunch). The reason shows in the Time tab ("Paused for lunch since …"), the time log and the detailed time log on the job report and PDF.

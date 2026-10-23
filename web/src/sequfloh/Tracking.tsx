@@ -18,9 +18,9 @@ import { JobPanel, StatusBadge, StatusEditor, useStatusFilter } from './Job';
 import { PartPicker } from './Instructions';
 import { PartDrawingLinks, RecordDrawings } from './Drawings';
 
-export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production' };
+export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection' };
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
-const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task' };
+const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Tracking', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
 /** Operation ID for one user action: the server applies an ID once, so a repeated click or resubmission cannot apply the change twice. */
@@ -303,7 +303,7 @@ export function TrackingRecordPage() {
           <Typography variant="h3" sx={{ mb: 1.5 }}>Results and evidence</Typography>
           {!q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Results are recorded while the record is in progress or pending inspection.</Typography>}
           <Grid cols={2}>
-            {rec.type === 'Production' && <TextField select size="small" label="Result" value={s(doc.result)} disabled={!enter} onChange={(e) => upd({ result: e.target.value })}>
+            {(rec.type === 'Production' || rec.type === 'Inspection') && <TextField select size="small" label="Result" value={s(doc.result)} disabled={!enter} onChange={(e) => upd({ result: e.target.value })}>
               {['Pending', 'Pass', 'Fail', 'Conditional'].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}</TextField>}
             {rec.type === 'Validation' && <>{det('sampleIdentification', 'Sample identification')}{det('controlledConditions', 'Controlled conditions (recorded)')}</>}
             {rec.type === 'Fai' && <>{det('materialVerification', 'Material verification')}{det('specialProcessVerification', 'Special-process verification')}{det('certificateReview', 'Certificate review')}
@@ -312,9 +312,9 @@ export function TrackingRecordPage() {
             {rec.type === 'Repair' && <>{txt('reportedCondition', 'Reported condition', !enter)}{txt('observedCondition', 'Observed condition', !enter)}
               <OptionSelect list="repair-test-results" label="Repair test result" value={doc.details.repairTestResult ?? ''} disabled={!enter} onChange={(v) => upd({ details: { ...doc.details, repairTestResult: v } })} />
               {det('repairTestReference', 'Repair test reference', false)}{det('postRepairInspection', 'Post-repair inspection')}{det('failureHandling', 'Failure handling')}{det('rejectionHandling', 'Rejection handling')}</>}
-            {rec.type === 'Production' && <>{det('qualityCheckpoints', 'Quality checkpoints')}{det('resultEntry', 'Result entry')}</>}
+            {(rec.type === 'Production' || rec.type === 'Inspection') && <>{det('qualityCheckpoints', 'Quality checkpoints')}{det('resultEntry', 'Result entry')}</>}
             {txt('evidenceReferences', 'Evidence references', !enter)}{txt('technicianComments', 'Technician comments', !enter)}
-            {rec.type !== 'Production' && txt('deviations', 'Deviations', !enter)}{txt('nonconformanceReferences', 'Nonconformance references', !enter)}
+            {(rec.type !== 'Production' && rec.type !== 'Inspection') && txt('deviations', 'Deviations', !enter)}{txt('nonconformanceReferences', 'Nonconformance references', !enter)}
             {txt('varianceReason', 'Variance reason', !enter)}
           </Grid>
         </Paper>

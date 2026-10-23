@@ -76,4 +76,19 @@ public sealed class InspectionRequestTests(TestApp app)
         Assert.True(await db.AuditEntries.AnyAsync(a => a.EntityId == id && a.Action.Contains("Delete")));
         Assert.True(await db.SequflohTrackingRecords.AnyAsync(r => r.Id == woId));
     }
+
+    [Fact]
+    public async Task A_converted_request_defaults_to_an_inspection_work_order()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, planner) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohCreateProductionTask], site);
+        var (part, _, wi) = await SetupAsync(site);
+        var id = (await (await planner.PostOkAsync(U, new { siteId = site, partId = part, quantity = 12m, priority = "Normal" })).JsonAsync()).Id();
+        var woId = (await (await planner.PostOkAsync($"{U}/{id}/convert", new { workInstructionId = wi })).JsonAsync()).GetProperty("workOrderId").GetGuid();
+        Assert.Equal("Inspection", (await planner.GetElAsync($"/api/sequfloh/tracking/{woId}")).GetProperty("record").GetProperty("type").GetString());
+        var id2 = (await (await planner.PostOkAsync(U, new { siteId = site, partId = part, priority = "Normal" })).JsonAsync()).Id();
+        var wo2 = (await (await planner.PostOkAsync($"{U}/{id2}/convert", new { workInstructionId = wi, type = "Inspection" })).JsonAsync()).GetProperty("workOrderId").GetGuid();
+        Assert.Contains(wo2.ToString(), (await planner.GetElAsync("/api/sequfloh/tracking?folder=inspection")).GetRawText());
+        Assert.DoesNotContain(wo2.ToString(), (await planner.GetElAsync("/api/sequfloh/tracking?folder=production")).GetRawText());
+    }
 }

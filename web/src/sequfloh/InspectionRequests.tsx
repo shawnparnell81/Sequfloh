@@ -154,7 +154,7 @@ export function OpenInspectionRequestsPanel() {
 
 function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boolean; onClose: () => void }) {
   const qc = useQueryClient(); const nav = useNavigate();
-  const [type, setType] = useState('Production'); const [wi, setWi] = useState<WiOpt | null>(null); const [text, setText] = useState('');
+  const [type, setType] = useState('Inspection'); const [wi, setWi] = useState<WiOpt | null>(null); const [text, setText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const wis = useQuery({ queryKey: ['sqf-tr-wi', type, text], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type, q: text })}`), enabled: open });
   useEffect(() => { if (open && r.workInstructionId && wis.data && !wi) setWi(wis.data.find((w) => w.id === r.workInstructionId) ?? null); }, [open, wis.data]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -173,7 +173,7 @@ function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boole
           {err && <Alert severity="error">{err}</Alert>}
           <Typography variant="body2" color="text.secondary">Part, quantity, priority, requested date and the inspection requirement carry over. The part's drawings are attached.</Typography>
           <TextField select label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }}>
-            {[['Production', 'Production'], ['Fai', 'FAI'], ['Validation', 'Validation'], ['Repair', 'Repair']].map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
+            {[['Inspection', 'Inspection'], ['Production', 'Production'], ['Fai', 'FAI'], ['Validation', 'Validation'], ['Repair', 'Repair']].map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
           <Autocomplete options={wis.data ?? []} value={wi} onChange={(_, o) => setWi(o)} onInputChange={(_, v, rs) => rs === 'input' && setText(v)}
             getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} isOptionEqualToValue={(a, b) => a.id === b.id}
             renderInput={(p) => <TextField {...p} label="Work instruction" required />} />

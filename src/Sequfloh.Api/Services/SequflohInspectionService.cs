@@ -15,7 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record InspectionRequestInput(Guid SiteId, string? PartNumber = null, Guid? PartId = null, string? PartDescription = null, decimal? Quantity = null, string? Reason = null,
     string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null);
-public sealed record InspectionConvertInput(Guid WorkInstructionId, TrackingType Type = TrackingType.Production);
+public sealed record InspectionConvertInput(Guid WorkInstructionId, TrackingType Type = TrackingType.Inspection);
 
 /// <summary>
 /// Inspection requests. Anyone who can open SEQUFLOH at a site can submit one. The list is ordered by priority (the order of the admin list) and then by

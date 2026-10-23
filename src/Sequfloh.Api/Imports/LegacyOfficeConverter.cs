@@ -32,6 +32,9 @@ public sealed class HeadlessOfficeConverter(IConfiguration config) : ILegacyOffi
         return null;
     }
 
+    /// <summary>A web page opens in the web editor, which needs the Word export filter named.</summary>
+    static string Target(string from, string to) => from.TrimStart('.') is "html" && to == "docx" ? "docx:MS Word 2007 XML" : to;
+
     public async Task<Stream> ConvertAsync(Stream input, string fromExtension, string toExtension, CancellationToken ct)
     {
         if (!Available) throw new AppException($"Legacy .{fromExtension.TrimStart('.')} files need the office conversion adapter, which is not configured on this server. Save the file as .{toExtension} and upload it again.");
@@ -42,7 +45,7 @@ public sealed class HeadlessOfficeConverter(IConfiguration config) : ILegacyOffi
             await using (var f = File.Create(src)) await input.CopyToAsync(f, ct);
             var profile = new Uri(Path.Combine(work.FullName, "profile")).AbsoluteUri;
             var psi = new ProcessStartInfo(Command!) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, WorkingDirectory = work.FullName };
-            foreach (var a in new[] { $"-env:UserInstallation={profile}", "--headless", "--norestore", "--nolockcheck", "--convert-to", toExtension, "--outdir", work.FullName, src }) psi.ArgumentList.Add(a);
+            foreach (var a in new[] { $"-env:UserInstallation={profile}", "--headless", "--norestore", "--nolockcheck", "--convert-to", Target(fromExtension, toExtension), "--outdir", work.FullName, src }) psi.ArgumentList.Add(a);
             using var p = Process.Start(psi) ?? throw new AppException("The office conversion adapter could not start.");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
