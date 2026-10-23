@@ -1,5 +1,14 @@
 # Changes
 
+## Inspection layout templates
+
+- Eight standard inspection layout templates are added under Work Instructions > Templates > Layout templates: AQL Sample Result, Product Alert, Validation Result, Warranty Claim Return, Supplier Request, Customer Request / Complaint, Random Inspection, and Recall / Containment Sort.
+- Each one has a purpose, required tools and gauges, numbered steps (identification, visual, dimensional and functional checks as they apply), record results, segregate counts and next step (create a repair work order for any failures).
+- AQL Sample Result records the sampling plan reference, sample size and accept / reject numbers. Recall / Containment Sort is a 100% inspection of the remaining inventory.
+- Quantities are job level. There are no serial numbers, approvals or signatures. Holds, quarantine and inventory moves are noted as handled in NetSuite.
+- The templates are added at start-up when one with the same name is missing, so existing databases get them and edited copies are left alone. They can be used with any instruction type, so they fit Inspection work orders.
+- New tests: the eight templates are present once with their common steps, and the templates page lists and opens them.
+
 ## Inspection work order type
 
 - "Inspection" is now a work order type, alongside Production, FAI, Validation and Repair.
