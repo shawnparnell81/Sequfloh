@@ -30,4 +30,23 @@ public sealed class InspectionTemplateTests(TestApp app)
         var recall = list.Single(x => x.GetProperty("name").GetString() == "Inspection - Recall / Containment Sort").GetProperty("blocks").GetRawText();
         Assert.Contains("Inspect 100%", recall);
     }
+
+    [Fact]
+    public async Task Every_instruction_type_has_a_starter_template_tied_to_it()
+    {
+        using (var scope = app.Services.CreateScope())
+            await SequflohTypeTemplates.SeedAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+        var (_, user) = await app.CreateUserAsync([Permissions.SequflohAccess], await app.CreateSiteAsync());
+        foreach (var type in Enum.GetValues<Sequfloh.Domain.Execution.WorkInstructionType>())
+        {
+            var (_, name) = Assert.Single(SequflohTypeTemplates.All, x => x.Type == type);
+            var list = (await user.GetElAsync($"/api/sequfloh/instruction-templates?type={type}")).EnumerateArray().ToList();
+            var t = Assert.Single(list, x => x.GetProperty("name").GetString() == name);
+            Assert.Equal(type.ToString(), t.GetProperty("type").GetString());
+            var text = t.GetProperty("blocks").GetRawText();
+            Assert.Contains("Record results", text);
+            Assert.DoesNotContain("signer", text);
+            Assert.DoesNotContain("serial", text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
 }

@@ -26,6 +26,7 @@ public sealed class Seeder(AppDbContext db, IConfiguration config, IPasswordHash
         await db.SaveChangesAsync(ct);
         await SequflohFoundationService.SeedAsync(db, ct);
         await SequflohInspectionTemplates.SeedAsync(db, ct);
+        await SequflohTypeTemplates.SeedAsync(db, ct);
 
         var email = config["Seed:AdminEmail"];
         var password = config["Seed:AdminPassword"];

@@ -1,5 +1,13 @@
 # Changes
 
+## Starter templates for every instruction type
+
+- Each work instruction type now has a starter layout template tied to it: Starter - Validation, Starter - Validation / FAI, Starter - FAI, Starter - Repair Test and Starter - Repair Work Instruction.
+- Each one has a purpose, required tools and gauges, numbered steps for that type and a record results step. Quantities are job level. There are no serial numbers, approvals or signatures.
+- The picker on New work instruction offers the starter for the chosen type, together with the templates that suit any type.
+- They are added at start-up when one with the same name is missing, so existing databases get them and edited copies are left alone. Instruction types are unchanged.
+- New tests: every type has exactly one starter tied to it, and the picker offers it for that type.
+
 ## Word files with the wrong extension
 
 - Imports now check what a file really contains instead of trusting its name. A Word .docx or Excel .xlsx file renamed .doc or .xls opens normally, and a legacy binary file named .docx or .xlsx is converted like .doc or .xls.
