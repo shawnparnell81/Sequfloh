@@ -32,10 +32,11 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         if (password.Length > 200) throw new AppException("Passwords are limited to 200 characters.");
     }
 
+    // a session cookie (no Expires): closing the browser signs the person out; the token itself still expires after SessionHours
     void SetCookie(string token, DateTimeOffset expires) =>
         Response.Cookies.Append(AuthSettings.CookieName, token, new CookieOptions
         {
-            HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = !env.IsDevelopment() && !env.IsEnvironment("Testing") && Request.IsHttps, Expires = expires, Path = "/"
+            HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = !env.IsDevelopment() && !env.IsEnvironment("Testing") && Request.IsHttps, Path = "/"
         });
 
     /// <summary>True until the first administrator has been created.</summary>

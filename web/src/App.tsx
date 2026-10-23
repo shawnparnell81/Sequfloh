@@ -82,7 +82,7 @@ function TopBar() {
         </Box>
         <Button startIcon={<HomeOutlined />} component={RouterLink} to="/sequfloh" variant={atHome ? 'contained' : 'text'} size="small">Home</Button>
         <Box sx={{ flex: 1 }} />
-        <Tooltip title="Your account"><Button onClick={(e) => setAnchor(e.currentTarget)} startIcon={<AccountCircleOutlined />} size="small" color="inherit">{me?.displayName}</Button></Tooltip>
+        <Tooltip title="Your account"><Button data-testid="user-menu" onClick={(e) => setAnchor(e.currentTarget)} startIcon={<AccountCircleOutlined />} size="small" color="inherit">{me?.displayName}</Button></Tooltip>
         <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
           <MenuItem disabled><Typography variant="body2">{me?.email}</Typography></MenuItem>
           <Divider />

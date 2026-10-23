@@ -1,5 +1,11 @@
 # Changes
 
+## Closing the browser signs you out; sign-in starts with Home only
+
+- The sign-in cookie is now a session cookie: closing the browser signs you out. A session also still ends 12 hours after sign-in, whatever the browser does.
+- Browsers set to "Continue where you left off" (Chrome, Edge) or "Restore previous session" (Firefox) restore session cookies on restart, so you may still be signed in after reopening. Turn that setting off, or use Sign out, on shared computers.
+- Open tabs inside the app are kept only for the current browser tab: a reload keeps them, closing the tab or browser forgets them. Signing in or out clears them, so every sign-in starts with Home only. Sign-in auditing is unchanged.
+
 ## Parts have no revision; notes, editable OR # and fuel pump fields
 
 - Parts no longer show or ask for a revision: it is gone from the part form, part details (including the Revisions tab), the parts list and Columns menu, Export CSV, search results, the parts report and the Import parts mapping. Existing revision records are kept in the database. Work instructions, parts lists and drawings still have revisions.
