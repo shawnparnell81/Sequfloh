@@ -12,6 +12,7 @@ import { del, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
+import { ImportPartsDialog } from './PartsImport';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { StatusEditor, downloadCsv, useStatusFilter } from './Job';
 import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
@@ -43,12 +44,13 @@ export function PartMasterPage() {
   const families = useQuery({ queryKey: ['sqf-families'], queryFn: () => get<string[]>(`${S}/parts/families`) });
   const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), tag: v('tag'), sort, page, pageSize: size })}`) });
   const [open, setOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const tagFilter = useStatusFilter();
   const qc = useQueryClient();
   const title = views[view] ?? 'Part Master';
   return (
     <SqfPage title={title} crumbs={crumbs(title)} description={viewHelp[view] ?? 'The part master with execution attributes for each part and revision.'}
-      actions={can('sequfloh.edit_parts') && can('parts.edit') && <Button variant="contained" onClick={() => setOpen(true)}>New part</Button>}>
+      actions={can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ family: v('family'), status: v('status'), type: v('type'), tag: v('tag') }} onChange={set}
         onClear={() => { setSp(view ? { view } : {}); setPage(1); }}
         filters={[{ key: 'family', label: 'Product family', options: (families.data ?? []).map((f) => [f, f]) },
@@ -63,6 +65,7 @@ export function PartMasterPage() {
           { key: 'statusTag', label: 'Official status in NetSuite', render: (r) => <StatusEditor compact kind="part" id={r.id} tag={r.statusTag} note={r.statusNote} canEdit={can('sequfloh.edit_parts')} onSaved={() => qc.invalidateQueries({ queryKey: ['sqf-parts'] })} /> },
           { key: 'updatedAt', label: 'Updated', sort: true, render: (r) => fmtDateTime(r.updatedAt) }]} />
       <PartDialog open={open} onClose={() => setOpen(false)} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
+      <ImportPartsDialog open={importing} onClose={() => setImporting(false)} />
     </SqfPage>
   );
 }
