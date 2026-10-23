@@ -66,4 +66,49 @@ public sealed class FileStorageTests
         Assert.Equal("auto", o.Region);
         Assert.Equal("s3", o.Provider);
     }
+
+    [Fact]
+    public async Task Browser_style_direct_uploads_round_trip_when_local_bucket_is_configured()
+    {
+        if (Environment.GetEnvironmentVariable("SEQUFLOH_TEST_S3") is not { Length: > 0 } spec) return;
+        var p = spec.Split('|');
+        var store = new S3FileStorage(new StorageOptions { Provider = "s3", ServiceUrl = p[0], Bucket = p[1], AccessKey = p[2], SecretKey = p[3] });
+        using var http = new HttpClient();
+
+        // a small file: one signed PUT with its content type
+        var key = $"test/{Guid.NewGuid():N}.pdf";
+        var small = Encoding.ASCII.GetBytes("%PDF-1.4 made-up\n");
+        var plan = (await store.BeginDirectAsync(key, "application/pdf", small.Length, default))!;
+        Assert.Null(plan.UploadId);
+        var body = new ByteArrayContent(small); body.Headers.ContentType = new("application/pdf");
+        Assert.True((await http.PutAsync(plan.Url, body)).IsSuccessStatusCode);
+        var peek = (await store.PeekAsync(key, default))!.Value;
+        Assert.Equal(small.Length, peek.Size); Assert.Equal("%PDF-"u8.ToArray(), peek.Start[..5]);
+        Assert.Equal(small, await http.GetByteArrayAsync(store.DownloadUrl(key, "small.pdf", TimeSpan.FromMinutes(5))));
+        await store.DeleteAsync(key, default);
+
+        // a large file: signed PUTs per part, joined with the ETags
+        key = $"test/{Guid.NewGuid():N}.pdf";
+        var big = new byte[S3FileStorage.PartSize + 1000];
+        "%PDF-"u8.CopyTo(big); big[^1] = 7;
+        plan = (await store.BeginDirectAsync(key, "application/pdf", big.Length, default))!;
+        Assert.Equal(2, plan.PartUrls.Count);
+        var parts = new List<UploadedPart>();
+        for (var n = 0; n < plan.PartUrls.Count; n++)
+        {
+            var from = (int)(n * plan.PartSize);
+            var r = await http.PutAsync(plan.PartUrls[n], new ByteArrayContent(big, from, (int)Math.Min(plan.PartSize, big.Length - from)));
+            Assert.True(r.IsSuccessStatusCode);
+            parts.Add(new UploadedPart(n + 1, r.Headers.ETag!.Tag));
+        }
+        await store.CompleteDirectAsync(key, plan.UploadId!, parts, default);
+        Assert.Equal(big.Length, (await store.PeekAsync(key, default))!.Value.Size);
+        await store.DeleteAsync(key, default);
+
+        // a stopped multipart upload leaves nothing behind
+        key = $"test/{Guid.NewGuid():N}.pdf";
+        plan = (await store.BeginDirectAsync(key, "application/pdf", big.Length, default))!;
+        await store.AbortDirectAsync(key, plan.UploadId, default);
+        Assert.Null(await store.PeekAsync(key, default));
+    }
 }

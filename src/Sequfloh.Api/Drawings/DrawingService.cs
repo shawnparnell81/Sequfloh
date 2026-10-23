@@ -47,7 +47,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         CorrelationId = me.CorrelationId, Description = AuditText.Fit(text),
     });
 
-    static string Clean(string? s, int max, string what, bool required = true)
+    internal static string Clean(string? s, int max, string what, bool required = true)
     {
         var t = (s ?? "").Trim();
         if (required && t.Length == 0) throw new AppException($"Enter {what}.");
@@ -236,7 +236,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         return new { Revision = rev };
     }
 
-    static string Revision(string? r)
+    internal static string Revision(string? r)
     {
         var rev = (r ?? "").Trim().ToUpperInvariant();
         if (rev.Length == 0) throw new AppException("Enter the revision letter.");
@@ -259,7 +259,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
     }
 
     /// <summary>Checks the first bytes of formats that have a fixed signature, so a renamed file is not shown as something it is not.</summary>
-    static bool Matches(byte[] b, string ext)
+    internal static bool Matches(byte[] b, string ext)
     {
         static bool Starts(byte[] b, params byte[] sig) => b.Length >= sig.Length && b.AsSpan(0, sig.Length).SequenceEqual(sig);
         return ext switch
@@ -273,7 +273,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         };
     }
 
-    static string TypeOf(string ext) => ext switch
+    internal static string TypeOf(string ext) => ext switch
     {
         ".pdf" => "application/pdf", ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".tif" or ".tiff" => "image/tiff", ".dwg" => "image/vnd.dwg", ".dxf" => "image/vnd.dxf",
         ".step" or ".stp" => "model/step", ".iges" or ".igs" => "model/iges", _ => "application/octet-stream",
@@ -304,6 +304,15 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var d = await DrawingAsync(id, Permissions.SequflohManageDrawings, ct);
         d.IsArchived = archive; d.ArchivedAt = archive ? DateTimeOffset.UtcNow : null;
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>For files larger than an ordinary upload, a short-lived address straight to file storage, so big files are not read through this server.</summary>
+    public async Task<string?> DirectDownloadAsync(Guid id, string? revision, CancellationToken ct)
+    {
+        var d = await DrawingAsync(id, Permissions.SequflohViewDrawings, ct);
+        var rev = string.IsNullOrWhiteSpace(revision) ? d.CurrentRevision : revision.Trim().ToUpperInvariant();
+        var v = await db.DrawingRevisions.AsNoTracking().FirstOrDefaultAsync(x => x.DrawingId == id && x.Revision == rev, ct) ?? throw new NotFoundException("Revision");
+        return v.SizeBytes > MaxBytes ? storage.DownloadUrl(v.StorageKey, v.FileName, TimeSpan.FromMinutes(15)) : null;
     }
 
     public async Task<(Stream Content, string ContentType, string FileName, bool Viewable)> FileAsync(Guid id, string? revision, CancellationToken ct)
