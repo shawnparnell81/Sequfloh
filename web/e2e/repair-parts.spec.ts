@@ -25,12 +25,12 @@ test('repairable flag is separate from the repair parts list', async ({ page }) 
   await signIn(page);
   await make(`RPB-${id}`, 'Example gearbox', 'Repairable');
   await make(`RPS-${id}`, 'Example screw M4', 'Repair part');
-  await page.goto('/sequfloh/parts?view=repair-parts');
+  await page.goto(`/sequfloh/parts?view=repair-parts&q=${id}`); // filtered, so earlier runs' parts don't page it out
   await expect(view(page).getByText(`RPS-${id}`)).toBeVisible();
   await expect(view(page).getByText(`RPB-${id}`)).toHaveCount(0);
   await expect(view(page).getByText(/Repairable does not add it/)).toBeVisible();
   await shot('02-repair-parts-list');
-  await page.goto('/sequfloh/parts?view=repairable');
+  await page.goto(`/sequfloh/parts?view=repairable&q=${id}`);
   await expect(view(page).getByText(`RPB-${id}`)).toBeVisible();
   await expect(view(page).getByText(`RPS-${id}`)).toHaveCount(0);
   await shot('03-repairable-parts-list');

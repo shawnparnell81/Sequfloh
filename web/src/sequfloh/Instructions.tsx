@@ -15,6 +15,7 @@ import { StatusBadge, StatusEditor, useStatusFilter } from './Job';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { DevelopmentPanel } from './Personnel';
 import { type Block, BlocksEditor, LayoutTemplates, TemplateActions, TemplatePicker } from './Blocks';
+import { partNo } from './partLabel';
 import { type DSchema, FieldInput, ProblemList, type Row, RowsEditor, SectionCard, type Val, sequenceProblems, typeLabels, types, useSchemas } from './Designer';
 
 export const wiCrumbs = (label: string, folder?: { label: string; to: string }) =>
@@ -131,7 +132,7 @@ function RowActions({ row }: { row: WiRow }) {
 }
 
 // ------------------------------------------------------------------ new instruction (starts with the type)
-interface PartOpt { id: string; partNumber: string; name: string; revision: string; productFamily?: string; assemblyType?: string; partType: string; status: string; isRepairable?: boolean }
+interface PartOpt { id: string; partNumber: string; name: string; revision: string; productFamily?: string; assemblyType?: string; partType: string; status: string; isRepairable?: boolean ; attributes?: string | null }
 export function PartPicker({ value, label, onChange, disabled, repairable }: { value: { id: string; partNumber: string; name?: string } | null; label: string; onChange: (p: PartOpt | null) => void; disabled?: boolean; repairable?: boolean }) {
   const [text, setText] = useState('');
   const q = useQuery({ queryKey: ['sqf-part-pick', text, repairable], queryFn: () => get<Paged<PartOpt>>(`${S}/parts?${qs({ q: text, status: 'Active', view: repairable ? 'repairable' : '', pageSize: 20, sort: 'partNumber:asc' })}`) });
@@ -139,7 +140,7 @@ export function PartPicker({ value, label, onChange, disabled, repairable }: { v
   const listbox = useSetupListbox('sqfPart');
   const current = value ? (opts.find((o) => o.id === value.id) ?? ({ id: value.id, partNumber: value.partNumber, name: value.name ?? '', revision: '', partType: '', status: 'Active' } as PartOpt)) : null;
   return <Autocomplete size="small" options={opts} value={current} slots={{ listbox }} noOptionsText={text ? 'No matching part' : <SetupHint kind="sqfPart" count={0} />} disabled={disabled} loading={q.isLoading} filterOptions={(x) => x}
-    isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => `${o.partNumber}${o.name ? ' — ' + o.name : ''}`}
+    isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => `${partNo(o)}${o.name ? ' — ' + o.name : ''}`}
     onInputChange={(_, t, reason) => { if (reason === 'input') setText(t); }} onChange={(_, o) => onChange(o)}
     renderInput={(p) => <TextField {...p} label={label} />} />;
 }
@@ -515,7 +516,7 @@ function PartsMulti({ value, onChange }: { value: PartOpt[]; onChange: (v: PartO
   const [text, setText] = useState('');
   const q = useQuery({ queryKey: ['sqf-part-pick', text, false], queryFn: () => get<Paged<PartOpt>>(`${S}/parts?${qs({ q: text, status: 'Active', pageSize: 20, sort: 'partNumber:asc' })}`) });
   return <Autocomplete multiple size="small" options={q.data?.items ?? []} value={value} slots={{ listbox }} noOptionsText={text ? 'No matching part' : <SetupHint kind="sqfPart" count={0} />} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
-    getOptionLabel={(o) => `${o.partNumber} — ${o.name}`} onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label="Parts" />} />;
+    getOptionLabel={(o) => `${partNo(o)} — ${o.name}`} onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label="Parts" />} />;
 }
 
 /** Copy characteristics from another instruction or revision, or import them from an inspection plan (existing application data). */

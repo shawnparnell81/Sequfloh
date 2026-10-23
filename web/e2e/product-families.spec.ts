@@ -96,9 +96,9 @@ test('product families and cross-reference fields', async ({ page }) => {
   await shot('09-import-mapping');
   await imp.getByRole('button', { name: 'Preview' }).click();
   await expect(imp.getByTestId('import-counts')).toContainText('Add 2');
-  await expect(imp.getByTestId('import-counts')).toContainText('Skip 1');
-  await expect(imp.getByTestId('import-counts')).toContainText('Errors 1');
-  await expect(imp.getByText('row 3 is used')).toBeVisible();
+  await expect(imp.getByTestId('import-counts')).toContainText('Skip 2');
+  await expect(imp.getByTestId('import-counts')).toContainText('Errors 0');
+  await expect(imp.getByText(/Same OR # \(Part number\) as row 3/)).toBeVisible();
   await shot('10-import-preview');
   await imp.getByRole('button', { name: 'Import 2 parts' }).click();
   await expect(imp.getByTestId('import-done')).toContainText('2 added');

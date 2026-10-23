@@ -79,8 +79,9 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
         else if (pn is not null)
         {
             // free entry: link it when the number matches a part
-            var p = await db.Parts.AsNoTracking().Where(e => e.PartNumber == pn).Select(e => new { e.Id, e.Name }).FirstOrDefaultAsync(ct);
-            if (p is not null) { partId = p.Id; desc ??= p.Name; }
+            // linked only when one part has the number; with several (another Position), the request keeps the typed number
+            var ps = await db.Parts.AsNoTracking().Where(e => e.PartNumber == pn).Select(e => new { e.Id, e.Name }).Take(2).ToListAsync(ct);
+            if (ps.Count == 1) { partId = ps[0].Id; desc ??= ps[0].Name; }
         }
         if (pn is null) throw new AppException("Enter the part number.");
         if (x.Quantity is < 0) throw new AppException("The quantity can't be negative.");

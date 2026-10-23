@@ -152,7 +152,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : DbCo
             e.Property(x => x.Revision).HasMaxLength(10);
             e.Property(x => x.UnitOfMeasure).HasMaxLength(20);
             e.Property(x => x.Material).HasMaxLength(200);
-            e.HasIndex(x => x.PartNumber).IsUnique();
+            e.HasIndex(x => x.PartNumber); // not unique: an import may keep rows that repeat an OR # with another Position
             e.HasOne<Site>().WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Department>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
         });

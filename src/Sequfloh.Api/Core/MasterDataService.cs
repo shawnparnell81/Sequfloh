@@ -34,7 +34,9 @@ public sealed class MasterDataService(AppDbContext db, ModuleSupport m)
         await m.RequireAsync(Permissions.MasterDataEdit, r.SiteId, r.DepartmentId, ct);
         await m.ValidateLocationAsync(r.SiteId, r.DepartmentId, ct);
         var number = Code(r.PartNumber, "Part number", 60);
-        if (await db.Parts.AnyAsync(p => p.PartNumber == number && p.Id != id, ct)) throw new ConflictException("A part with this number already exists.");
+        // a part may keep an OR # it shares with other parts (from an import); a new or changed number must not be in use
+        var keeps = id is not null && await db.Parts.AnyAsync(p => p.Id == id && p.PartNumber == number, ct);
+        if (!keeps && await db.Parts.AnyAsync(p => p.PartNumber == number && p.Id != id, ct)) throw new ConflictException("A part with this number already exists.");
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         Part p;
         if (id is null)

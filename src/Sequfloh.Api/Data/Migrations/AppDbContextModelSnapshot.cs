@@ -2198,8 +2198,7 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("DepartmentId");
 
-                    b.HasIndex("PartNumber")
-                        .IsUnique();
+                    b.HasIndex("PartNumber");
 
                     b.HasIndex("SiteId");
 
