@@ -12,7 +12,7 @@ public sealed record TrackingFilter(string? Folder = null, string? Q = null, Tra
     string? Sort = null, int Page = 1, int PageSize = 25, string? Tag = null);
 
 /// <summary>
-/// One listing for tracking records and tasks. Folders: validation, fai, repair, production, open, completed, on-hold, rejected, all (tracking) and
+/// One listing for tracking records and tasks. Folders: validation, fai, repair, production, inspection, open, completed, on-hold, rejected, all (tracking) and
 /// dispatch, active, paused, finished, mine, overdue, station (live execution). Rows are limited to the sites and departments the user can see; elapsed,
 /// paused and hold times are calculated from the stored totals and the database clock. Live execution rows carry the actions the user can take now.
 /// </summary>
@@ -32,6 +32,7 @@ internal static class SequflohTrackingQuery
             "fai" => query.Where(x => x.Type == TrackingType.Fai),
             "repair" => query.Where(x => x.Type == TrackingType.Repair),
             "production" => query.Where(x => x.Type == TrackingType.Production),
+            "inspection" => query.Where(x => x.Type == TrackingType.Inspection),
             "open" => query.Where(x => SequflohTrackingService.Open.Contains(x.Status)),
             "completed" => query.Where(x => x.Status == TrackingStatus.Completed),
             "on-hold" => query.Where(x => x.Status == TrackingStatus.Paused), // old links; holds are handled in the ERP

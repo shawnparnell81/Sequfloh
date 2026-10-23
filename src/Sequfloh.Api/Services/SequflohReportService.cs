@@ -42,7 +42,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     static ReportColumn C(string key, string label, string type = "text") => new(key, label, type);
     static string Words(object? s) => s is null ? "" : Regex.Replace(s.ToString()!, "([a-z])([A-Z])", "$1 $2");
     static double? Minutes(long seconds) => Math.Round(seconds / 60.0, 1);
-    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production" };
+    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection" };
     static readonly Dictionary<WorkInstructionType, string> WiLabel = new() { [WorkInstructionType.Validation] = "Validation", [WorkInstructionType.ValidationFai] = "Validation / FAI", [WorkInstructionType.Fai] = "FAI",
         [WorkInstructionType.RepairTest] = "Repair Test", [WorkInstructionType.RepairWork] = "Repair Work Instruction" };
 

@@ -146,10 +146,10 @@ public sealed class SequflohReportsController(AppDbContext db, ModuleSupport m, 
             .Select(x => new { x.Id, Number = x.Number + " rev " + x.Revision, x.Title, Status = x.Status.ToString(), Path = "/sequfloh/parts-lists/" + x.Id }).ToListAsync(ct);
         groups.Add(new { Key = "parts-lists", Label = "Parts lists", Items = lists });
         var tr = (await tracking.QueryAsync(ct)).Where(x => EF.Functions.ILike(x.Number + " " + x.WorkInstructionNumber + " " + (x.PartNumber ?? "") + " " + (x.SerialNumber ?? "") + " " + (x.WorkOrder ?? ""), like));
-        var recs = await tr.Where(x => x.Type != TrackingType.Production).OrderByDescending(x => x.CreatedAt).Take(n)
+        var recs = await tr.Where(x => x.Type != TrackingType.Production && x.Type != TrackingType.Inspection).OrderByDescending(x => x.CreatedAt).Take(n)
             .Select(x => new { x.Id, x.Number, Title = x.WorkInstructionNumber + " rev " + x.WorkInstructionRevision + " " + x.WorkInstructionTitle, Status = x.Status.ToString(), Path = "/sequfloh/record/" + x.Id }).ToListAsync(ct);
         groups.Add(new { Key = "records", Label = "Tracking records", Items = recs });
-        var tasks = await tr.Where(x => x.Type == TrackingType.Production).OrderByDescending(x => x.CreatedAt).Take(n)
+        var tasks = await tr.Where(x => (x.Type == TrackingType.Production || x.Type == TrackingType.Inspection)).OrderByDescending(x => x.CreatedAt).Take(n)
             .Select(x => new { x.Id, x.Number, Title = (x.Operation ?? x.WorkInstructionTitle) + (x.WorkOrder == null ? "" : " · " + x.WorkOrder), Status = x.Status.ToString(), Path = "/sequfloh/record/" + x.Id }).ToListAsync(ct);
         groups.Add(new { Key = "tasks", Label = "Tasks", Items = tasks });
         if (await m.CanAnyAsync(Permissions.SequflohManageModuleAccess, ct) || await m.CanAnyAsync(Permissions.AdminUsers, ct))

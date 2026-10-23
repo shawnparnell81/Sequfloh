@@ -1,5 +1,14 @@
 # Changes
 
+## Inspection work order type
+
+- "Inspection" is now a work order type, alongside Production, FAI, Validation and Repair.
+- Converting an inspection request to a work order starts with the type set to Inspection. It can still be changed before the work order is created.
+- Inspection work orders work like production tasks: the same result choices (Pending, Pass, Fail, Conditional), default time ranges and create permission.
+- Inspection shows in the work order type filters, lists, the record title, and the task performance and time variance reports.
+- Existing types are unchanged. No database change is needed.
+- New tests: a converted request defaults to Inspection, and the dropdown lists Inspection first.
+
 ## Report: test results Yes / No, ERP reference off the report
 
 - The chargeback report (print page and PDF) no longer shows the ERP reference. The field stays on the Findings tab because it belongs to the work order's findings.

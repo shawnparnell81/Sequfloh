@@ -10,7 +10,7 @@ import { fmtDate, fmtDateTime } from '../components/Status';
 import { ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, nul, qs } from './common';
 import { InstructionsFolderPage } from './Instructions';
 
-const typeLabel: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', ValidationFai: 'Validation / FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction' };
+const typeLabel: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection', ValidationFai: 'Validation / FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction' };
 const qCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Quality Personnel', to: '/sequfloh/quality' }, { label }];
 const eCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Engineering Personnel', to: '/sequfloh/engineering' }, { label }];
 

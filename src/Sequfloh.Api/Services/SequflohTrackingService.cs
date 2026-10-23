@@ -162,8 +162,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
             CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
             Status = r.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned, CurrentStateStartedAt = now, LastTransitionAt = now,
             ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi.RepairDescription, FaiType = wi.FaiType,
-            MinBenchmarkMinutes = r.MinBenchmarkMinutes ?? (r.Type == TrackingType.Production ? settings.Tracking.DefaultMinimumMinutes : null),
-            MaxBenchmarkMinutes = r.MaxBenchmarkMinutes ?? (r.Type == TrackingType.Production ? settings.Tracking.DefaultMaximumMinutes : null),
+            MinBenchmarkMinutes = r.MinBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection ? settings.Tracking.DefaultMinimumMinutes : null),
+            MaxBenchmarkMinutes = r.MaxBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection ? settings.Tracking.DefaultMaximumMinutes : null),
         };
         if (partId is { } pid)
         {
@@ -242,7 +242,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         var details = r.Details is null ? rec.Details : MergeDetails(rec.Details, r.Details);
         var entryChanged = Diff(tech.Ev, rec.EvidenceReferences) || Diff(tech.Tc, rec.TechnicianComments) || Diff(tech.Dv, rec.Deviations) || Diff(tech.Nc, rec.NonconformanceReferences)
             || Diff(tech.Rc, rec.ReportedCondition) || Diff(tech.Oc, rec.ObservedCondition) || Diff(tech.Fd, rec.FinalDisposition) || Diff(tech.Vr, rec.VarianceReason)
-            || (rec.Type == TrackingType.Production && tech.Res is not null && tech.Res != rec.Result)
+            || (rec.Type is TrackingType.Production or TrackingType.Inspection && tech.Res is not null && tech.Res != rec.Result)
             || !JsonNode.DeepEquals(JsonNode.Parse(steps), JsonNode.Parse(rec.Steps)) || !JsonNode.DeepEquals(JsonNode.Parse(chars), JsonNode.Parse(rec.Characteristics))
             || !JsonNode.DeepEquals(JsonNode.Parse(partsRows), JsonNode.Parse(rec.PartsRows)) || !JsonNode.DeepEquals(JsonNode.Parse(details), JsonNode.Parse(rec.Details));
         if (entryChanged)
@@ -253,7 +253,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 if (rec.Type == TrackingType.Fai) await f.RequireOptionAsync("inspection-results", tech.Fd, "Inspection result", ct);
             CheckStepResults(steps);
             ValidateQuantities(partsRows);
-            if (rec.Type == TrackingType.Production && tech.Res is not null && tech.Res is not ("Pending" or "Pass" or "Fail" or "Conditional")) throw new AppException("The result must be Pending, Pass, Fail or Conditional.");
+            if (rec.Type is TrackingType.Production or TrackingType.Inspection && tech.Res is not null && tech.Res is not ("Pending" or "Pass" or "Fail" or "Conditional")) throw new AppException("The result must be Pending, Pass, Fail or Conditional.");
             var detailNode = JsonNode.Parse(details)!.AsObject();
             if (detailNode["repairTestResult"]?.ToString() is { Length: > 0 } rtr) await f.RequireOptionAsync("repair-test-results", rtr, "Repair test result", ct);
             if (Diff(tech.Ev, rec.EvidenceReferences)) changed.Add("evidence references");
@@ -264,7 +264,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
             rec.ObservedCondition = tech.Oc; rec.FinalDisposition = tech.Fd; rec.VarianceReason = tech.Vr;
             rec.Steps = steps; rec.Characteristics = chars; rec.PartsRows = partsRows; rec.Details = details;
             var before = rec.Result;
-            rec.Result = rec.Type == TrackingType.Production ? (tech.Res ?? rec.Result) : ComputeResult(rec);
+            rec.Result = rec.Type is TrackingType.Production or TrackingType.Inspection ? (tech.Res ?? rec.Result) : ComputeResult(rec);
             if (before != rec.Result) changed.Add($"result {before} -> {rec.Result}");
         }
         // review comments
@@ -463,7 +463,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 rec.AssignedUserId ??= m.UserId;
                 break;
             case "restart":
-                rec.Result = rec.Type == TrackingType.Production ? "Pending" : ComputeResult(rec); rec.ActualCompletion = null; rec.CompletedById = null;
+                rec.Result = rec.Type is TrackingType.Production or TrackingType.Inspection ? "Pending" : ComputeResult(rec); rec.ActualCompletion = null; rec.CompletedById = null;
                 rec.FailureReason = null;
                 to = rec.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned;
                 break;
@@ -471,7 +471,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                 await RequireCompleteAsync(rec, ct);
                 if (rec.Result == "Fail") throw new AppException("The result is Fail. Record the failure instead of completing.");
                 break;
-            case "fail": rec.FailureReason = reason; if (rec.Type == TrackingType.Production || rec.Result != "Fail") rec.Result = "Fail"; break;
+            case "fail": rec.FailureReason = reason; if (rec.Type is TrackingType.Production or TrackingType.Inspection || rec.Result != "Fail") rec.Result = "Fail"; break;
             case "cancel": rec.CancelReason = reason; break;
             case "override":
                 to = r.TargetStatus ?? throw new AppException("Choose the status to set.");

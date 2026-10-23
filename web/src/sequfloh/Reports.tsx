@@ -21,9 +21,9 @@ const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Com
 const wiStatuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 const opt = (l: string[]): [string, string][] => l.map((v) => [v, words(v)]);
 const filterSets: Record<string, { status?: [string, string][]; type?: [string, string][] }> = {
-  'task-performance': { status: opt(trackingStatuses), type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production']] },
+  'task-performance': { status: opt(trackingStatuses), type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production'], ['Inspection', 'Inspection']] },
   validation: { status: opt(trackingStatuses) }, fai: { status: opt(trackingStatuses) }, repair: { status: opt(trackingStatuses) }, production: { status: opt(trackingStatuses) },
-  'time-variance': { type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production']] },
+  'time-variance': { type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production'], ['Inspection', 'Inspection']] },
   'work-instructions': { status: opt(wiStatuses), type: [['Validation', 'Validation'], ['ValidationFai', 'Validation / FAI'], ['Fai', 'FAI'], ['RepairTest', 'Repair Test'], ['RepairWork', 'Repair Work Instruction']] },
   'parts-lists': { status: [['Draft', 'Draft'], ['Released', 'Released'], ['Inactive', 'Inactive']] },
 };

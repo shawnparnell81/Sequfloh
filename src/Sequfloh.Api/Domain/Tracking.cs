@@ -4,7 +4,7 @@ using Sequfloh.Domain.Common;
 namespace Sequfloh.Domain.Execution;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TrackingType { Validation = 0, Fai = 1, Repair = 2, Production = 3 }
+public enum TrackingType { Validation = 0, Fai = 1, Repair = 2, Production = 3, Inspection = 4 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TrackingStatus { NotStarted = 0, Assigned = 1, InProgress = 2, Paused = 3, OnHold = 4, Completed = 7, Failed = 8, Canceled = 10 }
