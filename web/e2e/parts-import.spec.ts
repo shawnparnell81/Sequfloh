@@ -8,13 +8,13 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   const shot = async (name: string) => { if (shots) await settledShot(page, path.join(shots, `${name}.png`)); };
   const k = Date.now().toString(36).toUpperCase();
   const csv = ['Item Number,Description,Rev,Category,Repairable,Repair part,NetSuite Status',
-    `EX-${k}-01,Example gearbox housing,A,Gearboxes,Yes,No,`,
-    `EX-${k}-02,Example screw M4 x 10,A,Hardware,No,Yes,`,
-    `EX-${k}-03,Example hex nut M4,A,Hardware,No,Yes,`,
-    `EX-${k}-03,Example hex nut M4 (repeat),A,Hardware,No,Yes,`,
-    `EX-${k}-04,Example top mount,B,Mounts,No,Yes,`,
-    `,Row without a part number,A,Hardware,No,No,`,
-    `EX-${k}-05,Example bracket,A,Brackets,Maybe,No,`].join('\n');
+    `EX-${k}-01,Example gearbox housing,A,Strut,Yes,No,`,
+    `EX-${k}-02,Example screw M4 x 10,A,Gas Lift,No,Yes,`,
+    `EX-${k}-03,Example hex nut M4,A,Gas Lift,No,Yes,`,
+    `EX-${k}-03,Example hex nut M4 (repeat),A,Gas Lift,No,Yes,`,
+    `EX-${k}-04,Example top mount,B,Air Strut,No,Yes,`,
+    `,Row without a part number,A,Gas Lift,No,No,`,
+    `EX-${k}-05,Example bracket,A,Fuel Pump,Maybe,No,`].join('\n');
   await signIn(page);
   await page.goto('/sequfloh/parts');
   await view(page).getByRole('button', { name: 'Import parts' }).click();
@@ -29,7 +29,7 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await dlg.getByRole('button', { name: 'Preview' }).click();
   const counts = dlg.getByTestId('import-counts');
   await expect(counts).toContainText('Add 4'); await expect(counts).toContainText('Skip 1'); await expect(counts).toContainText('Errors 2');
-  await expect(dlg.getByText('Duplicate part number in the file')).toBeVisible();
+  await expect(dlg.getByText('Duplicate OR # (Part number)')).toBeVisible();
   await expect(dlg.getByText('Repairable must be Yes or No.')).toBeVisible();
   await shot('02-preview');
   await dlg.getByRole('button', { name: 'Import 4 parts' }).click();

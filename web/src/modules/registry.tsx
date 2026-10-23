@@ -69,7 +69,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Repair Parts', path: '/sequfloh/parts?view=repair-parts' },
         { label: 'Assemblies', path: '/sequfloh/parts?view=assemblies' },
         { label: 'Reusable Operation Steps', path: '/sequfloh/operation-steps' },
-        { label: 'Part Types (Setup)', path: '/sequfloh/admin/dropdowns?list=part-types', permission: 'sequfloh.manage_dropdowns' },
+        { label: 'Product Families (Setup)', path: '/sequfloh/admin/dropdowns?list=product-families', permission: 'sequfloh.manage_dropdowns' },
         { label: 'Revision History', path: '/sequfloh/revision-history' },
       ] },
       { label: 'Imported Files', path: '/sequfloh/imported-files', permission: 'sequfloh.view_imported_files', icon: <UploadFileOutlined fontSize="small" />, match: ['/sequfloh/imported-files'], children: [

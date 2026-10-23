@@ -235,12 +235,15 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         if (r.RowVersion != 0) db.Entry(v).Property(x => x.RowVersion).OriginalValue = r.RowVersion;
         ModuleSupport.Required(r.Label, "Label", 200);
         if (await db.SequflohReferenceValues.AnyAsync(x => x.ListKey == v.ListKey && x.Id != id && x.Label == r.Label.Trim(), ct)) throw new ConflictException("Another value of the list has this label.");
+        var renamed = v.Label != r.Label.Trim();
         v.Label = r.Label.Trim(); v.Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim();
         if (!r.IsActive && v.IsDefault) throw new AppException("Choose another default before deactivating the default value.");
         v.IsActive = r.IsActive;
         if (r.IsDefault && !v.IsDefault) await SetDefaultInternalAsync(v, ct);
         else if (!r.IsDefault) v.IsDefault = false;
         await db.SaveChangesAsync(ct);
+        if (renamed && v.ListKey == SequflohCatalog.ProductFamilies)
+            await db.Parts.Where(p => p.TypeId == v.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.ProductFamily, v.Label), ct);
     }
 
     public async Task SetActiveAsync(Guid id, bool active, CancellationToken ct)
@@ -434,6 +437,46 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
                 added++;
             }
         if (added > 0) await db.SaveChangesAsync(ct);
+        await LinkProductFamiliesAsync(db, ct); // not counted: it links parts, it does not seed
         return added;
+    }
+
+    /// <summary>
+    /// Parts that only have a product family typed as text are linked to the matching value of the product families list
+    /// (label, code, or either part of a label such as "Complete Strut Assembly (CSA)"); a text with no match is added to the list.
+    /// </summary>
+    public static async Task<int> LinkProductFamiliesAsync(AppDbContext db, CancellationToken ct)
+    {
+        var texts = await db.Parts.Where(p => p.TypeId == null && p.ProductFamily != null && p.ProductFamily != "").Select(p => p.ProductFamily!).Distinct().ToListAsync(ct);
+        if (texts.Count == 0) return 0;
+        var values = await db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToListAsync(ct);
+        var sort = values.Count == 0 ? 0 : values.Max(v => v.SortOrder);
+        foreach (var text in texts)
+        {
+            var v = values.FirstOrDefault(x => ProductFamilyMatches(x.Code, x.Label, text.Trim()));
+            if (v is null)
+            {
+                var code = CodeOf(text);
+                for (var n = 2; values.Any(x => x.Code == code); n++) code = $"{CodeOf(text)}_{n}";
+                v = new SequflohReferenceValue { ListKey = SequflohCatalog.ProductFamilies, Code = code, Label = text.Trim(), SortOrder = sort += 10 };
+                db.SequflohReferenceValues.Add(v);
+                values.Add(v);
+                await db.SaveChangesAsync(ct);
+            }
+            var id = v.Id; var label = v.Label;
+            await db.Parts.Where(p => p.TypeId == null && p.ProductFamily == text).ExecuteUpdateAsync(s => s.SetProperty(p => p.TypeId, id).SetProperty(p => p.ProductFamily, label), ct);
+        }
+        return texts.Count;
+    }
+
+    /// <summary>True when the text names the value: its label or code, or the text before or inside the brackets of a label like "Complete Strut Assembly (CSA)".</summary>
+    public static bool ProductFamilyMatches(string code, string label, string text)
+    {
+        static string N(string s) => string.Join(' ', s.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
+        var t = N(text);
+        if (t.Length == 0) return false;
+        if (t == N(label) || t.Replace(' ', '_') == code.ToUpperInvariant()) return true;
+        var m = System.Text.RegularExpressions.Regex.Match(label, @"^(.*?)\s*\(([^)]*)\)\s*$");
+        return m.Success && (t == N(m.Groups[1].Value) || t == N(m.Groups[2].Value));
     }
 }

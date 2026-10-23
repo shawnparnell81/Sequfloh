@@ -17,10 +17,10 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
 {
     // ---------------- Part Master bulk import: read the file, preview, then confirm
     [HttpPost("parts/import/read"), RequestSizeLimit(20_000_000)]
-    public async Task<PartsImportTable> ImportRead(IFormFile file, [FromQuery] bool allTables = false, CancellationToken ct = default)
+    public async Task<PartsImportTable> ImportRead(IFormFile file, [FromQuery] bool allTables = false, [FromQuery] int? headerRow = null, CancellationToken ct = default)
     {
         await using var s = file.OpenReadStream();
-        return await import.ReadAsync(s, file.FileName, allTables, ct);
+        return await import.ReadAsync(s, file.FileName, allTables, ct, headerRow);
     }
 
     [HttpGet("parts/import/fields")]
@@ -38,7 +38,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         var query = await parts.PartsQueryAsync(q, view, family, status, type, ct, partType);
         if (tag == "none") query = query.Where(x => x.StatusTag == null);
         else if (!string.IsNullOrWhiteSpace(tag)) query = query.Where(x => x.StatusTag == tag);
-        var types = db.SequflohReferenceValues.Where(v => v.ListKey == "part-types");
+        var types = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.ProductFamilies);
         return sort switch
         {
             // parts without a type come last
@@ -53,7 +53,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
-        var types = db.SequflohReferenceValues.Where(v => v.ListKey == "part-types");
+        var types = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.ProductFamilies);
         return await Paging.PageAsync(query.Select(p => new
         {
             p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.StatusTag, p.StatusNote, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
@@ -71,19 +71,19 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, CancellationToken ct = default)
     {
         var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
-        var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == "part-types").ToDictionaryAsync(v => v.Id, v => v.Label, ct);
+        var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
         var rows = await query.Take(50_000).ToListAsync(ct);
-        var head = new List<string> { "OR # (Part number)", "Name", "Description", "Revision", "Part type" };
+        var head = new List<string> { "OR # (Part number)", "Name", "Description", "Revision", "Product family" };
         head.AddRange(PartAttributes.All.Select(a => a.Label));
-        head.AddRange(["Part class", "Product family", "Assembly type", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "SENSEN # (Dwg #)", "Specification", "Status", "Official status in NetSuite"]);
+        head.AddRange(["Part class", "Assembly type", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "SENSEN # (Dwg #)", "Specification", "Status", "Official status in NetSuite"]);
         var sb = new System.Text.StringBuilder();
         sb.Append(string.Join(",", head.Select(Csv))).Append("\r\n");
         foreach (var p in rows)
         {
             var attrs = PartAttributes.Read(p.Attributes);
-            var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.Revision, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : "" };
+            var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.Revision, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : p.ProductFamily };
             cells.AddRange(PartAttributes.All.Select(a => attrs.GetValueOrDefault(a.Key)));
-            cells.AddRange([p.PartType.ToString(), p.ProductFamily, p.AssemblyType, p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.IsLotControlled ? "Yes" : "No",
+            cells.AddRange([p.PartType.ToString(), p.AssemblyType, p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.IsLotControlled ? "Yes" : "No",
                 p.DrawingNumber, p.Specification, p.Status.ToString(), p.StatusTag]);
             sb.Append(string.Join(",", cells.Select(Csv))).Append("\r\n");
         }

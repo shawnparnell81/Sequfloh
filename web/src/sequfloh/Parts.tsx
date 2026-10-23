@@ -28,8 +28,8 @@ export const PN_LABEL = 'OR # (Part number)';
 export const DWG_LABEL = 'SENSEN # (Dwg #)';
 interface PartTypeValue { id: string; code: string; label: string; isActive: boolean }
 interface AttrDef { key: string; label: string; maxLength: number; types?: string[] | null }
-/** Values of the admin-managed part types list, including deactivated ones (shown on parts that still have them). */
-const usePartTypes = () => useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<PartTypeValue[]>(`${S}/reference/part-types`), staleTime: 60_000 });
+/** Values of the admin-managed product families list, including deactivated ones (shown on parts that still have them). */
+const usePartTypes = () => useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<PartTypeValue[]>(`${S}/reference/product-families`), staleTime: 60_000 });
 /** Attribute fields defined on the server (cross-reference numbers and others). */
 const useAttrDefs = () => useQuery({ queryKey: ['sqf-part-attrs'], queryFn: () => get<AttrDef[]>(`${S}/parts/attributes`), staleTime: 300_000 });
 const attrsOf = (json?: string | null): Record<string, string> => { try { return json ? JSON.parse(json) : {}; } catch { return {}; } };
@@ -54,7 +54,6 @@ export function PartMasterPage() {
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('partNumber:asc');
   const v = (k: string) => sp.get(k) ?? '';
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
-  const families = useQuery({ queryKey: ['sqf-families'], queryFn: () => get<string[]>(`${S}/parts/families`) });
   const filterQs = () => qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), partType: v('partType'), tag: v('tag'), sort });
   const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${filterQs()}&${qs({ page, pageSize: size })}`) });
   const types = usePartTypes();
@@ -71,10 +70,10 @@ export function PartMasterPage() {
   const tagFilter = useStatusFilter();
   const qc = useQueryClient();
   const title = views[view] ?? 'Part Master';
-  const allCols: Col<PartRow>[] = [{ key: 'partNumber', label: PN_LABEL, sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'typeName', label: 'Part type', sort: true, render: (r) => r.typeName ?? '—' },
+  const allCols: Col<PartRow>[] = [{ key: 'partNumber', label: PN_LABEL, sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'typeName', label: 'Product family', sort: true, render: (r) => r.typeName ?? r.productFamily ?? '—' },
           { key: 'drawingNumber', label: DWG_LABEL, render: (r) => r.drawingNumber ?? '—' },
           ...(attrDefs.data ?? []).map((d): Col<PartRow> => ({ key: `attr:${d.key}`, label: d.label, render: (r) => attrsOf(r.attributes)[d.key] ?? '—' })), { key: 'revision', label: 'Rev' },
-          { key: 'productFamily', label: 'Product family', sort: true, render: (r) => r.productFamily ?? '—' }, { key: 'partType', label: 'Part class', render: (r) => words(r.partType) },
+          { key: 'partType', label: 'Part class', render: (r) => words(r.partType) },
           { key: 'assemblyType', label: 'Assembly type', render: (r) => r.assemblyType ?? '—' }, { key: 'unitOfMeasure', label: 'UoM' },
           { key: 'flags', label: 'Repairable / Serialized / Lot', render: (r) => `${yes(r.isRepairable)} / ${yes(r.isSerialized)} / ${yes(r.isLotControlled)}` },
           { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
@@ -85,15 +84,14 @@ export function PartMasterPage() {
       actions={can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}><Button variant="outlined" onClick={exportCsv}>Export CSV</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>}>
       {(untyped.data?.total ?? 0) > 0 && v('partType') !== 'none' && <Alert severity="info" sx={{ mb: 2 }} data-testid="untyped-parts"
         action={<Button color="inherit" size="small" onClick={() => set('partType', 'none')}>Show them</Button>}>
-        {untyped.data!.total} {untyped.data!.total === 1 ? 'part has' : 'parts have'} no part type yet. Open a part and choose its type with Edit.</Alert>}
-      <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ partType: v('partType'), family: v('family'), status: v('status'), type: v('type'), tag: v('tag') }} onChange={set}
+        {untyped.data!.total} {untyped.data!.total === 1 ? 'part has' : 'parts have'} no product family yet. Open a part and choose its product family with Edit.</Alert>}
+      <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ partType: v('partType'), status: v('status'), type: v('type'), tag: v('tag') }} onChange={set}
         extra={<><Button size="small" onClick={(e) => setColsAnchor(e.currentTarget)}>Columns</Button>
           <Menu anchorEl={colsAnchor} open={!!colsAnchor} onClose={() => setColsAnchor(null)}>
             {allCols.filter((c) => c.key !== 'partNumber').map((c) => <MenuItem key={c.key} dense onClick={() => toggleCol(c.key)}><Checkbox size="small" checked={!hidden.includes(c.key)} sx={{ p: 0.5, mr: 1 }} />{c.label}</MenuItem>)}
           </Menu></>}
         onClear={() => { setSp(view ? { view } : {}); setPage(1); }}
-        filters={[{ key: 'partType', label: 'Part type', options: [['none', 'No part type'], ...(types.data ?? []).map((t): [string, string] => [t.id, t.isActive ? t.label : `${t.label} (inactive)`])] },
-          { key: 'family', label: 'Product family', options: (families.data ?? []).map((f) => [f, f]) },
+        filters={[{ key: 'partType', label: 'Product family', options: [['none', 'No product family'], ...(types.data ?? []).map((t): [string, string] => [t.id, t.isActive ? t.label : `${t.label} (inactive)`])] },
           { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) },
           { key: 'type', label: 'Part class', options: partTypes.map((t) => [t, words(t)]) }, tagFilter]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
@@ -157,15 +155,14 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Box sx={{ pt: 1 }}><Grid>
           <TextField label={PN_LABEL} required value={f.partNumber} onChange={s('partNumber')} />
-          <TextField select label="Part type" required value={typeId} onChange={(e) => setTypeId(e.target.value)} inputProps={{ 'data-testid': 'part-type-select' }}
-            error={!!edit && !typeId} helperText={edit && !typeId ? 'Choose the part type for this part.' : undefined}>
+          <TextField select label="Product family" required value={typeId} onChange={(e) => setTypeId(e.target.value)} inputProps={{ 'data-testid': 'part-type-select' }}
+            error={!!edit && !typeId} helperText={edit && !typeId ? 'Choose the product family for this part.' : undefined}>
             {(types.data ?? []).filter((t) => t.isActive || t.id === typeId).map((t) => <MenuItem key={t.id} value={t.id}>{t.isActive ? t.label : `${t.label} (inactive)`}</MenuItem>)}</TextField>
           <TextField label="Name" required value={f.name} onChange={s('name')} />
           <TextField label="Revision" required value={f.revision} onChange={s('revision')} />
           <TextField select label="Part class" value={f.partType} onChange={s('partType')}>{partTypes.map((t) => <MenuItem key={t} value={t}>{words(t)}</MenuItem>)}</TextField>
           <TextField label="Unit of measure" value={f.unitOfMeasure} onChange={s('unitOfMeasure')} />
           <TextField select label="Site" required value={f.siteId} onChange={s('siteId')}>{(sites.data ?? []).map((x) => <MenuItem key={x.id} value={x.id}>{x.code} · {x.name}</MenuItem>)}{setupOptions('site', sites.data)}</TextField>
-          <TextField label="Product family" value={f.productFamily} onChange={s('productFamily')} />
           <TextField label="Assembly type" value={f.assemblyType} onChange={s('assemblyType')} />
           <TextField select label="Status" value={f.status} onChange={s('status')}>{masterStatuses.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
           <TextField label={DWG_LABEL} value={f.drawingNumber} onChange={s('drawingNumber')} />
@@ -222,12 +219,12 @@ export function PartDetailPage() {
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : p && <>
         <StatusEditor kind="part" id={p.id} tag={p.statusTag} note={p.statusNote} canEdit={!!q.data?.canEdit} onSaved={refresh} />
         {tab === 'overview' && !p.typeId && <Alert severity="warning" sx={{ mb: 2 }} data-testid="set-part-type"
-          action={q.data?.canEdit && <Button color="inherit" size="small" onClick={() => setEdit(true)}>Set part type</Button>}>This part has no part type yet.</Alert>}
+          action={q.data?.canEdit && <Button color="inherit" size="small" onClick={() => setEdit(true)}>Set product family</Button>}>This part has no product family yet.</Alert>}
         {tab === 'overview' && <Paper variant="outlined" sx={{ p: 2 }}>
           {!q.data!.canEditMaster && q.data!.canEdit && <Alert severity="info" sx={{ mb: 2 }}>You can change SEQUFLOH execution attributes. Core Part Master fields need Master Data edit permission.</Alert>}
           <Grid cols={4}>
             <Field label={PN_LABEL}><Mono>{p.partNumber}</Mono></Field><Field label="Name">{p.name}</Field><Field label="Revision">{p.revision}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
-            <Field label="Product family">{p.productFamily}</Field><Field label="Part type">{p.typeName}</Field><Field label="Part class">{words(p.partType)}</Field><Field label="Assembly type">{p.assemblyType}</Field><Field label="Unit of measure">{p.unitOfMeasure}</Field>
+            <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class">{words(p.partType)}</Field><Field label="Assembly type">{p.assemblyType}</Field><Field label="Unit of measure">{p.unitOfMeasure}</Field>
             <Field label="Repairable">{yes(p.isRepairable)}</Field><Field label="Repair part">{yes(!!p.isRepairPart)}</Field><Field label="Serialized">{yes(p.isSerialized)}</Field><Field label="Lot controlled">{yes(p.isLotControlled)}</Field><Field label="Material">{p.material}</Field>
             {(attrDefs.data ?? []).map((d) => <Field key={d.key} label={d.label}>{p.attributes?.[d.key]}</Field>)}
             <Field label={DWG_LABEL}>{p.drawingNumber}</Field><Field label="Specification">{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>

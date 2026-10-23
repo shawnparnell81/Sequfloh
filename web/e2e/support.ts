@@ -27,6 +27,6 @@ export async function settledShot(page: Page, file: string) {
 }
 /** Chooses a part type in the open part dialog (the first active type unless one is named). */
 export async function choosePartType(page: Page, name?: string) {
-  await page.getByRole('dialog').getByRole('combobox', { name: /^Part type/ }).click();
+  await page.getByRole('dialog').getByRole('combobox', { name: /^Product family/ }).click();
   await (name ? page.getByRole('option', { name, exact: true }) : page.getByRole('option').first()).click();
 }

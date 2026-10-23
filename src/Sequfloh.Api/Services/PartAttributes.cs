@@ -22,6 +22,7 @@ public static class PartAttributes
         new("napaUs", "NAPA US #", ["napa us", "napa us #", "napa us no", "napa us number", "napa usa"]),
         new("napaCa", "NAPA CA #", ["napa ca", "napa ca #", "napa ca no", "napa ca number", "napa canada"]),
         new("keyApplication", "Key Application", ["key application", "key applications", "key app", "application", "applications"], 1000),
+        new("position", "Position", ["position", "pos", "location on vehicle", "mounting position"]),
     ];
 
     public static PartAttributeDef? Find(string key) => All.FirstOrDefault(a => a.Key == key);

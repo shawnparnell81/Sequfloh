@@ -59,18 +59,20 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await ApplyTypeAndAttributesAsync(id, r, ct);
     }
 
-    /// <summary>A new or changed part type must be an active value of the part types list; a part may keep a type that was deactivated later.</summary>
+    /// <summary>A new or changed product family must be an active value of the product families list; a part may keep a family that was deactivated later.</summary>
     async Task CheckTypeAsync(Guid? typeId, Guid? current, CancellationToken ct)
     {
         if (typeId is null || typeId == current) return;
-        if (!await db.SequflohReferenceValues.AnyAsync(x => x.Id == typeId && x.ListKey == "part-types" && x.IsActive, ct))
-            throw new AppException("The part type is not an active value of the part types list.");
+        if (!await db.SequflohReferenceValues.AnyAsync(x => x.Id == typeId && x.ListKey == SequflohCatalog.ProductFamilies && x.IsActive, ct))
+            throw new AppException("The product family is not an active value of the product families list.");
     }
 
     async Task ApplyTypeAndAttributesAsync(Guid id, SqfPartInput r, CancellationToken ct)
     {
         var p = await db.Parts.FirstAsync(x => x.Id == id, ct);
         p.TypeId = r.TypeId;
+        // the label is copied to ProductFamily so work instructions and filters that read the text keep working
+        if (r.TypeId is { } t) p.ProductFamily = await db.SequflohReferenceValues.Where(x => x.Id == t).Select(x => x.Label).FirstAsync(ct);
         if (r.Attributes is not null) PartAttributes.Write(p, r.Attributes);
         await db.SaveChangesAsync(ct);
     }

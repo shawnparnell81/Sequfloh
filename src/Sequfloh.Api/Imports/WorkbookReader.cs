@@ -8,7 +8,7 @@ using ClosedXML.Excel;
 namespace Sequfloh.Imports;
 
 /// <summary>One cell as read from the workbook. Formulas are never calculated here: <see cref="Cached"/> is the value the file stored.</summary>
-public sealed record XlCell(int R, int C, string Kind, string? Text, string? Formula, string? Cached, CellStyle? Style, bool Locked, string? NumberFormat, string? Comment, string? Hyperlink);
+public sealed record XlCell(int R, int C, string Kind, string? Text, string? Formula, string? Cached, CellStyle? Style, bool Locked, string? NumberFormat, string? Comment, string? Hyperlink, string? Display = null);
 
 public sealed record XlValidation(string Range, int R1, int C1, int R2, int C2, string Type, string? Operator, string? Value, string? Value2, List<string>? Options, string? ListSource, bool Dropdown);
 public sealed record XlConditional(string Range, int R1, int C1, int R2, int C2, string Type, string? Operator, List<string> Values, CellStyle Style, bool StopIfTrue, int Priority, int OriginR = 0, int OriginC = 0);
@@ -88,7 +88,7 @@ public static class WorkbookReader
     public const int MaxRows = 5000, MaxCols = 200, MaxCells = 400_000;
     public const string ToolVersion = "workbook-reader/1";
 
-    public static WorkbookData Read(Stream input, string format)
+    public static WorkbookData Read(Stream input, string format, bool recalculate = true)
     {
         // a seekable copy: ClosedXML and the raw package pass both read it
         var ms = new MemoryStream();
@@ -103,7 +103,7 @@ public static class WorkbookReader
         using (wb)
         {
             // files written by scripts or some exporters carry no stored formula results; work them out so the sheet is not blank
-            if (wb.Worksheets.Any(w => w.CellsUsed(c => c.HasFormula && c.CachedValue.IsBlank || c.HasFormula && c.CachedValue.IsText && c.CachedValue.GetText().Length == 0).Any()))
+            if (recalculate && wb.Worksheets.Any(w => w.CellsUsed(c => c.HasFormula && c.CachedValue.IsBlank || c.HasFormula && c.CachedValue.IsText && c.CachedValue.GetText().Length == 0).Any()))
                 try { wb.RecalculateAllFormulas(); } catch (Exception e) when (e is not OutOfMemoryException) { data.Warnings.Add("Some formula results could not be worked out until the file is opened in Excel."); }
             data.CalcMode = wb.CalculateMode switch { XLCalculateMode.Manual => "manual", XLCalculateMode.AutoNoTable => "auto-except-tables", _ => "auto" };
             foreach (var dn in wb.DefinedNames)
@@ -205,7 +205,11 @@ public static class WorkbookReader
             var style = Style(wb, cell.Style, data);
             var nf = cell.Style.NumberFormat.Format;
             if (string.IsNullOrEmpty(nf)) nf = BuiltInFormat(cell.Style.NumberFormat.NumberFormatId);
-            sh.Cells[(r, c)] = new XlCell(r, c, kind, text, formula, cached, style, cell.Style.Protection.Locked, nf, comment, link);
+            // numbers and dates as Excel shows them (leading zeros, formats), so text-like values come through unchanged
+            string? display = null;
+            if (kind is "number" or "date" || kind == "formula" && !cell.CachedValue.IsText && !cell.CachedValue.IsBlank)
+                try { display = cell.GetFormattedString(); } catch (Exception e) when (e is not OutOfMemoryException) { display = null; }
+            sh.Cells[(r, c)] = new XlCell(r, c, kind, text, formula, cached, style, cell.Style.Protection.Locked, nf, comment, link, display);
         }
 
         foreach (var dv in ws.DataValidations)
