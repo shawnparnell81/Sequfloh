@@ -102,6 +102,11 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         return s.IndexOfAny([',', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
     }
 
+    /// <summary>Number of parts per product family; parts without a family are counted under a null id.</summary>
+    [HttpGet("parts/family-counts")]
+    public async Task<object> FamilyCounts(CancellationToken ct) =>
+        await (await parts.PartsQueryAsync(null, null, null, null, null, ct, null)).GroupBy(p => p.TypeId).Select(g => new { TypeId = g.Key, Count = g.Count() }).ToListAsync(ct);
+
     [HttpGet("parts/families")]
     public async Task<List<string>> Families(CancellationToken ct) =>
         await (await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(p => p.ProductFamily != null).Select(p => p.ProductFamily!).Distinct().OrderBy(x => x).ToListAsync(ct);

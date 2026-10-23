@@ -301,6 +301,31 @@ public sealed class ProductFamilyTests(TestApp app)
     }
 
     [Fact]
+    public async Task Imported_fuel_pumps_are_counted_under_the_fuel_pump_family()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var fuelPump = (await TypesAsync(eng)).Single(t => t.Label == "Fuel Pump").Id;
+        async Task<int> CountAsync(Guid? id) => (await eng.GetElAsync("/api/sequfloh/parts/family-counts")).EnumerateArray()
+            .Where(x => x.GetProperty("typeId").ValueKind != JsonValueKind.Null && x.GetProperty("typeId").GetGuid() == id).Sum(x => x.GetProperty("count").GetInt32());
+        var before = await CountAsync(fuelPump);
+
+        string[] headers = ["OR#", "SENSEN#"];
+        string[][] rows = [[$"FP{tag}1", "S1"], [$"FP{tag}2", "S2"], [$"FP{tag}3", "S3"]];
+        var req = new { fileName = "example-fuel-pumps.csv", headers, rows, siteId = site, updateExisting = false,
+            mapping = new Dictionary<string, int> { ["partNumber"] = 0, ["drawingNumber"] = 1 },
+            @fixed = new Dictionary<string, string> { ["typeName"] = "Fuel Pump", ["name"] = "Fuel Pump" } };
+        var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import", req)).JsonAsync();
+        Assert.Equal(3, plan.GetProperty("add").GetInt32());
+
+        Assert.Equal(before + 3, await CountAsync(fuelPump));
+        var list = await eng.GetElAsync($"/api/sequfloh/parts?partType={fuelPump}&q=FP{tag}");
+        Assert.Equal(3, list.GetProperty("total").GetInt32());
+        Assert.All(list.GetProperty("items").EnumerateArray(), x => Assert.Equal("Fuel Pump", x.Str("name")));
+    }
+
+    [Fact]
     public async Task Part_form_saves_part_class_assembly_and_lot_control()
     {
         var site = await app.CreateSiteAsync();

@@ -1,5 +1,12 @@
 # Changes
 
+## Part Master home page
+
+- The Part Master home page no longer lists every part. It has a search box and one card per product family with its number of parts. Every family has a card, even with no parts yet, and parts with no product family get their own card.
+- The search covers OR #, SENSEN #, NAPA and Nissan numbers and key application. Click a result to open the part. "Show all matches" opens the full list when there are more than 10.
+- Click a family card to open that family's parts list. It keeps the search, filters, Columns menu and Export CSV, and "Back to Part Master home" returns to the cards.
+- New part and Import parts stay on the home page. Import parts on a family's page sets that family as both the Name and the Product family for all rows. Both can still be changed before you preview.
+
 ## Name is always chosen in Parts import
 
 - In Import parts, Name is never taken from the file. Pick it from the product families list under "Same for all rows". It has no "From file column" or "Not imported" option.

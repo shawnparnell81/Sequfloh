@@ -12,7 +12,8 @@ interface Plan { rows: PlanRow[]; add: number; update: number; skip: number; err
 const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'error' } as const;
 
 /** Bulk import into the Part Master: choose a file, check the column mapping, preview, then confirm. */
-export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** preset: a product family label set as the Name and Product family for all rows (from a family's parts list). */
+export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; onClose: () => void; preset?: string }) {
   const sites = useSites();
   const types = useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/product-families`), enabled: open });
   const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'units' | 'yesNo' | 'lot' | null }[]>(`${S}/parts/import/fields`), enabled: open });
@@ -35,7 +36,7 @@ export function ImportPartsDialog({ open, onClose }: { open: boolean; onClose: (
   const read = (headerRow?: number) => run(async () => {
     const fd = new FormData(); fd.append('file', file!);
     const t = await post<ImportTable>(`${S}/parts/import/read?allTables=${allTables}${headerRow ? `&headerRow=${headerRow}` : ''}`, fd);
-    const { name: _n, ...m } = t.mapping; setTable(t); setMapping(m); setFixed({}); setPlan(null);
+    const { name: _n, ...m } = t.mapping; if (preset) delete m.typeName; setTable(t); setMapping(m); setFixed(preset ? { name: preset, typeName: preset } : {}); setPlan(null);
   });
   const body = (upd = update, map = mapping) => ({ fileName: table!.fileName, headers: table!.headers, rows: table!.rows, mapping: map, siteId: site, updateExisting: upd,
     rowNumbers: table!.rowNumbers, keepRepeats, fixed });

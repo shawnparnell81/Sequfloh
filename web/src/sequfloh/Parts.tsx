@@ -53,11 +53,12 @@ export function PartMasterPage() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
   const view = sp.get('view') ?? '';
+  const home = !view && [...sp.keys()].length === 0;
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('partNumber:asc');
   const v = (k: string) => sp.get(k) ?? '';
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
   const filterQs = () => qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), partType: v('partType'), tag: v('tag'), sort });
-  const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${filterQs()}&${qs({ page, pageSize: size })}`) });
+  const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${filterQs()}&${qs({ page, pageSize: size })}`), enabled: !home });
   const types = usePartTypes();
   const attrDefs = useAttrDefs();
   const untyped = useQuery({ queryKey: ['sqf-parts-untyped'], queryFn: () => get<Paged<PartRow>>(`${S}/parts?partType=none&pageSize=1`) });
@@ -71,7 +72,9 @@ export function PartMasterPage() {
   const [importing, setImporting] = useState(false);
   const tagFilter = useStatusFilter();
   const qc = useQueryClient();
-  const title = views[view] ?? 'Part Master';
+  const family = !view && v('partType') ? (v('partType') === 'none' ? 'No product family' : types.data?.find((t) => t.id === v('partType'))?.label) : undefined;
+  const preset = family && v('partType') !== 'none' ? family : undefined;
+  const title = family ?? views[view] ?? 'Part Master';
   const allCols: Col<PartRow>[] = [{ key: 'partNumber', label: PN_LABEL, sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'typeName', label: 'Product family', sort: true, render: (r) => r.typeName ?? r.productFamily ?? '—' },
           { key: 'drawingNumber', label: DWG_LABEL, render: (r) => r.drawingNumber ?? '—' },
           ...(attrDefs.data ?? []).map((d): Col<PartRow> => ({ key: `attr:${d.key}`, label: d.label, render: (r) => attrsOf(r.attributes)[d.key] ?? '—' })), { key: 'revision', label: 'Rev' },
@@ -81,9 +84,24 @@ export function PartMasterPage() {
           { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
           { key: 'statusTag', label: 'Official status in NetSuite', render: (r) => <StatusEditor compact kind="part" id={r.id} tag={r.statusTag} note={r.statusNote} canEdit={can('sequfloh.edit_parts')} onSaved={() => qc.invalidateQueries({ queryKey: ['sqf-parts'] })} /> },
           { key: 'updatedAt', label: 'Updated', sort: true, render: (r) => fmtDateTime(r.updatedAt) }];
+  const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
+  const dialogs = <>
+    <PartDialog open={open} onClose={() => setOpen(false)} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
+    <ImportPartsDialog open={importing} onClose={() => setImporting(false)} preset={preset} />
+  </>;
+  if (home) return (
+    <SqfPage title="Part Master" crumbs={crumbs('Part Master')} description="Search for a part, or open a product family to see its parts." actions={buttons(false)}>
+      {(untyped.data?.total ?? 0) > 0 && v('partType') !== 'none' && <Alert severity="info" sx={{ mb: 2 }} data-testid="untyped-parts"
+        action={<Button color="inherit" size="small" onClick={() => set('partType', 'none')}>Show them</Button>}>
+        {untyped.data!.total} {untyped.data!.total === 1 ? 'part has' : 'parts have'} no product family yet. Open a part and choose its product family with Edit.</Alert>}
+      <PartsHome types={types.data ?? []} untyped={untyped.data?.total ?? 0} />
+      {dialogs}
+    </SqfPage>
+  );
   return (
-    <SqfPage title={title} crumbs={crumbs(title)} description={viewHelp[view] ?? 'The part master with execution attributes for each part and revision.'}
-      actions={can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}><Button variant="outlined" onClick={exportCsv}>Export CSV</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>}>
+    <SqfPage title={title} crumbs={crumbs(title)} description={viewHelp[view] ?? (family ? `Parts in the ${family} product family.` : 'The part master with execution attributes for each part and revision.')}
+      actions={buttons(true)}>
+      {!view && <Link component={RouterLink} to="/sequfloh/parts" sx={{ display: 'inline-block', mb: 1 }} data-testid="parts-home-link">Back to Part Master home</Link>}
       {(untyped.data?.total ?? 0) > 0 && v('partType') !== 'none' && <Alert severity="info" sx={{ mb: 2 }} data-testid="untyped-parts"
         action={<Button color="inherit" size="small" onClick={() => set('partType', 'none')}>Show them</Button>}>
         {untyped.data!.total} {untyped.data!.total === 1 ? 'part has' : 'parts have'} no product family yet. Open a part and choose its product family with Edit.</Alert>}
@@ -92,15 +110,55 @@ export function PartMasterPage() {
           <Menu anchorEl={colsAnchor} open={!!colsAnchor} onClose={() => setColsAnchor(null)}>
             {allCols.filter((c) => c.key !== 'partNumber').map((c) => <MenuItem key={c.key} dense onClick={() => toggleCol(c.key)}><Checkbox size="small" checked={!hidden.includes(c.key)} sx={{ p: 0.5, mr: 1 }} />{c.label}</MenuItem>)}
           </Menu></>}
-        onClear={() => { setSp(view ? { view } : {}); setPage(1); }}
+        onClear={() => { setSp(view ? { view } : family ? { partType: v('partType') } : {}); setPage(1); }}
         filters={[{ key: 'partType', label: 'Product family', options: [['none', 'No product family'], ...(types.data ?? []).map((t): [string, string] => [t.id, t.isActive ? t.label : `${t.label} (inactive)`])] },
           { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) },
           tagFilter]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
         cols={allCols.filter((c) => !hidden.includes(c.key))} />
-      <PartDialog open={open} onClose={() => setOpen(false)} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
-      <ImportPartsDialog open={importing} onClose={() => setImporting(false)} />
+      {dialogs}
     </SqfPage>
+  );
+}
+
+/** Part Master home: a search box and one card per product family with its part count. */
+function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number }) {
+  const nav = useNavigate();
+  const [text, setText] = useState('');
+  const [q, setQ] = useState('');
+  const counts = useQuery({ queryKey: ['sqf-parts', 'family-counts'], queryFn: () => get<{ typeId: string | null; count: number }[]>(`${S}/parts/family-counts`) });
+  const found = useQuery({ queryKey: ['sqf-parts', 'home-search', q], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${qs({ q, page: 1, pageSize: 10 })}`), enabled: !!q });
+  const countOf = (id: string | null) => counts.data?.find((c) => c.typeId === id)?.count ?? 0;
+  const cards = [...types.filter((t) => t.isActive || countOf(t.id) > 0).map((t) => ({ id: t.id, label: t.isActive ? t.label : `${t.label} (inactive)`, n: countOf(t.id) })),
+    ...(untyped > 0 ? [{ id: 'none', label: 'No product family', n: untyped }] : [])];
+  return (
+    <Stack gap={3}>
+      <Box component="form" onSubmit={(e) => { e.preventDefault(); setQ(text.trim()); }} sx={{ display: 'flex', gap: 1, maxWidth: 720 }}>
+        <TextField fullWidth size="small" label="Search parts" placeholder="OR #, SENSEN #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} />
+        <Button type="submit" variant="contained">Search</Button>
+      </Box>
+      {q && <Paper variant="outlined" data-testid="parts-search-results">
+        {found.isLoading ? <Loading /> : found.isError ? <ErrorState error={found.error} /> : !found.data?.items.length ? <Box sx={{ p: 2 }}><Typography color="text.secondary">No parts match "{q}".</Typography></Box> :
+          <Table size="small"><TableHead><TableRow><TableCell>{PN_LABEL}</TableCell><TableCell>{DWG_LABEL}</TableCell><TableCell>Name</TableCell><TableCell>Position</TableCell><TableCell>Key Application</TableCell></TableRow></TableHead>
+            <TableBody>{found.data.items.map((r) => { const a = attrsOf(r.attributes); return (
+              <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => nav(`/sequfloh/parts/${r.id}`)}>
+                <TableCell><Mono>{r.partNumber}</Mono></TableCell><TableCell>{r.drawingNumber ?? '—'}</TableCell><TableCell>{r.name}</TableCell><TableCell>{a.position ?? '—'}</TableCell><TableCell>{a.keyApplication ?? '—'}</TableCell>
+              </TableRow>); })}</TableBody></Table>}
+        {(found.data?.total ?? 0) > 10 && <Box sx={{ p: 1.5 }}><Link component={RouterLink} to={`/sequfloh/parts?${qs({ q })}`}>Show all {found.data!.total} matches</Link></Box>}
+      </Paper>}
+      <Box>
+        <Typography variant="subtitle1" sx={{ mb: 1 }}>Product families</Typography>
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+          {cards.map((c) => (
+            <Paper key={c.id} variant="outlined" component={RouterLink} to={`/sequfloh/parts?${qs({ partType: c.id })}`} data-testid={`family-card-${c.label}`}
+              sx={{ p: 2, textDecoration: 'none', color: 'inherit', '&:hover': { borderColor: 'primary.main' } }}>
+              <Typography fontWeight={600}>{c.label}</Typography>
+              <Typography variant="h5" data-testid="family-count">{counts.isLoading ? '…' : c.n}</Typography>
+              <Typography variant="body2" color="text.secondary">{c.n === 1 ? 'part' : 'parts'}</Typography>
+            </Paper>))}
+        </Box>
+      </Box>
+    </Stack>
   );
 }
 
