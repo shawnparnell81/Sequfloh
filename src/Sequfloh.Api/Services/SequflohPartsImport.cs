@@ -12,8 +12,12 @@ using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
-public sealed record PartsImportTable(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, List<string> Warnings);
-public sealed record PartsImportRequest(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, Guid SiteId, bool UpdateExisting);
+/// <summary>The file as read. HeaderRow and RowNumbers are row numbers in the file; Top holds the first rows so the header row can be chosen.</summary>
+public sealed record PartsImportTable(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, List<string> Warnings,
+    int HeaderRow = 1, List<int>? RowNumbers = null, List<PartsImportTopRow>? Top = null);
+public sealed record PartsImportTopRow(int Row, List<string> Cells);
+public sealed record PartsImportRequest(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, Guid SiteId, bool UpdateExisting,
+    List<int>? RowNumbers = null, Guid? DefaultTypeId = null);
 public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages);
 public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Update, int Skip, int Errors);
 
@@ -30,21 +34,22 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     /// <summary>Importable fields and the header words that suggest them.</summary>
     public static readonly (string Key, string Label, string[] Words)[] Fields =
     [
-        ("partNumber", "Part number", ["part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
+        ("partNumber", "OR # (Part number)", ["or #", "or#", "or no", "or number", "part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
         ("name", "Name", ["name", "part name", "item name", "title"]),
         ("description", "Description", ["description", "desc", "details", "purchase description", "sales description"]),
         ("revision", "Revision", ["revision", "rev", "rev level"]),
-        ("partType", "Part type", ["part type", "type", "item type"]),
+        ("typeName", "Product family", ["product family", "family", "category", "item category", "product category", "part type", "type", "product type"]),
+        ("partType", "Part class", ["part class", "item type", "class"]),
         ("unitOfMeasure", "Unit of measure", ["unit of measure", "uom", "unit", "units"]),
-        ("productFamily", "Product family / category", ["product family", "family", "category", "class", "item category"]),
         ("assemblyType", "Assembly type", ["assembly type"]),
         ("material", "Material", ["material"]),
-        ("drawingNumber", "Drawing number", ["drawing number", "drawing", "drawing no", "dwg"]),
+        ("drawingNumber", "SENSEN # (Dwg #)", ["sensen", "sensen #", "sensen#", "sensen no", "sensen number", "dwg #", "dwg#", "drawing number", "drawing", "drawing no", "dwg"]),
         ("specification", "Specification", ["specification", "spec"]),
         ("isRepairable", "Repairable", ["repairable", "can be repaired"]),
         ("isRepairPart", "Repair part", ["repair part", "repair parts", "spare part"]),
         ("isLotControlled", "Lot controlled", ["lot controlled", "lot control", "lot"]),
         ("statusTag", "Official status in NetSuite", ["netsuite status", "official status", "status in netsuite", "netsuite"]),
+        .. PartAttributes.All.Select(a => ("attr:" + a.Key, a.Label, a.Words)),
     ];
 
     static string Norm(string s) => Regex.Replace(s.ToLowerInvariant().Replace('_', ' ').Replace('-', ' '), @"[^a-z0-9# ]", "").Trim().Replace("  ", " ");
@@ -70,7 +75,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     // ------------------------------------------------------------------ reading
-    public async Task<PartsImportTable> ReadAsync(Stream input, string fileName, bool allTables, CancellationToken ct)
+    public async Task<PartsImportTable> ReadAsync(Stream input, string fileName, bool allTables, CancellationToken ct, int? headerRow = null)
     {
         await RequireCanImportAsync(ct);
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
@@ -96,24 +101,38 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             _ => ReadWorkbook(ms, ext, warnings),
         };
         if (ext is ".xlsm") warnings.Add("Macros in the workbook were ignored; only cell values were read.");
-        grid = grid.Where(r => r.Any(c => !string.IsNullOrWhiteSpace(c))).ToList();
-        if (grid.Count == 0) throw new AppException("No rows were found in the file.");
-        var headerAt = HeaderRow(grid);
-        var headers = grid[headerAt].Select(h => h.Trim()).ToList();
-        var rows = grid.Skip(headerAt + 1).Select(r => Pad(r, headers.Count)).ToList();
+        // keep the file's row numbers so problems can be reported against the sheet
+        var numbered = grid.Select((r, i) => (Row: i + 1, Cells: r)).Where(x => x.Cells.Any(c => !string.IsNullOrWhiteSpace(c))).ToList();
+        if (numbered.Count == 0) throw new AppException("No rows were found in the file.");
+        int headerAt;
+        if (headerRow is { } chosen)
+        {
+            headerAt = numbered.FindIndex(x => x.Row == chosen);
+            if (headerAt < 0) throw new AppException($"Row {chosen} is empty or not in the file.");
+        }
+        else headerAt = HeaderRow(numbered.Select(x => x.Cells).ToList());
+        var headers = numbered[headerAt].Cells.Select(h => h.Trim()).ToList();
+        var body = numbered.Skip(headerAt + 1).ToList();
+        var rows = body.Select(x => Pad(x.Cells, headers.Count)).ToList();
         if (rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
         if (headers.Any(h => Norm(h).Contains("serial"))) warnings.Add("Serial number columns are not imported.");
-        return new PartsImportTable(Path.GetFileName(fileName), headers, rows, Suggest(headers), warnings);
+        var top = numbered.Take(10).Select(x => new PartsImportTopRow(x.Row, x.Cells.Take(12).Select(c => c.Trim()).ToList())).ToList();
+        return new PartsImportTable(Path.GetFileName(fileName), headers, rows, Suggest(headers), warnings, numbered[headerAt].Row, body.Select(x => x.Row).ToList(), top);
     }
 
     static List<string> Pad(List<string> r, int n) { var x = r.Take(n).Select(c => c.Trim()).ToList(); while (x.Count < n) x.Add(""); return x; }
 
-    /// <summary>The first of the top rows that names a part number column, or the first non-empty row.</summary>
+    /// <summary>Of the first ten rows, the one whose cells match the most import fields (a part number column counts double); a stray title row above the headings is skipped.</summary>
     static int HeaderRow(List<List<string>> grid)
     {
+        int best = 0, score = 0;
         for (var i = 0; i < Math.Min(grid.Count, 10); i++)
-            if (Suggest(grid[i]).ContainsKey("partNumber")) return i;
-        return 0;
+        {
+            var m = Suggest(grid[i]);
+            var sc = m.Count + (m.ContainsKey("partNumber") ? 1 : 0);
+            if (sc > score) { best = i; score = sc; }
+        }
+        return best;
     }
 
     static List<List<string>> ReadCsv(Stream s)
@@ -126,14 +145,15 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
 
     static List<List<string>> ReadWorkbook(Stream s, string ext, List<string> warnings)
     {
-        var wb = WorkbookReader.Read(s, ext.TrimStart('.'));
+        // stored results only: recalculating could replace values that came from another workbook
+        var wb = WorkbookReader.Read(s, ext.TrimStart('.'), recalculate: false);
         var sheet = wb.Sheets.FirstOrDefault(x => x.Visibility == "visible" && x.Cells.Count > 0) ?? throw new AppException("The workbook has no sheet with data.");
         if (wb.Sheets.Count(x => x.Visibility == "visible" && x.Cells.Count > 0) > 1) warnings.Add($"Read the first sheet with data: {sheet.Name}.");
         var grid = new List<List<string>>();
         for (var r = sheet.FirstRow; r <= sheet.LastRow; r++)
         {
             var row = new List<string>();
-            for (var c = sheet.FirstCol; c <= sheet.LastCol; c++) { var cell = sheet.At(r, c); row.Add(cell?.Text ?? cell?.Cached ?? ""); }
+            for (var c = sheet.FirstCol; c <= sheet.LastCol; c++) { var cell = sheet.At(r, c); row.Add(cell?.Display ?? cell?.Text ?? cell?.Cached ?? ""); }
             grid.Add(row);
         }
         return grid;
@@ -178,12 +198,16 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         "" => null, "y" or "yes" or "true" or "1" or "x" => true, "n" or "no" or "false" or "0" => false, _ => throw new FormatException(),
     };
 
+    static string? Cut(string? v) => v is null ? null : v.Length > 200 ? v[..200] : v;
+
     async Task<List<Parsed>> ParseAsync(PartsImportRequest r, CancellationToken ct)
     {
         if (!r.Mapping.TryGetValue("partNumber", out _)) throw new AppException("Choose the column that holds the part number.");
-        if (!r.Mapping.ContainsKey("name") && !r.Mapping.ContainsKey("description")) throw new AppException("Choose a column for the name or the description.");
         if (r.Rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
         var tags = await f.OptionsAsync("status-tags", ct);
+        var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive).Select(v => new { v.Id, v.Code, v.Label }).ToListAsync(ct);
+        if (r.RowNumbers is { } rn && rn.Count != r.Rows.Count) throw new AppException("The row numbers do not match the rows.");
+        if (r.DefaultTypeId is { } dt && partTypes.All(x => x.Id != dt)) throw new AppException("The product family for all rows is not an active product family.");
         var list = new List<Parsed>();
         for (var i = 0; i < r.Rows.Count; i++)
         {
@@ -194,28 +218,37 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             bool? FlagOf(string key, string label) { try { return Flag(Get(key)); } catch (FormatException) { errors.Add($"{label} must be Yes or No."); return null; } }
             var pn = Text("partNumber", "Part number", 60);
             var desc = Text("description", "Description", 4000);
-            var name = Text("name", "Name", 200) ?? (desc is null ? null : desc.Length > 200 ? desc[..200] : desc);
-            if (pn is null) errors.Add("Part number is empty.");
-            if (name is null) errors.Add("Name or description is empty.");
+            var attrs = new Dictionary<string, string>();
+            foreach (var a in PartAttributes.All) if (Text("attr:" + a.Key, a.Label, a.MaxLength) is { } av) attrs[a.Key] = av;
+            // without a name column the name comes from the description, then key application and position, then the part number
+            var fallback = string.Join(" ", new[] { attrs.GetValueOrDefault("keyApplication"), attrs.GetValueOrDefault("position") }.Where(x => !string.IsNullOrEmpty(x)));
+            var name = Text("name", "Name", 200) ?? Cut(desc) ?? Cut(fallback.Length > 0 ? fallback : null) ?? pn;
+            if (pn is null) errors.Add("OR # (Part number) is empty.");
             var rev = Text("revision", "Revision", 10);
             var uom = Text("unitOfMeasure", "Unit of measure", 20);
             PartType? type = null;
             var t = Get("partType");
             if (t.Length > 0) { if (Enum.TryParse<PartType>(t.Replace(" ", ""), true, out var pt) && Enum.IsDefined(pt)) type = pt; else errors.Add($"Part type \"{t}\" is not known."); }
-            var family = Text("productFamily", "Product family", 100); var asm = Text("assemblyType", "Assembly type", 100);
+             var asm = Text("assemblyType", "Assembly type", 100);
             var mat = Text("material", "Material", 200); var dwg = Text("drawingNumber", "Drawing number", 100); var spec = Text("specification", "Specification", 200);
             var rep = FlagOf("isRepairable", "Repairable"); var rp = FlagOf("isRepairPart", "Repair part"); var lot = FlagOf("isLotControlled", "Lot controlled");
+            Guid? typeId = r.DefaultTypeId;
+            var tn = Get("typeName");
+            if (tn.Length > 0)
+            {
+                typeId = partTypes.FirstOrDefault(x => SequflohFoundationService.ProductFamilyMatches(x.Code, x.Label, tn))?.Id;
+                if (typeId is null) errors.Add($"Product family \"{tn}\" is not in the product families list.");
+            }
             string? tag = null;
             var tg = Get("statusTag");
             if (tg.Length > 0) { tag = tags.FirstOrDefault(x => string.Equals(x, tg, StringComparison.OrdinalIgnoreCase)); if (tag is null) errors.Add($"\"{tg}\" is not an official status in the list."); }
-            list.Add(new Parsed(i + 1, pn, name, rev, errors, p =>
+            list.Add(new Parsed(r.RowNumbers?[i] ?? i + 1, pn, name, rev, errors, p =>
             {
                 // only mapped, non-empty values are written, so an update never blanks existing data
                 if (name is not null && (r.Mapping.ContainsKey("name") || p.Name is null or "")) p.Name = name;
                 if (desc is not null) p.Description = desc;
                 if (uom is not null) p.UnitOfMeasure = uom;
                 if (type is not null) p.PartType = type.Value;
-                if (family is not null) p.ProductFamily = family;
                 if (asm is not null) p.AssemblyType = asm;
                 if (mat is not null) p.Material = mat;
                 if (dwg is not null) p.DrawingNumber = dwg;
@@ -224,6 +257,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (rp is not null) p.IsRepairPart = rp.Value;
                 if (lot is not null) p.IsLotControlled = lot.Value;
                 if (tag is not null) p.StatusTag = tag;
+                if (typeId is not null) { p.TypeId = typeId; p.ProductFamily = partTypes.First(x => x.Id == typeId).Label; }
+                PartAttributes.Merge(p, attrs);
             }));
         }
         return list;
@@ -243,12 +278,13 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         var parsed = await ParseAsync(r, ct);
         var numbers = parsed.Where(p => p.PartNumber is not null).Select(p => p.PartNumber!).Distinct().ToList();
         var existing = await db.Parts.Where(p => numbers.Contains(p.PartNumber)).ToDictionaryAsync(p => p.PartNumber, ct);
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var rows = new List<PartsImportRow>();
         foreach (var p in parsed)
         {
             if (p.Errors.Count > 0) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, p.Errors)); continue; }
-            if (!seen.Add(p.PartNumber!)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, ["Duplicate part number in the file; the first row is used."])); continue; }
+            if (seen.TryGetValue(p.PartNumber!, out var first)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Duplicate OR # (Part number); row {first} is used."])); continue; }
+            seen[p.PartNumber!] = p.Row;
             if (existing.TryGetValue(p.PartNumber!, out var ex))
             {
                 if (!r.UpdateExisting) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, ["Already in the Part Master."]));

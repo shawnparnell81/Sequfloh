@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { section, settledShot, signIn, view } from './support';
+import { section, settledShot, signIn, view, choosePartType } from './support';
 
 /** Made-up drawings, drawn on the fly: nothing here is a real part or a real drawing. */
 const svg = (title: string, rev: string) => `<html><body style="margin:0;background:#fff">
@@ -64,6 +64,7 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
   await view(page).getByRole('button', { name: 'New part' }).click();
   await page.getByLabel('Part number').fill(part);
   await page.getByLabel('Name').fill('Test bracket (made up)');
+  await choosePartType(page);
   await page.getByLabel('Link drawing(s)').fill(dwg);
   await page.getByRole('option', { name: new RegExp(dwg) }).click();
   await shot('new-part-link-drawing');

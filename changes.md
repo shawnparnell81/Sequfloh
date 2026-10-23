@@ -1,5 +1,21 @@
 # Changes
 
+## Product families and cross-reference numbers
+
+- Product family is now a dropdown from a new Product Families list under Parts (Setup). It starts with Complete Strut Assembly (CSA), Fuel Pump, Fuel Injector, Strut, Brake Wear Sensor, Air Strut, Gas Lift and Electric Lift. Admins can add, rename and retire families. A renamed family shows its new name on every part. A retired family stays on the parts that already have it but cannot be picked for new ones.
+- Product families that were typed on existing parts are linked to the matching entry. A typed family with no match is added to the list, so nothing is lost.
+- A product family is required when adding a part. Parts without one still work, and the Parts list and the part page ask you to set one.
+- New free-text fields on a part: Nissan VA #, NAPA US #, NAPA CA #, Key Application and Position. They show on the form, the part page and the Parts list, and search finds them.
+- Part number is now labelled "OR # (Part number)" and drawing number "SENSEN # (Dwg #)" on the form, part page, list, export and parts report.
+- The Parts list has a Product family filter and column, a Columns menu to show or hide columns, and an Export CSV button.
+- Import:
+  - It finds the header row in the first ten rows, skipping a title line above it, and you can pick a different row.
+  - It recognizes OR#, SENSEN #, Dwg #, Product family and the cross-reference headings. "CSA" and "Complete Strut Assembly" both match Complete Strut Assembly (CSA).
+  - A product family can be set for all rows when the file has no such column.
+  - A name column is no longer needed. The name comes from the description, then Key Application and Position, then the OR #.
+  - Values are kept exactly as the sheet shows them, with spaces trimmed. Numbers keep leading zeros, and formula results are taken as saved in the file.
+  - Rows without an OR # are listed as errors. A repeated OR # is skipped, with the row number that was used.
+- The old "Part type" choice (Component, Assembly and so on) is now called "Part class".
 ## Older Word and Excel files are converted on upload
 
 - The server now converts older .doc and .xls files, RTF files and Word pages saved as web pages (HTML or MHT, often named .doc) into .docx or .xlsx when they are uploaded. Files no longer need to be saved again in a newer format first.

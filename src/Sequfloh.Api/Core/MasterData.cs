@@ -34,6 +34,12 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public bool IsLotControlled { get; set; }
     public string? DrawingNumber { get; set; }
     public string? Specification { get; set; }
+    /// <summary>Part type from the admin-managed part types list (for example Fuel Pump or Strut). Empty on parts added before part types existed.</summary>
+    public Guid? TypeId { get; set; }
+    /// <summary>Cross-reference numbers and other attributes as JSON, keyed by the definitions in PartAttributes.</summary>
+    public string? Attributes { get; set; }
+    /// <summary>The attribute values joined into one line for searching.</summary>
+    public string? AttributeText { get; set; }
     public Guid SiteId { get; set; }
     public Guid? DepartmentId { get; set; }
     public MasterStatus Status { get; set; }
