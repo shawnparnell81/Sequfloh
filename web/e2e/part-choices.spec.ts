@@ -51,13 +51,23 @@ test('part choices: form dropdowns and import "same for all rows" or "from file 
   await expect(imp.getByText('For all rows (used where the file has no value)')).toHaveCount(0);
   await imp.getByRole('combobox', { name: /^Product family/ }).click();
   await expect(page.getByRole('option', { name: 'Not imported' })).toBeVisible();
-  await expect(page.getByText('Same for all rows')).toBeVisible();
-  await expect(page.getByText('From file column')).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Same for all rows' })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'From file column' })).toBeVisible();
   await shot('04-import-family-dropdown-open');
   await page.getByRole('option', { name: 'Complete Strut Assembly (CSA)', exact: true }).click();
   await expect(imp.locator('input[data-field="typeName"]')).toHaveValue('fix:Complete Strut Assembly (CSA)');
+  // Name is required, only offers the family list and never a file column
+  await expect(imp.getByRole('button', { name: 'Preview' })).toBeDisabled();
+  await expect(imp.getByTestId('name-required')).toContainText('Choose the Name for all rows');
+  await shot('08-import-name-required');
   await imp.getByRole('combobox', { name: /^Name/ }).click();
+  await expect(page.getByRole('option', { name: 'Same for all rows' })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'From file column' })).toHaveCount(0);
+  await expect(page.getByRole('option', { name: 'Not imported' })).toHaveCount(0);
+  await expect(page.getByRole('option', { name: 'OR #', exact: true })).toHaveCount(0);
+  await shot('07-import-name-dropdown-open');
   await page.getByRole('option', { name: 'Complete Strut Assembly (CSA)', exact: true }).click();
+  await expect(imp.getByTestId('name-required')).toHaveCount(0);
   await imp.getByRole('combobox', { name: /^Part class/ }).click();
   await page.getByRole('option', { name: 'Class', exact: true }).click();
   await imp.getByRole('combobox', { name: /^Assembly/ }).click();

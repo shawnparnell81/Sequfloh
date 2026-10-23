@@ -32,7 +32,7 @@ public sealed class PartsImportTests(TestApp app)
     static object Request(JsonElement t, Guid site, bool update, bool keepRepeats = false) => new
     {
         fileName = t.GetProperty("fileName").GetString(),
-        headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = t.GetProperty("mapping"), siteId = site, updateExisting = update, keepRepeats,
+        headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = t.GetProperty("mapping"), siteId = site, updateExisting = update, keepRepeats, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump" },
     };
 
     [Fact]
@@ -134,9 +134,9 @@ public sealed class PartsImportTests(TestApp app)
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var parts = await db.Parts.AsNoTracking().Where(p => p.PartNumber.StartsWith($"IMP-{k}-")).OrderBy(p => p.PartNumber).ToListAsync();
             Assert.Equal(2, parts.Count);
-            Assert.Equal("Old name", parts[0].Name); // no Name column: the name of an existing part is kept
+            Assert.Equal("Fuel Pump", parts[0].Name); // the Name chosen for all rows
             Assert.Equal("Example bracket", parts[0].Description); Assert.True(parts[0].IsRepairable); Assert.Equal("Struts", parts[0].ProductFamily); Assert.NotNull(parts[0].TypeId);
-            Assert.Equal("Gas Lift", parts[1].Name); // no Name column: a new part is named after its product family Assert.Equal("B", parts[1].Revision); Assert.False(parts[1].IsRepairable);
+            Assert.Equal("Fuel Pump", parts[1].Name); Assert.Equal("B", parts[1].Revision); Assert.False(parts[1].IsRepairable);
             Assert.True(await db.PartRevisions.AnyAsync(r => r.PartId == parts[1].Id && r.Revision == "B"));
             var audit = await db.AuditEntries.AsNoTracking().Where(a => a.EntityType == "PartsImport" && a.SiteId == site).SingleAsync();
             Assert.Contains("parts.csv: 1 added, 1 updated, 2 skipped, 1 with errors", audit.Description);

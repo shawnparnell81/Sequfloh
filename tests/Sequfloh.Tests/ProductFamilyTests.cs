@@ -123,7 +123,7 @@ public sealed class ProductFamilyTests(TestApp app)
         // a "Dwg #" heading is the drawing number too
         Assert.Equal(1, Sequfloh.Infrastructure.Modules.Execution.SequflohPartsImport.Suggest(["Part number", "Dwg #"])["drawingNumber"]);
 
-        var req = new { fileName = "parts.csv", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = map, siteId = site, updateExisting = false };
+        var req = new { fileName = "parts.csv", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = map, siteId = site, updateExisting = false, @fixed = new Dictionary<string, string> { ["name"] = "Struts" } };
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import", req)).JsonAsync();
         Assert.Equal(5, plan.GetProperty("add").GetInt32());
         Assert.Equal(1, plan.GetProperty("errors").GetInt32());
@@ -193,7 +193,7 @@ public sealed class ProductFamilyTests(TestApp app)
 
         var csa = (await TypesAsync(eng)).Single(x => x.Label == "Complete Strut Assembly (CSA)").Id;
         var req = new { fileName = "cross.xlsx", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), rowNumbers = t.GetProperty("rowNumbers"), mapping = map,
-            siteId = site, updateExisting = false, defaultTypeId = csa };
+            siteId = site, updateExisting = false, defaultTypeId = csa, @fixed = new Dictionary<string, string> { ["name"] = "CSA" } };
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import", req)).JsonAsync();
         Assert.Equal(3, plan.GetProperty("add").GetInt32());
         Assert.Equal(2, plan.GetProperty("skip").GetInt32());
@@ -210,7 +210,6 @@ public sealed class ProductFamilyTests(TestApp app)
         var a = parts[$"X{tag}1"]; var b = parts[$"X{tag}2"]; var c3 = parts[$"X{tag}3"];
         Assert.All(parts.Values, p => { Assert.Equal(csa, p.TypeId); Assert.Equal("Complete Strut Assembly (CSA)", p.ProductFamily); });
         Assert.Equal("9000-0001", a.DrawingNumber);
-        // without a name column the name is the product family
         Assert.Equal("Complete Strut Assembly (CSA)", a.Name);
         Assert.Equal("Complete Strut Assembly (CSA)", c3.Name);
         var av = JsonDocument.Parse(a.Attributes!).RootElement; var bv = JsonDocument.Parse(b.Attributes!).RootElement;
@@ -290,6 +289,15 @@ public sealed class ProductFamilyTests(TestApp app)
         var r = await eng.Http.PostAsJsonAsync("/api/sequfloh/parts/import/preview", new { fileName = "x.csv", headers, rows, siteId = site, updateExisting = false,
             mapping = new Dictionary<string, int> { ["partNumber"] = 0 }, @fixed = new Dictionary<string, string> { ["material"] = "Steel" } });
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+
+        // Name must be chosen for all rows and never comes from a file column
+        var noName = await eng.Http.PostAsJsonAsync("/api/sequfloh/parts/import/preview", new { fileName = "x.csv", headers, rows, siteId = site, updateExisting = false,
+            mapping = new Dictionary<string, int> { ["partNumber"] = 0 } });
+        Assert.Equal(HttpStatusCode.BadRequest, noName.StatusCode);
+        Assert.Contains("Choose the Name for all rows", await noName.Content.ReadAsStringAsync());
+        var fromFile = await eng.Http.PostAsJsonAsync("/api/sequfloh/parts/import/preview", new { fileName = "x.csv", headers, rows, siteId = site, updateExisting = false,
+            mapping = new Dictionary<string, int> { ["partNumber"] = 0, ["name"] = 4 }, @fixed = new Dictionary<string, string> { ["name"] = "Struts" } });
+        Assert.Equal(HttpStatusCode.BadRequest, fromFile.StatusCode);
     }
 
     [Fact]

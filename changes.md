@@ -1,5 +1,11 @@
 # Changes
 
+## Name is always chosen in Parts import
+
+- In Import parts, Name is never taken from the file. Pick it from the product families list under "Same for all rows". It has no "From file column" or "Not imported" option.
+- Preview and Import stay off until a Name is chosen, with the message "Choose the Name for all rows before you preview or import."
+- There is no automatic name. Every added part gets the chosen Name, and "Update existing" sets it on updated parts too.
+
 ## Set choices on parts and in Parts import
 
 - Name, Product family and Part class are dropdowns with the same list: Complete Strut Assembly (CSA), Fuel Pump, Fuel Injector, Brake Wear Sensor, Gas Lift, Electric Lift, Coil Spring, Struts and Air Struts. Strut and Air Strut were renamed Struts and Air Struts, and Coil Spring was added. Parts that had them keep their family under the new name.
@@ -10,7 +16,6 @@
 - Material, Specification, OR #, SENSEN #, Nissan VA #, NAPA US #, NAPA CA #, Key Application and Position stay as typed fields.
 - Import parts: each dropdown with set choices offers Not imported, "Same for all rows" with the choices, and "From file column" with the file's columns. A value from a column must match a choice (capital letters don't matter, and EA counts as Each). A row that doesn't match is shown as an error in the preview. Typed fields still take a column.
 - Import parts: the separate product family setting at the bottom of the dialog is gone. Use "Same for all rows" in the Product family dropdown instead.
-- Import parts: with no Name chosen, a new part is named after its product family.
 
 ## Parts that share an OR #
 
