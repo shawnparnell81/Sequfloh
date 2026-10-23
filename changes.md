@@ -1,5 +1,13 @@
 # Changes
 
+## Import parts into the Part Master
+
+- Import parts on the Parts list reads Excel (.xlsx, .xlsm, .xls), CSV or the tables of a Word .docx (the first table, or all tables with the same headings). Files are only read; macros never run.
+- Columns are matched from their headings (part number, name, description, revision, type, unit, family or category, Repairable, Repair part, lot controlled, Official status in NetSuite and others). Each match can be changed before the preview.
+- The preview shows every row as Add, Update, Skip or Error with the reason. A part number repeated in the file is skipped after its first row. Parts already in the Part Master are skipped by default, or updated when Update existing is chosen; an update only writes mapped values that are not empty and never changes the revision.
+- Import saves all rows in one step and adds an audit entry with the file name and the counts. Serial number columns are ignored.
+- Only people who can create parts see the button. Older .xls files need the office converter; without it the message asks for the file to be saved as .xlsx.
+
 ## Repairable is separate from Repair Parts
 
 - Repair Parts used to show every part with Repairable ticked. It now lists only parts with the new Repair part flag: components and replacement parts ordered for repairs, such as screws, nuts and top mounts.

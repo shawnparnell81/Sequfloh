@@ -13,8 +13,25 @@ namespace Sequfloh.Api.Controllers.Sequfloh;
 
 /// <summary>SEQUFLOH Parts and Items: shared Part Master view and execution attributes, parts lists, reusable operation steps, revision history.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh")]
-public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, SequflohPartsService parts) : ControllerBase
+public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, SequflohPartsService parts, SequflohPartsImport import) : ControllerBase
 {
+    // ---------------- Part Master bulk import: read the file, preview, then confirm
+    [HttpPost("parts/import/read"), RequestSizeLimit(20_000_000)]
+    public async Task<PartsImportTable> ImportRead(IFormFile file, [FromQuery] bool allTables = false, CancellationToken ct = default)
+    {
+        await using var s = file.OpenReadStream();
+        return await import.ReadAsync(s, file.FileName, allTables, ct);
+    }
+
+    [HttpGet("parts/import/fields")]
+    public object ImportFields() => SequflohPartsImport.Fields.Select(x => new { x.Key, x.Label });
+
+    [HttpPost("parts/import/preview")]
+    public Task<PartsImportPlan> ImportPreview(PartsImportRequest r, CancellationToken ct) => import.PreviewAsync(r, ct);
+
+    [HttpPost("parts/import")]
+    public Task<PartsImportPlan> Import(PartsImportRequest r, CancellationToken ct) => import.ImportAsync(r, ct);
+
     // ---------------- Part Master (shared parts table)
     [HttpGet("parts")]
     public async Task<object> Parts([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
