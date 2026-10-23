@@ -137,7 +137,7 @@ public class SequflohTaskAssignee
 
 /// <summary>
 /// Live time one person logged on a work order (start to stop), used for chargebacks. Anyone signed in can log time on any work order, assigned or not,
-/// and several people can run their timers on the same work order at once.
+/// and several people can be clocked on the same work order at once.
 /// </summary>
 public class SequflohTimeEntry : Entity, IAudited
 {

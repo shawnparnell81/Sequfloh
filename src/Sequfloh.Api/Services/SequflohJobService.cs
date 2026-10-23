@@ -331,7 +331,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         var entries = await db.SequflohTimeEntries.AsNoTracking().Where(e => e.TrackingRecordId == id).ToListAsync(ct);
         var people = entries.GroupBy(e => e.UserId).Select(g => new ReportPerson(g.OrderBy(e => e.StartedAt).Last().UserName,
             g.Sum(e => SequflohTimeService.Worked(e, now)), g.Sum(e => SequflohTimeService.Paused(e, now)), g.Count())).OrderBy(p => p.Name).ToList();
-        var log = entries.SelectMany(e => SequflohTimeService.EventsOf(e).Select(v => new ReportTimeEvent(e.UserName, v.Kind, v.At))).OrderBy(v => v.At).ToList();
+        var log = entries.SelectMany(e => SequflohTimeService.EventsOf(e).Select(v => new ReportTimeEvent(e.UserName, SequflohTimeService.Label(v), v.At))).OrderBy(v => v.At).ToList();
         var parts = Parts(r.PartsReplaced).Select(p => new ReportPart(p.PartNumber, p.Description, p.PerAssembly, Total(p, r.QuantityCompleted), p.Quantity is not null, p.UnitCost)).ToList();
         var all = await db.SequflohTestFiles.AsNoTracking().Where(x => x.TrackingRecordId == id).ToListAsync(ct);
         var files = all.Where(x => x.Kind == "test")
@@ -397,7 +397,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         if (o.TimeLog && x.TimeLog is { Count: > 0 } tl)
         {
             blocks.Add(new PrintHeading("Detailed time log"));
-            blocks.Add(new PrintTable([("When", 2.2), ("Technician", 2.5), ("Event", 1.3)], [.. tl.Select(e => new string?[] { local(e.At), e.Name, e.Kind })]));
+            blocks.Add(new PrintTable([("When", 2.2), ("Technician", 2.5), ("Event", 1.6)], [.. tl.Select(e => new string?[] { local(e.At), e.Name, e.Kind })]));
         }
         if (o.Tests && x.Files.Count > 0)
         {

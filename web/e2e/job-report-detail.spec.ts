@@ -24,16 +24,16 @@ test('time detail, findings and report options', async ({ page }) => {
   // Time tab: start, pause, resume, stop
   await page.goto(`/sequfloh/record/${wo}?tab=time`);
   await view(page).getByTestId('start-timer').click();
-  await view(page).getByTestId('pause-timer').click();
+  await view(page).getByTestId('pause-lunch').click();
   await expect(view(page).getByTestId('resume-timer')).toBeVisible();
-  await expect(view(page)).toContainText('Paused since');
+  await expect(view(page)).toContainText('Paused for lunch since');
   await page.waitForTimeout(1200);
   await view(page).getByTestId('resume-timer').click();
   await view(page).getByTestId('stop-timer').click();
   await view(page).getByTestId('toggle-time-log').click();
-  await expect(view(page).getByTestId('time-log')).toContainText('Pause');
-  await expect(view(page).getByTestId('time-log')).toContainText('Resume');
-  await expect(view(page).getByTestId('time-log')).toContainText('Stop');
+  await expect(view(page).getByTestId('time-log')).toContainText('Paused for lunch');
+  await expect(view(page).getByTestId('time-log')).toContainText('Clocked back on job');
+  await expect(view(page).getByTestId('time-log')).toContainText('Clocked off job');
   await shot('time-tab-pause-and-log');
 
   // Findings tab

@@ -1,5 +1,12 @@
 # Changes
 
+## Clock on / clock off job time
+- Time buttons now read "Clock on job", "Pause job – Break", "Pause job – Lunch", "Clock back on job" and "Clock off job", with matching tooltips.
+- A pause records why (Break or Lunch). The reason shows in the Time tab ("Paused for lunch since …"), the time log and the detailed time log on the job report and PDF.
+- Time log wording: "Clocked on job", "Paused for break", "Paused for lunch", "Clocked back on job", "Clocked off job".
+- Paused time is still left out of man hours.
+- This is job time only. It is not a payroll clock in / clock out.
+
 ## Inspection requests
 - New top-level "Inspection Requests" section in the menu. Status: Open, In progress, Done, Cancelled.
 - "New inspection request" button opens the form in a dialog. It is on SEQUFLOH Home (quick actions), Work Instructions and Tracking (work orders).
@@ -12,7 +19,7 @@
 - Delete follows the usual delete permission and is recorded in the audit trail. A converted work order is kept.
 
 ## Time detail per technician
-- New Time tab on each work order. Each person can start, pause, resume and stop their own timer.
+- New Time tab on each work order. Each person can clock on, pause, clock back on and clock off the job.
 - Every start, pause, resume and stop is logged with a timestamp ("Show time log").
 - Paused time is shown separately for each person and is not counted in man hours.
 - Older time entries show their start and stop in the log.
