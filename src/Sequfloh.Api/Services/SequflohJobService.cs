@@ -104,7 +104,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     static decimal Total(PartReplaced p, int completed) => p.Quantity ?? p.PerAssembly * completed;
     static object FileDto(SequflohTestFile x) => new
     {
-        x.Id, x.Kind, x.FileName, x.SizeBytes, x.Batch, x.TestDate, x.UploadedByName, UploadedAt = x.CreatedAt, x.Tested, x.Passed, x.Failed,
+        x.Id, x.Kind, x.FileName, x.SizeBytes, x.Batch, x.TestDate, UploadedAt = x.CreatedAt, x.Tested, x.Passed, x.Failed,
         KeyValues = JsonSerializer.Deserialize<List<KeyValue>>(x.KeyValues, SequflohJson.Options),
     };
 
@@ -316,8 +316,8 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     public sealed record ReportPerson(string Name, long Seconds, long PausedSeconds = 0, int Sessions = 0);
     public sealed record ReportTimeEvent(string Name, string Kind, DateTimeOffset At);
     public sealed record ReportPart(string PartNumber, string? Description, decimal PerAssembly, decimal Quantity, bool Overridden, decimal? UnitCost = null);
-    public sealed record ReportFile(string FileName, string? Batch, DateOnly? TestDate, int? Tested, int? Passed, int? Failed, List<KeyValue> KeyValues, string UploadedByName, DateTimeOffset UploadedAt);
-    public sealed record ReportAttachment(Guid Id, string FileName, string Kind, string UploadedByName, DateTimeOffset UploadedAt);
+    public sealed record ReportFile(string FileName, string? Batch, DateOnly? TestDate, int? Tested, int? Passed, int? Failed, List<KeyValue> KeyValues, DateTimeOffset UploadedAt);
+    public sealed record ReportAttachment(Guid Id, string FileName, string Kind, DateTimeOffset UploadedAt);
     public sealed record JobReport(Guid Id, string Number, string Type, string Status, string Title, string? PartNumber, string? PartDescription, string? WorkOrder,
         int? QuantityTarget, int QuantityCompleted, int QuantityNotRepaired, List<ReportPerson> People, long TotalSeconds,
         List<ReportPart> Parts, decimal PartsTotal, List<ReportFile> Files, int Tested, int Passed, int Failed, DateTimeOffset GeneratedAt,
@@ -339,8 +339,8 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         // "Include test results report?" No: the report carries no test results at all
         var files = !opts.Tests ? [] : all.Where(x => x.Kind == "test")
             .OrderBy(x => x.TestDate ?? DateOnly.FromDateTime(x.CreatedAt.UtcDateTime)).ThenBy(x => x.Batch).ThenBy(x => x.CreatedAt)
-            .Select(x => new ReportFile(x.FileName, x.Batch, x.TestDate, x.Tested, x.Passed, x.Failed, JsonSerializer.Deserialize<List<KeyValue>>(x.KeyValues, SequflohJson.Options) ?? [], x.UploadedByName, x.CreatedAt)).ToList();
-        ReportAttachment A(SequflohTestFile x) => new(x.Id, x.FileName, x.Kind, x.UploadedByName, x.CreatedAt);
+            .Select(x => new ReportFile(x.FileName, x.Batch, x.TestDate, x.Tested, x.Passed, x.Failed, JsonSerializer.Deserialize<List<KeyValue>>(x.KeyValues, SequflohJson.Options) ?? [], x.CreatedAt)).ToList();
+        ReportAttachment A(SequflohTestFile x) => new(x.Id, x.FileName, x.Kind, x.CreatedAt);
         var lines = Lines(r.CostLines);
         return new JobReport(r.Id, r.Number, r.Type.ToString(), r.Status.ToString(), r.WorkInstructionTitle, r.PartNumber, r.PartDescription, r.WorkOrder,
             r.QuantityTarget, r.QuantityCompleted, r.QuantityNotRepaired, people, people.Sum(p => p.Seconds), parts, parts.Sum(p => p.Quantity),
@@ -419,7 +419,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         if (o.Attachments && x.Attachments is { Count: > 0 } at)
         {
             blocks.Add(new PrintHeading("Attachments"));
-            blocks.Add(new PrintTable([("File", 4), ("Added by", 2), ("Added", 2)], [.. at.Select(a => new string?[] { a.FileName, a.UploadedByName, local(a.UploadedAt) })]));
+            blocks.Add(new PrintTable([("File", 6), ("Added", 2)], [.. at.Select(a => new string?[] { a.FileName, local(a.UploadedAt) })]));
         }
         if (o.Photos && x.Photos is { Count: > 0 } ph)
         {
@@ -428,7 +428,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             foreach (var p in ph)
             {
                 var bytes = await BytesAsync(files[p.Id], ct);
-                var caption = $"{p.FileName} · {p.UploadedByName} · {local(p.UploadedAt)}";
+                var caption = $"{p.FileName} · {local(p.UploadedAt)}";
                 if (PdfCanvas.JpegSize(bytes) is not null) blocks.Add(new PrintImage(bytes, caption));
                 else blocks.Add(new PrintParagraph($"Photo attached separately: {caption}"));
             }

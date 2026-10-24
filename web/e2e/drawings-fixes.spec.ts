@@ -53,7 +53,7 @@ test('drawings: import at the top level keeps the folder tree, PDFs only; the pa
   await expect(preview).toContainText('Folders4 (4 new)');
   await expect(preview).toContainText('Files5');
   await expect(preview).toContainText('PDF files3');
-  await expect(preview).toContainText('Skipped (not PDF)2');
+  await expect(preview).toContainText('Skipped (not PDF or Word)2');
   await expect(preview).toContainText('To import3');
   await expect(dlg.getByText('Import these too', { exact: false })).toHaveCount(0);
   await shot('01-top-level-import-preview');

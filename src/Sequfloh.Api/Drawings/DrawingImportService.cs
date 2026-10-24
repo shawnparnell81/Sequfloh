@@ -178,7 +178,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         await ManagedFolderAsync(r.FolderId, ct);
         var name = Path.GetFileName(r.FileName ?? "");
         var ext = Path.GetExtension(name).ToLowerInvariant();
-        if (!DrawingService.Accepted.Contains(ext)) throw new AppException($"{name}: drawings can be PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES or SolidWorks files.");
+        if (!DrawingService.Accepted.Contains(ext)) throw new AppException($"{name}: drawings can be PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES, SolidWorks or Word files.");
         if (r.Size <= 0) throw new AppException($"{name} is empty.");
         if (r.Size > MaxBytes) throw new AppException($"{name} is larger than 5 GB.");
         var t = new Ticket(UserId, r.FolderId, Guid.CreateVersion7(), Guid.CreateVersion7(), name, r.Size, DateTimeOffset.UtcNow.Add(TokenLife).ToUnixTimeSeconds());

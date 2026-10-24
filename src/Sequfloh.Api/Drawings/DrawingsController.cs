@@ -102,7 +102,8 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
             Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
             return File(content, type);
         }
-        return File(content, viewable ? type : "application/octet-stream", name);
+        // Word files keep their own type so they open in Word once downloaded; they are always sent as an attachment
+        return File(content, viewable || DrawingService.IsWordType(type) ? type : "application/octet-stream", name);
     }
 
     [HttpGet("{id:guid}/history"), RequirePermission(Permissions.SequflohViewDrawings)]

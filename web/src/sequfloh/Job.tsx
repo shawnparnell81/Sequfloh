@@ -70,7 +70,7 @@ export function downloadCsv(name: string, head: string[], rows: (string | number
 
 // ------------------------------------------------------------------ Job panel
 interface PartLine { partNumber: string; description?: string | null; perAssembly: number; quantity?: number | null; unitCost?: number | null; total?: number }
-interface TestFile { id: string; kind?: string; fileName: string; batch?: string; testDate?: string; uploadedByName: string; uploadedAt: string; tested?: number; passed?: number; failed?: number }
+interface TestFile { id: string; kind?: string; fileName: string; batch?: string; testDate?: string; uploadedAt: string; tested?: number; passed?: number; failed?: number }
 interface ColumnMap { resultColumn?: string | null; passValues?: string[] | null; valueColumns?: string[] | null; batchColumn?: string | null; dateColumn?: string | null }
 interface JobData { quantityTarget?: number | null; quantityCompleted: number; quantityNotRepaired: number; parts: PartLine[]; columns: ColumnMap; files: TestFile[];
   tests: { tested: number; passed: number; failed: number } }
@@ -149,7 +149,7 @@ export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
       {tests.length > 0 && <Table size="small"><TableHead><TableRow><TableCell>File</TableCell><TableCell>Batch</TableCell><TableCell>Test date</TableCell><TableCell>Tested</TableCell><TableCell>Passed</TableCell><TableCell>Failed</TableCell><TableCell>Uploaded</TableCell><TableCell /></TableRow></TableHead>
         <TableBody>{tests.map((f) => <TableRow key={f.id}>
           <TableCell><a href={`${S}/tracking/job/test-files/${f.id}`}>{f.fileName}</a></TableCell><TableCell>{f.batch ?? '—'}</TableCell><TableCell>{f.testDate ?? '—'}</TableCell>
-          <TableCell>{f.tested ?? '—'}</TableCell><TableCell>{f.passed ?? '—'}</TableCell><TableCell>{f.failed ?? '—'}</TableCell><TableCell>{`${f.uploadedByName} · ${fmtDateTime(f.uploadedAt)}`}</TableCell>
+          <TableCell>{f.tested ?? '—'}</TableCell><TableCell>{f.passed ?? '—'}</TableCell><TableCell>{f.failed ?? '—'}</TableCell><TableCell>{fmtDateTime(f.uploadedAt)}</TableCell>
           <TableCell sx={{ whiteSpace: 'nowrap' }}>{canWork && f.tested != null && <Button size="small" onClick={() => setMapFile(f.id)}>Columns</Button>}
             {canWork && <IconButton aria-label={`Remove ${f.fileName}`} onClick={() => run(() => del(`${S}/tracking/job/test-files/${f.id}`))}><DeleteOutline /></IconButton>}</TableCell>
         </TableRow>)}</TableBody></Table>}
@@ -188,7 +188,7 @@ function ColumnsDialog({ id, fileId, onClose, onSaved }: { id: string; fileId: s
 
 // ------------------------------------------------------------------ report page
 interface Opts { perTech: boolean; timeLog: boolean; findings: boolean; tests: boolean; attachments: boolean; photos: boolean; cost: boolean }
-interface Att { id: string; fileName: string; uploadedByName: string; uploadedAt: string }
+interface Att { id: string; fileName: string; uploadedAt: string }
 interface Report { id: string; number: string; type: string; status: string; title: string; partNumber?: string; partDescription?: string; workOrder?: string;
   quantityTarget?: number; quantityCompleted: number; quantityNotRepaired: number; people: { name: string; seconds: number; pausedSeconds: number; sessions: number }[]; totalSeconds: number;
   pausedSeconds: number; parts: { partNumber: string; description?: string; perAssembly: number; quantity: number; overridden: boolean; unitCost?: number | null }[]; partsTotal: number;
@@ -263,10 +263,10 @@ export function JobReportPage() {
         rows={[...r.people.map((p) => [p.name, String(p.sessions), hrs(p.seconds), hrs(p.pausedSeconds)]), ['Total', String(r.people.reduce((a, p) => a + p.sessions, 0)), hrs(r.totalSeconds), hrs(r.pausedSeconds)]]} /></Sec>}
       {o.timeLog && r.timeLog.length > 0 && <Sec title="Detailed time log"><Grid2 noTotal head={['When', 'Technician', 'Event']} rows={r.timeLog.map((e) => [fmtDateTime(e.at), e.name, e.kind])} /></Sec>}
       {o.tests && r.files.length > 0 && <Sec title="Test results"><Grid2 head={['File', 'Batch', 'Test date', 'Tested', 'Passed', 'Failed']} rows={[...r.files.map((f) => [f.fileName, f.batch ?? '', f.testDate ?? '', f.tested ?? '', f.passed ?? '', f.failed ?? ''].map(String)), ['Total', '', '', String(r.tested), String(r.passed), String(r.failed)]]} /></Sec>}
-      {o.attachments && r.attachments.length > 0 && <Sec title="Attachments"><Grid2 noTotal head={['File', 'Added by', 'Added']} rows={r.attachments.map((a) => [a.fileName, a.uploadedByName, fmtDateTime(a.uploadedAt)])} /></Sec>}
+      {o.attachments && r.attachments.length > 0 && <Sec title="Attachments"><Grid2 noTotal head={['File', 'Added']} rows={r.attachments.map((a) => [a.fileName, fmtDateTime(a.uploadedAt)])} /></Sec>}
       {o.photos && r.photos.length > 0 && <Sec title="Photos and evidence"><Stack direction="row" gap={2} flexWrap="wrap">{r.photos.map((p) => <Box key={p.id} sx={{ width: 260 }}>
         <Box component="img" src={`${S}/tracking/job/test-files/${p.id}`} alt={p.fileName} sx={{ width: '100%', border: '1px solid #ddd' }} />
-        <Typography variant="caption">{p.fileName} · {p.uploadedByName}</Typography></Box>)}</Stack></Sec>}
+        <Typography variant="caption">{p.fileName} · {fmtDateTime(p.uploadedAt)}</Typography></Box>)}</Stack></Sec>}
       <Sec title="Chargeback summary">
         {o.cost && <Grid2 noTotal head={['Item', 'Basis', 'Amount']} rows={[['Labor', `${hrs(r.totalSeconds)} h × ${rateN != null ? money(rateN) : '____'}`, labour != null ? money(labour) : '____'],
           ...r.parts.filter((p) => p.unitCost != null).map((p) => [`Part ${p.partNumber}`, `${p.quantity} × ${money(p.unitCost!)}`, money(p.quantity * p.unitCost!)]),

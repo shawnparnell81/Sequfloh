@@ -16,13 +16,13 @@ const A = '/api/imported-files';
 const GREEN = '#0E8550';
 const crumbs = (label: string, extra?: { label: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Imported Files', to: '/sequfloh/imported-files' }, { label }, ...(extra ? [extra] : [])];
 
-interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; updatedBy?: string; isBlankForm: boolean; blankForm?: string | null }
+interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; isBlankForm: boolean; blankForm?: string | null }
 interface Detail {
   id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; createdAt: string; updatedAt: string; canEdit: boolean;
   isBlankForm: boolean; partNumber?: string | null; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
-  copies?: { id: string; number: string; title: string; blankFormVersion?: number | null; createdAt: string; updatedAt: string; createdBy?: string; updatedBy?: string }[] | null;
+  copies?: { id: string; number: string; title: string; blankFormVersion?: number | null; createdAt: string; updatedAt: string }[] | null;
   summary: { formulaTotal?: number; formulaClasses?: Record<string, number>; warnings?: string[]; security?: string[]; sheets?: { name: string; charts: number; pivots: number }[]; paragraphs?: number; tables?: number; controls?: number };
-  versions: { version: number; fileName: string; sizeBytes: number; note?: string; createdAt: string; createdByName: string }[];
+  versions: { version: number; fileName: string; sizeBytes: number; note?: string; createdAt: string }[];
 }
 
 const kindLabel = (k: string) => (k === 'spreadsheet' ? 'Spreadsheet' : 'Word document');
@@ -105,7 +105,7 @@ export function ImportedFilesPage() {
         cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', render: (r) => <Stack gap={0.5} alignItems="flex-start"><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><span>{r.title}</span>
             {r.isBlankForm && <Chip size="small" color="primary" variant="outlined" label="Blank form" />}</Stack>{r.blankForm && <Chip size="small" variant="outlined" label={`Filled from ${r.blankForm}`} />}</Stack> }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
           { key: 'sourceFormat', label: 'Imported from', render: (r) => <Chip size="small" variant="outlined" label={formatLabel(r.sourceFormat)} /> }, { key: 'currentVersion', label: 'Version' },
-          { key: 'updatedAt', label: 'Last saved', render: (r) => fmtDateTime(r.updatedAt) }, { key: 'updatedBy', label: 'Saved by', render: (r) => r.updatedBy ?? '—' }]} />
+          { key: 'updatedAt', label: 'Last saved', render: (r) => fmtDateTime(r.updatedAt) }]} />
       <UploadDialog open={open} onClose={() => setOpen(false)} onDone={(id) => nav(`/sequfloh/imported-files/${id}`)} />
     </SqfPage>
   );
@@ -235,14 +235,14 @@ export function ImportedFilePage() {
             onClick={() => nav(`/sequfloh/imported-files/${c.id}`)}>
             <Mono>{c.number}</Mono>
             <Box sx={{ flex: 1 }}><Typography variant="body2" sx={{ fontWeight: 600 }}>{c.title}</Typography>
-              <Typography variant="caption" color="text.secondary">Started {fmtDateTime(c.createdAt)} by {c.createdBy ?? '—'}{c.blankFormVersion ? ` from version ${c.blankFormVersion}` : ''}</Typography></Box>
-            <Box sx={{ textAlign: 'right' }}><Typography variant="body2">Saved {fmtDateTime(c.updatedAt)}</Typography><Typography variant="caption" color="text.secondary">{c.updatedBy ?? c.createdBy ?? '—'}</Typography></Box>
+              <Typography variant="caption" color="text.secondary">Started {fmtDateTime(c.createdAt)}{c.blankFormVersion ? ` from version ${c.blankFormVersion}` : ''}</Typography></Box>
+            <Box sx={{ textAlign: 'right' }}><Typography variant="body2">Saved {fmtDateTime(c.updatedAt)}</Typography></Box>
           </Stack>)}
         </Paper> : <Empty text="No filled copies yet. Use Fill out a copy to start one." />)}
         {tab === 'versions' && <Paper variant="outlined">
           {d.versions.map((v) => <Stack key={v.version} direction="row" gap={2} alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: 1, borderColor: 'divider' }}>
             <Typography sx={{ width: 90, fontWeight: 600 }}>Version {v.version}</Typography>
-            <Box sx={{ flex: 1 }}><Typography variant="body2">{v.note ?? '—'}</Typography><Typography variant="caption" color="text.secondary">{v.createdByName} · {fmtDateTime(v.createdAt)} · {(v.sizeBytes / 1024).toFixed(0)} KB</Typography></Box>
+            <Box sx={{ flex: 1 }}><Typography variant="body2">{v.note ?? '—'}</Typography><Typography variant="caption" color="text.secondary">{fmtDateTime(v.createdAt)} · {(v.sizeBytes / 1024).toFixed(0)} KB</Typography></Box>
             <Button size="small" onClick={() => { setVersion(v.version === d.currentVersion ? null : v.version); setTab('file'); }}>Open</Button>
             <Button size="small" component="a" href={`${A}/${d.id}/download?version=${v.version}`}>Download</Button>
           </Stack>)}

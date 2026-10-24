@@ -10,7 +10,7 @@ export interface Findings { discoveryMethod?: string | null; dateDiscovered?: st
   supplierPartNumber?: string | null; lotDateCodes?: string | null; purchaseOrder?: string | null; qtyInspected?: number | null; qtyNonconforming?: number | null; qtyAffected?: number | null;
   description?: string | null; warrantyClaim?: string | null; alertRecall?: string | null; erpReference?: string | null; repairMethod?: string | null; rootCause?: string | null }
 export interface CostLine { description: string; amount: number }
-interface FileRow { id: string; kind: string; fileName: string; uploadedByName: string; uploadedAt: string }
+interface FileRow { id: string; kind: string; fileName: string; uploadedAt: string }
 interface Data { findings: Findings; costLines: CostLine[]; files: FileRow[] }
 
 type Key = keyof Findings;
@@ -45,7 +45,7 @@ export function FindingsPanel({ id, canWork, wi }: { id: string; canWork: boolea
   const list = (kind: string) => d.files.filter((x) => x.kind === kind);
   const files = (kind: string, empty: string) => list(kind).length === 0 ? <Typography variant="body2" color="text.secondary">{empty}</Typography>
     : <Stack gap={0.5}>{list(kind).map((x) => <Stack key={x.id} direction="row" alignItems="center" gap={1}>
-      <a href={`${S}/tracking/job/test-files/${x.id}`}>{x.fileName}</a><Typography variant="caption" color="text.secondary">{x.uploadedByName} · {fmtDateTime(x.uploadedAt)}</Typography>
+      <a href={`${S}/tracking/job/test-files/${x.id}`}>{x.fileName}</a><Typography variant="caption" color="text.secondary">{fmtDateTime(x.uploadedAt)}</Typography>
       {canWork && <IconButton size="small" aria-label={`Remove ${x.fileName}`} onClick={() => run(() => del(`${S}/tracking/job/test-files/${x.id}`))}><DeleteOutline fontSize="small" /></IconButton>}</Stack>)}</Stack>;
   return <Stack gap={2} data-testid="findings-panel">
     {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}

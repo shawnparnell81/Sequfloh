@@ -57,27 +57,24 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (kind == "filled") query = query.Where(f => f.BlankFormId != null);
         var rows = await query.OrderByDescending(f => f.UpdatedAt)
             .Select(f => new { f.Id, f.Number, f.Title, f.Kind, f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.SiteId, f.DepartmentId, f.CreatedAt, f.UpdatedAt, f.IsBlankForm,
-                BlankForm = db.ImportedFiles.Where(b => b.Id == f.BlankFormId).Select(b => b.Title).FirstOrDefault(),
-                UpdatedBy = db.Users.Where(u => u.Id == f.UpdatedById).Select(u => u.DisplayName).FirstOrDefault() })
+                BlankForm = db.ImportedFiles.Where(b => b.Id == f.BlankFormId).Select(b => b.Title).FirstOrDefault() })
             .ToListAsync(ct);
         var allowed = rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).ToList();
         pageSize = Math.Clamp(pageSize, 1, 200); page = Math.Max(1, page);
         return new { total = allowed.Count, items = allowed.Skip((page - 1) * pageSize).Take(pageSize).Select(r => new { r.Id, r.Number, r.Title, Kind = r.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document",
-            r.SourceFormat, r.OriginalFileName, r.CurrentVersion, r.CreatedAt, r.UpdatedAt, r.UpdatedBy, r.IsBlankForm, r.BlankForm }) };
+            r.SourceFormat, r.OriginalFileName, r.CurrentVersion, r.CreatedAt, r.UpdatedAt, r.IsBlankForm, r.BlankForm }) };
     }
 
     public async Task<object> GetAsync(Guid id, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohViewImportedFiles, ct);
         var versions = await db.ImportedFileVersions.AsNoTracking().Where(v => v.ImportedFileId == id).OrderByDescending(v => v.Version)
-            .Select(v => new { v.Version, v.FileName, v.SizeBytes, v.Note, v.CreatedAt, v.CreatedByName }).ToListAsync(ct);
+            .Select(v => new { v.Version, v.FileName, v.SizeBytes, v.Note, v.CreatedAt }).ToListAsync(ct);
         var canEdit = await access.CanAccessAsync(UserId, Permissions.SequflohImportFiles, f.SiteId, f.DepartmentId, ct);
         var blank = f.BlankFormId is null ? null : await db.ImportedFiles.AsNoTracking().Where(b => b.Id == f.BlankFormId)
             .Select(b => new { b.Id, b.Number, b.Title, Version = f.BlankFormVersion }).FirstOrDefaultAsync(ct);
         var copies = !f.IsBlankForm ? null : await db.ImportedFiles.AsNoTracking().Where(c => c.BlankFormId == f.Id && !c.IsArchived).OrderByDescending(c => c.CreatedAt)
-            .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.PartNumber, c.CreatedAt, c.UpdatedAt,
-                CreatedBy = db.Users.Where(u => u.Id == c.CreatedById).Select(u => u.DisplayName).FirstOrDefault(),
-                UpdatedBy = db.Users.Where(u => u.Id == c.UpdatedById).Select(u => u.DisplayName).FirstOrDefault() })
+            .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.PartNumber, c.CreatedAt, c.UpdatedAt })
             .Take(500).ToListAsync(ct);
         return new { f.Id, f.Number, f.Title, Kind = f.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document", f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
             f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, BlankForm = blank, Copies = copies, f.PartNumber };

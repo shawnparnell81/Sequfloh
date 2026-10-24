@@ -5,14 +5,16 @@ import { Mono } from './common';
 import { SimpleTable } from './Parts';
 
 const D = '/api/drawings/import';
-const KNOWN = ['.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.dwg', '.dxf', '.step', '.stp', '.iges', '.igs', '.slddrw', '.sldprt'];
+const KNOWN = ['.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.dwg', '.dxf', '.step', '.stp', '.iges', '.igs', '.slddrw', '.sldprt', '.docx', '.doc'];
+const WORD = ['.docx', '.doc'];
 const BATCH = 1000;
 const PARALLEL = 3;
 const ext = (n: string) => (n.match(/\.[^./]+$/)?.[0] ?? '').toLowerCase();
 export const gb = (b: number) => (b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(2)} GB` : b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const dirOf = (p: string) => p.split('/').slice(0, -1).join('/');
 
-interface Item { file: File; path: string; kind: 'pdf' | 'other' | 'unsupported'; exists?: boolean; parts?: string[] }
+const main = (i: { kind: string }) => i.kind === 'pdf' || i.kind === 'word';
+interface Item { file: File; path: string; kind: 'pdf' | 'word' | 'other' | 'unsupported'; exists?: boolean; parts?: string[] }
 interface Plan { files: { path: string; exists: boolean; parts: string[] }[]; folders: { path: string; exists: boolean; parts: string[] }[] }
 interface Start { token: string; url?: string; uploadId?: string; partSize: number; partUrls: string[]; direct: boolean; contentType: string }
 interface Progress { done: number; total: number; bytes: number; totalBytes: number; skipped: number; failed: string[]; linked: number; folders: number; doneBytes: number; cancelled: boolean }
@@ -61,7 +63,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
         // at the top level the chosen folder's subfolders become top-level folders; files loose in the chosen folder keep it as their folder
         if (top && path.split('/').length > 2) path = path.split('/').slice(1).join('/');
         const e = ext(file.name);
-        return { file, path, kind: e === '.pdf' ? 'pdf' : !top && KNOWN.includes(e) ? 'other' : 'unsupported' };
+        return { file, path, kind: e === '.pdf' ? 'pdf' : WORD.includes(e) ? 'word' : !top && KNOWN.includes(e) ? 'other' : 'unsupported' };
       });
       await plan(all, linkParts);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(''); }
@@ -80,7 +82,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     setFolders(fl);
   };
 
-  const todo = items.filter((i) => (i.kind === 'pdf' || (others && i.kind === 'other')) && !i.exists);
+  const todo = items.filter((i) => (main(i) || (others && i.kind === 'other')) && !i.exists);
   const run = async () => {
     setErr(null); setBusy('importing');
     const ac = new AbortController(); stop.current = ac;
@@ -124,10 +126,10 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     p.cancelled = ac.signal.aborted; stop.current = null; setBusy(''); tick(); onDone();
   };
 
-  const pdfs = items.filter((i) => i.kind === 'pdf'), other = items.filter((i) => i.kind === 'other'), bad = items.filter((i) => i.kind === 'unsupported');
+  const pdfs = items.filter((i) => i.kind === 'pdf'), words = items.filter((i) => i.kind === 'word'), other = items.filter((i) => i.kind === 'other'), bad = items.filter((i) => i.kind === 'unsupported');
   const already = items.filter((i) => i.exists).length;
   const matches = [...folders.filter((f) => f.parts.length).map((f) => ({ name: f.path, kind: 'Folder', parts: f.parts })),
-    ...items.filter((i) => i.parts?.length && (i.kind === 'pdf' || others)).map((i) => ({ name: i.path, kind: 'Drawing', parts: i.parts! }))];
+    ...items.filter((i) => i.parts?.length && (main(i) || others)).map((i) => ({ name: i.path, kind: 'Drawing', parts: i.parts! }))];
   const pct = prog && prog.totalBytes ? Math.min(100, (prog.bytes / prog.totalBytes) * 100) : 0;
   const finished = prog && busy === '';
 
@@ -136,8 +138,8 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     <DialogContent><Stack gap={2} sx={{ pt: 1 }} data-testid="import-drawings">
       {err && <Alert severity="error">{err}</Alert>}
       {!prog && <>
-        {top ? <Typography variant="body2" color="text.secondary">Choose a folder. Its subfolders are made as drawing folders here, with the same names and nesting, and each PDF goes into its matching folder,
-          titled with its file name. Only PDF files are imported; other files are skipped. Choosing the same folder again skips files already imported, so a stopped import can carry on.</Typography>
+        {top ? <Typography variant="body2" color="text.secondary">Choose a folder. Its subfolders are made as drawing folders here, with the same names and nesting, and each PDF or Word file goes into its matching folder,
+          titled with its file name. Only PDF and Word (DOCX, DOC) files are imported; other files are skipped. Choosing the same folder again skips files already imported, so a stopped import can carry on.</Typography>
         : <Typography variant="body2" color="text.secondary">Choose a folder to bring in everything in it, with its subfolders, or choose several files. Each file becomes a drawing titled with its file name.
           Files go straight to file storage. Choosing the same folder again skips files already here (same folder, name and size), so a stopped import can carry on.</Typography>}
         <Stack direction="row" gap={1}>
@@ -158,11 +160,12 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
             <Fact label="Files" value={items.length.toLocaleString('en-US')} />
             <Fact label="Total size" value={gb(items.reduce((s, i) => s + i.file.size, 0))} />
             <Fact label="PDF files" value={pdfs.length.toLocaleString('en-US')} />
-            {top && <Fact label="Skipped (not PDF)" value={bad.length.toLocaleString('en-US')} />}
+            <Fact label="Word files" value={words.length.toLocaleString('en-US')} />
+            {top && <Fact label="Skipped (not PDF or Word)" value={bad.length.toLocaleString('en-US')} />}
             <Fact label="Already imported" value={already.toLocaleString('en-US')} />
             <Fact label="To import" value={`${todo.length.toLocaleString('en-US')} · ${gb(todo.reduce((s, i) => s + i.file.size, 0))}`} />
           </Stack>
-          {other.length > 0 && <Alert severity="warning" data-testid="non-pdf">{other.length} file{other.length === 1 ? ' is' : 's are'} not PDF ({[...new Set(other.map((i) => ext(i.file.name)))].join(', ')}), for example {other[0].path}.
+          {other.length > 0 && <Alert severity="warning" data-testid="non-pdf">{other.length} file{other.length === 1 ? ' is' : 's are'} not PDF or Word ({[...new Set(other.map((i) => ext(i.file.name)))].join(', ')}), for example {other[0].path}.
             <FormControlLabel sx={{ display: 'block' }} control={<Checkbox checked={others} onChange={(_, c) => setOthers(c)} />} label="Import these too (they download instead of opening in the browser)" /></Alert>}
           {bad.length > 0 && !top && <Alert severity="info">{bad.length} file{bad.length === 1 ? ' is' : 's are'} not a drawing type and will be skipped, for example {bad[0].path}.</Alert>}
           {linkParts && <Box>
