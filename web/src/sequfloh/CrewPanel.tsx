@@ -100,9 +100,7 @@ export function CrewPanel({ recordId }: { recordId: string }) {
             <TableCell align="right">{s.crewSize}</TableCell><TableCell align="right">{hrs(s.elapsedSeconds)}</TableCell><TableCell align="right">{hrs(s.pausedSeconds)}</TableCell>
             <TableCell align="right"><b>{hrs(s.laborSeconds)}</b></TableCell><TableCell>{s.entered ? <i>entered</i> : ''}{s.note ? ` ${s.note}` : ''}</TableCell>
             <TableCell sx={{ whiteSpace: 'nowrap' }}>{d.canEdit && s.stoppedAt && <>
-              <IconButton size="small" aria-label="Edit crew time" onClick={() => setEdit(s)}><EditOutlined fontSize="small" /></IconButton>
-              <IconButton size="small" aria-label="Delete crew time" onClick={async () => { if (!confirm('Delete this crew time?')) return; try { await del(`${S}/tracking/crew/sessions/${s.id}`); await refresh(); } catch (e) { setErr((e as Error).message); } }}>
-                <DeleteOutline fontSize="small" /></IconButton></>}</TableCell>
+              <IconButton size="small" aria-label="Edit crew time" onClick={() => setEdit(s)}><EditOutlined fontSize="small" /></IconButton></>}</TableCell>
           </TableRow>)}</TableBody>
         </Table>)}
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
@@ -247,14 +245,13 @@ function DayWorkers({ recordId, d, now, onEdit, onAddPast, onError, refresh }: {
             <TableCell sx={{ whiteSpace: 'nowrap' }} align="right">{d.canEdit && <>
               <Button size="small" data-testid="day-worker-add-time" onClick={() => onAddPast(w.id)}>Add time</Button>
               <IconButton size="small" aria-label={`Rename ${w.name}`} data-testid="day-worker-rename" onClick={() => { const n = prompt('Day worker name', w.name); if (n && n.trim() && n.trim() !== w.name) call(() => put(`${S}/tracking/crew/workers/${w.id}`, { name: n })); }}><EditOutlined fontSize="small" /></IconButton>
-              <IconButton size="small" aria-label={`Remove ${w.name}`} data-testid="day-worker-remove" onClick={() => { if (confirm(`Remove ${w.name}${mine.length ? ' and their time' : ''} from this work order?`)) call(() => del(`${S}/tracking/crew/workers/${w.id}`)); }}><DeleteOutline fontSize="small" /></IconButton></>}</TableCell>
+              {mine.length === 0 && <IconButton size="small" aria-label={`Remove ${w.name}`} data-testid="day-worker-remove" onClick={() => { if (confirm(`Remove ${w.name} from this work order?`)) call(() => del(`${S}/tracking/crew/workers/${w.id}`)); }}><DeleteOutline fontSize="small" /></IconButton>}</>}</TableCell>
           </TableRow>
           {mine.filter((s) => s.stoppedAt).map((s) => <TableRow key={s.id} data-testid="day-worker-session">
             <TableCell sx={{ pl: 4 }} colSpan={2}><Typography variant="body2" color="text.secondary">{fmtDateTime(s.startedAt)} – {fmtDateTime(s.stoppedAt)}{s.pausedSeconds ? ` · paused ${hrs(s.pausedSeconds)} h` : ''}{s.note ? ` · ${s.note}` : ''}</Typography></TableCell>
             <TableCell align="right">{hrs(s.workedSeconds)}</TableCell>
             <TableCell align="right">{d.canEdit && <>
-              <IconButton size="small" aria-label={`Edit time for ${w.name}`} data-testid="day-worker-session-edit" onClick={() => onEdit(s)}><EditOutlined fontSize="small" /></IconButton>
-              <IconButton size="small" aria-label={`Delete time for ${w.name}`} onClick={() => { if (confirm('Delete this time?')) call(() => del(`${S}/tracking/crew/sessions/${s.id}`)); }}><DeleteOutline fontSize="small" /></IconButton></>}</TableCell>
+              <IconButton size="small" aria-label={`Edit time for ${w.name}`} data-testid="day-worker-session-edit" onClick={() => onEdit(s)}><EditOutlined fontSize="small" /></IconButton></>}</TableCell>
           </TableRow>)}</Fragment>;
         })}</TableBody>
       </Table>}

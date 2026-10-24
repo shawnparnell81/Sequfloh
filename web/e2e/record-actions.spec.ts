@@ -270,6 +270,10 @@ test('fix list: optional instruction, drawings, hidden part fields, completed fo
   await expect(lee.getByTestId('day-worker-hours')).toHaveText('2.00');
   await expect(view(page).getByTestId('crew-day-hours').first()).not.toHaveText('0.00');
   await expect(page.locator('body')).not.toContainText(/\bpay\b/i);
+  // recorded time is never deleted: workers with time have no Remove, and no time row has a delete
+  await expect(lee.getByTestId('day-worker-remove')).toHaveCount(0);
+  await expect(pat.getByTestId('day-worker-remove')).toHaveCount(0);
+  await expect(dw.getByRole('button', { name: /^Delete time/ })).toHaveCount(0);
 
   // drawings: one click opens the viewer; the detail page is behind Details; a single-drawing folder shows it inline
   const folder = (await ok(rq.post('/api/drawings/folders', { data: { name: `Fix ${stamp}`, siteId: site } }))).id as string;

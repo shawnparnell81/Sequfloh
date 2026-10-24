@@ -114,11 +114,13 @@ public sealed class CrewChargebackTests(TestApp app)
         var sid = s.GetProperty("sessions")[0].Id();
         Assert.True((await lead.PutAsync($"{U}/crew/sessions/{sid}", Entry(2, start, start.AddHours(8.5), [new { from = start.AddHours(4), to = start.AddHours(4.5) }]))).IsSuccessStatusCode);
         Assert.Equal(16 * 3600, (await lead.GetElAsync($"{U}/{id}/crew")).GetProperty("crewLaborSeconds").GetInt64());
-        Assert.Equal(HttpStatusCode.NoContent, (await lead.DeleteAsync($"{U}/crew/sessions/{sid}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await lead.DeleteAsync($"{U}/crew/sessions/{sid}")).StatusCode); // time is never deleted
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PutAsync($"{U}/crew/sessions/{sid}", Entry(2, start, start.AddHours(1), [new { from = start, to = start.AddHours(1) }]))).StatusCode); // can't edit to zero
+        Assert.Equal(16 * 3600, (await lead.GetElAsync($"{U}/{id}/crew")).GetProperty("crewLaborSeconds").GetInt64());
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var trail = await db.AuditEntries.AsNoTracking().Where(e => e.EntityId == id && e.Action.StartsWith("CrewTime")).OrderBy(e => e.OccurredAt).ToListAsync();
-        Assert.Equal(["CrewTimeAdded", "CrewTimeEdited", "CrewTimeDeleted"], trail.Select(e => e.Action));
+        Assert.Equal(["CrewTimeAdded", "CrewTimeEdited"], trail.Select(e => e.Action));
         var edit = trail[1];
         Assert.Contains("3 workers", edit.Description); Assert.Contains("2 workers", edit.Description);
         Assert.Contains("\"before\"", edit.Changes); Assert.Contains("\"after\"", edit.Changes);
@@ -304,16 +306,24 @@ public sealed class CrewChargebackTests(TestApp app)
         var crewRows = view.EnumerateArray().First(b => b.Str("key") == "crewSessions").GetProperty("rows").GetArrayLength();
         Assert.Equal(2, crewRows); // the nameless session plus the total row
 
-        // removing a worker removes their time and is audited
-        Assert.Equal(HttpStatusCode.NoContent, (await lead.DeleteAsync($"{U}/crew/workers/{pat}")).StatusCode);
+        // a worker with time can't be removed and their time can't be deleted; it stays on the report
+        Assert.Equal(HttpStatusCode.Conflict, (await lead.DeleteAsync($"{U}/crew/workers/{pat}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await lead.DeleteAsync($"{U}/crew/sessions/{leeSession}")).StatusCode);
         sum = await lead.GetElAsync($"{U}/{id}/crew");
-        Assert.DoesNotContain(sum.GetProperty("sessions").EnumerateArray(), x => x.GetProperty("workerId").ValueKind != JsonValueKind.Null && x.GetProperty("workerId").GetGuid() == pat);
+        Assert.Contains(sum.GetProperty("sessions").EnumerateArray(), x => x.GetProperty("workerId").ValueKind != JsonValueKind.Null && x.GetProperty("workerId").GetGuid() == pat);
+        var rep2 = await (await lead.PostOkAsync(C, new { workOrderNumber = "WO-MADEUP-DW2", trackingRecordId = id })).JsonAsync();
+        var names2 = (await lead.GetElAsync($"{C}/{rep2.Id()}/view")).EnumerateArray().First(b => b.Str("key") == "dayWorkers").GetProperty("rows").EnumerateArray().Select(r => r[0].GetString()).ToList();
+        Assert.Contains("Made-up Pat", names2); Assert.Contains("Made-up Lee Ray", names2);
+        // a worker with no time (a typo) can be removed
+        await lead.PostOkAsync($"{U}/{id}/crew/workers", new { name = "Made-up Typo" });
+        var typoId = (await lead.GetElAsync($"{U}/{id}/crew")).GetProperty("workers").EnumerateArray().First(w => w.Str("name") == "Made-up Typo").Id();
+        Assert.Equal(HttpStatusCode.NoContent, (await lead.DeleteAsync($"{U}/crew/workers/{typoId}")).StatusCode);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var audit = await db.AuditEntries.Where(a => a.EntityId == id).Select(a => a.Action + ": " + a.Description).ToListAsync();
         Assert.Contains(audit, a => a.StartsWith("DayWorkerAdded") && a.Contains("Made-up Pat"));
         Assert.Contains(audit, a => a.StartsWith("DayWorkerRenamed") && a.Contains("from Made-up Lee to Made-up Lee Ray"));
-        Assert.Contains(audit, a => a.StartsWith("DayWorkerRemoved") && a.Contains("Made-up Pat"));
+        Assert.Contains(audit, a => a.StartsWith("DayWorkerRemoved") && a.Contains("Made-up Typo"));
         Assert.Contains(audit, a => a.StartsWith("CrewStarted") && a.Contains("Made-up Pat clocked on"));
         Assert.Contains(audit, a => a.StartsWith("CrewTimeEdited") && a.Contains("Made-up Lee"));
     }

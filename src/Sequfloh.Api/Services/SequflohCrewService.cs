@@ -83,6 +83,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
             if (p.From < last) throw new AppException("Pauses can't overlap.");
             last = p.To;
         }
+        if (pauses.Sum(p => (p.To - p.From).TotalSeconds) >= (x.Stop - x.Start).TotalSeconds) throw new AppException("Pauses can't cover the whole entry. Worker time can't be set to zero.");
         s.CrewSize = x.CrewSize; s.StartedAt = x.Start; s.StoppedAt = x.Stop; s.PausedAt = null;
         s.PausedSeconds = pauses.Sum(p => (long)(p.To - p.From).TotalSeconds);
         var ev = new List<CrewEvent> { new("Start", x.Start) };
@@ -186,14 +187,9 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeleteAsync(Guid sessionId, CancellationToken ct)
-    {
-        var (r, s) = await SessionAsync(sessionId, ct);
-        var before = Describe(s, await m.ZoneAsync(r.SiteId, ct));
-        db.SequflohCrewSessions.Remove(s);
-        Audit(r, "CrewTimeDeleted", $"Crew time deleted on {r.Number}: {before}", before, null);
-        await db.SaveChangesAsync(ct);
-    }
+    /// <summary>Recorded time is never deleted, because it must stay on the chargeback report. Correct it by editing the times.</summary>
+    public Task DeleteAsync(Guid sessionId, CancellationToken ct) =>
+        throw new ConflictException("Recorded time can't be deleted. Edit the times to correct it.");
 
     // ---- named day workers ----
 
@@ -236,12 +232,10 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         var w = await db.SequflohDayWorkers.FirstOrDefaultAsync(x => x.Id == workerId, ct) ?? throw new NotFoundException("Day worker");
         var r = await EditableAsync(w.TrackingRecordId, ct);
         var z = await m.ZoneAsync(r.SiteId, ct);
-        var mine = await db.SequflohCrewSessions.Where(s => s.WorkerId == w.Id).ToListAsync(ct);
-        var now = m.Now;
-        var before = mine.Count == 0 ? w.Name : $"{w.Name}: " + string.Join("; ", mine.Select(s => Describe(s, z)));
-        db.SequflohCrewSessions.RemoveRange(mine);
+        if (await db.SequflohCrewSessions.AnyAsync(s => s.WorkerId == w.Id, ct))
+            throw new ConflictException($"{w.Name} has recorded time, so they can't be removed. Edit the times to correct them.");
         db.SequflohDayWorkers.Remove(w);
-        Audit(r, "DayWorkerRemoved", $"Day worker {w.Name} removed from {r.Number}{(mine.Count == 0 ? "" : $" with {H(mine.Sum(s => Labor(s, now)))} hours of time")}", before, null);
+        Audit(r, "DayWorkerRemoved", $"Day worker {w.Name} removed from {r.Number}", w.Name, null);
         await db.SaveChangesAsync(ct);
     }
 

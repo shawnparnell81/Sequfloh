@@ -12,7 +12,7 @@ using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Tests;
 
-/// <summary>Work orders without an instruction, Procedure Instructions, drawing number prefixes and not-applicable part fields. Made-up data only.</summary>
+/// <summary>Work orders without an instruction, Procedure Instructions, exact drawing matching and not-applicable part fields. Made-up data only.</summary>
 [Collection("api")]
 public sealed class FixListTests(TestApp app)
 {
@@ -126,12 +126,8 @@ public sealed class FixListTests(TestApp app)
         Assert.NotNull(audit.UserName);
     }
 
-    [Theory]
-    [InlineData("INJ-D1004AA", "D1004AA")]
-    [InlineData("D1004X", "INJ-D1004X")]
-    [InlineData("INJ-S2001BF", "S2001BF")]
-    [InlineData("S2001BG", "INJ-S2001BG")]
-    public async Task Drawing_numbers_match_with_or_without_an_admin_prefix(string partNumber, string drawing)
+    [Fact]
+    public async Task A_drawing_without_the_family_prefix_never_links_to_a_lookalike_part()
     {
         var site = await app.CreateSiteAsync();
         var (_, c) = await app.CreateUserAsync(Drawings, site);
@@ -140,16 +136,23 @@ public sealed class FixListTests(TestApp app)
         using (var scope = app.Services.CreateScope())
         {
             var db = await Db(scope);
-            var p = new Part { PartNumber = partNumber + tag, Name = "Made-up injector", SiteId = site, Status = MasterStatus.Active };
+            var p = new Part { PartNumber = "MU-9117" + tag, DrawingNumber = "INJ-D1004AA" + tag, Name = "Made-up injector", SiteId = site, Status = MasterStatus.Active };
             db.Parts.Add(p); await db.SaveChangesAsync(); part = p.Id;
         }
-        var root = (await (await c.PostOkAsync("/api/drawings/folders", new { name = "Prefix " + Guid.NewGuid().ToString("N")[..6], siteId = site })).JsonAsync()).Id();
-        var bytes = Encoding.ASCII.GetBytes("%PDF-1.4\n% made-up drawing\n%%EOF\n");
-        var s = await (await c.PostOkAsync("/api/drawings/import/start", new { folderId = root, fileName = drawing + tag + ".pdf", size = bytes.LongLength })).JsonAsync();
-        await c.Http.PutAsync(s.Str("url"), new ByteArrayContent(bytes));
-        var d = (await (await c.PostOkAsync("/api/drawings/import/finish", new { token = s.Str("token"), revision = "A", linkParts = true, matchNames = Array.Empty<string>() })).JsonAsync()).Id();
+        var root = (await (await c.PostOkAsync("/api/drawings/folders", new { name = "Match " + Guid.NewGuid().ToString("N")[..6], siteId = site })).JsonAsync()).Id();
+        async Task<Guid> Import(string name)
+        {
+            var bytes = Encoding.ASCII.GetBytes("%PDF-1.4\n% made-up drawing\n%%EOF\n");
+            var s = await (await c.PostOkAsync("/api/drawings/import/start", new { folderId = root, fileName = name, size = bytes.LongLength })).JsonAsync();
+            await c.Http.PutAsync(s.Str("url"), new ByteArrayContent(bytes));
+            return (await (await c.PostOkAsync("/api/drawings/import/finish", new { token = s.Str("token"), revision = "A", linkParts = true, matchNames = Array.Empty<string>() })).JsonAsync()).Id();
+        }
+        var bare = await Import("D1004AA" + tag + ".pdf");
+        var same = await Import("inj_d1004aa" + tag + ".pdf"); // case, dashes and underscores are still ignored
         using var scope2 = app.Services.CreateScope();
-        Assert.True(await (await Db(scope2)).DrawingPartLinks.AnyAsync(l => l.DrawingId == d && l.PartId == part));
+        var links = (await Db(scope2)).DrawingPartLinks;
+        Assert.False(await links.AnyAsync(l => l.DrawingId == bare && l.PartId == part));
+        Assert.True(await links.AnyAsync(l => l.DrawingId == same && l.PartId == part));
     }
 
     [Fact]
