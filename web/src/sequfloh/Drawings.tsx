@@ -3,6 +3,7 @@ import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'rea
 import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
 import OpenInNew from '@mui/icons-material/OpenInNew';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
+import Article from '@mui/icons-material/Article';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { otherNumbers, usePartSearch } from './partSearch';
@@ -14,11 +15,19 @@ import { ImportDrawingsDialog } from './DrawingsImport';
 
 const D = '/api/drawings';
 const crumbs = (extra?: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Engineering', to: '/sequfloh/engineering' }, { label: 'Drawings', to: extra ? '/sequfloh/engineering/drawings' : undefined }, ...(extra ? [{ label: extra }] : [])];
-export const ACCEPT = '.pdf,.png,.jpg,.jpeg,.tif,.tiff,.dwg,.dxf,.step,.stp,.iges,.igs,.slddrw,.sldprt';
+export const ACCEPT = '.pdf,.png,.jpg,.jpeg,.tif,.tiff,.dwg,.dxf,.step,.stp,.iges,.igs,.slddrw,.sldprt,.docx,.doc';
 /** The in-app viewer for a drawing revision; always opened in a new browser tab. */
 export const viewerUrl = (id: string, rev?: string) => `/drawings/view/${id}${rev ? `?revision=${encodeURIComponent(rev)}` : ''}`;
 const fileUrl = (id: string, rev?: string, view = false) => `${D}/${id}/file?${qs({ revision: rev, view: view || undefined })}`;
 const size = (b?: number) => (b === undefined ? '' : b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+export const isWord = (name?: string | null) => /\.docx?$/i.test(name ?? '');
+/** A file name and size, with a Word tag for Word files (they download rather than open in the browser). */
+function FileName({ name, sizeBytes }: { name: string; sizeBytes?: number }) {
+  return <Stack direction="row" gap={1} alignItems="center" component="span">
+    {isWord(name) && <Chip size="small" color="primary" variant="outlined" icon={<Article fontSize="small" />} label="Word" data-testid="word-label" />}
+    <span>{name} · {size(sizeBytes)}</span></Stack>;
+}
 
 export interface PartDrawing { id: string; title: string; drawingNumber?: string; currentRevision: string; fileName?: string; viewable: boolean; attachedRevision?: string }
 const label = (d: { title: string; drawingNumber?: string | null }) => (d.drawingNumber ? `${d.drawingNumber} · ${d.title}` : d.title);
@@ -70,7 +79,7 @@ export function RecordDrawings({ recordId }: { recordId: string }) {
 
 interface Opt { id: string; label: string; extra?: string }
 interface SearchRow { id: string; title: string; drawingNumber?: string; currentRevision: string; folder?: string; partNumber?: string; isArchived?: boolean; updatedAt?: string;
-  file?: { fileName: string; sizeBytes: number; createdByName?: string; createdAt: string } }
+  file?: { fileName: string; sizeBytes: number; createdAt: string } }
 
 /** Picks drawings by part number, drawing number or title. */
 export function DrawingPicker({ value, onChange, label: l = 'Link drawing(s)' }: { value: Opt[]; onChange: (v: Opt[]) => void; label?: string }) {
@@ -98,7 +107,7 @@ export function DrawingFileFields({ f, set }: { f: NewDrawing; set: (f: NewDrawi
   return <Stack gap={2}>
     <Button variant="outlined" component="label">{f.file ? f.file.name : 'Choose file'}
       <input hidden type="file" accept={ACCEPT} data-testid="drawing-file" onChange={(e) => { const file = e.target.files?.[0] ?? null; set({ ...f, file, title: f.title || (file ? file.name.replace(/\.[^.]+$/, '') : '') }); }} /></Button>
-    <Typography variant="caption" color="text.secondary">PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES or SolidWorks files up to 50 MB. PDF and images open in the browser; other files download.</Typography>
+    <Typography variant="caption" color="text.secondary">PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES, SolidWorks or Word (DOCX, DOC) files up to 50 MB. PDF and images open in the browser; other files download.</Typography>
     <TextField label="Title" required value={f.title} onChange={(e) => set({ ...f, title: e.target.value })} />
     <Stack direction="row" gap={2}><TextField label="Drawing number" value={f.drawingNumber} onChange={(e) => set({ ...f, drawingNumber: e.target.value })} sx={{ flex: 2 }} />
       <TextField label="Revision" required value={f.revision} onChange={(e) => set({ ...f, revision: e.target.value.toUpperCase() })} sx={{ flex: 1 }} /></Stack>
@@ -188,7 +197,7 @@ export function DrawingsPage() {
 function DrawingTable({ rows, onRow, withFolder }: { rows: SearchRow[]; onRow: (id: string) => void; withFolder?: boolean }) {
   return <SimpleTable head={['Drawing number', 'Title', 'Current rev', ...(withFolder ? ['Folder', 'Part'] : []), 'File', 'Updated']} rows={rows.map((d) => [
     <Link key="n" component="button" onClick={() => onRow(d.id)}><Mono>{d.drawingNumber || '—'}</Mono></Link>, d.title, <Chip key="r" size="small" label={`Rev ${d.currentRevision}`} />,
-    ...(withFolder ? [d.folder ?? '—', d.partNumber ?? '—'] : []), d.file ? `${d.file.fileName} · ${size(d.file.sizeBytes)}` : '—', fmtDateTime(d.updatedAt ?? d.file?.createdAt)])} />;
+    ...(withFolder ? [d.folder ?? '—', d.partNumber ?? '—'] : []), d.file ? <FileName key="f" name={d.file.fileName} sizeBytes={d.file.sizeBytes} /> : '—', fmtDateTime(d.updatedAt ?? d.file?.createdAt)])} />;
 }
 
 function FolderDialog({ open, edit, parentId, onClose, onSaved }: { open: boolean; edit?: FolderView['parent']; parentId: string | null; onClose: () => void; onSaved: (id: string) => void }) {
@@ -239,7 +248,7 @@ function HistoryDialog({ open, url, onClose }: { open: boolean; url: string; onC
 
 interface DrawingDetail { id: string; title: string; drawingNumber?: string; notes?: string; currentRevision: string; isArchived: boolean; createdAt: string; updatedAt: string; canManage: boolean;
   folder: { id: string; name: string; isArchived: boolean; part?: FolderRow['part'] }; parts: { id: string; partNumber: string; name: string; numbers?: string }[];
-  revisions: { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; createdAt: string; createdByName?: string; viewable: boolean; current: boolean }[] }
+  revisions: { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; createdAt: string; viewable: boolean; current: boolean }[] }
 
 export function DrawingPage() {
   const { id } = useParams();
@@ -277,7 +286,7 @@ export function DrawingPage() {
         </Paper>
         {tab === 'revisions' && <SimpleTable head={['Revision', 'File', 'Notes', 'Uploaded', '']} rows={d.revisions.map((r) => [
           <Stack key="r" direction="row" gap={1} alignItems="center"><b>{r.revision}</b>{r.current && <Chip size="small" color="primary" label="Current" />}</Stack>,
-          `${r.fileName} · ${size(r.sizeBytes)}`, r.notes ?? '—', `${fmtDateTime(r.createdAt)} · ${r.createdByName ?? ''}`,
+          <FileName key="f" name={r.fileName} sizeBytes={r.sizeBytes} />, r.notes ?? '—', fmtDateTime(r.createdAt),
           <Stack key="a" direction="row" gap={1}>{r.viewable && <Button size="small" component="a" href={viewerUrl(d.id, r.revision)} target="_blank" rel="noopener">View</Button>}
             <Button size="small" component="a" href={fileUrl(d.id, r.revision)}>Download</Button>
             <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file for this revision is removed." /></Stack>])} />}

@@ -18,7 +18,7 @@ namespace Sequfloh.Drawings;
 public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me)
 {
     public const long MaxBytes = 50 * 1024 * 1024;
-    public static readonly string[] Accepted = [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".dwg", ".dxf", ".step", ".stp", ".iges", ".igs", ".slddrw", ".sldprt"];
+    public static readonly string[] Accepted = [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".dwg", ".dxf", ".step", ".stp", ".iges", ".igs", ".slddrw", ".sldprt", ".docx", ".doc"];
     /// <summary>Formats a browser can show on its own.</summary>
     static readonly HashSet<string> Viewable = [".pdf", ".png", ".jpg", ".jpeg"];
 
@@ -164,7 +164,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
                 Folder = db.DrawingFolders.Where(f => f.Id == d.FolderId).Select(f => f.Name).FirstOrDefault(),
                 PartNumber = db.DrawingFolders.Where(f => f.Id == d.FolderId).SelectMany(f => db.Parts.Where(p => p.Id == f.PartId).Select(p => p.PartNumber)).FirstOrDefault()
                     ?? db.DrawingPartLinks.Where(l => l.DrawingId == d.Id).SelectMany(l => db.Parts.Where(p => p.Id == l.PartId).Select(p => p.PartNumber)).OrderBy(x => x).FirstOrDefault(),
-                File = db.DrawingRevisions.Where(v => v.DrawingId == d.Id && v.Revision == d.CurrentRevision).Select(v => new { v.FileName, v.SizeBytes, v.CreatedByName, v.CreatedAt }).FirstOrDefault(),
+                File = db.DrawingRevisions.Where(v => v.DrawingId == d.Id && v.Revision == d.CurrentRevision).Select(v => new { v.FileName, v.SizeBytes, v.CreatedAt }).FirstOrDefault(),
             }).ToListAsync(ct);
         return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new { r.Id, r.Title, r.DrawingNumber, r.CurrentRevision, r.FolderId, r.Folder, r.PartNumber, r.IsArchived, r.UpdatedAt, r.File }).ToList();
     }
@@ -199,14 +199,14 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var folder = await db.DrawingFolders.AsNoTracking().Where(f => f.Id == d.FolderId).Select(f => new { f.Id, f.Name, f.IsArchived,
             Part = db.Parts.Where(p => p.Id == f.PartId).Select(p => new { p.Id, p.PartNumber, p.Name }).FirstOrDefault() }).FirstAsync(ct);
         var revisions = await db.DrawingRevisions.AsNoTracking().Where(v => v.DrawingId == id).OrderByDescending(v => v.CreatedAt)
-            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt, v.CreatedByName }).ToListAsync(ct);
+            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt }).ToListAsync(ct);
         var canManage = await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, d.SiteId, d.DepartmentId, ct);
         var parts = (await db.DrawingPartLinks.AsNoTracking().Where(l => l.DrawingId == id).Join(db.Parts, l => l.PartId, p => p.Id, (l, p) => new { p.Id, p.PartNumber, p.Name, p.DrawingNumber, p.Attributes })
             .OrderBy(p => p.PartNumber).ToListAsync(ct)).Select(p => new { p.Id, p.PartNumber, p.Name, Numbers = PartNumbers(p.PartNumber, p.DrawingNumber, p.Attributes) }).ToList();
         return new
         {
             d.Id, d.Title, d.DrawingNumber, d.Notes, d.CurrentRevision, d.IsArchived, d.CreatedAt, d.UpdatedAt, Folder = folder, CanManage = canManage, Parts = parts,
-            Revisions = revisions.Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt, v.CreatedByName,
+            Revisions = revisions.Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt,
                 Viewable = Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()), Current = v.Revision == d.CurrentRevision }),
         };
     }
@@ -263,13 +263,13 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
     {
         var name = Path.GetFileName(fileName);
         var ext = Path.GetExtension(name).ToLowerInvariant();
-        if (!Accepted.Contains(ext)) throw new AppException("Upload a PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES or SolidWorks (SLDDRW, SLDPRT) file.");
+        if (!Accepted.Contains(ext)) throw new AppException("Upload a PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES, SolidWorks (SLDDRW, SLDPRT) or Word (DOCX, DOC) file.");
         var ms = new MemoryStream();
         await content.CopyToAsync(ms, ct);
         if (ms.Length == 0) throw new AppException("The file is empty.");
         if (ms.Length > MaxBytes) throw new AppException("Drawings are limited to 50 MB.");
         var b = ms.ToArray();
-        if (!Matches(b, ext)) throw new AppException($"This file does not look like a {ext.TrimStart('.').ToUpperInvariant()} file.");
+        if (!Matches(b, ext) || (ext == ".docx" && !IsWordDocument(b))) throw new AppException($"This file does not look like a {ext.TrimStart('.').ToUpperInvariant()} file.");
         return (b, name, ext);
     }
 
@@ -284,14 +284,30 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
             ".jpg" or ".jpeg" => Starts(b, 0xFF, 0xD8, 0xFF),
             ".tif" or ".tiff" => Starts(b, 0x49, 0x49, 0x2A, 0x00) || Starts(b, 0x4D, 0x4D, 0x00, 0x2A),
             ".dwg" => Starts(b, "AC10"u8.ToArray()),
+            ".docx" => Starts(b, 0x50, 0x4B, 0x03, 0x04),
+            ".doc" => Starts(b, 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1),
             _ => true,
         };
     }
 
+    /// <summary>A whole .docx file: a ZIP that holds word/document.xml, so another ZIP renamed to .docx is turned away.</summary>
+    internal static bool IsWordDocument(byte[] b)
+    {
+        try
+        {
+            using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(b), System.IO.Compression.ZipArchiveMode.Read);
+            return zip.GetEntry("word/document.xml") is not null;
+        }
+        catch (InvalidDataException) { return false; }
+    }
+
+    public static bool IsWordType(string type) => type is "application/msword" or "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
     internal static string TypeOf(string ext) => ext switch
     {
         ".pdf" => "application/pdf", ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".tif" or ".tiff" => "image/tiff", ".dwg" => "image/vnd.dwg", ".dxf" => "image/vnd.dxf",
-        ".step" or ".stp" => "model/step", ".iges" or ".igs" => "model/iges", _ => "application/octet-stream",
+        ".step" or ".stp" => "model/step", ".iges" or ".igs" => "model/iges",
+        ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".doc" => "application/msword", _ => "application/octet-stream",
     };
 
     async Task StoreRevisionAsync(Drawing d, string rev, byte[] bytes, string name, string ext, string? notes, CancellationToken ct)

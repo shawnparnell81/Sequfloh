@@ -294,9 +294,9 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         if (on.Contains("timeLog") && job?.TimeLog is { Count: > 0 } tl)
             blocks.Add(new("timeLog", "Detailed time log", Columns: [("When", 2.2), ("Technician", 2.5), ("Event", 1.6)], Rows: [.. tl.Select(e => new string?[] { local(e.At), e.Name, e.Kind })]));
         if (on.Contains("attachments") && job?.Attachments is { Count: > 0 } at)
-            blocks.Add(new("attachments", "Attachments", Columns: [("File", 4), ("Added by", 2), ("Added", 2)], Rows: [.. at.Select(a => new string?[] { a.FileName, a.UploadedByName, local(a.UploadedAt) })]));
+            blocks.Add(new("attachments", "Attachments", Columns: [("File", 6), ("Added", 2)], Rows: [.. at.Select(a => new string?[] { a.FileName, local(a.UploadedAt) })]));
         if (on.Contains("photos") && job?.Photos is { Count: > 0 } ph)
-            blocks.Add(new("photos", "Photos and evidence", Photos: [.. ph.Select(p => (p.Id, $"{p.FileName} · {p.UploadedByName} · {local(p.UploadedAt)}"))]));
+            blocks.Add(new("photos", "Photos and evidence", Photos: [.. ph.Select(p => (p.Id, $"{p.FileName} · {local(p.UploadedAt)}"))]));
         Add("notes", "Notes", [("Notes", x.Notes)]);
         if (on.Contains("cost"))
         {

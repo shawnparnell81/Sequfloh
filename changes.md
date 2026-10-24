@@ -1,5 +1,12 @@
 # Changes
 
+## Word files in Drawings; uploader names off file screens
+
+- Drawings accept Word files (.docx and .doc) as well as PDF, images, CAD and SolidWorks files, both by Upload drawing in a folder and by folder import. The file's content is checked: a .docx must be a real Word document and a .doc must have the Word header, so a renamed file is turned away. Word files download rather than open in the browser.
+- Folder imports (top level and inside a folder) now take PDF and Word files. Everything else is still skipped, and the preview shows the PDF, Word and skipped counts. Word files are linked to parts by name the same way as PDFs.
+- Word files are marked with a "Word" tag in drawing lists and in revision history.
+- The name of the person who uploaded a file is no longer shown on drawing lists, the drawing page, revision history, All Imported Files (list, versions and filled copies), work order test files, attachments and photos, the Job report and chargeback report (on screen, PDF and Excel). The upload date is still shown. Who uploaded what is still kept and still shown in History and the Audit Trail.
+
 ## Crew time on work orders and chargeback reports
 
 - Every work order (all types, Inspection and Production too) has a "Crew time" panel next to the clock on panel, on the Record and Time tabs. Enter the crew size (no names, no accounts) and use Start crew, Pause crew, Continue and Stop crew. One set of buttons applies to the whole crew.
