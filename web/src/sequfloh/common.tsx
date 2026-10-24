@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer,
+import { Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer,
   TableHead, TablePagination, TableRow, TableSortLabel, TextField, Tooltip, Typography } from '@mui/material';
 import PushPinOutlined from '@mui/icons-material/PushPinOutlined';
 import PushPin from '@mui/icons-material/PushPin';
@@ -142,9 +142,11 @@ export interface Col<T> { key: string; label: string; render?: (row: T) => React
 export interface Paged<T> { items: T[]; total: number }
 
 /** Server-paged, sortable table with loading, empty and error states (wide tables scroll horizontally). */
-export function PagedTable<T extends { id?: string }>({ q, cols, page, size, onPage, onSize, sort, onSort, onRow, empty }: {
+export function PagedTable<T extends { id?: string }>({ q, cols, page, size, onPage, onSize, sort, onSort, onRow, empty, selected, onSelect }: {
   q: { data?: Paged<T>; isLoading: boolean; error: unknown; refetch: () => void }; cols: Col<T>[]; page: number; size: number; onPage: (p: number) => void; onSize: (s: number) => void;
   sort?: string; onSort?: (s: string) => void; onRow?: (row: T) => void; empty: string;
+  /** Tick boxes on the rows: the ticked ids, and the change handler. */
+  selected?: string[]; onSelect?: (ids: string[]) => void;
 }) {
   const tabs = useTabs();
   // Ctrl/Cmd-click, middle-click or the right-click menu open the row in another tab
@@ -159,14 +161,20 @@ export function PagedTable<T extends { id?: string }>({ q, cols, page, size, onP
   const rows = q.data?.items ?? [];
   if (rows.length === 0) return <Empty text={empty} />;
   const [sk, sd] = (sort ?? '').split(':');
+  const pageIds = rows.map((r) => r.id).filter((x): x is string => !!x);
+  const ticked = selected ?? [];
+  const allOnPage = pageIds.length > 0 && pageIds.every((x) => ticked.includes(x));
+  const tick = (id: string) => onSelect?.(ticked.includes(id) ? ticked.filter((x) => x !== id) : [...ticked, id]);
   return (
     <Paper variant="outlined">
       <TableContainer sx={{ overflowX: 'auto' }}>
         <Table size="small">
-          <TableHead><TableRow>{cols.map((c) => <TableCell key={c.key} sx={{ width: c.width, whiteSpace: 'nowrap' }}>
+          <TableHead><TableRow>{onSelect && <TableCell padding="checkbox"><Checkbox size="small" checked={allOnPage} indeterminate={!allOnPage && pageIds.some((x) => ticked.includes(x))} inputProps={{ 'aria-label': 'Select all on this page' }}
+            onChange={() => onSelect(allOnPage ? ticked.filter((x) => !pageIds.includes(x)) : [...new Set([...ticked, ...pageIds])])} /></TableCell>}{cols.map((c) => <TableCell key={c.key} sx={{ width: c.width, whiteSpace: 'nowrap' }}>
             {c.sort && onSort ? <TableSortLabel active={sk === c.key} direction={sk === c.key && sd === 'desc' ? 'desc' : 'asc'} onClick={() => onSort(`${c.key}:${sk === c.key && sd !== 'desc' ? 'desc' : 'asc'}`)}>{c.label}</TableSortLabel> : c.label}
           </TableCell>)}</TableRow></TableHead>
           <TableBody>{rows.map((r, i) => <TableRow key={r.id ?? i} hover={!!onRow} {...rowEvents(r)} sx={{ cursor: onRow ? 'pointer' : undefined }}>
+            {onSelect && r.id && <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}><Checkbox size="small" checked={ticked.includes(r.id)} onChange={() => tick(r.id!)} inputProps={{ 'aria-label': 'Select row' }} /></TableCell>}
             {cols.map((c) => <TableCell key={c.key}>{c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? '—')}</TableCell>)}</TableRow>)}</TableBody>
         </Table>
       </TableContainer>

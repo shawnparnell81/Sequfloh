@@ -14,6 +14,7 @@ import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { ImportPartsDialog } from './PartsImport';
+import { ChangeFamilyDialog } from './ChangeFamily';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { StatusEditor, downloadCsv, useStatusFilter } from './Job';
 import { partNo } from './partLabel';
@@ -83,6 +84,9 @@ export function PartMasterPage() {
   };
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [changing, setChanging] = useState(false);
+  const [ticked, setTicked] = useState<string[]>([]);
+  const canChange = can('sequfloh.edit_parts') && can('parts.edit');
   const tagFilter = useStatusFilter();
   const qc = useQueryClient();
   const family = !view && v('partType') ? (v('partType') === 'none' ? 'No product family' : types.data?.find((t) => t.id === v('partType'))?.label) : undefined;
@@ -103,10 +107,12 @@ export function PartMasterPage() {
   const lead = familyCode === FUEL_PUMP ? FP_COLS : ['partNumber'];
   const isHidden = (k: string) => (fp ? !fpShown.includes(k) && k !== 'partNumber' : hidden.includes(k));
   const allCols = [...lead.map((k) => baseCols.find((c) => c.key === k)!).filter(Boolean), ...baseCols.filter((c) => !lead.includes(c.key))];
-  const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
+  const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
   const dialogs = <>
     <PartDialog open={open} onClose={() => setOpen(false)} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
     <ImportPartsDialog open={importing} onClose={() => setImporting(false)} preset={preset} />
+    {canChange && <ChangeFamilyDialog open={changing} onClose={() => setChanging(false)} families={types.data ?? []} defs={attrDefs.data ?? []} ticked={ticked}
+      filters={{ q: v('q'), partType: v('partType'), status: v('status'), tag: v('tag') }} currentFamily={v('partType') && v('partType') !== 'none' ? v('partType') : undefined} onDone={() => setTicked([])} />}
   </>;
   if (home) return (
     <SqfPage title="Part Master" crumbs={crumbs('Part Master')} description="Search for a part, or open a product family to see its parts." actions={buttons(false)}>
@@ -134,6 +140,7 @@ export function PartMasterPage() {
           { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) },
           tagFilter]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
+        selected={canChange ? ticked : undefined} onSelect={canChange ? setTicked : undefined}
         cols={allCols.filter((c) => !isHidden(c.key))} />
       {dialogs}
     </SqfPage>
@@ -319,6 +326,7 @@ export function PartDetailPage() {
             <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class">{p.partClass}</Field><Field label="Assembly">{yes(p.isAssembly)}</Field><Field label="Unit of measure">{p.unitOfMeasure}</Field>
             <Field label="Repairable">{yes(p.isRepairable)}</Field><Field label="Repair part">{yes(!!p.isRepairPart)}</Field><Field label="Serialized">{yes(p.isSerialized)}</Field><Field label="Lot controlled">{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material">{p.material}</Field>
             {(attrDefs.data ?? []).filter((d) => attrFor(d, code)).map((d) => <Field key={d.key} label={d.label}>{p.attributes?.[d.key]}</Field>)}
+            {(attrDefs.data ?? []).filter((d) => !attrFor(d, code) && p.attributes?.[d.key]).map((d) => <Field key={d.key} label={`${d.label} (kept from another family)`}>{p.attributes?.[d.key]}</Field>)}
             {code !== FUEL_PUMP && <Field label={DWG_LABEL}>{p.drawingNumber}</Field>}<Field label="Specification">{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}

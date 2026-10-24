@@ -13,7 +13,7 @@ namespace Sequfloh.Api.Controllers.Sequfloh;
 
 /// <summary>SEQUFLOH Parts and Items: shared Part Master view and execution attributes, parts lists, reusable operation steps, revision history.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh")]
-public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, SequflohPartsService parts, SequflohPartsImport import) : ControllerBase
+public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, SequflohPartsService parts, SequflohPartsImport import, PartFamilyChangeService familyChange) : ControllerBase
 {
     // ---------------- Part Master bulk import: read the file, preview, then confirm
     [HttpPost("parts/import/read"), RequestSizeLimit(20_000_000)]
@@ -106,6 +106,17 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     [HttpGet("parts/family-counts")]
     public async Task<object> FamilyCounts(CancellationToken ct) =>
         await (await parts.PartsQueryAsync(null, null, null, null, null, ct, null)).GroupBy(p => p.TypeId).Select(g => new { TypeId = g.Key, Count = g.Select(p => p.PartNumber).Distinct().Count() }).ToListAsync(ct);
+
+    // ---------------- Change product family of many parts: preview, unmatched list, apply
+    [HttpPost("parts/change-family/preview")]
+    public Task<FamilyChangePreview> ChangeFamilyPreview(FamilyChangeRequest r, CancellationToken ct) => familyChange.PreviewAsync(r, ct);
+
+    [HttpGet("parts/change-family/unmatched.xlsx")]
+    public async Task<IActionResult> ChangeFamilyUnmatched([FromQuery] Guid sourceTypeId, CancellationToken ct) =>
+        File(await familyChange.UnmatchedXlsxAsync(sourceTypeId, ct), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "parts-without-drawings.xlsx");
+
+    [HttpPost("parts/change-family")]
+    public Task<object> ChangeFamily(FamilyChangeRequest r, CancellationToken ct) => familyChange.ApplyAsync(r, ct);
 
     [HttpGet("parts/families")]
     public async Task<List<string>> Families(CancellationToken ct) =>

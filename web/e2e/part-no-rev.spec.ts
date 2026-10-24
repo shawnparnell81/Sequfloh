@@ -40,7 +40,7 @@ test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ p
   await expect(v.getByText(`JH-${k}-3`)).toBeVisible();
   await expect(v.getByRole('columnheader', { name: 'JH PN', exact: true })).toBeVisible();
   await expect(v.getByRole('columnheader', { name: 'Individual Box Size' })).toBeVisible();
-  const heads = (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase());
+  const heads = (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase()).filter(Boolean); // the first column is the tick boxes
   expect(heads).toEqual(['or pn', 'napa pn', 'dma pn', 'cross', 'jh pn', 'individual box size']);
   await expect(v.getByRole('columnheader', { name: 'Rev', exact: true })).toHaveCount(0);
   await shot('03-fuel-pump-list');

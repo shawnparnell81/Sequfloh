@@ -96,7 +96,13 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         p.TypeId = r.TypeId;
         // the label is copied to ProductFamily so work instructions and filters that read the text keep working
         if (r.TypeId is { } t) p.ProductFamily = await db.SequflohReferenceValues.Where(x => x.Id == t).Select(x => x.Label).FirstAsync(ct);
-        if (r.Attributes is not null) PartAttributes.Write(p, r.Attributes);
+        if (r.Attributes is not null)
+        {
+            // values of fields the part's family does not show are not on the form; they are kept, so nothing is lost when a part changes family and back
+            var code = p.TypeId is { } tid ? await db.SequflohReferenceValues.Where(x => x.Id == tid).Select(x => x.Code).FirstOrDefaultAsync(ct) : null;
+            var kept = PartAttributes.Read(p.Attributes).Where(kv => !r.Attributes.ContainsKey(kv.Key) && PartAttributes.Find(kv.Key) is { } d && !PartAttributes.AppliesTo(d, code));
+            PartAttributes.Write(p, new Dictionary<string, string?>(r.Attributes.Concat(kept.Select(kv => new KeyValuePair<string, string?>(kv.Key, kv.Value)))));
+        }
         if (r.Notes is not null) p.Notes = r.Notes.Trim() is { Length: > 0 } n ? (n.Length <= 4000 ? n : throw new AppException("Notes can be at most 4000 characters.")) : null;
         await db.SaveChangesAsync(ct);
     }

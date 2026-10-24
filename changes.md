@@ -1,5 +1,15 @@
 # Changes
 
+## Change product family of many parts
+
+- The Part Master has a "Change product family" button for people who may edit parts (SEQUFLOH edit parts and Master Data edit). It moves many parts to another product family in one go.
+- Parts can be chosen four ways: ticked in the parts list (tick boxes on each row, with a tick box for the whole page), all parts matching the current search and filters, the parts of a family linked to any drawing in a chosen drawing folder or its subfolders, or the parts whose number matches a pattern (starts with, contains, ends with or is exactly, capitals ignored, any of the part's numbers). A pattern can also narrow the other ways.
+- Preview shows how many parts will move and a table of them with all their numbers, current family and matching drawing. It also lists the parts of the family with no linked drawing at all ("Unmatched — check these"), with Export to Excel.
+- Apply only changes the product family. Numbers kept for another family stay stored and are shown on the part page as "(kept from another family)", so moving parts back loses nothing. The family cards update straight away.
+- Every part change is in the Audit Trail with the old and new family, plus one entry per run saying how many parts moved, from and to which family, and how they were chosen.
+- Editing a part no longer clears numbers of fields its product family does not show.
+- Fuel Injector parts have the JH PN field, like Fuel Pump, and drawings link to them by it.
+
 ## Word files in Drawings; uploader names off file screens
 
 - Drawings accept Word files (.docx and .doc) as well as PDF, images, CAD and SolidWorks files, both by Upload drawing in a folder and by folder import. The file's content is checked: a .docx must be a real Word document and a .doc must have the Word header, so a renamed file is turned away. Word files download rather than open in the browser.
