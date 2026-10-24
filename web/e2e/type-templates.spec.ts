@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { settledShot, signIn, view } from './support';
 
-const starters = ['Starter - Validation', 'Starter - Validation / FAI', 'Starter - FAI', 'Starter - Repair Test', 'Starter - Repair Work Instruction'];
+const starters = ['Starter - Validation', 'Starter - Validation / FAI', 'Starter - FAI', 'Starter - Repair Test', 'Starter - Repair Work Instruction', 'Starter - Inspection'];
 
 /** Every instruction type has a starter layout template, and the picker offers it for that type. */
 test('starter templates: one per instruction type, offered in the picker', async ({ page }) => {

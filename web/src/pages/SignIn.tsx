@@ -1,6 +1,6 @@
 import { PageNav } from '../tabs/Workspace';
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { Alert, Box, Button, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { post } from '../api';
@@ -39,11 +39,12 @@ export function LoginPage() {
   const branding = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setError(null); setBusy(true);
-    try { await login(email, password); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
+    try { await login(email, password, remember); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
   };
   return (
     <Frame title="Sign in" subtitle={branding.data?.organizationName ? `${branding.data.organizationName} job tracking` : 'Sign in with the email address your administrator set up for you.'}>
@@ -51,6 +52,8 @@ export function LoginPage() {
         {error && <Alert severity="error">{error}</Alert>}
         <TextField label="Email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
         <TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <FormControlLabel sx={{ mt: -1 }} control={<Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} />}
+          label={<Typography variant="body2">Remember me for 30 days on this device</Typography>} />
         <Button type="submit" variant="contained" size="large" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</Button>
         <Typography variant="caption" color="text.secondary">Forgot your password? Ask an administrator to set a temporary one for you.</Typography>
       </Stack>

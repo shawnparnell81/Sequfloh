@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Sequfloh.Domain.Execution;
 using Sequfloh.Domain.Security;
 using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
@@ -29,6 +31,25 @@ public sealed class InspectionTemplateTests(TestApp app)
         Assert.Contains("accept and reject numbers", aql);
         var recall = list.Single(x => x.GetProperty("name").GetString() == "Inspection - Recall / Containment Sort").GetProperty("blocks").GetRawText();
         Assert.Contains("Inspect 100%", recall);
+    }
+
+    [Fact]
+    public async Task The_inspection_templates_are_filed_under_the_Inspection_type_and_untyped_copies_are_moved_there()
+    {
+        var name = SequflohInspectionTemplates.Names[0];
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var t = await db.SequflohInstructionTemplates.SingleAsync(x => x.Name == name);
+            t.Type = null; // as seeded before the Inspection type existed
+            await db.SaveChangesAsync();
+            await SequflohInspectionTemplates.SeedAsync(db);
+        }
+        var (_, user) = await app.CreateUserAsync([Permissions.SequflohAccess], await app.CreateSiteAsync());
+        var list = (await user.GetElAsync("/api/sequfloh/instruction-templates?type=Inspection")).EnumerateArray().ToList();
+        foreach (var n in SequflohInspectionTemplates.Names)
+            Assert.Equal("Inspection", Assert.Single(list, x => x.GetProperty("name").GetString() == n).GetProperty("type").GetString());
+        Assert.Contains(WorkInstructionType.Inspection, SequflohTrackingService.InstructionTypes(TrackingType.Inspection));
     }
 
     [Fact]

@@ -31,16 +31,17 @@ public sealed class SequflohInstructionTests(TestApp app)
     };
 
     [Fact]
-    public async Task Five_instruction_types_open_their_own_designer_and_numbering()
+    public async Task Six_instruction_types_open_their_own_designer_and_numbering()
     {
         var site = await app.CreateSiteAsync();
         var (_, author) = await app.CreateUserAsync(AuthorPerms, site);
         var (_, viewer) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
         var schema = (await author.GetElAsync("/api/sequfloh/instructions/schema")).EnumerateArray().ToList();
-        Assert.Equal(5, schema.Count);
+        Assert.Equal(6, schema.Count);
+        Assert.Contains(schema, s => s.Str("type") == "Inspection" && s.Str("title") == "Inspection");
         Assert.Contains(schema, s => s.Str("type") == "RepairWork" && s.GetProperty("hasPartsRows").GetBoolean());
         Assert.Contains(schema, s => s.Str("type") == "Fai" && s.GetProperty("hasCharacteristics").GetBoolean());
-        var prefixes = new Dictionary<string, string> { ["Validation"] = "VWI-", ["ValidationFai"] = "WI-", ["Fai"] = "FWI-", ["RepairTest"] = "RTI-", ["RepairWork"] = "RWI-" };
+        var prefixes = new Dictionary<string, string> { ["Validation"] = "VWI-", ["ValidationFai"] = "WI-", ["Fai"] = "FWI-", ["RepairTest"] = "RTI-", ["RepairWork"] = "RWI-", ["Inspection"] = "IWI-" };
         foreach (var (type, prefix) in prefixes)
         {
             var c = await PostEl(author, "/api/sequfloh/instructions", new { type, title = $"{type} instruction", siteId = site });
@@ -156,7 +157,7 @@ public sealed class SequflohInstructionTests(TestApp app)
         var site = await app.CreateSiteAsync();
         var (_, author) = await app.CreateUserAsync(AuthorPerms, site);
         var (_, outsider) = await app.CreateUserAsync([Permissions.SequflohAccess], await app.CreateSiteAsync());
-        foreach (var type in new[] { "Validation", "ValidationFai", "Fai", "RepairTest", "RepairWork" })
+        foreach (var type in new[] { "Validation", "ValidationFai", "Fai", "RepairTest", "RepairWork", "Inspection" })
         {
             var c = await PostEl(author, "/api/sequfloh/instructions", new { type, title = $"Print {type}", siteId = site });
             var url = $"/api/sequfloh/instructions/{c.Str("id")}";

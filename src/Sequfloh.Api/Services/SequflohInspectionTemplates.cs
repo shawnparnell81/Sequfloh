@@ -88,7 +88,11 @@ public static class SequflohInspectionTemplates
     {
         var have = await db.SequflohInstructionTemplates.Select(t => t.Name).ToListAsync(ct);
         foreach (var s in Specs.Where(s => !have.Contains(s.Name)))
-            db.SequflohInstructionTemplates.Add(new SequflohInstructionTemplate { Name = s.Name, Description = s.Description, Type = null, Blocks = SequflohBlocks.Clean(Blocks(s)) });
+            db.SequflohInstructionTemplates.Add(new SequflohInstructionTemplate { Name = s.Name, Description = s.Description, Type = WorkInstructionType.Inspection, Blocks = SequflohBlocks.Clean(Blocks(s)) });
+        // Templates seeded before the Inspection type existed have no type: file them under Inspection. Only untyped rows are touched.
+        var names = Names.ToList();
+        foreach (var t in await db.SequflohInstructionTemplates.Where(t => t.Type == null && names.Contains(t.Name)).ToListAsync(ct))
+            t.Type = WorkInstructionType.Inspection;
         await db.SaveChangesAsync(ct);
     }
 }

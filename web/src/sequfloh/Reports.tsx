@@ -24,7 +24,7 @@ const filterSets: Record<string, { status?: [string, string][]; type?: [string, 
   'task-performance': { status: opt(trackingStatuses), type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production'], ['Inspection', 'Inspection']] },
   validation: { status: opt(trackingStatuses) }, fai: { status: opt(trackingStatuses) }, repair: { status: opt(trackingStatuses) }, production: { status: opt(trackingStatuses) },
   'time-variance': { type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production'], ['Inspection', 'Inspection']] },
-  'work-instructions': { status: opt(wiStatuses), type: [['Validation', 'Validation'], ['ValidationFai', 'Validation / FAI'], ['Fai', 'FAI'], ['RepairTest', 'Repair Test'], ['RepairWork', 'Repair Work Instruction']] },
+  'work-instructions': { status: opt(wiStatuses), type: [['Validation', 'Validation'], ['ValidationFai', 'Validation / FAI'], ['Fai', 'FAI'], ['RepairTest', 'Repair Test'], ['RepairWork', 'Repair Work Instruction'], ['Inspection', 'Inspection']] },
   'parts-lists': { status: [['Draft', 'Draft'], ['Released', 'Released'], ['Inactive', 'Inactive']] },
 };
 

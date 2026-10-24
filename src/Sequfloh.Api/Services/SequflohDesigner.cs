@@ -10,7 +10,7 @@ public sealed record DesignerSchema(WorkInstructionType Type, string Title, stri
     bool HasCharacteristics, IReadOnlyList<DesignerField> CharacteristicColumns, bool HasPartsRows, IReadOnlyList<DesignerField> PartsRowColumns);
 
 /// <summary>
-/// Designer definitions for the five instruction types. The web designers render from this schema and the release rules use it,
+/// Designer definitions for the six instruction types. The web designers render from this schema and the release rules use it,
 /// so the form and the server checks cannot drift apart. Field specs are "Label[:kind[:list]]"; the key is the camel-cased label.
 /// </summary>
 public static class SequflohDesigner
@@ -103,6 +103,13 @@ public static class SequflohDesigner
     static readonly List<DesignerField> PartsRowColumns = Cols("Replacement part number", "Description", "Quantity:n", "Unit", "Required:b", "Approved alternate", "Lot number required:b", "Serial number required:b",
         "Issued quantity:n", "Used quantity:n", "Returned quantity:n");
 
+    // ---------------------------------------------------------------- inspection
+    static readonly DesignerSection[] Inspection =
+    [
+        S("inspectionIdentity", "Inspection identity", "Inspection reason:m", "Drawing number", "Drawing revision", "Lot number", "Sample quantity:n", "Sampling plan", "Inspection location", "Inspector"),
+        S("inspectionDisposition", "Disposition", "Final disposition:s:inspection-results", "Quantity inspected:n", "Quantity good:n", "Quantity nonconforming:n", "Disposition comments:m"),
+    ];
+
     static IReadOnlyList<DesignerSection> Merge(IEnumerable<DesignerSection> specific, IEnumerable<DesignerSection>? common = null)
     {
         var s = specific.ToList();
@@ -117,6 +124,7 @@ public static class SequflohDesigner
         [WorkInstructionType.Fai] = new(WorkInstructionType.Fai, "FAI", "SqfFaiInstruction", Merge(Fai), "Procedure steps", ProcedureSteps, true, Characteristic, false, []),
         [WorkInstructionType.RepairTest] = new(WorkInstructionType.RepairTest, "Repair Test", "SqfRepairTestInstruction", Merge(RepairTest), "Test steps", TestSteps, false, [], false, []),
         [WorkInstructionType.RepairWork] = new(WorkInstructionType.RepairWork, "Repair Work Instruction", "SqfRepairWorkInstruction", Merge(RepairWork), "Repair steps", RepairSteps, false, [], true, PartsRowColumns),
+        [WorkInstructionType.Inspection] = new(WorkInstructionType.Inspection, "Inspection", "SqfInspectionInstruction", Merge(Inspection), "Inspection steps", ProcedureSteps, false, [], false, []),
     };
 
     /// <summary>The validation folder holds Validation, Validation / FAI and FAI; the repair folder holds Repair Test and Repair Work Instructions.</summary>

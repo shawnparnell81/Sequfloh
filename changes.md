@@ -1,5 +1,13 @@
 # Changes
 
+## Inspection work instruction type and Remember me
+
+- Work instructions have a new type, Inspection. It is in the work instruction type dropdown, the type filters, the Work Instructions report filter, printed labels and a new "Inspection Work Instructions" folder. Inspection instructions are numbered IWI-.
+- The eight standard inspection layout templates are now filed under Inspection. Existing databases are updated at start-up; only templates with those names and no type are changed.
+- A "Starter - Inspection" layout template is added, like the starter for each other type.
+- Turning an inspection request into a work order lists Inspection instructions along with the types it already offered.
+- The sign-in page has a "Remember me for 30 days on this device" box, unticked by default. Unticked works as before: the sign-in ends when the browser closes, and after 12 hours at most. Ticked keeps the person signed in on that device for 30 days, also across a password change. Open tabs are still cleared on sign-in and sign-out. The sign-in entry in the Audit Trail says when Remember me was used.
+
 ## Import drawings in bulk
 
 - Drawings has an "Import drawings" button inside a folder (for people who can manage drawings). Choose a folder, with all its subfolders, or several files. The folder tree is recreated inside the current folder and each file becomes a drawing titled with its file name.

@@ -47,6 +47,30 @@ public sealed class AuthTests(TestApp app)
     }
 
     [Fact]
+    public async Task Remember_me_keeps_the_sign_in_for_30_days_and_is_audited()
+    {
+        var raw = app.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        var r = await raw.PostAsJsonAsync("/api/auth/login", new { email = TestApp.AdminEmail, password = TestApp.AdminPassword, rememberMe = true });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var cookie = r.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(AuthSettings.CookieName + "="));
+        var m = System.Text.RegularExpressions.Regex.Match(cookie, "expires=([^;]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        Assert.True(m.Success);
+        var days = (DateTimeOffset.Parse(m.Groups[1].Value) - DateTimeOffset.UtcNow).TotalDays;
+        Assert.InRange(days, 29.9, 30.1);
+        var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken((await r.JsonAsync()).Str("token"));
+        Assert.InRange((token.ValidTo - DateTime.UtcNow).TotalDays, 29.9, 30.1);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var entry = await db.AuditEntries.Where(a => a.Action == "SignedIn").OrderByDescending(a => a.OccurredAt).FirstAsync();
+        Assert.Contains("Remember me", entry.Description);
+        Assert.NotNull(entry.UserId);
+
+        // unticked stays a session cookie with the short token
+        var plain = await raw.PostAsJsonAsync("/api/auth/login", new { email = TestApp.AdminEmail, password = TestApp.AdminPassword, rememberMe = false });
+        Assert.DoesNotContain("expires=", plain.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(AuthSettings.CookieName + "=")), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Passwords_are_hashed_and_a_bearer_token_works_for_api_clients()
     {
         var anon = await app.AnonymousAsync();

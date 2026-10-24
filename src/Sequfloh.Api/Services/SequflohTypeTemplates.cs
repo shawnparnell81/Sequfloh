@@ -52,6 +52,12 @@ public static class SequflohTypeTemplates
              ("Replace or repair", "Replace or repair the failed components. Record the parts replaced on the Job tab.", "Failed components are replaced or repaired."),
              ("Reassemble", "Reassemble the part, applying torque values and materials called out in the operations.", "Part is reassembled as specified.")],
             "Test the part using the repair test instruction. Enter the job-level quantities repaired and could not repair on the Job tab."),
+        new(WorkInstructionType.Inspection, "Starter - Inspection", "Starter layout for an inspection work instruction.",
+            "Inspect parts against the drawing and the reason for the inspection request, and record the good and nonconforming quantities.",
+            "Calibrated gauges listed on the drawing; inspection light; magnifier.",
+            [Identify, ("Select the sample", "Pull the sample quantity called for in the sampling plan, or inspect every part when the request calls for 100%.", "Sample matches the plan."), Visual,
+             ("Dimensional inspection", "Measure the characteristics named in the request and record the actual values and the gauge used.", "Every dimension is within tolerance.")],
+            "Record the result on the work order. Enter the quantities inspected, good and nonconforming. Segregate and tag nonconforming parts."),
     ];
 
     static JsonArray Blocks(Spec s)

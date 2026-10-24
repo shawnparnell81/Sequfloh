@@ -44,6 +44,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             "fai" => query.Where(x => x.Type == WorkInstructionType.Fai),
             "repair-test" => query.Where(x => x.Type == WorkInstructionType.RepairTest),
             "repair-work" => query.Where(x => x.Type == WorkInstructionType.RepairWork),
+            "inspection" => query.Where(x => x.Type == WorkInstructionType.Inspection),
             _ => query
         };
         if (status is not null) query = query.Where(x => x.Status == status);
