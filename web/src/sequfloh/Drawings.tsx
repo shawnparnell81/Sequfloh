@@ -69,6 +69,18 @@ export function PartDrawingLinks({ partId, partNumber, checkboxes }: { partId?: 
   </Stack>;
 }
 
+/** One click from a part number to its drawing: opens the current revision in the viewer (or the file, for types the browser can't show). Nothing when no drawing is linked. */
+export function ViewDrawingButton({ partId, partNumber }: { partId?: string | null; partNumber?: string | null }) {
+  const n = (partNumber ?? '').trim();
+  const q = useQuery({ queryKey: ['drawings-for-part', partId ?? '', n], enabled: !!partId || n.length > 0, staleTime: 15_000,
+    queryFn: () => get<PartDrawing[]>(`${D}/for-part?${qs({ partId: partId ?? undefined, partNumber: partId ? undefined : n })}`) });
+  const list = q.data ?? [];
+  if (list.length === 0) return null;
+  return <Stack direction="row" gap={0.5} component="span" sx={{ display: 'inline-flex', ml: 1, verticalAlign: 'middle' }}>{list.map((d) =>
+    <Button key={d.id} size="small" variant="text" startIcon={<OpenInNew fontSize="small" />} component="a" href={d.viewable ? viewerUrl(d.id) : fileUrl(d.id)} target="_blank" rel="noopener"
+      data-testid="view-drawing" sx={{ py: 0 }}>{list.length === 1 ? 'View drawing' : `View ${d.drawingNumber || d.title}`}</Button>)}</Stack>;
+}
+
 /** Drawings attached to a validation work order: the revision attached when the order was made and the current one. */
 export function RecordDrawings({ recordId }: { recordId: string }) {
   const q = useQuery({ queryKey: ['drawings-for-record', recordId], queryFn: () => get<PartDrawing[]>(`${D}/for-record/${recordId}`) });
@@ -85,7 +97,7 @@ export function RecordDrawings({ recordId }: { recordId: string }) {
 }
 
 interface Opt { id: string; label: string; extra?: string }
-interface SearchRow { id: string; title: string; drawingNumber?: string; currentRevision: string; folder?: string; partNumber?: string; isArchived?: boolean; updatedAt?: string;
+interface SearchRow { id: string; title: string; drawingNumber?: string; currentRevision: string; viewable?: boolean; folder?: string; partNumber?: string; isArchived?: boolean; updatedAt?: string;
   file?: { fileName: string; sizeBytes: number; createdAt: string } }
 
 /** Picks drawings by part number, drawing number or title. */
@@ -106,7 +118,7 @@ export function PartsPicker({ value, onChange, label: l = 'Link to part number(s
   return <Autocomplete multiple options={opts} value={value} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => o.label} loading={q.loading}
     renderOption={(props, o) => <li {...props} key={o.id}><Box><Typography variant="body2">{o.label}</Typography>{o.extra && <Typography variant="caption" color="text.secondary">{o.extra}</Typography>}</Box></li>}
     noOptionsText={text ? 'No part matches' : 'Type a part number'}
-    onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label={l} placeholder="Search by OR #, SENSEN #, NAPA, DMA or JH PN" helperText={q.hint} />} />;
+    onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label={l} placeholder="Search by OR #, DWG #, NAPA, DMA or JH PN" helperText={q.hint} />} />;
 }
 
 /** The file, title, number, revision and notes of a new drawing (also used inline from a part). */
@@ -197,6 +209,9 @@ export function DrawingsPage() {
             <Link key="n" component="button" onClick={() => open(f.id)} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><FolderOutlined fontSize="small" />{f.name}</Link>,
             f.part ? <Mono key="p">{f.part.partNumber}</Mono> : '—', `${f.folders} folder${f.folders === 1 ? '' : 's'} · ${f.drawings} drawing${f.drawings === 1 ? '' : 's'}`, fmtDateTime(f.updatedAt)])} />}
           {here && v!.drawings.length > 0 && <Box sx={{ mt: 2 }}><DrawingTable rows={v!.drawings} onRow={(id) => nav(`/sequfloh/drawings/d/${id}`)} /></Box>}
+          {here && v!.drawings.length === 1 && v!.folders.length === 0 && /\.pdf$/i.test(v!.drawings[0].file?.fileName ?? '') &&
+            <Box component="iframe" title={v!.drawings[0].title} src={fileUrl(v!.drawings[0].id, undefined, true)} data-testid="folder-inline-drawing"
+              sx={{ mt: 2, width: '100%', height: '75vh', border: 1, borderColor: 'divider' }} />}
           {v!.folders.length === 0 && (!here || v!.drawings.length === 0) && <Empty text={here ? (archived ? 'Nothing archived here.' : 'This folder is empty.') : archived ? 'No archived folders.' : 'No drawing folders yet. Make one for each part number, for example.'} />}
         </>}
       </>}
@@ -214,9 +229,11 @@ export function DrawingsPage() {
 }
 
 function DrawingTable({ rows, onRow, withFolder }: { rows: SearchRow[]; onRow: (id: string) => void; withFolder?: boolean }) {
-  return <SimpleTable head={['Drawing number', 'Title', 'Current rev', ...(withFolder ? ['Folder', 'Part'] : []), 'File', 'Updated']} rows={rows.map((d) => [
-    <Link key="n" component="button" onClick={() => onRow(d.id)}><Mono>{d.drawingNumber || '—'}</Mono></Link>, d.title, <Chip key="r" size="small" label={`Rev ${d.currentRevision}`} />,
-    ...(withFolder ? [d.folder ?? '—', d.partNumber ?? '—'] : []), d.file ? <FileName key="f" name={d.file.fileName} sizeBytes={d.file.sizeBytes} /> : '—', fmtDateTime(d.updatedAt ?? d.file?.createdAt)])} />;
+  const view = (d: SearchRow) => (/\.(pdf|png|jpe?g)$/i.test(d.file?.fileName ?? '') ? viewerUrl(d.id) : fileUrl(d.id));
+  return <SimpleTable head={['Drawing number', 'Title', 'Current rev', ...(withFolder ? ['Folder', 'Part'] : []), 'File', 'Updated', '']} rows={rows.map((d) => [
+    <Link key="n" href={view(d)} target="_blank" rel="noopener" data-testid="drawing-open"><Mono>{d.drawingNumber || '—'}</Mono></Link>, d.title, <Chip key="r" size="small" label={`Rev ${d.currentRevision}`} />,
+    ...(withFolder ? [d.folder ?? '—', d.partNumber ?? '—'] : []), d.file ? <FileName key="f" name={d.file.fileName} sizeBytes={d.file.sizeBytes} /> : '—', fmtDateTime(d.updatedAt ?? d.file?.createdAt),
+    <Button key="d" size="small" data-testid="drawing-details" onClick={() => onRow(d.id)}>Details</Button>])} />;
 }
 
 function FolderDialog({ open, edit, parentId, onClose, onSaved }: { open: boolean; edit?: FolderView['parent']; parentId: string | null; onClose: () => void; onSaved: (id: string) => void }) {
@@ -399,7 +416,7 @@ function RelinkDialog({ open, onClose }: { open: boolean; onClose: () => void })
   return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setRes(null); setErr(null); } }}>
     <FormDialogTitle>Relink drawings</FormDialogTitle>
     <DialogContent><Stack gap={2}>
-      <Typography variant="body2">Checks every drawing against the parts and links each drawing to every part whose OR #, SENSEN # or drawing number field matches the drawing title or its folder name
+      <Typography variant="body2">Checks every drawing against the parts and links each drawing to every part whose OR #, DWG # or drawing number field matches the drawing title or its folder name
         (for fuel pumps the JH PN, so one drawing links to all the OR PNs that share it). Case, spaces, dashes and underscores are ignored. Links that are already there, including ones made by hand, are kept.</Typography>
       {busy && <LinearProgress />}
       {err && <Alert severity="error">{err}</Alert>}

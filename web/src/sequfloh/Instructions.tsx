@@ -15,9 +15,11 @@ import { Confirm, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedT
 import { NewInspectionRequestButton } from './InspectionRequests';
 import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
+import { ViewDrawingButton } from './Drawings';
+import { InventoryNote } from './Job';
 import { ATTACHMENT_TYPES } from '../components/Files';
 import { api } from '../api';
-import { StatusBadge, StatusEditor, useStatusFilter } from './Job';
+
 import { SimpleTable } from './Parts';
 import { DevelopmentPanel } from './Personnel';
 import { type Block, BlocksEditor, LayoutTemplates, TemplateActions, TemplatePicker } from './Blocks';
@@ -41,6 +43,7 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
   'repair-test': { api: 'repair-test', title: 'Repair Test Instructions', kind: 'repair', newType: 'RepairTest', description: 'Repair test instructions: test steps, parameters and pass / fail criteria.' },
   repair: { api: 'repair', title: 'Repair Work Instructions', kind: 'repair', newType: 'RepairWork', description: 'Repair folder: Repair Work Instructions and Repair Test instructions, kept separate from validation instructions.' },
   inspection: { api: 'inspection', title: 'Inspection Work Instructions', kind: 'generic', newType: 'Inspection', description: 'Inspection instructions used when an inspection request is turned into a work order.' },
+  procedure: { api: 'procedure', title: 'Procedure Instructions', kind: 'generic', newType: 'Procedure', description: 'Imported PDF instructions that apply to every part of a product family. The file is the instruction: to change one, update the file and import it again, which revises it.' },
   draft: { api: 'drafts', title: 'Draft Instructions', kind: 'generic', description: 'Instructions that can still be edited. Release one when it is ready.' },
   released: { api: 'released', title: 'Released Instructions', kind: 'generic', description: 'Current released revisions. Released revisions are read-only; changes go through a new revision.' },
   obsolete: { api: 'obsolete', title: 'Obsolete Instructions', kind: 'generic', description: 'Instructions marked obsolete. They stay on file and cannot be used for new work.' },
@@ -58,7 +61,7 @@ function ImportInstructionsButtons({ newType }: { newType?: string }) {
   useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
   return <ImportButtons surface="work-instructions" accept={ATTACHMENT_TYPES} maxBytes={10 * 1024 * 1024} what="file" ready={!!type && !!siteId}
     settings={<Stack gap={2}>
-      <Typography variant="body2">Each file becomes a new draft work instruction titled with its file name, with the file attached. Open each draft to fill in its steps.</Typography>
+      <Typography variant="body2">{type === 'Procedure' ? 'Each file becomes a Procedure Instruction titled with its file name. A file with the same name as an existing one revises it.' : 'Each file becomes a new draft work instruction titled with its file name, with the file attached. Open each draft to fill in its steps.'}</Typography>
       <Stack direction="row" gap={2} flexWrap="wrap">
         <TextField select size="small" label="Work instruction type" value={type} onChange={(e) => setType(e.target.value)} sx={{ minWidth: 240 }} inputProps={{ 'data-testid': 'wi-import-type' }}>
           {types.map((t) => <MenuItem key={t} value={t}>{typeLabels[t]}</MenuItem>)}</TextField>
@@ -85,7 +88,6 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
   const repairCats = useOptions('repair-categories'); const repairTypes = useOptions('repair-types'); const valTypes = useOptions('validation-types');
   const q = useQuery({ queryKey: ['sqf-wi', cfg.api, sp.toString(), page, size, sort], queryFn: () => get<Paged<WiRow>>(`${S}/instructions?${qs({ folder: cfg.api, q: v('q'), status: v('status'), type: v('type'),
     part: v('part'), repairCategory: v('repairCategory'), repairType: v('repairType'), validationType: v('validationType'), resultStatus: v('resultStatus'), tag: v('tag'), sort, page, pageSize: size })}`) });
-  const tagFilter = useStatusFilter();
   const title = titleOverride ?? cfg.title;
   const filters: { key: string; label: string; options: [string, string][] }[] = [{ key: 'status', label: 'Status', options: (cfg.kind === 'generic' ? statuses : folderStatuses).map((s) => [s, words(s)]) }];
   if (cfg.kind === 'generic') filters.push({ key: 'type', label: 'Type', options: types.map((t) => [t, typeLabels[t]]) });
@@ -97,30 +99,29 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
     filters.push({ key: 'repairCategory', label: 'Repair category', options: (repairCats.data ?? []).map((o) => [o, o]) });
     filters.push({ key: 'repairType', label: 'Repair type', options: (repairTypes.data ?? []).map((o) => [o, o]) });
   }
-  filters.push(tagFilter);
   const num = { key: 'number', label: 'Instruction number', sort: true, render: (r: WiRow) => <Mono>{r.number}</Mono> };
   const people = [{ key: 'owner', label: 'Owner', render: (r: WiRow) => r.owner ?? '—' }, { key: 'releasedBy', label: 'Released by', render: (r: WiRow) => r.releasedBy ?? '—' }];
   const tail = [{ key: 'effectiveDate', label: 'Effective', sort: true, render: (r: WiRow) => fmtDate(r.effectiveDate) }, { key: 'updatedAt', label: 'Last updated', sort: true, render: (r: WiRow) => fmtDateTime(r.updatedAt) }];
   const actions = { key: 'actions', label: 'Actions', render: (r: WiRow) => <RowActions row={r} /> };
-  const tagCol = { key: 'statusTag', label: 'Official status in NetSuite', render: (r: WiRow) => <StatusBadge tag={r.statusTag} note={r.statusNote} /> };
   const cols = cfg.kind === 'validation'
     ? [num, { key: 'title', label: 'Title', sort: true }, { key: 'partNumber', label: 'Part', render: (r: WiRow) => r.partNumber ?? '—' },
       { key: 'validationType', label: folderKey === 'fai' ? 'FAI type' : 'Validation type', render: (r: WiRow) => (r.type === 'Fai' ? r.faiType : r.validationType) ?? r.faiType ?? '—' },
       { key: 'revision', label: 'Rev' }, { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, ...people, ...tail,
-      { key: 'resultStatus', label: 'Result status', render: (r: WiRow) => <SqfStatus status={r.resultStatus ?? null} /> }, tagCol, actions]
+      { key: 'resultStatus', label: 'Result status', render: (r: WiRow) => <SqfStatus status={r.resultStatus ?? null} /> }, actions]
     : cfg.kind === 'repair'
       ? [num, { key: 'title', label: 'Title', sort: true }, { key: 'partNumber', label: 'Part being repaired', render: (r: WiRow) => r.partNumber ?? '—' },
         { key: 'repairDescription', label: 'Repair description', render: (r: WiRow) => r.repairDescription ?? (r.type === 'RepairTest' ? 'Repair test' : '—') },
         { key: 'repairCategory', label: 'Repair category', render: (r: WiRow) => r.repairCategory ?? '—' }, { key: 'revision', label: 'Rev' },
-        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, ...people, ...tail, tagCol, actions]
+        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, ...people, ...tail, actions]
       : [num, { key: 'title', label: 'Title', sort: true }, { key: 'type', label: 'Type', render: (r: WiRow) => typeLabels[r.type] ?? r.type },
         { key: 'partNumber', label: 'Part', render: (r: WiRow) => r.partNumber ?? '—' }, { key: 'revision', label: 'Rev' },
-        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, people[0], ...tail, tagCol, actions];
+        { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, people[0], ...tail, actions];
   return (
     <SqfPage title={title} crumbs={crumbsOverride ?? wiCrumbs(title)} description={descriptionOverride ?? cfg.description} permission={permission} tabs={tabs} tab={tab} onTab={onTab}
       actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" />{can('sequfloh.create_work_instruction') && <ImportInstructionsButtons newType={cfg.newType} />}{can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to={`/sequfloh/instructions/new${cfg.newType ? `?type=${cfg.newType}` : ''}`}>New instruction</Button>}</Stack>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} values={Object.fromEntries(filters.map((f) => [f.key, v(f.key)]))} onChange={set} onClear={() => { setSp({}); setPage(1); }} filters={filters}
         extra={cfg.kind === 'repair' && <TextField size="small" label="Part number" defaultValue={v('part')} key={v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 160 }} />} />
+      <InventoryNote />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/instruction/${r.id}`)}
         empty={v('q') || v('status') ? 'No work instructions match these filters.' : 'No work instructions in this folder yet.'} cols={cols} />
     </SqfPage>
@@ -284,7 +285,7 @@ export function InstructionPage() {
   const { can } = useAuth();
   const { id = '' } = useParams();
   const [sp, setSp] = useSearchParams();
-  const tab = sp.get('tab') ?? 'control';
+  const tabParam = sp.get('tab');
   const setTab = (t: string) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); };
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -295,6 +296,7 @@ export function InstructionPage() {
   const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [act, setAct] = useState<WiResponse['actions'][number] | null>(null);
+  const [typeOpen, setTypeOpen] = useState(false);
   useEffect(() => { if (q.data) { setDoc(q.data.instruction); setSaved(JSON.stringify(q.data.instruction)); } }, [q.data]);
   const dirty = !!doc && JSON.stringify(doc) !== saved;
   const guard = useUnsaved(dirty);
@@ -303,6 +305,8 @@ export function InstructionPage() {
   if (!doc || !q.data) return null;
   const schema = schemas.data!.find((s) => s.type === doc.type)!;
   const ro = !q.data.canEdit || busy;
+  const fileOnly = doc.type === 'Procedure';
+  const tab = tabParam ?? (fileOnly ? 'file' : 'control');
   const upd = (patch: Partial<WiDoc>) => setDoc({ ...doc, ...patch });
   const setContent = (section: string, key: string, v: Val) => setDoc({ ...doc, content: { ...doc.content, [section]: { ...(doc.content[section] ?? {}), [key]: v } } });
   const refresh = async () => { await qc.invalidateQueries({ queryKey: ['sqf-wi-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-wi'] }); };
@@ -332,15 +336,16 @@ export function InstructionPage() {
     await refresh(); setMsg({ sev: 'success', text: `${a.label}: done.` });
   };
   const seqIssues = [...sequenceProblems(doc.steps, 'step'), ...(schema.hasCharacteristics ? sequenceProblems(doc.characteristics, 'characteristic') : [])];
-  const tabs = [{ label: 'Document control', value: 'control' }, { label: 'Content', value: 'content' }, { label: 'Layout', value: 'layout' }, { label: schema.stepsTitle, value: 'steps' },
+  const tabs = fileOnly ? [{ label: 'File', value: 'file' }, { label: 'Document control', value: 'control' }, { label: 'Revisions', value: 'history' }] : [{ label: 'Document control', value: 'control' }, { label: 'Content', value: 'content' }, { label: 'Layout', value: 'layout' }, { label: schema.stepsTitle, value: 'steps' },
     ...(schema.hasCharacteristics ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(schema.hasPartsRows ? [{ label: 'Repair parts', value: 'parts' }] : []),
     ...(q.data.canDevelop || doc.developmentStatus || doc.engineeringNotes ? [{ label: 'Development', value: 'development' }] : []),
     { label: 'Revisions', value: 'history' }];
-  const folder = schema.type === 'RepairWork' || schema.type === 'RepairTest' ? { label: 'Repair Work Instructions', to: '/sequfloh/instructions/repair' } : schema.type === 'Inspection' ? { label: 'Inspection Work Instructions', to: '/sequfloh/instructions/inspection' } : { label: 'Validation Work Instructions', to: '/sequfloh/instructions/validation' };
+  const folder = schema.type === 'RepairWork' || schema.type === 'RepairTest' ? { label: 'Repair Work Instructions', to: '/sequfloh/instructions/repair' } : schema.type === 'Inspection' ? { label: 'Inspection Work Instructions', to: '/sequfloh/instructions/inspection' } : fileOnly ? { label: 'Procedure Instructions', to: '/sequfloh/instructions/procedure' } : { label: 'Validation Work Instructions', to: '/sequfloh/instructions/validation' };
   return (
     <SqfPage title={<>{doc.number} rev {doc.revision} — {doc.title}</>} crumbs={wiCrumbs(`${doc.number} rev ${doc.revision}`, folder)} recent={{ label: `${doc.number} rev ${doc.revision} ${doc.title}`, itemType: 'Work instruction', recordId: doc.id }}
       tabs={tabs} tab={tab} onTab={setTab}
       actions={<RecordActions surface="work-instruction" dirty={dirty} busy={busy}
+        edit={can('sequfloh.create_work_instruction') && { onClick: () => setTypeOpen(true), label: 'Edit' }}
         save={q.data.canEdit && { onClick: () => void save() }} cancel={q.data.canEdit && { onClick: () => setDoc(JSON.parse(saved)) }}
         print={{ href: `${S}/instructions/${id}/print` }}
         del={{ what: `${doc.number} ${doc.title}`, url: `${S}/instructions/${id}`, to: folder.to,
@@ -352,12 +357,13 @@ export function InstructionPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{typeLabels[doc.type]} designer · {doc.site ?? ''}{doc.department ? ` · ${doc.department}` : ''}
         {!q.data.canEdit && doc.status === 'Released' && ' · Released revisions are read-only. Use Create revision to change this instruction.'}
         {!q.data.canEdit && doc.status !== 'Released' && ` · Read-only while ${words(doc.status).toLowerCase()}.`}</Typography>
-      <StatusEditor kind="instruction" id={doc.id} tag={doc.statusTag} note={doc.statusNote} canEdit={can('sequfloh.edit_draft_work_instruction') && !dirty} onSaved={refresh} />
       {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {dirty && <Alert severity="info" sx={{ mb: 2 }}>You have unsaved changes.</Alert>}
-      {doc.status === 'Draft' &&
+      {doc.status === 'Draft' && !fileOnly &&
         <ProblemList title="Before this instruction can be released:" problems={[...new Set([...seqIssues, ...q.data.releaseProblems])]} />}
 
+      {tab === 'file' && fileOnly && <ProcedureFile id={doc.id} />}
+      <ChangeTypeDialog open={typeOpen} onClose={() => setTypeOpen(false)} id={id} type={doc.type} onSaved={async () => { setTypeOpen(false); await refresh(); setMsg({ sev: 'success', text: 'Instruction type changed.' }); }} />
       {tab === 'control' && <Stack gap={2}>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Document control">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Document control</Typography>
@@ -372,7 +378,7 @@ export function InstructionPage() {
             <Typography variant="h3" sx={{ mb: 1.5 }}>Applicability</Typography>
             <Grid cols={3}>
               <Box sx={{ gridColumn: { md: 'span 2' } }}><PartPicker label="Part number" value={doc.partId ? { id: doc.partId, partNumber: doc.partNumber ?? '', name: doc.partDescription ?? '' } : null} disabled={ro}
-                onChange={(p) => upd({ partId: p?.id ?? null, partNumber: p?.partNumber ?? null, partDescription: p?.name ?? null, productFamily: doc.productFamily || p?.productFamily || null, assembly: doc.assembly || p?.assemblyType || null })} /></Box>
+                onChange={(p) => upd({ partId: p?.id ?? null, partNumber: p?.partNumber ?? null, partDescription: p?.name ?? null, productFamily: doc.productFamily || p?.productFamily || null, assembly: doc.assembly || p?.assemblyType || null })} />{doc.partId && <ViewDrawingButton partId={doc.partId} />}</Box>
               <TextField size="small" label="Part description" value={doc.partDescription ?? ''} disabled InputLabelProps={{ shrink: true }} />
               {applicability.map(([k, l]) => <TextField key={k} size="small" label={l} value={(doc[k] as string) ?? ''} disabled={ro} onChange={(e) => upd({ [k]: e.target.value } as Partial<WiDoc>)} />)}
             </Grid>
@@ -612,3 +618,34 @@ function ActionDialog({ action, number, effectiveDate, onClose, onRun }: { actio
   );
 }
 export type { DSchema };
+
+/** A Procedure Instruction is its imported file: shown here with Print, Download and Full screen, and nothing to fill in. */
+function ProcedureFile({ id }: { id: string }) {
+  const files = useQuery({ queryKey: ['files', 'SequflohWorkInstruction', id, false], queryFn: () => get<{ id: string; fileName: string }[]>(`/api/records/SequflohWorkInstruction/${id}/files?history=false`) });
+  const f = files.data?.[0];
+  if (files.isLoading) return <Loading />;
+  if (!f) return <Empty text="No file is attached. Import the file again from Procedure Instructions." />;
+  const src = `/api/files/${f.id}?inline=true`;
+  const full = () => { const el = document.getElementById('procedure-file'); void el?.requestFullscreen?.(); };
+  return <Stack gap={1} data-testid="procedure-file">
+    <Stack direction="row" gap={1} alignItems="center"><Typography variant="body2" sx={{ flex: 1 }}>{f.fileName}</Typography>
+      <Button size="small" href={src} target="_blank" rel="noopener">Print</Button>
+      <Button size="small" href={`/api/files/${f.id}`} download={f.fileName}>Download</Button>
+      <Button size="small" onClick={full}>Full screen</Button></Stack>
+    <Box id="procedure-file" component="iframe" title={f.fileName} src={src} sx={{ width: '100%', height: '75vh', border: 1, borderColor: 'divider', bgcolor: 'background.paper' }} />
+  </Stack>;
+}
+
+/** Changes the type of an instruction. The change is recorded in the audit trail with the old and new type. */
+function ChangeTypeDialog({ open, onClose, id, type, onSaved }: { open: boolean; onClose: () => void; id: string; type: string; onSaved: () => void }) {
+  const [t, setT] = useState(type); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { if (open) { setT(type); setErr(null); } }, [open, type]);
+  const save = async () => { try { await put(`${S}/instructions/${id}/type`, { type: t }); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <FormDialogTitle>Edit instruction</FormDialogTitle>
+    <DialogContent><Stack gap={2} sx={{ pt: 1 }}>{err && <Alert severity="error">{err}</Alert>}
+      <TextField select size="small" label="Instruction type" value={t} onChange={(e) => setT(e.target.value)} inputProps={{ 'data-testid': 'wi-change-type' }}>
+        {types.map((x) => <MenuItem key={x} value={x}>{typeLabels[x]}</MenuItem>)}</TextField></Stack></DialogContent>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" disabled={t === type} onClick={save}>Save</Button></DialogActions>
+  </Dialog>;
+}

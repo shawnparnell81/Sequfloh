@@ -41,3 +41,24 @@ test('no ad-hoc page titles or search rows in the source', () => {
   expect(files.filter((f) => !allowH1.some((a) => f.endsWith(a)) && /variant="h1"/.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(root, f))).toEqual([]);
   expect(files.filter((f) => !f.endsWith(path.join('layout', 'PageHeader.tsx')) && />Search<\/Button>/.test(fs.readFileSync(f, 'utf8')) && !/ListToolbar/.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(root, f))).toEqual([]);
 });
+
+test('header actions run Edit, Full screen, primary, More and toolbar checkboxes sit right after Search', async ({ page }) => {
+  await signIn(page);
+  const ok = async (r: Promise<import('@playwright/test').APIResponse>) => { const x = await r; expect(x.ok(), await x.text()).toBeTruthy(); return x.json(); };
+  const site = (await ok(page.request.get('/api/organization/sites')))[0].id as string;
+  const folder = (await ok(page.request.post('/api/drawings/folders', { data: { name: `Layout ${Date.now().toString().slice(-6)}`, siteId: site } }))).id as string;
+  await page.goto(`/sequfloh/drawings?folder=${folder}`);
+  const bar = view(page).locator('[data-action]').filter({ visible: true });
+  await expect(bar.first()).toBeVisible();
+  const order = await bar.evaluateAll((els) => els.map((e) => e.getAttribute('data-action')));
+  const pos = (a: string) => order.indexOf(a);
+  if (pos('primary') >= 0 && pos('more') >= 0) expect(pos('primary')).toBeLessThan(pos('more'));
+  if (pos('primary') >= 0 && pos('edit') >= 0) expect(pos('edit')).toBeLessThan(pos('primary'));
+
+  await page.goto('/sequfloh/drawings');
+  const search = view(page).getByRole('button', { name: 'Search', exact: true }).first();
+  const archived = view(page).getByText('Show archived').first();
+  await expect(archived).toBeVisible();
+  const a = (await search.boundingBox())!; const b = (await archived.boundingBox())!;
+  expect(b.x - (a.x + a.width)).toBeLessThan(120);
+});

@@ -37,6 +37,8 @@ public class SequflohReferenceValue : Entity, IAudited
     public bool IsDefault { get; set; }
     /// <summary>Created by the seed; a reset restores seeded labels only after an explicit confirmed reset action.</summary>
     public bool IsSeeded { get; set; }
+    /// <summary>Product families only: fields that start as Not applicable on new and imported parts of the family, comma-separated keys (see PartFields).</summary>
+    public string? HiddenFields { get; set; }
     public string AuditLabel => $"SEQUFLOH {ListKey} value {Code}";
 }
 

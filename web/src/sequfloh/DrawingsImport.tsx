@@ -174,7 +174,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
           {bad.length > 0 && !top && <Alert severity="info">{bad.length} file{bad.length === 1 ? ' is' : 's are'} not a drawing type and will be skipped, for example {bad[0].path}.</Alert>}
           {linkParts && <Box>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Part matches ({matches.length.toLocaleString('en-US')})</Typography>
-            {matches.length === 0 ? <Typography variant="body2" color="text.secondary">No folder or file name matches an OR #, SENSEN # or JH PN.</Typography>
+            {matches.length === 0 ? <Typography variant="body2" color="text.secondary">No folder or file name matches an OR #, DWG # or JH PN.</Typography>
               : <SimpleTable head={['Folder or drawing', '', 'Parts', 'Links to part']} rows={matches.slice(0, 50).map((m) => [<Mono key="n">{m.name}</Mono>, m.kind,
                 <span key="c" data-testid="match-count">{`${m.parts.length.toLocaleString('en-US')} part${m.parts.length === 1 ? '' : 's'}`}</span>,
                 m.parts.slice(0, 6).join(', ') + (m.parts.length > 6 ? ` and ${(m.parts.length - 6).toLocaleString('en-US')} more` : '')])} />}

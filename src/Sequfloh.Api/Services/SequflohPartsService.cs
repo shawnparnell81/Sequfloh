@@ -15,7 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false,
     string? PartClass = null, bool? IsAssembly = null, string? LotControl = null);
 /// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
-public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null);
+public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null, List<string>? HiddenFields = null);
 public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0);
 public sealed record PartsListItemInput(Guid? PartId, string? PartNumber, string? Description, decimal Quantity, string? Unit, bool Required, string? AlternatePartNumber,
     TraceabilityRequirement Traceability, string? Notes);
@@ -45,7 +45,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (r.Attributes is not null) PartAttributes.Clean(r.Attributes); // checked before anything is saved
         var p = await master.SavePartAsync(null, r.Part, ct); // shared Part Master rules: masterdata.edit, unique number, initial revision
         await ApplyExecutionAsync(p.Id, r.Execution with { RowVersion = 0 }, ct);
-        await ApplyTypeAndAttributesAsync(p.Id, r, ct);
+        await ApplyTypeAndAttributesAsync(p.Id, r, ct, isNew: true);
         await drawingLinks.LinkPartsAsync([p.Id], ct);
         return p;
     }
@@ -90,7 +90,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (r.LotControl is not null && PartChoices.Lot(r.LotControl) is null) throw new AppException("Lot controlled must be Yes, No or Not applicable.");
     }
 
-    async Task ApplyTypeAndAttributesAsync(Guid id, SqfPartInput r, CancellationToken ct)
+    async Task ApplyTypeAndAttributesAsync(Guid id, SqfPartInput r, CancellationToken ct, bool isNew = false)
     {
         var p = await db.Parts.FirstAsync(x => x.Id == id, ct);
         p.TypeId = r.TypeId;
@@ -103,6 +103,9 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
             var kept = PartAttributes.Read(p.Attributes).Where(kv => !r.Attributes.ContainsKey(kv.Key) && PartAttributes.Find(kv.Key) is { } d && !PartAttributes.AppliesTo(d, code));
             PartAttributes.Write(p, new Dictionary<string, string?>(r.Attributes.Concat(kept.Select(kv => new KeyValuePair<string, string?>(kv.Key, kv.Value)))));
         }
+        if (r.HiddenFields is not null) p.HiddenFields = PartFields.Write(r.HiddenFields);
+        else if (isNew && r.TypeId is { } ft) // a new part starts with its family's Not applicable fields
+            p.HiddenFields = await db.SequflohReferenceValues.Where(x => x.Id == ft).Select(x => x.HiddenFields).FirstOrDefaultAsync(ct);
         if (r.Notes is not null) p.Notes = r.Notes.Trim() is { Length: > 0 } n ? (n.Length <= 4000 ? n : throw new AppException("Notes can be at most 4000 characters.")) : null;
         await db.SaveChangesAsync(ct);
     }

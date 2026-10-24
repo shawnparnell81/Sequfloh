@@ -44,7 +44,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     static double? Minutes(long seconds) => Math.Round(seconds / 60.0, 1);
     static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection" };
     static readonly Dictionary<WorkInstructionType, string> WiLabel = new() { [WorkInstructionType.Validation] = "Validation", [WorkInstructionType.ValidationFai] = "Validation / FAI", [WorkInstructionType.Fai] = "FAI",
-        [WorkInstructionType.RepairTest] = "Repair Test", [WorkInstructionType.RepairWork] = "Repair Work Instruction", [WorkInstructionType.Inspection] = "Inspection" };
+        [WorkInstructionType.RepairTest] = "Repair Test", [WorkInstructionType.RepairWork] = "Repair Work Instruction", [WorkInstructionType.Inspection] = "Inspection", [WorkInstructionType.Procedure] = "Procedure Instructions" };
 
     public async Task<IReadOnlyList<SequflohReportInfo>> AvailableAsync(CancellationToken ct)
     {
@@ -152,20 +152,20 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                 var recs = await TrackingAsync(p, type, limit, ct);
                 if (key == "time-variance") recs = recs.Where(r => r.ActualCompletion != null && (r.MinBenchmarkMinutes != null || r.MaxBenchmarkMinutes != null)).ToList();
                 var names = await NamesAsync(recs.SelectMany(r => new[] { r.AssignedUserId, r.OwnerId, r.CompletedById }), ct);
-                var wiIds = recs.Select(r => r.WorkInstructionId).Distinct().ToList();
+                var wiIds = recs.Where(r => r.WorkInstructionId != null).Select(r => r.WorkInstructionId!.Value).Distinct().ToList();
                 var wis = await db.SequflohWorkInstructions.AsNoTracking().Where(w => wiIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => new { w.Type, w.RepairCategory }, ct);
                 foreach (var r in recs)
                 {
                     var d = new Dictionary<string, object?>
                     {
-                        ["number"] = r.Number, ["type"] = TypeLabel[r.Type], ["status"] = Words(r.Status), ["result"] = Words(r.Result), ["instruction"] = $"{r.WorkInstructionNumber} rev {r.WorkInstructionRevision}",
+                        ["number"] = r.Number, ["type"] = TypeLabel[r.Type], ["status"] = Words(r.Status), ["result"] = Words(r.Result), ["instruction"] = (string.IsNullOrEmpty(r.WorkInstructionNumber) ? "—" : $"{r.WorkInstructionNumber} rev {r.WorkInstructionRevision}"),
                         ["part"] = r.PartNumber, ["operation"] = r.Operation, ["assigned"] = N(names, r.AssignedUserId), ["owner"] = N(names, r.OwnerId), ["plannedStart"] = r.PlannedStart, ["dueAt"] = r.DueAt,
                         ["actualStart"] = r.ActualStart, ["actualCompletion"] = r.ActualCompletion, ["minBenchmark"] = r.MinBenchmarkMinutes, ["maxBenchmark"] = r.MaxBenchmarkMinutes,
                         ["elapsedMinutes"] = Minutes(r.ActiveSeconds), ["varianceMinutes"] = r.VarianceMinutes, ["varianceReason"] = r.VarianceReason,
                         ["deviations"] = r.Deviations, ["workOrder"] = r.WorkOrder, ["priority"] = r.Priority,
                         ["technician"] = N(names, r.CompletedById) ?? N(names, r.AssignedUserId), ["disposition"] = r.FinalDisposition, ["faiType"] = r.FaiType,
-                        ["category"] = wis.TryGetValue(r.WorkInstructionId, out var w) ? w.RepairCategory : null,
-                        ["testStatus"] = wis.TryGetValue(r.WorkInstructionId, out var w2) && w2.Type == WorkInstructionType.RepairTest ? Words(r.Result) : "No test",
+                        ["category"] = r.WorkInstructionId is { } wk && wis.TryGetValue(wk, out var w) ? w.RepairCategory : null,
+                        ["testStatus"] = r.WorkInstructionId is { } wk2 && wis.TryGetValue(wk2, out var w2) && w2.Type == WorkInstructionType.RepairTest ? Words(r.Result) : "No test",
                         ["_url"] = $"/sequfloh/record/{r.Id}",
                     };
                     if (r.Type == TrackingType.Fai)
@@ -260,7 +260,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                 foreach (var x in await q.OrderBy(x => x.PartNumber).Take(limit).ToListAsync(ct))
                     rows.Add(new() { ["partNumber"] = x.PartNumber, ["name"] = x.Name, ["drawing"] = x.DrawingNumber, ["partTypeName"] = x.TypeId is { } ti && partTypes.TryGetValue(ti, out var tl) ? tl : x.ProductFamily, ["type"] = Words(x.PartType), ["uom"] = x.UnitOfMeasure,
                         ["repairable"] = x.IsRepairable, ["serialized"] = x.IsSerialized, ["status"] = Words(x.Status), ["_url"] = $"/sequfloh/parts/{x.Id}" });
-                return ([C("partNumber", "OR # (Part number)"), C("name", "Name"), C("partTypeName", "Product family"), C("drawing", "SENSEN # (Dwg #)"), C("type", "Part class"), C("uom", "Unit"), C("repairable", "Repairable"),
+                return ([C("partNumber", "OR # (Part number)"), C("name", "Name"), C("partTypeName", "Product family"), C("drawing", "DWG #"), C("type", "Part class"), C("uom", "Unit"), C("repairable", "Repairable"),
                     C("serialized", "Serialized"), C("status", "Status")], rows);
             }
             case "parts-lists":

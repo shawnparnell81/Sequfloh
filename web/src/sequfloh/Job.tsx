@@ -1,66 +1,23 @@
 import { useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, Chip, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Dialog, DialogActions, DialogContent, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Dialog, DialogActions, DialogContent, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+  TextField, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { ImportButtons } from '../components/ImportButtons';
 import { fmtDateTime } from '../components/Status';
 import type { CostLine, Findings } from './Findings';
-import { ErrorState, Loading, Mono, S, SqfPage, useOptions } from './common';
+import { ErrorState, Loading, Mono, S, SqfPage } from './common';
 
-// ------------------------------------------------------------------ Official status in NetSuite
-export const STATUS_LABEL = 'Official status in NetSuite';
-export const STATUS_HELP = 'Informational only. Official holds and releases are made in NetSuite; this does not block any work here.';
-const tone = (tag?: string | null) => (!tag ? 'default' : /release/i.test(tag) ? 'success' : /hold|quarantin/i.test(tag) ? 'warning' : 'default') as 'default' | 'success' | 'warning';
-
-export function StatusBadge({ tag, note }: { tag?: string | null; note?: string | null }) {
-  if (!tag) return <>—</>;
-  return <Tooltip title={note ? `${note} · ${STATUS_HELP}` : STATUS_HELP}><Chip size="small" color={tone(tag)} label={tag} data-testid="netsuite-status" /></Tooltip>;
+// ------------------------------------------------------------------ Inventory status
+export const INVENTORY_NOTE = 'Inventory status is kept in NetSuite. Sequfloh does not connect to NetSuite.';
+/** One short line where an inventory status might be expected. Sequfloh keeps no inventory. */
+export function InventoryNote() {
+  return <Typography variant="caption" color="text.secondary" component="p" data-testid="inventory-note" sx={{ mb: 2 }}>{INVENTORY_NOTE}</Typography>;
 }
 
-/** Filter options for list pages: every option plus None. */
-export function useStatusFilter() {
-  const o = useOptions('status-tags');
-  return { key: 'tag', label: STATUS_LABEL, options: [['none', 'None'] as [string, string], ...(o.data ?? []).map((x) => [x, x] as [string, string])] };
-}
-
-/** Dropdown plus optional note. kind is part, instruction or work-order. */
-export function StatusEditor({ kind, id, tag, note, canEdit, onSaved, compact }: { kind: 'part' | 'instruction' | 'work-order'; id: string; tag?: string | null; note?: string | null;
-  canEdit: boolean; onSaved: () => void; compact?: boolean }) {
-  const o = useOptions('status-tags');
-  const [open, setOpen] = useState(false);
-  const [t, setT] = useState(tag ?? ''); const [n, setN] = useState(note ?? '');
-  const [err, setErr] = useState<string | null>(null);
-  const save = async (nt: string, nn: string) => { setErr(null); try { await put(`${S}/status-note/${kind}/${id}`, { tag: nt || null, note: nn || null }); onSaved(); return true; } catch (e) { setErr((e as Error).message); return false; } };
-  const select = (value: string, onChange: (v: string) => void, size: 'small' | 'medium' = 'small') =>
-    <TextField select size={size} label={STATUS_LABEL} value={value} onChange={(e) => onChange(e.target.value)} sx={{ minWidth: 220 }} onClick={(e) => e.stopPropagation()}>
-      <MenuItem value="">None</MenuItem>{(o.data ?? []).map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>;
-  if (compact) return canEdit
-    ? <Box onClick={(e) => e.stopPropagation()}>{select(tag ?? '', (v) => { void save(v, note ?? ''); })}</Box>
-    : <StatusBadge tag={tag} note={note} />;
-  return <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderColor: tag ? (tone(tag) === 'warning' ? '#B26A00' : tone(tag) === 'success' ? '#0E8550' : undefined) : undefined }}>
-    <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap">
-      <Typography variant="subtitle2">{STATUS_LABEL}:</Typography>
-      <StatusBadge tag={tag} note={note} />{!tag && <Typography variant="body2" color="text.secondary">None</Typography>}
-      {note && <Typography variant="body2">{note}</Typography>}
-      {canEdit && <Button size="small" data-testid="edit-netsuite-status" onClick={() => { setT(tag ?? ''); setN(note ?? ''); setOpen(true); }}>Change</Button>}
-    </Stack>
-    <Typography variant="caption" color="text.secondary">{STATUS_HELP}</Typography>
-    <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-      <FormDialogTitle>{STATUS_LABEL}</FormDialogTitle>
-      <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
-        <Alert severity="info">{STATUS_HELP}</Alert>
-        {select(t, setT, 'medium')}
-        <TextField label="Note (optional)" value={n} onChange={(e) => setN(e.target.value)} inputProps={{ maxLength: 300 }} multiline />
-        {err && <Alert severity="error">{err}</Alert>}
-      </Stack></DialogContent>
-      <DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" onClick={async () => { if (await save(t, n)) setOpen(false); }}>Save</Button></DialogActions>
-    </Dialog>
-  </Paper>;
-}
 
 // ------------------------------------------------------------------ CSV
 export function downloadCsv(name: string, head: string[], rows: (string | number | null | undefined)[][]) {
@@ -249,14 +206,14 @@ export function JobReportPage() {
       <Typography variant="h5" sx={{ color: '#1257C4' }}>Chargeback job report</Typography>
       <Typography variant="body2" color="text.secondary" gutterBottom>Generated {fmtDateTime(r.generatedAt)}</Typography>
       <Sec title="Chargeback"><Rows rows={[['Supplier', blank(supplier || fd.supplier)], ['Reference / PO', blank(reference || fd.purchaseOrder)]]} /></Sec>
-      <Sec title="Job"><Rows rows={[['Work order', r.workOrder ?? r.number], ['Record', r.number], ['Work instruction', `${r.workInstructionNumber} rev ${r.workInstructionRevision} ${r.title}`],
+      <Sec title="Job"><Rows rows={[['Work order', r.workOrder ?? r.number], ['Record', r.number], ['Work instruction', r.workInstructionNumber ? `${r.workInstructionNumber} rev ${r.workInstructionRevision} ${r.title}` : '—'],
         ['Assembly', [r.partNumber, r.partDescription].filter(Boolean).join(' · ') || '—'], ['Status', r.status], ['Completed / repaired', String(r.quantityCompleted)],
         ...opt([['Could not repair', r.quantityNotRepaired || null], ['Target', r.quantityTarget]]), ['Total man hours', `${hrs(r.totalSeconds)} (paused time excluded)`]]} /></Sec>
       {r.parts.length > 0 && <Sec title="Parts replaced"><Grid2 head={['Part number', 'Description', 'Per assembly', 'Quantity']} rows={[...r.parts.map((p) => [p.partNumber, p.description ?? '', String(p.perAssembly), String(p.quantity)]), ['Total', '', '', String(r.partsTotal)]]} /></Sec>}
       {o.findings && hasFindings && <Sec title="Findings / nonconformance"><Rows rows={opt([['Discovery method', fd.discoveryMethod], ['Date discovered', fd.dateDiscovered], ['Discovered by', fd.discoveredBy],
         ['Site', fd.site], ['Supplier', fd.supplier], ['Supplier part #', fd.supplierPartNumber], ['Lot / date codes', fd.lotDateCodes], ['PO', fd.purchaseOrder], ['Qty inspected', fd.qtyInspected],
         ['Qty nonconforming', fd.qtyNonconforming], ['Qty affected', fd.qtyAffected], ['Warranty claim #', fd.warrantyClaim], ['Alert / recall #', fd.alertRecall],
-        ['Description', fd.description], ['Repair method', fd.repairMethod], ['Work instruction used', fd.repairMethod ? `${r.workInstructionNumber} rev ${r.workInstructionRevision}` : null], ['Supplier root cause', fd.rootCause]])} /></Sec>}
+        ['Description', fd.description], ['Repair method', fd.repairMethod], ['Work instruction used', fd.repairMethod && r.workInstructionNumber ? `${r.workInstructionNumber} rev ${r.workInstructionRevision}` : null], ['Supplier root cause', fd.rootCause]])} /></Sec>}
       {o.perTech && r.people.length > 0 && <Sec title="Man hours by technician"><Grid2 head={['Technician', 'Sessions', 'Worked hours', 'Paused hours (not counted)']}
         rows={[...r.people.map((p) => [p.name, String(p.sessions), hrs(p.seconds), hrs(p.pausedSeconds)]), ['Total', String(r.people.reduce((a, p) => a + p.sessions, 0)), hrs(r.totalSeconds), hrs(r.pausedSeconds)]]} /></Sec>}
       {o.timeLog && r.timeLog.length > 0 && <Sec title="Detailed time log"><Grid2 noTotal head={['When', 'Technician', 'Event']} rows={r.timeLog.map((e) => [fmtDateTime(e.at), e.name, e.kind])} /></Sec>}

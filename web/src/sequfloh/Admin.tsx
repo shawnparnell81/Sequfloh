@@ -203,7 +203,7 @@ function SequenceDialog({ seq, onClose, onSaved }: { seq: Sequence | null; onClo
 
 // ------------------------------------------------------------------ reference data
 interface ListInfo { key: string; label: string; description: string; total: number; active: number }
-interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string }
+interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null }
 const useLists = () => useQuery({ queryKey: ['sqf-lists'], queryFn: () => get<ListInfo[]>(`${S}/reference`) });
 
 export function ReferenceDataPage() {
@@ -234,6 +234,7 @@ export function DropdownsPage() {
   const q = useQuery({ queryKey: ['sqf-values', key, search, active], queryFn: () => get<RefValue[]>(`${S}/reference/${key}?${new URLSearchParams({ ...(search ? { q: search } : {}), ...(active ? { active } : {}) })}`) });
   const [edit, setEdit] = useState<RefValue | 'new' | null>(null);
   const [history, setHistory] = useState<RefValue | null>(null);
+  const [naFor, setNaFor] = useState<RefValue | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; text: string; run: () => Promise<unknown> } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-values', key] }); qc.invalidateQueries({ queryKey: ['sqf-lists'] }); qc.invalidateQueries({ queryKey: ['sqf-options', key] }); };
@@ -273,11 +274,13 @@ export function DropdownsPage() {
               <Button size="small" onClick={() => setEdit(v)}>Edit</Button>
               {v.isActive ? <Button size="small" color="warning" onClick={() => setConfirm({ title: 'Deactivate value', text: `Deactivate "${v.label}"? It stays on records that already use it but is no longer offered.`, run: () => post(`${S}/reference/values/${v.id}/deactivate`) })}>Deactivate</Button>
                 : <Button size="small" onClick={() => act(() => post(`${S}/reference/values/${v.id}/activate`))}>Activate</Button>}
+              {key === 'product-families' && <Button size="small" data-testid="family-na-fields" onClick={() => setNaFor(v)}>Not applicable fields</Button>}
               <Button size="small" onClick={() => setHistory(v)}>History</Button>
             </TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
       <ValueDialog listKey={key} value={edit} onClose={() => setEdit(null)} onSaved={refresh} />
       <HistoryDialog value={history} onClose={() => setHistory(null)} />
+      <FamilyFieldsDialog value={naFor} onClose={() => setNaFor(null)} onSaved={() => { setNaFor(null); refresh(); }} />
       <Confirm open={!!confirm} title={confirm?.title ?? ''} text={confirm?.text ?? ''} confirm="Confirm" danger onClose={() => setConfirm(null)} onConfirm={async () => { await confirm!.run(); refresh(); }} />
     </SqfPage>
   );
@@ -417,4 +420,20 @@ export function ConfigurationPage() {
         procedures, security, deployment, training, implementation, and organizational use.</Alert>
     </SqfPage>
   );
+}
+
+/** The fields hidden as not applicable on new parts of a product family (and on imported parts that have no own setting). */
+function FamilyFieldsDialog({ value, onClose, onSaved }: { value: RefValue | null; onClose: () => void; onSaved: () => void }) {
+  const fields = useQuery({ queryKey: ['sqf-part-fields'], queryFn: () => get<{ key: string; label: string }[]>(`${S}/parts/fields`), enabled: !!value });
+  const [sel, setSel] = useState<string[]>([]); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setSel(value?.hiddenFields ? value.hiddenFields.split(',').filter(Boolean) : []); setErr(null); }, [value]);
+  const save = async () => { try { await put(`${S}/reference/values/${value!.id}/hidden-fields`, { fields: sel }); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  return <Dialog open={!!value} onClose={onClose} fullWidth maxWidth="sm">
+    <FormDialogTitle>Not applicable fields · {value?.label}</FormDialogTitle>
+    <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>New parts of this family start with these fields hidden. Each part can change its own setting.</Typography>
+      <Stack direction="row" flexWrap="wrap" columnGap={2}>{(fields.data ?? []).map((d) => <FormControlLabel key={d.key} label={d.label}
+        control={<Checkbox size="small" checked={sel.includes(d.key)} onChange={(_, c) => setSel(c ? [...sel, d.key] : sel.filter((x) => x !== d.key))} />} />)}</Stack></DialogContent>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Save</Button></DialogActions>
+  </Dialog>;
 }

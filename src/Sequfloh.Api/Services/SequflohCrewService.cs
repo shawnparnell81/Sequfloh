@@ -11,7 +11,7 @@ using Sequfloh.Tracking;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record CrewPause(DateTimeOffset From, DateTimeOffset To);
-public sealed record CrewSessionInput(int CrewSize, DateTimeOffset Start, DateTimeOffset Stop, List<CrewPause>? Pauses, string? Note);
+public sealed record CrewSessionInput(int CrewSize, DateTimeOffset Start, DateTimeOffset Stop, List<CrewPause>? Pauses, string? Note, Guid? WorkerId = null);
 public sealed record CrewBulkInput(DateOnly From, DateOnly To, int CrewSize, decimal HoursPerDay, string? StartTime = null, int LunchMinutes = 0, bool SkipWeekends = true,
     List<DateOnly>? Days = null, string? Note = null);
 
@@ -49,7 +49,8 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     {
         string L(DateTimeOffset d) => TimeZoneInfo.ConvertTime(d, z).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
         var end = s.StoppedAt is { } st ? L(st) : "running";
-        return $"{s.CrewSize} worker{(s.CrewSize == 1 ? "" : "s")}, {L(s.StartedAt)} to {end}, paused {s.PausedSeconds / 60} min, {H(Labor(s, s.StoppedAt ?? s.StartedAt))} labor hours";
+        var who = s.WorkerName is { } wn ? wn : $"{s.CrewSize} worker{(s.CrewSize == 1 ? "" : "s")}";
+        return $"{who}, {L(s.StartedAt)} to {end}, paused {s.PausedSeconds / 60} min, {H(Labor(s, s.StoppedAt ?? s.StartedAt))} labor hours";
     }
 
     void Audit(SequflohTrackingRecord r, string action, string text, string? before, string? after) =>
@@ -57,12 +58,12 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
 
     static void CheckCrew(int n) { if (n < 1 || n > MaxCrew) throw new AppException($"Crew size must be between 1 and {MaxCrew}."); }
 
-    async Task CheckOverlapAsync(Guid recordId, Guid? self, DateTimeOffset start, DateTimeOffset? stop, DateTimeOffset now, CancellationToken ct)
+    async Task CheckOverlapAsync(Guid recordId, Guid? self, DateTimeOffset start, DateTimeOffset? stop, DateTimeOffset now, CancellationToken ct, Guid? worker = null)
     {
         var end = stop ?? DateTimeOffset.MaxValue;
-        var others = await db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == recordId && x.Id != self).ToListAsync(ct);
+        var others = await db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == recordId && x.Id != self && x.WorkerId == worker).ToListAsync(ct);
         var clash = others.FirstOrDefault(o => o.StartedAt < end && (o.StoppedAt ?? DateTimeOffset.MaxValue) > start);
-        if (clash is not null) throw new ConflictException($"These times overlap crew time already on this work order ({clash.StartedAt:yyyy-MM-dd HH:mm} UTC). Change the times or edit that entry.");
+        if (clash is not null) throw new ConflictException($"These times overlap {(worker is null ? "crew" : "this worker's")} time already on this work order ({clash.StartedAt:yyyy-MM-dd HH:mm} UTC). Change the times or edit that entry.");
     }
 
     /// <summary>Checks an entered session and fills the session from it.</summary>
@@ -82,6 +83,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
             if (p.From < last) throw new AppException("Pauses can't overlap.");
             last = p.To;
         }
+        if (pauses.Sum(p => (p.To - p.From).TotalSeconds) >= (x.Stop - x.Start).TotalSeconds) throw new AppException("Pauses can't cover the whole entry. Worker time can't be set to zero.");
         s.CrewSize = x.CrewSize; s.StartedAt = x.Start; s.StoppedAt = x.Stop; s.PausedAt = null;
         s.PausedSeconds = pauses.Sum(p => (long)(p.To - p.From).TotalSeconds);
         var ev = new List<CrewEvent> { new("Start", x.Start) };
@@ -94,53 +96,59 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
 
     // ---- live ----
 
-    public async Task StartAsync(Guid id, int crewSize, CancellationToken ct)
+    async Task<SequflohDayWorker?> WorkerAsync(Guid id, Guid? worker, CancellationToken ct) => worker is null ? null
+        : await db.SequflohDayWorkers.FirstOrDefaultAsync(w => w.Id == worker && w.TrackingRecordId == id, ct) ?? throw new NotFoundException("Day worker");
+    static string Who(SequflohCrewSession s) => s.WorkerName ?? $"Crew of {s.CrewSize}";
+
+    public async Task StartAsync(Guid id, int crewSize, CancellationToken ct, Guid? workerId = null)
     {
         var r = await EditableAsync(id, ct);
+        var w = await WorkerAsync(id, workerId, ct);
+        if (w is not null) crewSize = 1;
         CheckCrew(crewSize);
         var now = m.Now;
-        if (await db.SequflohCrewSessions.AnyAsync(x => x.TrackingRecordId == id && x.StoppedAt == null, ct)) throw new ConflictException("The crew is already clocked on this job.");
-        await CheckOverlapAsync(id, null, now, null, now, ct);
-        var s = new SequflohCrewSession { TrackingRecordId = id, TrackingNumber = r.Number, CrewSize = crewSize, StartedAt = now };
+        if (await db.SequflohCrewSessions.AnyAsync(x => x.TrackingRecordId == id && x.WorkerId == workerId && x.StoppedAt == null, ct)) throw new ConflictException(w is null ? "The crew is already clocked on this job." : $"{w.Name} is already clocked on this job.");
+        await CheckOverlapAsync(id, null, now, null, now, ct, workerId);
+        var s = new SequflohCrewSession { TrackingRecordId = id, TrackingNumber = r.Number, CrewSize = crewSize, StartedAt = now, WorkerId = w?.Id, WorkerName = w?.Name };
         Add(s, "Start", now);
         db.SequflohCrewSessions.Add(s);
-        Audit(r, "CrewStarted", $"Crew of {crewSize} clocked on {r.Number}", null, Describe(s, await m.ZoneAsync(r.SiteId, ct)));
+        Audit(r, "CrewStarted", $"{Who(s)} clocked on {r.Number}", null, Describe(s, await m.ZoneAsync(r.SiteId, ct)));
         await db.SaveChangesAsync(ct);
     }
 
-    async Task<(SequflohTrackingRecord, SequflohCrewSession)> RunningAsync(Guid id, CancellationToken ct)
+    async Task<(SequflohTrackingRecord, SequflohCrewSession)> RunningAsync(Guid id, Guid? worker, CancellationToken ct)
     {
         var r = await EditableAsync(id, ct);
-        var s = await db.SequflohCrewSessions.FirstOrDefaultAsync(x => x.TrackingRecordId == id && x.StoppedAt == null, ct) ?? throw new ConflictException("The crew is not clocked on this job.");
+        var s = await db.SequflohCrewSessions.FirstOrDefaultAsync(x => x.TrackingRecordId == id && x.WorkerId == worker && x.StoppedAt == null, ct) ?? throw new ConflictException(worker is null ? "The crew is not clocked on this job." : "This worker is not clocked on this job.");
         return (r, s);
     }
 
-    public async Task PauseAsync(Guid id, CancellationToken ct)
+    public async Task PauseAsync(Guid id, CancellationToken ct, Guid? workerId = null)
     {
-        var (r, s) = await RunningAsync(id, ct);
+        var (r, s) = await RunningAsync(id, workerId, ct);
         if (s.PausedAt is not null) throw new ConflictException("The crew is already paused.");
         s.PausedAt = m.Now; Add(s, "Pause", s.PausedAt.Value);
-        Audit(r, "CrewPaused", $"Crew of {s.CrewSize} paused on {r.Number}", null, null);
+        Audit(r, "CrewPaused", $"{Who(s)} paused on {r.Number}", null, null);
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task ContinueAsync(Guid id, CancellationToken ct)
+    public async Task ContinueAsync(Guid id, CancellationToken ct, Guid? workerId = null)
     {
-        var (r, s) = await RunningAsync(id, ct);
+        var (r, s) = await RunningAsync(id, workerId, ct);
         if (s.PausedAt is not { } p) throw new ConflictException("The crew is not paused.");
         var now = m.Now;
         s.PausedSeconds += Math.Max(0, (long)(now - p).TotalSeconds); s.PausedAt = null; Add(s, "Continue", now);
-        Audit(r, "CrewContinued", $"Crew of {s.CrewSize} continued on {r.Number}", null, null);
+        Audit(r, "CrewContinued", $"{Who(s)} continued on {r.Number}", null, null);
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task StopAsync(Guid id, CancellationToken ct)
+    public async Task StopAsync(Guid id, CancellationToken ct, Guid? workerId = null)
     {
-        var (r, s) = await RunningAsync(id, ct);
+        var (r, s) = await RunningAsync(id, workerId, ct);
         var now = m.Now;
         if (s.PausedAt is { } p) { s.PausedSeconds += Math.Max(0, (long)(now - p).TotalSeconds); s.PausedAt = null; Add(s, "Continue", now); }
         s.StoppedAt = now; Add(s, "Stop", now);
-        Audit(r, "CrewStopped", $"Crew of {s.CrewSize} clocked off {r.Number}: {H(Labor(s, now))} labor hours", null, Describe(s, await m.ZoneAsync(r.SiteId, ct)));
+        Audit(r, "CrewStopped", $"{Who(s)} clocked off {r.Number}: {H(Labor(s, now))} labor hours", null, Describe(s, await m.ZoneAsync(r.SiteId, ct)));
         await db.SaveChangesAsync(ct);
     }
 
@@ -150,9 +158,10 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     {
         var r = await EditableAsync(id, ct);
         var now = m.Now;
-        var s = new SequflohCrewSession { TrackingRecordId = id, TrackingNumber = r.Number };
-        Apply(s, x, now);
-        await CheckOverlapAsync(id, null, s.StartedAt, s.StoppedAt, now, ct);
+        var w = await WorkerAsync(id, x.WorkerId, ct);
+        var s = new SequflohCrewSession { TrackingRecordId = id, TrackingNumber = r.Number, WorkerId = w?.Id, WorkerName = w?.Name };
+        Apply(s, w is null ? x : x with { CrewSize = 1 }, now);
+        await CheckOverlapAsync(id, null, s.StartedAt, s.StoppedAt, now, ct, s.WorkerId);
         db.SequflohCrewSessions.Add(s);
         Audit(r, "CrewTimeAdded", $"Crew time added on {r.Number}: {Describe(s, await m.ZoneAsync(r.SiteId, ct))}", null, Describe(s, await m.ZoneAsync(r.SiteId, ct)));
         await db.SaveChangesAsync(ct);
@@ -168,22 +177,65 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     public async Task UpdateAsync(Guid sessionId, CrewSessionInput x, CancellationToken ct)
     {
         var (r, s) = await SessionAsync(sessionId, ct);
-        if (s.StoppedAt is null) throw new ConflictException("Clock the crew off before editing this entry.");
+        if (s.StoppedAt is null) throw new ConflictException(s.WorkerId is null ? "Clock the crew off before editing this entry." : "Clock this worker off before editing this entry.");
         var z = await m.ZoneAsync(r.SiteId, ct);
         var before = Describe(s, z);
-        Apply(s, x, m.Now);
-        await CheckOverlapAsync(r.Id, s.Id, s.StartedAt, s.StoppedAt, m.Now, ct);
+        Apply(s, s.WorkerId is null ? x : x with { CrewSize = 1 }, m.Now);
+        await CheckOverlapAsync(r.Id, s.Id, s.StartedAt, s.StoppedAt, m.Now, ct, s.WorkerId);
         var after = Describe(s, z);
         Audit(r, "CrewTimeEdited", $"Crew time on {r.Number} changed from {before} to {after}", before, after);
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeleteAsync(Guid sessionId, CancellationToken ct)
+    /// <summary>Recorded time is never deleted, because it must stay on the chargeback report. Correct it by editing the times.</summary>
+    public Task DeleteAsync(Guid sessionId, CancellationToken ct) =>
+        throw new ConflictException("Recorded time can't be deleted. Edit the times to correct it.");
+
+    // ---- named day workers ----
+
+    static string CleanName(string? name)
     {
-        var (r, s) = await SessionAsync(sessionId, ct);
-        var before = Describe(s, await m.ZoneAsync(r.SiteId, ct));
-        db.SequflohCrewSessions.Remove(s);
-        Audit(r, "CrewTimeDeleted", $"Crew time deleted on {r.Number}: {before}", before, null);
+        var n = (name ?? "").Trim();
+        if (n.Length == 0) throw new AppException("Type the day worker's name.");
+        if (n.Length > 120) throw new AppException("A name can be at most 120 characters.");
+        return n;
+    }
+
+    public async Task<Guid> AddWorkerAsync(Guid id, string? name, CancellationToken ct)
+    {
+        var r = await EditableAsync(id, ct);
+        var n = CleanName(name);
+        if (await db.SequflohDayWorkers.AnyAsync(w => w.TrackingRecordId == id && w.Name.ToLower() == n.ToLower(), ct)) throw new ConflictException($"{n} is already on this work order.");
+        var w = new SequflohDayWorker { TrackingRecordId = id, TrackingNumber = r.Number, Name = n };
+        db.SequflohDayWorkers.Add(w);
+        Audit(r, "DayWorkerAdded", $"Day worker {n} added to {r.Number}", null, n);
+        await db.SaveChangesAsync(ct);
+        return w.Id;
+    }
+
+    public async Task RenameWorkerAsync(Guid workerId, string? name, CancellationToken ct)
+    {
+        var w = await db.SequflohDayWorkers.FirstOrDefaultAsync(x => x.Id == workerId, ct) ?? throw new NotFoundException("Day worker");
+        var r = await EditableAsync(w.TrackingRecordId, ct);
+        var n = CleanName(name);
+        if (n == w.Name) return;
+        if (await db.SequflohDayWorkers.AnyAsync(x => x.TrackingRecordId == w.TrackingRecordId && x.Id != w.Id && x.Name.ToLower() == n.ToLower(), ct)) throw new ConflictException($"{n} is already on this work order.");
+        var before = w.Name; w.Name = n;
+        foreach (var s in await db.SequflohCrewSessions.Where(s => s.WorkerId == w.Id).ToListAsync(ct)) s.WorkerName = n;
+        Audit(r, "DayWorkerRenamed", $"Day worker on {r.Number} renamed from {before} to {n}", before, n);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Removes a day worker and their time from the work order. The removed times are kept in the audit trail.</summary>
+    public async Task RemoveWorkerAsync(Guid workerId, CancellationToken ct)
+    {
+        var w = await db.SequflohDayWorkers.FirstOrDefaultAsync(x => x.Id == workerId, ct) ?? throw new NotFoundException("Day worker");
+        var r = await EditableAsync(w.TrackingRecordId, ct);
+        var z = await m.ZoneAsync(r.SiteId, ct);
+        if (await db.SequflohCrewSessions.AnyAsync(s => s.WorkerId == w.Id, ct))
+            throw new ConflictException($"{w.Name} has recorded time, so they can't be removed. Edit the times to correct them.");
+        db.SequflohDayWorkers.Remove(w);
+        Audit(r, "DayWorkerRemoved", $"Day worker {w.Name} removed from {r.Number}", w.Name, null);
         await db.SaveChangesAsync(ct);
     }
 
@@ -250,10 +302,12 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
 
     // ---- summary ----
 
-    public sealed record Totals(long CrewWorkedSeconds, long CrewPausedSeconds, long CrewLaborSeconds, long UserSeconds, int Users, int MaxCrew, int Sessions, DateOnly? From, DateOnly? To)
+/// <summary>Crew labor includes the named day workers' time; DayWorkerSeconds is that part on its own.</summary>
+    public sealed record Totals(long CrewWorkedSeconds, long CrewPausedSeconds, long CrewLaborSeconds, long UserSeconds, int Users, int MaxCrew, int Sessions, DateOnly? From, DateOnly? To,
+        long DayWorkerSeconds = 0, int DayWorkers = 0)
     {
         public long TotalSeconds => CrewLaborSeconds + UserSeconds;
-        public int Personnel => MaxCrew + Users;
+        public int Personnel => MaxCrew + DayWorkers + Users;
     }
 
     /// <summary>Crew and registered-user totals for a work order. Personnel is the largest crew plus each distinct registered person who clocked on.</summary>
@@ -268,8 +322,9 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         var ends = crew.Select(c => c.StoppedAt ?? now).Concat(time.Select(t => t.StoppedAt ?? now)).ToList();
         DateOnly? D(DateTimeOffset? d) => d is { } v ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(v, zone).DateTime) : null;
         return new Totals(crew.Sum(c => Worked(c, now)), crew.Sum(c => Paused(c, now)), crew.Sum(c => Labor(c, now)), time.Sum(t => SequflohTimeService.Worked(t, now)),
-            time.Select(t => t.UserId).Distinct().Count(), crew.Count == 0 ? 0 : crew.Max(c => c.CrewSize), crew.Count,
-            D(starts.Count == 0 ? null : starts.Min()), D(ends.Count == 0 ? null : ends.Max()));
+            time.Select(t => t.UserId).Distinct().Count(), crew.Where(c => c.WorkerId == null).Select(c => c.CrewSize).DefaultIfEmpty(0).Max(), crew.Count,
+            D(starts.Count == 0 ? null : starts.Min()), D(ends.Count == 0 ? null : ends.Max()),
+            crew.Where(c => c.WorkerId != null).Sum(c => Labor(c, now)), crew.Where(c => c.WorkerId != null).Select(c => c.WorkerId).Distinct().Count());
     }
 
     public async Task<object> SummaryAsync(Guid id, CancellationToken ct)
@@ -278,16 +333,23 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         var now = m.Now;
         var t = await TotalsAsync(id, ct);
         var list = await db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == id).OrderByDescending(x => x.StartedAt).ToListAsync(ct);
-        var running = list.FirstOrDefault(x => x.StoppedAt is null);
+        var running = list.FirstOrDefault(x => x.StoppedAt is null && x.WorkerId == null);
+        var workers = await db.SequflohDayWorkers.AsNoTracking().Where(w => w.TrackingRecordId == id).OrderBy(w => w.CreatedAt).ToListAsync(ct);
         return new
         {
             ServerTime = now,
             CanEdit = r.Status != TrackingStatus.Canceled && await m.CanAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct),
             Running = running is null ? null : new { running.Id, running.CrewSize, running.StartedAt, running.PausedAt, Seconds = Worked(running, now), PausedSeconds = Paused(running, now) },
-            t.CrewWorkedSeconds, t.CrewPausedSeconds, t.CrewLaborSeconds, t.UserSeconds, t.Users, t.TotalSeconds, t.Personnel, t.MaxCrew, t.From, t.To,
+            t.CrewWorkedSeconds, t.CrewPausedSeconds, t.CrewLaborSeconds, t.UserSeconds, t.Users, t.TotalSeconds, t.Personnel, t.MaxCrew, t.From, t.To, t.DayWorkerSeconds,
+            Workers = workers.Select(w =>
+            {
+                var mine = list.Where(s => s.WorkerId == w.Id).ToList();
+                var run = mine.FirstOrDefault(s => s.StoppedAt is null);
+                return new { w.Id, w.Name, Seconds = mine.Sum(s => Worked(s, now)), Running = run is null ? null : new { run.Id, run.StartedAt, run.PausedAt, Seconds = Worked(run, now), PausedSeconds = Paused(run, now) } };
+            }),
             Sessions = list.Select(s => new
             {
-                s.Id, s.CrewSize, s.StartedAt, s.StoppedAt, s.Entered, s.Note, ElapsedSeconds = Elapsed(s, now), PausedSeconds = Paused(s, now), WorkedSeconds = Worked(s, now), LaborSeconds = Labor(s, now),
+                s.Id, s.CrewSize, s.WorkerId, s.WorkerName, s.StartedAt, s.StoppedAt, s.Entered, s.Note, ElapsedSeconds = Elapsed(s, now), PausedSeconds = Paused(s, now), WorkedSeconds = Worked(s, now), LaborSeconds = Labor(s, now),
                 Pauses = Pairs(EventsOf(s)),
             }),
         };

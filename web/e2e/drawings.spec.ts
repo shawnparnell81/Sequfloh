@@ -119,7 +119,7 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
 
   // validation work order: the part's drawings are attached when it is created
   await page.goto('/sequfloh/tracking/new?type=Validation');
-  await view(page).getByLabel('Released work instruction').click();
+  await view(page).getByTestId('new-wo-wi').click();
   await page.getByRole('option').first().click();
   await view(page).getByLabel('Part', { exact: true }).fill(part);
   await page.getByRole('option', { name: new RegExp(part) }).click();

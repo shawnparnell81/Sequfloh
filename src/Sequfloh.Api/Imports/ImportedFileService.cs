@@ -1,3 +1,4 @@
+using Sequfloh.Infrastructure.Modules.Execution;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -40,7 +41,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         return f;
     }
 
-    public async Task<object> ListAsync(string? q, string? kind, int page, int pageSize, CancellationToken ct)
+    public async Task<object> ListAsync(string? q, string? kind, int page, int pageSize, CancellationToken ct, string? family = null)
     {
         var scope = await access.GetScopeAsync(UserId, Permissions.SequflohViewImportedFiles, ct);
         if (scope.IsEmpty) return new { total = 0, items = Array.Empty<object>() };
@@ -55,14 +56,16 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (kind == "document") query = query.Where(f => f.Kind == ImportedFileKind.Document);
         if (kind == "blank") query = query.Where(f => f.IsBlankForm);
         if (kind == "filled") query = query.Where(f => f.BlankFormId != null);
+        if (family == "none") query = query.Where(f => f.FamilyId == null);
+        else if (Guid.TryParse(family, out var fam)) query = query.Where(f => f.FamilyId == fam);
         var rows = await query.OrderByDescending(f => f.UpdatedAt)
-            .Select(f => new { f.Id, f.Number, f.Title, f.Kind, f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.SiteId, f.DepartmentId, f.CreatedAt, f.UpdatedAt, f.IsBlankForm,
+            .Select(f => new { f.Id, f.Number, f.Title, f.Kind, f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.SiteId, f.DepartmentId, f.CreatedAt, f.UpdatedAt, f.IsBlankForm, f.PartNumber, f.FamilyId,
                 BlankForm = db.ImportedFiles.Where(b => b.Id == f.BlankFormId).Select(b => b.Title).FirstOrDefault() })
             .ToListAsync(ct);
         var allowed = rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).ToList();
         pageSize = Math.Clamp(pageSize, 1, 200); page = Math.Max(1, page);
         return new { total = allowed.Count, items = allowed.Skip((page - 1) * pageSize).Take(pageSize).Select(r => new { r.Id, r.Number, r.Title, Kind = r.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document",
-            r.SourceFormat, r.OriginalFileName, r.CurrentVersion, r.CreatedAt, r.UpdatedAt, r.IsBlankForm, r.BlankForm }) };
+            r.SourceFormat, r.OriginalFileName, r.CurrentVersion, r.CreatedAt, r.UpdatedAt, r.IsBlankForm, r.BlankForm, r.PartNumber, r.FamilyId }) };
     }
 
     public async Task<object> GetAsync(Guid id, CancellationToken ct)
@@ -77,7 +80,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.PartNumber, c.CreatedAt, c.UpdatedAt })
             .Take(500).ToListAsync(ct);
         return new { f.Id, f.Number, f.Title, Kind = f.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document", f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
-            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, BlankForm = blank, Copies = copies, f.PartNumber };
+            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, BlankForm = blank, Copies = copies, f.PartNumber, f.FamilyId };
     }
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
@@ -456,21 +459,23 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     }
 
     /// <summary>Starts a filled copy of a blank form from its current version and returns the new file.</summary>
-    public async Task<object> FillOutAsync(Guid id, string? title, CancellationToken ct, string? partNumber = null)
+    public async Task<object> FillOutAsync(Guid id, string? title, CancellationToken ct, string? partNumber = null, Guid? familyId = null)
     {
+        await CheckFamilyAsync(familyId, ct);
         var blank = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
         if (!blank.IsBlankForm) throw new AppException("Only a blank form can be filled out. Use Save as new copy instead.");
         if (blank.IsArchived) throw new AppException("This blank form is archived.");
         var (v, bytes) = await CurrentAsync(blank, null, ct);
         var copy = await CreateCopyAsync(blank, v, bytes, title, blank.Id, blank.CurrentVersion, $"Started from blank form {blank.Number} version {blank.CurrentVersion}", ct,
             c => ("Created from blank form", $"Created {c.Number} {c.Title} from blank form {blank.Number} {blank.Title} (version {blank.CurrentVersion}){(c.PartNumber is null ? "" : $" for part {c.PartNumber}")}"),
-            partNumber);
+            partNumber, familyId);
         return new { copy.Id, copy.Number, copy.Title };
     }
 
     /// <summary>Saves edits to a new file and leaves the one being edited as it is. A copy of a blank form or of a filled copy is linked to the same blank form.</summary>
-    public async Task<object> SaveAsCopyAsync(Guid id, int baseVersion, string? title, IReadOnlyList<CellEdit>? cells, IReadOnlyList<ParagraphEdit>? paragraphs, CancellationToken ct)
+    public async Task<object> SaveAsCopyAsync(Guid id, int baseVersion, string? title, IReadOnlyList<CellEdit>? cells, IReadOnlyList<ParagraphEdit>? paragraphs, CancellationToken ct, Guid? familyId = null)
     {
+        await CheckFamilyAsync(familyId, ct);
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
         if (baseVersion != f.CurrentVersion) throw new ConflictException($"Someone saved version {f.CurrentVersion} while you were editing. Reload the file and enter your changes again.");
         var (v, bytes) = await CurrentAsync(f, null, ct);
@@ -491,12 +496,12 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var blankId = f.IsBlankForm ? f.Id : f.BlankFormId;
         var blankVersion = f.IsBlankForm ? f.CurrentVersion : f.BlankFormVersion;
         var copy = await CreateCopyAsync(f, v, bytes, title, blankId, blankVersion, $"Saved as a copy of {f.Number} version {f.CurrentVersion}. {note}", ct,
-            c => ("Saved as copy", $"Saved {c.Number} {c.Title} as a new copy of {f.Number} {f.Title} (version {f.CurrentVersion}); {f.Number} was left as it is. {note}"));
+            c => ("Saved as copy", $"Saved {c.Number} {c.Title} as a new copy of {f.Number} {f.Title} (version {f.CurrentVersion}); {f.Number} was left as it is. {note}"), null, familyId ?? f.FamilyId);
         return new { copy.Id, copy.Number, copy.Title };
     }
 
     async Task<ImportedFile> CreateCopyAsync(ImportedFile from, ImportedFileVersion v, byte[] bytes, string? title, Guid? blankId, int? blankVersion, string note, CancellationToken ct,
-        Func<ImportedFile, (string Action, string Text)> audit, string? partNumber = null)
+        Func<ImportedFile, (string Action, string Text)> audit, string? partNumber = null, Guid? familyId = null)
     {
         var ext = Path.GetExtension(v.FileName).ToLowerInvariant();
         var t = string.IsNullOrWhiteSpace(title) ? $"{from.Title} – {DateTimeOffset.UtcNow:yyyy-MM-dd}" : title.Trim();
@@ -505,7 +510,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         {
             Number = await numbers.NextAsync("SqfImportedFile", from.SiteId, ct), Title = t.Length > 300 ? t[..300] : t, Kind = from.Kind, SourceFormat = ext.TrimStart('.'),
             OriginalFileName = Path.GetFileNameWithoutExtension(v.FileName) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = Summarize(from.Kind, bytes, ext),
-            BlankFormId = blankId, BlankFormVersion = blankVersion,
+            BlankFormId = blankId, BlankFormVersion = blankVersion, FamilyId = blankId is null ? null : familyId,
             PartNumber = string.IsNullOrWhiteSpace(partNumber) ? (from.IsBlankForm ? null : from.PartNumber) : partNumber.Trim().Length > 100 ? partNumber.Trim()[..100] : partNumber.Trim(),
         };
         copy.OriginalStorageKey = $"imports/{copy.Id:N}/original{ext}";
@@ -571,6 +576,29 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var n = string.IsNullOrWhiteSpace(partNumber) ? null : partNumber.Trim();
         if (n is { Length: > 100 }) throw new AppException("Keep the part number to 100 characters.");
         f.PartNumber = n;
+        await db.SaveChangesAsync(ct);
+    }
+
+    async Task CheckFamilyAsync(Guid? familyId, CancellationToken ct)
+    {
+        if (familyId is { } id && !await db.SequflohReferenceValues.AnyAsync(v => v.Id == id && v.ListKey == SequflohCatalog.ProductFamilies, ct))
+            throw new AppException("Choose a product family from the list.");
+    }
+
+    async Task<string> FamilyLabelAsync(Guid? id, CancellationToken ct) =>
+        id is null ? "Unassigned" : await db.SequflohReferenceValues.Where(v => v.Id == id).Select(v => v.Label).FirstOrDefaultAsync(ct) ?? "Unassigned";
+
+    /// <summary>Moves a filled form to another product family (or to Unassigned with null). Recorded in the audit trail with the old and new family.</summary>
+    public async Task SetFamilyAsync(Guid id, Guid? familyId, CancellationToken ct)
+    {
+        var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        if (f.BlankFormId is null) throw new AppException("Only a filled form has a product family.");
+        await CheckFamilyAsync(familyId, ct);
+        if (f.FamilyId == familyId) return;
+        var before = await FamilyLabelAsync(f.FamilyId, ct); var after = await FamilyLabelAsync(familyId, ct);
+        f.FamilyId = familyId;
+        db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Changed product family", EntityType = nameof(ImportedFile),
+            EntityId = f.Id, SiteId = f.SiteId, Description = $"Changed the product family of {f.Number} {f.Title} from {before} to {after}" });
         await db.SaveChangesAsync(ct);
     }
 

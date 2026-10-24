@@ -31,13 +31,13 @@ public sealed class SequflohInstructionTests(TestApp app)
     };
 
     [Fact]
-    public async Task Six_instruction_types_open_their_own_designer_and_numbering()
+    public async Task Seven_instruction_types_open_their_own_designer_and_numbering()
     {
         var site = await app.CreateSiteAsync();
         var (_, author) = await app.CreateUserAsync(AuthorPerms, site);
         var (_, viewer) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
         var schema = (await author.GetElAsync("/api/sequfloh/instructions/schema")).EnumerateArray().ToList();
-        Assert.Equal(6, schema.Count);
+        Assert.Equal(7, schema.Count);
         Assert.Contains(schema, s => s.Str("type") == "Inspection" && s.Str("title") == "Inspection");
         Assert.Contains(schema, s => s.Str("type") == "RepairWork" && s.GetProperty("hasPartsRows").GetBoolean());
         Assert.Contains(schema, s => s.Str("type") == "Fai" && s.GetProperty("hasCharacteristics").GetBoolean());

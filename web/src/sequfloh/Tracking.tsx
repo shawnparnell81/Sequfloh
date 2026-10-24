@@ -17,8 +17,9 @@ import { SimpleTable } from './Parts';
 import { RecordActions } from '../components/RecordActions';
 import { ProblemList } from './Designer';
 import { FindingsPanel } from './Findings';
-import { JobPanel, StatusBadge, StatusEditor, useStatusFilter } from './Job';
+import { InventoryNote, JobPanel } from './Job';
 import { PartPicker } from './Instructions';
+import { ViewDrawingButton } from './Drawings';
 import { PartDrawingLinks, RecordDrawings } from './Drawings';
 
 export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection' };
@@ -56,7 +57,7 @@ const Elapsed = ({ r }: { r: TrRow }) => <LiveClock seconds={r.elapsedSeconds} r
 export const trackingCols = (extra: { key: string; label: string; render?: (r: TrRow) => ReactNode; sort?: boolean }[] = []) => [
   { key: 'number', label: 'Tracking number', sort: true, render: (r: TrRow) => <Mono>{r.number}</Mono> },
   { key: 'type', label: 'Type', render: (r: TrRow) => trackingTypes[r.type] ?? r.type },
-  { key: 'wi', label: 'Work instruction', render: (r: TrRow) => <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> },
+  { key: 'wi', label: 'Work instruction', render: (r: TrRow) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
   { key: 'partNumber', label: 'Part', sort: true, render: (r: TrRow) => r.partNumber ?? '—' },
   ...extra,
   { key: 'assignedUser', label: 'Assigned', render: (r: TrRow) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
@@ -65,7 +66,6 @@ export const trackingCols = (extra: { key: string; label: string; render?: (r: T
   { key: 'priority', label: 'Priority', sort: true },
   { key: 'dueAt', label: 'Due', sort: true, render: (r: TrRow) => fmtDateTime(r.dueAt) },
   { key: 'elapsed', label: 'Elapsed', render: (r: TrRow) => <Elapsed r={r} /> },
-  { key: 'statusTag', label: 'Official status in NetSuite', render: (r: TrRow) => <StatusBadge tag={r.statusTag} note={r.statusNote} /> },
 ];
 
 export function TrackingFolderPage() {
@@ -82,7 +82,6 @@ export function TrackingFolderPage() {
   const q = useQuery({ queryKey: ['sqf-tr', folder, sp.toString(), page, size, sort], queryFn: () => get<{ items: TrRow[]; total: number }>(`${S}/tracking?${qs({ folder, q: v('q'), status: v('status'),
     type: v('type'), owner: v('owner'), assigned: v('assigned'), part: v('part'), department: v('department'), site: v('site'), dateField: v('dateField'), from: v('from'), to: v('to'), priority: v('priority'),
     result: v('result'), tag: v('tag'), sort, page, pageSize: size })}`) });
-  const tagFilter = useStatusFilter();
   const userOpts: [string, string][] = (users.data ?? []).map((u) => [u.id, u.displayName]);
   const depts: [string, string][] = (sites.data ?? []).filter((s) => !v('site') || s.id === v('site')).flatMap((s) => s.departments.map((d) => [d.id, `${s.code} · ${d.name}`] as [string, string]));
   const filters: { key: string; label: string; options: [string, string][] }[] = [
@@ -93,7 +92,6 @@ export function TrackingFolderPage() {
     { key: 'site', label: 'Site', options: (sites.data ?? []).map((s) => [s.id, s.code]) },
     { key: 'priority', label: 'Priority', options: (priorities.data ?? []).map((p) => [p, p]) },
     { key: 'result', label: 'Result', options: ['Pending', 'Pass', 'Fail', 'Conditional'].map((r) => [r, r]) },
-    tagFilter,
   ];
   const extra = folder === 'repair' ? [{ key: 'serialNumber', label: 'Serial', render: (r: TrRow) => r.serialNumber ?? '—' }, { key: 'repairOrder', label: 'Repair order', render: (r: TrRow) => r.repairOrder ?? '—' }]
     : folder === 'production' ? [{ key: 'workOrder', label: 'Work order', render: (r: TrRow) => r.workOrder ?? '—' }, { key: 'operation', label: 'Operation', render: (r: TrRow) => r.operation ?? '—' }]
@@ -148,7 +146,7 @@ export function NewTrackingPage() {
   };
   return (
     <SqfPage title="New tracking record" crumbs={trCrumbs('New tracking record')} recent={null} permission={allowed.length ? undefined : 'sequfloh.create_validation_record'}
-      description="Choose the record type and a released work instruction. The record keeps that exact revision with its steps, characteristics and parts, so later revisions never change it.">
+      description="Fill in the work order. A released work instruction is optional: when you add one, its steps, characteristics and parts are copied onto the work order, and later revisions never change it. You can also add or remove it later, before work starts.">
       <Paper variant="outlined" sx={{ p: 3, maxWidth: 980 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Grid cols={2}>
@@ -157,7 +155,7 @@ export function NewTrackingPage() {
           <Autocomplete size="small" options={wis.data ?? []} value={wi} loading={wis.isLoading} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} onInputChange={(_, t, r) => { if (r === 'input') setWiText(t); }}
             onChange={(_, o) => { setWi(o); if (o?.partId) setPart({ id: o.partId, partNumber: o.partNumber ?? '', name: o.partDescription }); if (o?.operation && !f.operation) setF({ ...f, operation: o.operation }); }}
-            renderInput={(p) => <TextField {...p} label="Released work instruction" helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type.' : undefined} />} />
+            renderInput={(p) => <TextField {...p} label="Work instruction (optional)" inputProps={{ ...p.inputProps, 'data-testid': 'new-wo-wi' }} helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type. You can create the work order without one.' : 'Optional how-to steps for the technician.'} />} />
           <PartPicker label={type === 'Repair' ? 'Repairable part' : 'Part'} repairable={type === 'Repair'} value={part} onChange={(p) => setPart(p)} />
           <TextField size="small" label="Part description" value={part?.name ?? ''} disabled InputLabelProps={{ shrink: true }} />
           {part && <Box sx={{ gridColumn: { md: 'span 2' } }} data-testid="new-record-drawings">
@@ -181,7 +179,7 @@ export function NewTrackingPage() {
           {type === 'Repair' && <Box sx={{ gridColumn: '1 / -1' }}>{fld('reportedCondition', 'Reported condition', { multiline: true, minRows: 2, fullWidth: true })}</Box>}
         </Grid>
         <Stack direction="row" gap={1} sx={{ mt: 3 }}>
-          <Button variant="contained" disabled={!type || !wi || !siteId || busy} onClick={create}>Create record</Button>
+          <Button variant="contained" disabled={!type || !siteId || busy} onClick={create}>Create record</Button>
           <Button component={RouterLink} to="/sequfloh/tracking/open">Cancel</Button>
         </Stack>
       </Paper>
@@ -191,7 +189,7 @@ export function NewTrackingPage() {
 
 // ------------------------------------------------------------------ record
 type J = Record<string, unknown>;
-interface TrRecord extends J { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionId: string; workInstructionNumber: string;
+interface TrRecord extends J { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionId?: string | null; workInstructionNumber: string;
   workInstructionRevision: string; workInstructionTitle: string; stateVersion: number; elapsedSeconds: number; pausedSeconds: number; holdSeconds: number; steps: J[]; characteristics: J[];
   partsRows: J[]; details: Record<string, string>; assignedUserId?: string; assignees?: Person[]; createdAt: string }
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
@@ -265,7 +263,7 @@ export function TrackingRecordPage() {
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`}>Job report</Button>
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?wo=${rec.id}`} data-testid="wo-create-chargeback">Create chargeback report</Button>
       </RecordActions>}>
-      <StatusEditor kind="work-order" id={rec.id} tag={rec.statusTag as string | null} note={rec.statusNote as string | null} canEdit={!dirty} onSaved={refresh} />
+      <InventoryNote />
       {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {dirty && <Alert severity="info" sx={{ mb: 2 }}>You have unsaved changes.</Alert>}
       {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
@@ -278,8 +276,8 @@ export function TrackingRecordPage() {
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Tracking record">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Tracking record</Typography>
           <Facts items={[['Tracking number', <Mono>{rec.number}</Mono>], ['Tracking type', trackingTypes[rec.type]],
-            ['Work instruction', <><Link to={`/sequfloh/instruction/${rec.workInstructionId}`}><Mono>{rec.workInstructionNumber}</Mono></Link> rev {rec.workInstructionRevision} — {rec.workInstructionTitle}</>],
-            ['Part', rec.partNumber ? `${s(rec.partNumber)} — ${s(rec.partDescription)}` : '—'], ['Status', <SqfStatus status={rec.status} />], ['Result', <SqfStatus status={rec.result} />],
+            ['Work instruction', <InstructionRef key="wi" rec={rec} canChange={['NotStarted', 'Assigned'].includes(rec.status) && !dirty} onSaved={refresh} />],
+            ['Part', rec.partNumber ? <span key="p">{`${s(rec.partNumber)} — ${s(rec.partDescription)}`}<ViewDrawingButton partId={rec.partId as string | undefined} partNumber={s(rec.partNumber)} /></span> : '—'], ['Status', <SqfStatus status={rec.status} />], ['Result', <SqfStatus status={rec.result} />],
             ['Assigned people', rec.assignees?.length ? rec.assignees.map((a) => a.displayName).join(', ') : s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
             ['Site', s(rec.site) || '—'], ['Owner', s(rec.owner) || '—'], ['Created', `${fmtDateTime(rec.createdAt)}${rec.createdBy ? ' · ' + s(rec.createdBy) : ''}`],
             ['Updated', `${fmtDateTime(s(rec.updatedAt))}${rec.updatedBy ? ' · ' + s(rec.updatedBy) : ''}`],
@@ -371,7 +369,7 @@ export function TrackingRecordPage() {
 
       {tab === 'job' && <JobPanel id={rec.id} canWork={rec.status !== 'Canceled'} />}
       {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} /><CrewPanel recordId={rec.id} /></Stack>}
-      {tab === 'findings' && <FindingsPanel id={rec.id} canWork={rec.status !== 'Canceled'} wi={`${rec.workInstructionNumber} rev ${rec.workInstructionRevision}`} />}
+      {tab === 'findings' && <FindingsPanel id={rec.id} canWork={rec.status !== 'Canceled'} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />
     </SqfPage>
@@ -468,4 +466,27 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
       </DialogActions>
     </Dialog>
   );
+}
+
+/** The optional work instruction of a work order: shown as a link (or a dash), with Add, Change and Remove before work starts. */
+function InstructionRef({ rec, canChange, onSaved }: { rec: TrRecord; canChange: boolean; onSaved: () => void }) {
+  const [open, setOpen] = useState(false); const [wi, setWi] = useState<WiOpt | null>(null); const [text, setText] = useState(''); const [err, setErr] = useState<string | null>(null);
+  const wis = useQuery({ queryKey: ['sqf-tr-wi', rec.type, text], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type: rec.type, q: text })}`), enabled: open });
+  const set = async (id: string | null) => { setErr(null); try { await put(`${S}/tracking/${rec.id}/instruction`, { workInstructionId: id }); setOpen(false); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  return <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" component="span" data-testid="wo-instruction">
+    {rec.workInstructionId ? <span><Link to={`/sequfloh/instruction/${rec.workInstructionId}`}><Mono>{rec.workInstructionNumber}</Mono></Link> rev {rec.workInstructionRevision} — {rec.workInstructionTitle}</span> : <span>—</span>}
+    {canChange && <Button size="small" data-testid="wo-instruction-change" onClick={() => { setWi(null); setErr(null); setOpen(true); }}>{rec.workInstructionId ? 'Change' : 'Add work instruction'}</Button>}
+    {canChange && rec.workInstructionId && <Button size="small" color="error" data-testid="wo-instruction-remove" onClick={() => set(null)}>Remove</Button>}
+    <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+      <FormDialogTitle>Work instruction</FormDialogTitle>
+      <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
+        {err && <Alert severity="error">{err}</Alert>}
+        <Typography variant="body2" color="text.secondary">Its steps, characteristics and parts are copied onto this work order. Nothing else on the work order changes.</Typography>
+        <Autocomplete options={wis.data ?? []} value={wi} onChange={(_, o) => setWi(o)} onInputChange={(_, v, rs) => { if (rs === 'input') setText(v); }} filterOptions={(x) => x}
+          getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} isOptionEqualToValue={(a, b) => a.id === b.id}
+          renderInput={(p) => <TextField {...p} label="Released work instruction" helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type.' : undefined} />} />
+      </Stack></DialogContent>
+      <DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" disabled={!wi} onClick={() => wi && set(wi.id)}>Save</Button></DialogActions>
+    </Dialog>
+  </Stack>;
 }

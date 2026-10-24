@@ -46,6 +46,8 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public Guid? TypeId { get; set; }
     /// <summary>Cross-reference numbers and other attributes as JSON, keyed by the definitions in PartAttributes.</summary>
     public string? Attributes { get; set; }
+    /// <summary>Fields marked Not applicable on this part, comma-separated keys (see PartFields). They are hidden on the part screen; their values are kept.</summary>
+    public string? HiddenFields { get; set; }
     /// <summary>The attribute values joined into one line for searching.</summary>
     public string? AttributeText { get; set; }
     public Guid SiteId { get; set; }

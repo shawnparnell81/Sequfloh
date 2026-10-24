@@ -169,7 +169,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new { r.Id, r.Title, r.DrawingNumber, r.CurrentRevision, r.FolderId, r.Folder, r.PartNumber, r.IsArchived, r.UpdatedAt, r.File }).ToList();
     }
 
-    /// <summary>Finds drawings by any number of a part (OR #, SENSEN # and every cross-reference number such as NAPA, DMA, Cross or JH; a linked part, the folder's part or the folder name), drawing number or title. Archived drawings and folders are left out. With a family (a top-level folder) only that folder and the folders under it are searched.</summary>
+    /// <summary>Finds drawings by any number of a part (OR #, DWG # and every cross-reference number such as NAPA, DMA, Cross or JH; a linked part, the folder's part or the folder name), drawing number or title. Archived drawings and folders are left out. With a family (a top-level folder) only that folder and the folders under it are searched.</summary>
     public async Task<object> SearchAsync(string? q, CancellationToken ct, Guid? family = null)
     {
         var scope = await ScopeAsync(ct);
@@ -196,7 +196,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
     {
         var a = Infrastructure.Modules.Execution.PartAttributes.Read(attributes);
         var rest = Infrastructure.Modules.Execution.PartAttributes.All.Where(d => !NotNumbers.Contains(d.Key) && a.ContainsKey(d.Key)).Select(d => (d.Label, Value: a[d.Key]))
-            .Prepend((Label: "SENSEN #", Value: drawingNumber ?? "")).Where(x => DrawingPartMatcher.Normalize(x.Value).Length > 0).Select(x => $"{x.Label} {x.Value}");
+            .Prepend((Label: "DWG #", Value: drawingNumber ?? "")).Where(x => DrawingPartMatcher.Normalize(x.Value).Length > 0).Select(x => $"{x.Label} {x.Value}");
         return string.Join(" · ", rest.Prepend(partNumber));
     }
 
@@ -376,7 +376,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         if (partId is { } pid) parts = [pid];
         else if (!string.IsNullOrWhiteSpace(partNumber))
         {
-            // any number of the part counts: OR #, SENSEN # or a cross-reference number (NAPA, DMA, Cross, JH and so on); placeholders such as "/" never match
+            // any number of the part counts: OR #, DWG # or a cross-reference number (NAPA, DMA, Cross, JH and so on); placeholders such as "/" never match
             var n = partNumber.Trim().ToUpperInvariant();
             var key = DrawingPartMatcher.Normalize(n);
             if (key.Length == 0) return [];

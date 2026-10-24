@@ -60,7 +60,7 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         await RequireAsync(wi, ct);
         var family = await db.SequflohWorkInstructions.Where(x => x.FamilyId == wi.FamilyId).ToListAsync(ct);
         var ids = family.Select(x => x.Id).ToList();
-        var orders = await db.SequflohTrackingRecords.CountAsync(t => ids.Contains(t.WorkInstructionId), ct);
+        var orders = await db.SequflohTrackingRecords.CountAsync(t => t.WorkInstructionId != null && ids.Contains(t.WorkInstructionId.Value), ct);
         if (orders > 0)
             throw new ConflictException($"{Count(orders, "work order was", "work orders were")} created from {wi.Number}, so it can't be deleted. Mark it obsolete instead.");
         await using var tx = await db.Database.BeginTransactionAsync(ct);

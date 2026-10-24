@@ -33,7 +33,7 @@ function FolderLevel({ parent, value, label, onChange }: { parent?: string; valu
 
 function Numbers({ r, defs }: { r: Row; defs: AttrDef[] }) {
   const extra = defs.filter((d) => r.numbers[d.key]).map((d) => `${d.label}: ${r.numbers[d.key]}`);
-  return <>{[r.drawingNumber ? `SENSEN #: ${r.drawingNumber}` : '', ...extra].filter(Boolean).join(' · ') || '—'}</>;
+  return <>{[r.drawingNumber ? `DWG #: ${r.drawingNumber}` : '', ...extra].filter(Boolean).join(' · ') || '—'}</>;
 }
 
 function Rows({ rows, defs, testid, drawing }: { rows: Row[]; defs: AttrDef[]; testid: string; drawing: boolean }) {

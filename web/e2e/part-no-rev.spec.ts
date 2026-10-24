@@ -74,7 +74,7 @@ test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ p
   await choosePartName(page, 'Fuel Pump');
   await expect(page.getByRole('dialog').getByLabel('Revision')).toHaveCount(0);
   await expect(page.getByRole('dialog').getByLabel('Individual Box Size')).toBeVisible();
-  await expect(page.getByRole('dialog').getByLabel('SENSEN # (Dwg #)')).toHaveCount(0);
+  await expect(page.getByRole('dialog').getByLabel('DWG #')).toHaveCount(0);
   await expect(page.getByRole('dialog').getByLabel('Position')).toHaveCount(0);
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
 });

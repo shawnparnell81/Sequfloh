@@ -27,7 +27,7 @@ public sealed record CopyCharacteristicsInput(Guid FromInstructionId);
 /// Every transition reloads and locks the row, so a stale or repeated click cannot apply twice.
 /// </summary>
 public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m, INumberingService numbers, SequflohFoundationService f,
-    SequflohNotifications notify)
+    SequflohNotifications notify, ICurrentUser me)
 {
     public const string EntityType = nameof(SequflohWorkInstruction);
     public static readonly WorkInstructionStatus[] Editable = [WorkInstructionStatus.Draft];
@@ -76,6 +76,42 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
     static readonly WorkInstructionStatus[] Closed = [WorkInstructionStatus.Released, WorkInstructionStatus.Superseded, WorkInstructionStatus.Obsolete];
     Task<bool> InProgressRevisionAsync(SequflohWorkInstruction wi, CancellationToken ct) =>
         db.SequflohWorkInstructions.AnyAsync(x => x.FamilyId == wi.FamilyId && x.Id != wi.Id && !Closed.Contains(x.Status), ct);
+
+    // ------------------------------------------------------------------ Procedure Instructions and type changes
+    /// <summary>The newest draft or released Procedure Instruction with this title at the site, which a new import of the same file revises.</summary>
+    public async Task<SequflohWorkInstruction?> ProcedureToReviseAsync(string title, Guid siteId, CancellationToken ct)
+    {
+        var t = title.Trim();
+        var hit = await db.SequflohWorkInstructions.AsNoTracking()
+            .Where(x => x.Type == WorkInstructionType.Procedure && x.SiteId == siteId && x.Title == t && (x.Status == WorkInstructionStatus.Draft || x.Status == WorkInstructionStatus.Released))
+            .OrderByDescending(x => x.Status == WorkInstructionStatus.Draft).ThenByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct);
+        if (hit is not null) await m.RequireAsync(Permissions.SequflohCreateWorkInstruction, hit.SiteId, hit.DepartmentId, ct);
+        return hit;
+    }
+
+    /// <summary>Archives the files of a draft before the new file of a re-import is attached, so the viewer shows the new file.</summary>
+    public async Task ArchiveFilesAsync(Guid id, CancellationToken ct)
+    {
+        foreach (var a in await db.Attachments.Where(a => a.OwnerType == EntityType && a.OwnerId == id && !a.IsArchived).ToListAsync(ct)) a.IsArchived = true;
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Changes the type of an instruction (any type to any type). The audit trail records who, when and the old and new type.</summary>
+    public async Task ChangeTypeAsync(Guid id, WorkInstructionType type, CancellationToken ct)
+    {
+        if (!SequflohDesigner.Schemas.ContainsKey(type)) throw new AppException("Choose the work instruction type.");
+        var wi = await LoadAsync(id, true, ct);
+        await m.RequireAsync(Permissions.SequflohEditDraftWorkInstruction, wi.SiteId, wi.DepartmentId, ct);
+        if (wi.Type == type) return;
+        var old = wi.Type;
+        wi.Type = type;
+        db.AuditEntries.Add(new Sequfloh.Domain.Audit.AuditEntry
+        {
+            OccurredAt = DateTimeOffset.UtcNow, UserId = m.UserId, UserName = me.UserName, Action = "Changed instruction type", EntityType = EntityType, EntityId = wi.Id, SiteId = wi.SiteId,
+            CorrelationId = me.CorrelationId, Description = AuditText.Fit($"Work instruction {wi.Number} rev {wi.Revision} type changed from {SequflohDesigner.Schemas[old].Title} to {SequflohDesigner.Schemas[type].Title}"),
+        });
+        await db.SaveChangesAsync(ct);
+    }
 
     // ------------------------------------------------------------------ create / save
     public async Task<SequflohWorkInstruction> CreateAsync(InstructionCreateInput r, CancellationToken ct)

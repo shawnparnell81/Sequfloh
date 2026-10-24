@@ -15,7 +15,7 @@ public static class SequflohCatalog
 
     public static readonly ReferenceListDef[] Lists =
     [
-        new("work-instruction-types", "Work instruction types", "Instruction types offered when a work instruction is created.", ["Validation", "Validation / FAI", "FAI", "Repair Test", "Repair Work Instruction", "Inspection"]),
+        new("work-instruction-types", "Work instruction types", "Instruction types offered when a work instruction is created.", ["Validation", "Validation / FAI", "FAI", "Repair Test", "Repair Work Instruction", "Inspection", "Procedure Instructions"]),
         new("lifecycle-statuses", "Lifecycle statuses", "Display labels of the work instruction lifecycle statuses.", ["Draft", "Released", "Superseded", "Obsolete"]),
         new("activity-statuses", "Activity statuses", "Display labels of the tracking and task statuses.", ["Not Started", "Assigned", "In Progress", "Paused", "On Hold", "Completed", "Failed", "Canceled"]),
         new("validation-types", "Validation types", "Kinds of validation.", ["Design validation", "Process validation", "Equipment qualification", "Software validation", "Test method validation", "Packaging validation", "Material validation"]),
@@ -35,8 +35,6 @@ public static class SequflohCatalog
         new("inspection-reasons", "Inspection request reasons", "Why an inspection is requested.",
             ["Supplier request", "Warranty claim", "AQL sample result", "Random inspection", "Customer request", "Defect driven"]),
         new("inspection-priorities", "Inspection request priorities", "Priority levels for inspection requests, highest first. The order sets the queue order.", ["Critical", "High", "Normal", "Low"]),
-        new("status-tags", "Official status in NetSuite", "Informational status shown on parts, work instructions and work orders. It never blocks work; official holds are in NetSuite.",
-            ["Quarantine hold (NetSuite)", "Repair hold", "Released"]),
         new("priorities", "Priorities", "Priority levels of tasks and tracking records.", ["Low", "Normal", "High", "Urgent"]),
         new("cancellation-reasons", "Cancellation reasons", "Why a task is canceled.", ["Order canceled", "Duplicate task", "Created in error", "Superseded by another task", "Other"]),
         new("units-of-measure", "Units of measure", "Units used in steps, characteristics and parts lists.", ["EA", "mm", "in", "N·m", "lbf·in", "V", "A", "Ω", "°C", "%RH", "kPa", "psi", "s", "min", "g", "kg"]),

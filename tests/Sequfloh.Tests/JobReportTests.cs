@@ -128,23 +128,19 @@ public sealed class JobReportTests(TestApp app)
     }
 
     [Fact]
-    public async Task Official_status_in_NetSuite_is_informational_filterable_and_audited()
+    public async Task Official_status_is_gone_from_the_api_and_work_never_waits_on_it()
     {
         var (site, id, planner, plain) = await JobAsync();
         var part = await PartAsync(site);
-        Assert.Equal(HttpStatusCode.Forbidden, (await plain.PutAsync($"/api/sequfloh/status-note/part/{part}", new { tag = "Repair hold" })).StatusCode);
-        Assert.True((await planner.PutAsync($"/api/sequfloh/status-note/part/{part}", new { tag = "Quarantine hold (NetSuite)", note = "RMA 12" })).IsSuccessStatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await planner.PutAsync($"/api/sequfloh/status-note/part/{part}", new { tag = "Made up" })).StatusCode);
-        var parts = await planner.GetElAsync($"/api/sequfloh/parts?tag={Uri.EscapeDataString("Quarantine hold (NetSuite)")}&pageSize=200");
-        Assert.Contains(parts.GetProperty("items").EnumerateArray(), p => p.Id() == part && p.GetProperty("statusNote").GetString() == "RMA 12");
-        Assert.True((await plain.PutAsync($"/api/sequfloh/status-note/work-order/{id}", new { tag = "Repair hold" })).IsSuccessStatusCode);
-        var start = await Act(plain, id, "start", await Ver(plain, id)); // never blocks work
+        Assert.Equal(HttpStatusCode.NotFound, (await planner.PutAsync($"/api/sequfloh/status-note/part/{part}", new { tag = "Repair hold" })).StatusCode);
+        Assert.False((await planner.GetElAsync($"/api/sequfloh/parts/{part}")).GetProperty("part").TryGetProperty("statusTag", out _));
+        var parts = await planner.GetElAsync($"/api/sequfloh/parts?pageSize=200");
+        Assert.DoesNotContain(parts.GetProperty("items").EnumerateArray(), p => p.TryGetProperty("statusTag", out _));
+        var start = await Act(plain, id, "start", await Ver(plain, id));
         Assert.True(start.IsSuccessStatusCode);
-        Assert.False((await plain.GetElAsync($"{U}/{id}/job/report")).TryGetProperty("statusTag", out _)); // not on the chargeback report
-        var list = await plain.GetElAsync($"{U}?folder=all&tag=none&pageSize=200");
-        Assert.DoesNotContain(list.GetProperty("items").EnumerateArray(), x => x.Id() == id);
-        var history = (await (await app.AdminAsync()).GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString() ?? "").ToList();
-        Assert.Contains(history, h => h.Contains("Repair hold"));
+        Assert.False((await plain.GetElAsync($"{U}/{id}/job/report")).TryGetProperty("statusTag", out _));
+        var lists = (await (await app.AdminAsync()).GetElAsync("/api/sequfloh/reference")).EnumerateArray().Select(l => l.GetProperty("key").GetString()).ToList();
+        Assert.DoesNotContain("status-tags", lists);
     }
 
     [Fact]

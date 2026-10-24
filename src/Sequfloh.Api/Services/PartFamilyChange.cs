@@ -78,7 +78,6 @@ public sealed class PartFamilyChangeService(AppDbContext db, ModuleSupport m, Se
                 break;
             case "filter":
                 var filtered = await parts.PartsQueryAsync(r.Q, null, null, Enum.TryParse<MasterStatus>(r.Status, true, out var st) ? st : null, null, ct, r.PartType);
-                if (r.Tag == "none") filtered = filtered.Where(x => x.StatusTag == null); else if (!string.IsNullOrWhiteSpace(r.Tag)) filtered = filtered.Where(x => x.StatusTag == r.Tag);
                 var fids = filtered.Select(p => p.Id);
                 q = q.Where(p => fids.Contains(p.Id));
                 break;

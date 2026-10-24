@@ -122,7 +122,7 @@ export function EngineeringValidationPage() {
     <SqfPage title="Validation" crumbs={eCrumbs('Validation')} permission="sequfloh.view_engineering_folder" tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
       description="Validation activity and results from the validation tracking records you can see.">
       <PagedTable q={tr} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} empty="No validation records here." cols={[
-        { key: 'number', label: 'Tracking number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'wi', label: 'Instruction / revision', render: (r) => <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> },
+        { key: 'number', label: 'Tracking number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'wi', label: 'Instruction / revision', render: (r) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
         { key: 'partNumber', label: 'Part', render: (r) => r.partNumber ?? '—' }, { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
         { key: 'result', label: 'Result', render: (r) => <SqfStatus status={r.result} /> },
         { key: 'assignedUser', label: 'Assigned', render: (r) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') }, { key: 'updatedAt', label: 'Updated', render: (r) => fmtDateTime(r.updatedAt) }]} />
@@ -146,7 +146,7 @@ export function DevelopmentPage() {
       description="Draft work instructions in development, with the assigned engineer, target date, project and development status."
       actions={can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to="/sequfloh/instructions/new">New work instruction</Button>}>
       <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ type: v('type') }} onChange={set} onClear={() => { setSp({}); setPage(1); }}
-        filters={[{ key: 'type', label: 'Type', options: Object.entries({ Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection' }) }]}
+        filters={[{ key: 'type', label: 'Type', options: Object.entries({ Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection', Procedure: 'Procedure Instructions' }) }]}
         extra={<TextField size="small" label="Part number" defaultValue={v('part')} key={'p' + v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 150 }} />} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/instruction/${r.id}?tab=development`)}
         empty={sp.toString() ? 'No instructions match these filters.' : 'No instructions are in development.'} cols={[

@@ -35,10 +35,10 @@ export interface MoreAction { label: string; onClick: () => void; danger?: boole
 export interface DeleteProps { what: string; url: string; to?: string; perm?: string; extra?: string; onDone?: () => void; show?: boolean; label?: string }
 
 /**
- * The one action bar for records: Edit, Save, Cancel, Print, Import, Delete and Full screen, always in that order and with the same labels. Each action shows
+ * The one action bar for records: Edit, Save, Cancel, Print, Full screen, then the page's main action (Import, Upload, Release, ...) and More, always in that order and with the same labels. Each action shows
  * only when the page passes it. Delete names the item in its confirmation, is checked against the permissions an administrator assigned (no
  * fixed roles) and is recorded by the server. Save and Cancel know about unsaved changes: Cancel asks before throwing them away, and leaving the
- * page with unsaved changes asks first. Page-specific actions (Release, Convert to work order, ...) go in children, before the standard ones.
+ * page with unsaved changes asks first. Page-specific actions (Release, Convert to work order, Upload drawing, ...) go in children and sit after Full screen, just before More, on every page.
  * Rare and destructive actions (Archive, Delete) never sit in the row: they are in the More menu at the end, Delete last and in red, and each
  * still asks for confirmation.
  */
@@ -58,13 +58,13 @@ export function RecordActions({ surface, dirty = false, busy = false, edit, save
   const pick = (f: () => void) => () => { setMenu(null); f(); };
   return (
     <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" data-record-actions={surface} data-unsaved={dirty ? 'true' : undefined}>
-      {children}
       {edit && <Button variant="outlined" data-action="edit" disabled={busy} onClick={edit.onClick}>{edit.label ?? 'Edit'}</Button>}
       {save && <Button variant="contained" data-action="save" disabled={busy || save.disabled || !dirty} onClick={save.onClick}>{save.label ?? 'Save'}</Button>}
       {cancel && <Button data-action="cancel" disabled={busy || (!dirty && !cancel.always)} onClick={() => (dirty ? setAsk(true) : cancel.onClick())}>{cancel.label ?? 'Cancel'}</Button>}
       {print && <Button variant="outlined" data-action="print" startIcon={<PrintOutlined />} data-testid={print.testid} {...(print.href ? { href: print.href, target: '_blank', rel: 'noopener' } : { onClick: print.onClick })} disabled={print.disabled || dirty}>Print</Button>}
-      {importNode && <span data-action="import" style={{ display: 'contents' }}>{importNode}</span>}
       <FullScreenButton />
+      {importNode && <span data-action="import" style={{ display: 'contents' }}>{importNode}</span>}
+      {children && <span data-action="primary" style={{ display: 'contents' }}>{children}</span>}
       {hasMore && <span data-action="more" style={{ display: 'contents' }}>
         <Tooltip title="More actions"><IconButton aria-label="More actions" data-testid="more-actions" aria-haspopup="menu" aria-expanded={!!menu} onClick={(e) => setMenu(e.currentTarget)}
           sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}><MoreHoriz /></IconButton></Tooltip>

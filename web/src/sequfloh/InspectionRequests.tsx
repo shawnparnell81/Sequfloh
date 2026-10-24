@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow, Switch, Tabs, TextField, Typography } from '@mui/material';
 import AddTaskOutlined from '@mui/icons-material/AddTaskOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
@@ -12,6 +12,7 @@ import { Facts, useSites } from '../components/Kit';
 import { FilesPanel } from '../components/Files';
 import { fmtDateTime } from '../components/Status';
 import { RecordActions } from '../components/RecordActions';
+import { ViewDrawingButton } from './Drawings';
 import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, words } from './common';
 import { partNo } from './partLabel';
 
@@ -159,12 +160,13 @@ function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boole
   const qc = useQueryClient(); const nav = useNavigate();
   const [type, setType] = useState('Inspection'); const [wi, setWi] = useState<WiOpt | null>(null); const [text, setText] = useState('');
   const [err, setErr] = useState<string | null>(null);
-  const wis = useQuery({ queryKey: ['sqf-tr-wi', type, text], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type, q: text })}`), enabled: open });
-  useEffect(() => { if (open && r.workInstructionId && wis.data && !wi) setWi(wis.data.find((w) => w.id === r.workInstructionId) ?? null); }, [open, wis.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [attach, setAttach] = useState(!!r.workInstructionId);
+  const wis = useQuery({ queryKey: ['sqf-tr-wi', type, text], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type, q: text })}`), enabled: open && attach });
+  useEffect(() => { if (open && attach && r.workInstructionId && wis.data && !wi) setWi(wis.data.find((w) => w.id === r.workInstructionId) ?? null); }, [open, wis.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = async () => {
-    if (!wi) return setErr('Choose a released work instruction.');
+    if (attach && !wi) return setErr('Choose a released work instruction, or turn off Attach a work instruction.');
     try {
-      const res = await post<{ workOrderId: string }>(`${A}/${r.id}/convert`, { workInstructionId: wi.id, type });
+      const res = await post<{ workOrderId: string }>(`${A}/${r.id}/convert`, { workInstructionId: attach ? wi?.id ?? null : null, type });
       onClose(); await qc.invalidateQueries({ queryKey: ['sqf-ir'] }); nav(`/sequfloh/record/${res.workOrderId}`);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   };
@@ -177,9 +179,11 @@ function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boole
           <Typography variant="body2" color="text.secondary">Part, quantity, priority, requested date and the inspection requirement carry over. The part's drawings are attached.</Typography>
           <TextField select label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }}>
             {[['Inspection', 'Inspection'], ['Production', 'Production'], ['Fai', 'FAI'], ['Validation', 'Validation'], ['Repair', 'Repair']].map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
-          <Autocomplete options={wis.data ?? []} value={wi} onChange={(_, o) => setWi(o)} onInputChange={(_, v, rs) => rs === 'input' && setText(v)}
+          <FormControlLabel control={<Switch checked={attach} onChange={(_, c) => { setAttach(c); if (!c) setWi(null); }} inputProps={{ 'data-testid': 'convert-attach-wi' } as object} />}
+            label="Attach a work instruction (optional)" />
+          {attach && <Autocomplete options={wis.data ?? []} value={wi} onChange={(_, o) => setWi(o)} onInputChange={(_, v, rs) => rs === 'input' && setText(v)}
             getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} isOptionEqualToValue={(a, b) => a.id === b.id}
-            renderInput={(p) => <TextField {...p} label="Work instruction" required />} />
+            renderInput={(p) => <TextField {...p} label="Work instruction" helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type.' : undefined} />} />}
         </Stack>
       </DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={go}>Create work order</Button></DialogActions>
@@ -211,7 +215,7 @@ export function InspectionRequestPage() {
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
       {r.overdue && <Alert severity="error" sx={{ mb: 2 }}>Overdue: the requested completion date was {fmtDate(r.requestedDate)}.</Alert>}
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0,1fr)', md: '1fr 1fr' } }}>
-        <Facts items={[['Status', <StatusChip key="s" s={r.status} />], ['Part number', <Mono key="p">{r.partNumber}</Mono>], ['Part description', r.partDescription ?? '—'],
+        <Facts items={[['Status', <StatusChip key="s" s={r.status} />], ['Part number', <span key="p"><Mono>{r.partNumber}</Mono><ViewDrawingButton partId={r.partId} partNumber={r.partNumber} /></span>], ['Part description', r.partDescription ?? '—'],
           ['Qty (per NetSuite)', r.quantity ?? '—'], ['Reason', r.reason ?? '—'], ['Requested completion date', fmtDate(r.requestedDate)], ['Priority', r.priority],
           ['Work instruction', r.workInstructionId ? <RouterLink key="w" to={`/sequfloh/instruction/${r.workInstructionId}`}>{r.workInstructionLabel}</RouterLink> : '—'],
           ['Work order', r.workOrderId ? <RouterLink key="o" to={`/sequfloh/record/${r.workOrderId}`}>{r.workOrderNumber}</RouterLink> : '—'],

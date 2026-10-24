@@ -14,7 +14,7 @@ export function useSettled(text: string, ms = 250) {
 }
 
 /**
- * Server-side part search over every part in every family. The server matches the OR #, SENSEN #, name, description and every part-number field
+ * Server-side part search over every part in every family. The server matches the OR #, DWG #, name, description and every part-number field
  * (NAPA, DMA, JH, Nissan and so on), so any part can be found however many there are; only the closest page is sent.
  */
 export function usePartSearch<T>(text: string, extra: Record<string, string | undefined> = {}, enabled = true) {
@@ -24,7 +24,7 @@ export function usePartSearch<T>(text: string, extra: Record<string, string | un
     queryFn: () => get<{ items: T[]; total: number }>(`${S}/parts?${qs({ ...extra, q: q || undefined, pageSize: PART_SEARCH_PAGE, sort: 'partNumber:asc' })}`),
   });
   const total = r.data?.total ?? 0, items = r.data?.items ?? [];
-  const hint = total > items.length ? `Showing ${items.length} of ${total.toLocaleString('en-US')} parts. Type an OR #, SENSEN #, NAPA, DMA or JH PN to find any part.` : undefined;
+  const hint = total > items.length ? `Showing ${items.length} of ${total.toLocaleString('en-US')} parts. Type an OR #, DWG #, NAPA, DMA or JH PN to find any part.` : undefined;
   return { items, total, loading: r.isLoading, hint };
 }
 

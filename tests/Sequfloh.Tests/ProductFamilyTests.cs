@@ -89,7 +89,7 @@ public sealed class ProductFamilyTests(TestApp app)
         var csv = await eng.Http.GetStringAsync($"/api/sequfloh/parts/export?q={tag}");
         var lines = csv.TrimStart('\uFEFF').Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
         Assert.StartsWith("OR # (Part number),Name,Description,Product family,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
-        Assert.Contains("SENSEN # (Dwg #)", lines[0]);
+        Assert.Contains("DWG #", lines[0]);
         Assert.StartsWith($"OR-{tag},Example part OR-{tag},,Struts,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
         Assert.Contains("SN-" + tag, lines[1]);
     }
