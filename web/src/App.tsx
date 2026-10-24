@@ -45,6 +45,9 @@ const SqfQRep = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default
 const SqfEDash = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.EngineeringDashboardPage })));
 const SqfEVal = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.EngineeringValidationPage })));
 const SqfEDev = lazy(() => import('./sequfloh/Personnel').then((m) => ({ default: m.DevelopmentPage })));
+const SqfCbList = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ default: m.ChargebackListPage })));
+const SqfCbEdit = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ default: m.ChargebackEditPage })));
+const SqfCbView = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ default: m.ChargebackViewPage })));
 const SqfReport = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ReportPage })));
 const ImportedFilesPage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilesPage })));
 const ImportedFilePage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilePage })));
@@ -151,6 +154,9 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/sequfloh/inspection-requests" element={<SqfIrList />} />
         <Route path="/sequfloh/inspection-request/:id" element={<SqfIr />} />
         <Route path="/sequfloh/execution/active" element={<SqfExStation />} />
+        <Route path="/sequfloh/chargebacks" element={<SqfCbList />} />
+        <Route path="/sequfloh/chargebacks/:id" element={<SqfCbEdit />} />
+        <Route path="/sequfloh/chargebacks/:id/view" element={<SqfCbView />} />
         <Route path="/sequfloh/reports/export-center" element={<SqfExportCenter />} />
         <Route path="/sequfloh/reports/:slug" element={<SqfReport />} />
         <Route path="/sequfloh/audit/:view" element={<SqfAudit />} />

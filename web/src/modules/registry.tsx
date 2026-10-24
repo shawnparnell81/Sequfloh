@@ -91,7 +91,8 @@ export const sequfloh: ModuleDef = {
         { label: 'Development', path: '/sequfloh/engineering/development' },
         { label: 'Drawings', path: '/sequfloh/engineering/drawings', permission: 'sequfloh.view_drawings' },
       ] },
-      { label: 'Reports', path: '/sequfloh/reports/task-performance', permission: 'sequfloh.view_reports', icon: <AssessmentOutlined fontSize="small" />, match: ['/sequfloh/reports'], children: [
+      { label: 'Reports', path: '/sequfloh/reports/task-performance', permission: 'sequfloh.view_reports', icon: <AssessmentOutlined fontSize="small" />, match: ['/sequfloh/reports', '/sequfloh/chargebacks'], children: [
+        { label: 'Chargeback Reports', path: '/sequfloh/chargebacks' },
         { label: 'Task Performance', path: '/sequfloh/reports/task-performance' },
         { label: 'Validation Status', path: '/sequfloh/reports/validation-status' },
         { label: 'FAI Status', path: '/sequfloh/reports/fai-status' },

@@ -9,6 +9,7 @@ import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { AssigneesPanel, TimePanel, type Person } from './TimePanel';
+import { CrewPanel } from './CrewPanel';
 import { DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 import { NewInspectionRequestButton } from './InspectionRequests';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
@@ -257,6 +258,7 @@ export function TrackingRecordPage() {
         {(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save</Button>}
         {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`}>Job report</Button>
+        <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?wo=${rec.id}`} data-testid="wo-create-chargeback">Create chargeback report</Button>
         <Button variant="outlined" href={`${S}/tracking/${rec.id}/print`} target="_blank" rel="noopener" disabled={dirty}>Print</Button>
         <DeleteButton what={`work order ${rec.number}`} url={`${S}/tracking/${rec.id}`} show={!!q.data.canDelete} to={`/sequfloh/tracking/${folder}`}
           extra="Use this for work orders made by mistake. Work orders with logged time are kept for chargebacks and can only be cancelled." />
@@ -268,6 +270,7 @@ export function TrackingRecordPage() {
 
       {tab === 'record' && <Stack gap={2}>
         <TimePanel recordId={rec.id} />
+        <CrewPanel recordId={rec.id} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Tracking record">
@@ -365,7 +368,7 @@ export function TrackingRecordPage() {
       </Stack>}
 
       {tab === 'job' && <JobPanel id={rec.id} canWork={rec.status !== 'Canceled'} />}
-      {tab === 'time' && <TimePanel recordId={rec.id} />}
+      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} /><CrewPanel recordId={rec.id} /></Stack>}
       {tab === 'findings' && <FindingsPanel id={rec.id} canWork={rec.status !== 'Canceled'} wi={`${rec.workInstructionNumber} rev ${rec.workInstructionRevision}`} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
       {tab === 'history' && <HistoryTable q={history} name={`${rec.number}-history`} />}

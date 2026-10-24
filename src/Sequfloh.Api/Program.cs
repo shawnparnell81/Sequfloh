@@ -75,6 +75,8 @@ builder.Services.AddScoped<SequflohInstructionService>();
 builder.Services.AddScoped<SequflohTemplateService>();
 builder.Services.AddScoped<SequflohPrintService>();
 builder.Services.AddScoped<SequflohJobService>();
+builder.Services.AddScoped<SequflohCrewService>();
+builder.Services.AddScoped<SequflohChargebackService>();
 builder.Services.AddScoped<SequflohTrackingService>();
 builder.Services.AddScoped<SequflohNotifications>();
 builder.Services.AddScoped<SequflohReportService>();
