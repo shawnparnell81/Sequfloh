@@ -1,4 +1,4 @@
-import { PageNav } from '../tabs/Workspace';
+import { ModuleWorkspace } from '../layout/ModuleWorkspace';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -120,5 +120,5 @@ export function ChangePasswordPage({ forced }: { forced?: boolean }) {
     </Stack>
   );
   if (forced) return <Frame title="Choose a new password" subtitle="Your administrator gave you a temporary password. Choose your own before you continue.">{form}</Frame>;
-  return <Box sx={{ p: { xs: 2, md: 4 } }}><Box sx={{ mb: 1 }}><PageNav /></Box><Typography variant="h1" sx={{ mb: 3 }}>Change password</Typography><Paper sx={{ p: 3, maxWidth: 520 }}>{form}</Paper></Box>;
+  return <ModuleWorkspace crumbs={[{ label: 'Your account' }, { label: 'Change password' }]} title="Change password"><Paper sx={{ p: 3, maxWidth: 520 }}>{form}</Paper></ModuleWorkspace>;
 }

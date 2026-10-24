@@ -1,5 +1,15 @@
 # Changes
 
+## One page layout across the app
+
+- Every page now uses the same header: breadcrumb, then the title with its description and context chips on the left and the action bar on the right, then the page's tabs. Settings and Change password now use it too.
+- Standard spacing (one set of spacing values) between the breadcrumb, the header, toolbars and tables on every page.
+- Record action bar: primary and secondary actions in the fixed order, then a More (⋯) menu. Delete always lives in More (in red, still with its named confirmation); Archive and Restore for drawings and folders moved there too.
+- Drawing folders get a folder header card: the folder name as the title, the linked part under it and the actions on the right (Edit, Upload drawing, Full screen, More). It wraps cleanly on narrow screens.
+- List search rows (Parts Drawings, Part Master, Search, every filtered list) use one shared toolbar: search box, filters, Search button, then checkboxes on the right.
+- New checks: every page in the menus renders the shared header once with one title, no destructive buttons sit in a header, every search row is the shared toolbar, and no page draws its own title. The record action check now looks for Delete in the More menu.
+- Test fix: the Part Master column header check waits for the table to settle after a search.
+
 ## Parts Drawings in the sidebar, with family tabs
 
 - Parts Drawings is now its own sidebar entry at /sequfloh/drawings instead of a page under Engineering.

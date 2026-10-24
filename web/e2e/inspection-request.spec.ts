@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { more, settledShot, signIn, view } from './support';
 
 /** Made-up parts and requests only. Quick-action placements, the request form, the priority-ordered list, conversion and delete. */
 test('inspection requests: quick action, list order, convert to work order, delete', async ({ page }) => {
@@ -88,7 +88,7 @@ test('inspection requests: quick action, list order, convert to work order, dele
 
   // delete
   await page.goto(`/sequfloh/inspection-request/${del}`);
-  await view(page).getByTestId('delete-button').click();
+  await (await more(page)).getByTestId('delete-button').click();
   await shot('delete-confirm');
   await page.getByRole('dialog').getByRole('button', { name: /Delete/ }).click();
   await expect(page).toHaveURL(/inspection-requests$/);

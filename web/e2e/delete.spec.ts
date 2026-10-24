@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { more, settledShot, signIn, view } from './support';
 
 /** Made-up records only. Covers Delete with its confirm, blocked deletes, several people on one work order and per-person timers. */
 test('delete everywhere, several assignees and live time per person', async ({ page }) => {
@@ -17,9 +17,9 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   // a draft work instruction made by mistake
   const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Mistake instruction ${stamp}`, siteId: site } }))).id as string;
   await page.goto(`/sequfloh/instruction/${wi}`);
-  await expect(view(page).getByTestId('delete-button')).toBeVisible();
+  await expect(view(page).getByTestId('more-actions')).toBeVisible();
   await shot('instruction-with-delete');
-  await view(page).getByTestId('delete-button').click();
+  await (await more(page)).getByTestId('delete-button').click();
   await expect(dialog()).toContainText("This can't be undone.");
   await shot('instruction-delete-confirm');
   await dialog().getByRole('button', { name: 'Delete' }).click();
@@ -31,7 +31,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
     part: { partNumber: `OLD-${stamp}`, name: 'Discontinued spacer', partType: 0, revision: 'A', unitOfMeasure: 'EA', siteId: site, status: 0, hasSpecialCharacteristics: false },
     execution: { productFamily: 'Test', isRepairable: false, isSerialized: false, isLotControlled: false } } }))).id as string;
   await page.goto(`/sequfloh/parts/${part}`);
-  await view(page).getByTestId('delete-button').click();
+  await (await more(page)).getByTestId('delete-button').click();
   await expect(dialog()).toContainText('the drawings stay');
   await shot('part-delete-confirm');
   await dialog().getByRole('button', { name: 'Delete' }).click();
@@ -42,7 +42,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   await ok(rq.post(`/api/drawings/folders/${folder}/drawings`, { multipart: {
     file: { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% made-up test drawing\n%%EOF\n') }, title: 'Test bracket', drawingNumber: `DWG-${stamp}`, revision: 'A' } }));
   await page.goto(`/sequfloh/drawings?folder=${folder}`);
-  await view(page).getByRole('button', { name: 'Delete folder' }).click();
+  await (await more(page)).getByRole('menuitem', { name: 'Delete folder' }).click();
   await dialog().getByRole('button', { name: 'Delete' }).click();
   await expect(dialog().getByRole('alert')).toContainText('still holds 1 drawing');
   await shot('folder-delete-blocked');
@@ -74,7 +74,8 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   await shot('timer-running-per-person');
   await view(page).getByTestId('stop-timer').click();
   await expect(view(page).getByTestId('start-timer')).toBeVisible();
-  await expect(view(page).getByTestId('delete-button')).toHaveCount(0); // time logged: kept for chargebacks
+  // time logged: kept for chargebacks, so More (if any) has no Delete
+  if (await view(page).getByTestId('more-actions').count()) { await more(page); await expect(page.getByTestId('delete-button')).toHaveCount(0); await page.keyboard.press('Escape'); }
   await shot('timer-stopped-no-delete');
 
   // the list shows everyone on the job
@@ -85,7 +86,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   // a work order made by mistake (no time) can be deleted
   const oops = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: rel, siteId: site } }))).id as string;
   await page.goto(`/sequfloh/record/${oops}`);
-  await view(page).getByTestId('delete-button').click();
+  await (await more(page)).getByTestId('delete-button').click();
   await expect(dialog()).toContainText('logged time are kept');
   await shot('work-order-delete-confirm');
   await dialog().getByRole('button', { name: 'Delete' }).click();

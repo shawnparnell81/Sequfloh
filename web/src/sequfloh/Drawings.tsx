@@ -17,6 +17,8 @@ import { RecordActions } from '../components/RecordActions';
 import { FullScreenButton } from '../components/FullScreen';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import { ImportDrawingsDialog } from './DrawingsImport';
+import { ListToolbar, RecordHeader } from '../layout/PageHeader';
+import { SPACE } from '../layout/spacing';
 
 const D = '/api/drawings';
 const crumbs = (extra?: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts Drawings', to: extra ? '/sequfloh/drawings' : undefined }, ...(extra ? [{ label: extra }] : [])];
@@ -170,30 +172,26 @@ export function DrawingsPage() {
         <Tab value="" label="All" data-testid="family-tab-all" />
         {(roots.data?.folders ?? []).map((f) => <Tab key={f.id} value={f.id} label={familyLabel(f.name)} data-testid="family-tab" data-family={f.name} />)}
       </Tabs>
-      <Stack direction="row" gap={1} sx={{ mb: 2 }} component="form" onSubmit={(e) => { e.preventDefault(); set('q', text.trim()); }}>
-        <TextField size="small" label={family && !everywhere ? `Search ${familyLabel(familyName ?? '')} drawings` : 'Search drawings'} placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 360 }} />
+      <ListToolbar onSubmit={() => set('q', text.trim())}
+        end={<FormControlLabel control={<Checkbox checked={archived} onChange={(_, c) => set('archived', c ? '1' : '')} />} label="Show archived" />}>
+        <TextField size="small" label={family && !everywhere ? `Search ${familyLabel(familyName ?? '')} drawings` : 'Search drawings'} placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} />
         <Button type="submit" variant="outlined">Search</Button>{search && <Button onClick={() => { setText(''); set('q', ''); }}>Clear</Button>}
         {family && <FormControlLabel control={<Checkbox checked={everywhere} inputProps={{ 'data-testid': 'search-all-families' } as object} onChange={(_, c) => set('all', c ? '1' : '')} />} label="Search all families" />}
-        <Box sx={{ flex: 1 }} />
-        <FormControlLabel control={<Checkbox checked={archived} onChange={(_, c) => set('archived', c ? '1' : '')} />} label="Show archived" />
-      </Stack>
+      </ListToolbar>
       {search ? (found.isLoading ? <Loading /> : found.error ? <ErrorState error={found.error} /> : !found.data?.length ? <Empty text="No drawings match." /> :
         <DrawingTable rows={found.data} onRow={(id) => nav(`/sequfloh/drawings/d/${id}`)} withFolder />) : <>
-        <Breadcrumbs sx={{ mb: 1.5 }}>
+        <Breadcrumbs sx={{ mb: SPACE.block }} data-testid="folder-crumbs">
           <Link component="button" onClick={() => setSp(archived ? { archived: '1' } : {})}>All folders</Link>
           {(v?.path ?? []).map((p) => <Link key={p.id} component="button" onClick={() => open(p.id)}>{p.name}</Link>)}
           {here && <Typography color="text.primary">{here.name}</Typography>}
         </Breadcrumbs>
-        {here && <Stack direction="row" gap={1} alignItems="center" sx={{ mb: 2 }} flexWrap="wrap">
-          {here.part ? <Chip label={`Part ${here.part.partNumber} — ${here.part.name}`} component={RouterLink} to={`/sequfloh/parts/${here.part.id}`} clickable /> : <Typography variant="body2" color="text.secondary">Not linked to a part</Typography>}
-          {here.isArchived && <Chip color="warning" label="Archived" />}
-          <Box sx={{ flex: 1 }} />
-          <RecordActions surface="drawing-folder" edit={here.canManage && !here.isArchived && { onClick: () => setDlg('edit') }}
+        {here && <RecordHeader testid="folder-header" title={<Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><FolderOutlined color="action" />{here.name}{here.isArchived && <Chip size="small" color="warning" label="Archived" />}</Stack>}
+          meta={here.part ? <Chip size="small" variant="outlined" label={`Part ${here.part.partNumber} — ${here.part.name}`} component={RouterLink} to={`/sequfloh/parts/${here.part.id}`} clickable />
+            : <Typography variant="body2" color="text.secondary">Not linked to a part</Typography>}
+          actions={<RecordActions surface="drawing-folder" edit={here.canManage && !here.isArchived && { onClick: () => setDlg('edit') }}
             importNode={here.canManage && !here.isArchived && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setDlg('upload')}>Upload drawing</Button>}
-            del={{ what: `folder ${here.name}`, url: `${D}/folders/${here.id}`, label: 'Delete folder', extra: 'Only empty folders can be deleted.', onDone: () => setSp(here.parentId ? { folder: here.parentId } : {}) }}>
-            {here.canManage && <Button color={here.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{here.isArchived ? 'Restore folder' : 'Archive folder'}</Button>}
-          </RecordActions>
-        </Stack>}
+            del={{ what: `folder ${here.name}`, url: `${D}/folders/${here.id}`, label: 'Delete folder', extra: 'Only empty folders can be deleted.', onDone: () => setSp(here.parentId ? { folder: here.parentId } : {}) }}
+            more={[here.canManage && { label: here.isArchived ? 'Restore folder' : 'Archive folder', danger: !here.isArchived, onClick: () => setConfirm(true) }]} />} />}
         {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : <>
           {v!.folders.length > 0 && <SimpleTable head={['Folder', 'Part', 'Contents', 'Updated']} rows={v!.folders.map((f) => [
             <Link key="n" component="button" onClick={() => open(f.id)} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><FolderOutlined fontSize="small" />{f.name}</Link>,
@@ -282,10 +280,10 @@ export function DrawingPage() {
         print={{ href: fileUrl(d.id, undefined, true) }}
         importNode={d.canManage && !d.isArchived && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setDlg('rev')}>New revision</Button>}
         del={{ what: `drawing ${d.drawingNumber || d.title}`, url: `${D}/${d.id}`, to: `/sequfloh/drawings?folder=${d.folder.id}`,
-          extra: 'Every revision and its file is removed, and it is unlinked from parts and work orders.' }}>
+          extra: 'Every revision and its file is removed, and it is unlinked from parts and work orders.' }}
+        more={[d.canManage && { label: d.isArchived ? 'Restore drawing' : 'Archive drawing', danger: !d.isArchived, onClick: () => setConfirm(true) }]}>
         <OpenDrawingButton d={{ ...d, viewable: !!d.revisions.find((r) => r.current)?.viewable }} size="medium" />
         {d.canManage && !d.isArchived && <Button variant="outlined" onClick={() => setDlg('parts')}>Link to parts</Button>}
-        {d.canManage && <Button color={d.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{d.isArchived ? 'Restore' : 'Archive'}</Button>}
       </RecordActions>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>

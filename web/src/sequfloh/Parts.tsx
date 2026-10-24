@@ -1,4 +1,5 @@
 import { setupOptions } from '../components/SetupLink';
+import { ListToolbar } from '../layout/PageHeader';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -161,10 +162,10 @@ function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number
     ...(untyped > 0 ? [{ id: 'none', label: 'No product family', n: countOf(null) }] : [])];
   return (
     <Stack gap={3}>
-      <Box component="form" onSubmit={(e) => { e.preventDefault(); setQ(text.trim()); }} sx={{ display: 'flex', gap: 1, maxWidth: 720 }}>
-        <TextField fullWidth size="small" label="Search parts" placeholder="OR #, SENSEN #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} />
-        <Button type="submit" variant="contained">Search</Button>
-      </Box>
+      <ListToolbar onSubmit={() => setQ(text.trim())}>
+        <TextField size="small" label="Search parts" placeholder="OR #, SENSEN #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} sx={{ width: { xs: '100%', sm: 480 } }} />
+        <Button type="submit" variant="outlined">Search</Button>
+      </ListToolbar>
       {q && <Paper variant="outlined" data-testid="parts-search-results">
         {found.isLoading ? <Loading /> : found.isError ? <ErrorState error={found.error} /> : !found.data?.items.length ? <Box sx={{ p: 2 }}><Typography color="text.secondary">No parts match "{q}".</Typography></Box> :
           <Table size="small"><TableHead><TableRow><TableCell>{PN_LABEL}</TableCell><TableCell>{DWG_LABEL}</TableCell><TableCell>Name</TableCell><TableCell>Position</TableCell><TableCell>Key Application</TableCell></TableRow></TableHead>

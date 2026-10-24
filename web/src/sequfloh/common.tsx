@@ -10,6 +10,7 @@ import { useAuth } from '../auth';
 import { modules } from '../modules/registry';
 import { useTabs } from '../tabs/Workspace';
 import { ModuleWorkspace, type Crumb } from '../layout/ModuleWorkspace';
+import { ListToolbar } from '../layout/PageHeader';
 import { mono } from '../theme';
 
 export const S = '/api/sequfloh';
@@ -73,19 +74,17 @@ export function SqfPage({ title, description, crumbs, actions, tabs, tab, onTab,
   const c = ctx.data;
   return (
     <ModuleWorkspace module={mod()} crumbs={crumbs} title={title}
-      actions={<Stack direction="row" gap={1} alignItems="center" sx={{ displayPrint: 'none' }}>{actions}
+      actions={<Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" justifyContent="flex-end" sx={{ displayPrint: 'none' }}>{actions}
         {!denied && (c?.module.favoritesEnabled ?? true) && <Tooltip title={pinned ? 'Unpin from SEQUFLOH Home' : 'Pin to SEQUFLOH Home'}><IconButton aria-label={pinned ? 'Unpin page' : 'Pin page'} onClick={pin}>{pinned ? <PushPin color="primary" /> : <PushPinOutlined />}</IconButton></Tooltip>}</Stack>}
+      subtitle={description}
+      meta={c && <>
+        <Chip size="small" color="primary" variant="outlined" label={`${c.module.displayName} · ${c.module.subtitle}`} />
+        {c.organization && <Chip size="small" variant="outlined" label={c.organization} />}
+        {c.sites.length > 0 && <Chip size="small" variant="outlined" label={c.sites.map((s) => s.code).join(', ')} />}
+        <Chip size="small" variant="outlined" label={`${c.user.displayName}${c.roles.length ? ' · ' + c.roles.join(', ') : ''}`} />
+        {import.meta.env.DEV && <Chip size="small" color="warning" variant="outlined" label="Development" />}
+      </>}
       tabs={tabs} tab={tab} onTab={onTab}>
-      <Stack direction={{ xs: 'column', md: 'row' }} gap={1} justifyContent="space-between" sx={{ mb: 2, displayPrint: 'none' }}>
-        {description ? <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 820 }}>{description}</Typography> : <span />}
-        {c && <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center" aria-label="Context">
-          <Chip size="small" color="primary" variant="outlined" label={`${c.module.displayName} · ${c.module.subtitle}`} />
-          {c.organization && <Chip size="small" variant="outlined" label={c.organization} />}
-          {c.sites.length > 0 && <Chip size="small" variant="outlined" label={c.sites.map((s) => s.code).join(', ')} />}
-          <Chip size="small" variant="outlined" label={`${c.user.displayName}${c.roles.length ? ' · ' + c.roles.join(', ') : ''}`} />
-          {import.meta.env.DEV && <Chip size="small" color="warning" variant="outlined" label="Development" />}
-        </Stack>}
-      </Stack>
       {denied ? <Alert severity="warning">You do not have permission to open this SEQUFLOH page. Ask a SEQUFLOH administrator for module access.</Alert>
         : c && !c.module.moduleEnabled ? <><Alert severity="info" sx={{ mb: 2 }}>SEQUFLOH is switched off for this organization. Only SEQUFLOH settings administrators can open it.</Alert>{children}</>
         : children}
@@ -192,14 +191,14 @@ export function Filters({ search, onSearch, filters, values, onChange, onClear, 
   const [q, setQ] = useState(search);
   useEffect(() => setQ(search), [search]);
   return (
-    <Stack direction="row" gap={1} flexWrap="wrap" component="form" sx={{ mb: 2 }} onSubmit={(e) => { e.preventDefault(); onSearch(q); }}>
+    <ListToolbar onSubmit={() => onSearch(q)}>
       <TextField size="small" label="Search" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: { xs: '100%', sm: 280 } }} />
       {filters.map((f) => <TextField key={f.key} select size="small" label={f.label} value={values[f.key] ?? ''} onChange={(e) => onChange(f.key, e.target.value)} sx={{ minWidth: 150 }}>
         <MenuItem value="">All</MenuItem>{f.options.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>)}
       {extra}
       <Button type="submit" variant="outlined">Search</Button>
       <Button onClick={() => { setQ(''); onClear(); }}>Clear filters</Button>
-    </Stack>
+    </ListToolbar>
   );
 }
 
@@ -211,21 +210,31 @@ export const Grid = ({ children, cols = 3 }: { children: ReactNode; cols?: numbe
   <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', md: `repeat(${cols}, minmax(0, 1fr))` } }}>{children}</Box>;
 
 /** Red Delete button with a "can't be undone" confirm. Hidden without the permission. Server reasons (e.g. "in use") show in the dialog. */
-export function DeleteButton({ what, url, perm = 'sequfloh.delete_records', extra, onDone, size = 'medium', show = true, label = 'Delete', to }: {
-  what: string; url: string; to?: string; perm?: string; extra?: string; onDone?: () => void; size?: 'small' | 'medium'; show?: boolean; label?: string;
+/** Delete with a named confirmation, checked against the permission and recorded by the server. Returns whether it may be shown, how to start it and its dialog. */
+export function useDeleteAction({ what, url, perm = 'sequfloh.delete_records', extra, onDone, show = true, to }: {
+  what: string; url: string; to?: string; perm?: string; extra?: string; onDone?: () => void; show?: boolean;
 }) {
   const { can } = useAuth();
   const qc = useQueryClient();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
-  if (!show || !can(perm)) return null;
+  const allowed = show && can(perm);
+  const dialog = allowed ? <Confirm open={open} danger title={`Delete ${what}?`} confirm="Delete"
+    text={`${extra ? extra + ' ' : ''}This can't be undone.`}
+    onClose={() => setOpen(false)}
+    onConfirm={async () => { await del(url); if (to) nav(to, { replace: true }); onDone?.(); void qc.invalidateQueries(); }} /> : null;
+  return { allowed, start: () => setOpen(true), dialog };
+}
+
+export function DeleteButton({ size = 'medium', label = 'Delete', ...p }: {
+  what: string; url: string; to?: string; perm?: string; extra?: string; onDone?: () => void; size?: 'small' | 'medium'; show?: boolean; label?: string;
+}) {
+  const d = useDeleteAction(p);
+  if (!d.allowed) return null;
   return (
     <>
-      <Button size={size} color="error" data-testid="delete-button" onClick={() => setOpen(true)}>{label}</Button>
-      <Confirm open={open} danger title={`Delete ${what}?`} confirm="Delete"
-        text={`${extra ? extra + ' ' : ''}This can't be undone.`}
-        onClose={() => setOpen(false)}
-        onConfirm={async () => { await del(url); if (to) nav(to, { replace: true }); onDone?.(); void qc.invalidateQueries(); }} />
+      <Button size={size} color="error" data-testid="delete-button" onClick={d.start}>{label}</Button>
+      {d.dialog}
     </>
   );
 }

@@ -1,22 +1,23 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
-import { Box, Breadcrumbs, IconButton, Link, List, ListItemButton, ListItemIcon, ListItemText, Tab, Tabs, Tooltip, Typography, useMediaQuery } from '@mui/material';
+import { Box, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ChevronRight from '@mui/icons-material/ChevronRight';
 import { useTheme } from '@mui/material/styles';
 import { useAuth } from '../auth';
 import { landingOf, modules, sectionOf, type ModuleDef, type NavItem } from '../modules/registry';
-import { PageNav, useTabTitle } from '../tabs/Workspace';
+import { useTabTitle } from '../tabs/Workspace';
 
-export interface Crumb { label: string; to?: string }
-export interface WorkspaceTab { label: string; value: string }
+import { PageHeader, type Crumb, type WorkspaceTab } from './PageHeader';
+import { SPACE } from './spacing';
+export type { Crumb, WorkspaceTab };
 
 /**
  * A page: collapsible left menu of sections, the section's pages as a menu across the top, Back and Home for this tab,
  * breadcrumbs, a large title with the page's buttons, and an optional tab bar for the page's own parts.
  */
-export function ModuleWorkspace({ module, crumbs, title, actions, tabs, tab, onTab, children }: {
-  module?: ModuleDef; crumbs: Crumb[]; title: ReactNode; actions?: ReactNode;
+export function ModuleWorkspace({ module, crumbs, title, subtitle, meta, actions, tabs, tab, onTab, children }: {
+  module?: ModuleDef; crumbs: Crumb[]; title: ReactNode; subtitle?: ReactNode; meta?: ReactNode; actions?: ReactNode;
   tabs?: WorkspaceTab[]; tab?: string; onTab?: (v: string) => void; children: ReactNode;
 }) {
   const mod = module ?? modules[0];
@@ -45,26 +46,8 @@ export function ModuleWorkspace({ module, crumbs, title, actions, tabs, tab, onT
       </Box>
       <Box component="main" data-fullscreen-root sx={{ flex: 1, minWidth: 0 }}>
         {section && <SectionMenu section={section} />}
-        <Box sx={{ px: { xs: 2, md: 4 }, pt: 3, color: tk.header.fg }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.25 }}>
-          <PageNav />
-          <Breadcrumbs separator="/" className="sqf-no-print" sx={{ fontSize: 11.5, letterSpacing: '0.04em', color: tk.header.muted, '& .MuiBreadcrumbs-separator': { mx: 0.75, color: 'divider' } }}>
-            <Link component={RouterLink} to="/sequfloh" underline="hover" sx={{ color: tk.header.muted }}>Home</Link>
-            {crumbs.filter((c, i) => !(i === 0 && c.label === mod.label)).map((c, i) => c.to ? <Link key={i} component={RouterLink} to={c.to} underline="hover" sx={{ color: tk.header.muted }}>{c.label}</Link> : <Typography key={i} fontSize={11.5} fontWeight={600} sx={{ color: tk.header.fg }}>{c.label}</Typography>)}
-          </Breadcrumbs>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, pb: tabs ? 0.5 : 2.5, flexWrap: 'wrap' }}>
-            <Box aria-hidden sx={{ width: tk.icon.size, height: tk.icon.size, flexShrink: 0, display: { xs: 'none', sm: 'grid' }, placeItems: 'center', background: tk.gradient, color: '#FFFFFF', borderRadius: `${tk.icon.radius}px`, '& svg': { fontSize: tk.icon.size * 0.56 }, boxShadow: `0 8px 20px ${tk.glow}` }}>{mod.icon}</Box>
-            <Typography variant="h1" sx={{ flex: '1 1 320px', minWidth: 0, color: tk.header.fg }}>{title}</Typography>
-            {actions && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end', ml: 'auto' }}>{actions}</Box>}
-          </Box>
-          {tabs && (
-            <Tabs value={tab} onChange={(_, v) => onTab?.(v)} variant="scrollable" textColor="inherit" sx={{ mt: 0.5, minHeight: 40, '& .MuiTab-root': { minHeight: 40, color: tk.header.muted, opacity: 1 }, '& .MuiTab-root.Mui-selected': { color: 'primary.main' } }}>
-              {tabs.map((t) => <Tab key={t.value} value={t.value} label={t.label} />)}
-            </Tabs>
-          )}
-        </Box>
-        <Box sx={{ p: { xs: 1.5, sm: 2.5, md: 3.5 }, maxWidth: 1600 }}>{children}</Box>
+        <PageHeader crumbs={crumbs} homeLabel={mod.label} title={title} icon={mod.icon} subtitle={subtitle} meta={meta} actions={actions} tabs={tabs} tab={tab} onTab={onTab} />
+        <Box data-page-body sx={{ px: SPACE.pageX, pt: SPACE.block, pb: 4, maxWidth: 1600 }}>{children}</Box>
       </Box>
     </Box>
   );
