@@ -18,6 +18,8 @@ public sealed record PartAttributeDef(string Key, string Label, string[] Words, 
 public static class PartAttributes
 {
     static readonly string[] FuelPump = ["FUEL_PUMP"];
+    /// <summary>Fuel injectors use the fuel pump drawing number (JH PN) as their drawing number too.</summary>
+    static readonly string[] FuelPumpAndInjector = ["FUEL_PUMP", "FUEL_INJECTOR"];
 
     public static readonly PartAttributeDef[] All =
     [
@@ -31,12 +33,16 @@ public static class PartAttributes
         new("dmaPn", "DMA PN", ["dma pn"], Types: FuelPump),
         new("cross", "Cross", ["cross"], Types: FuelPump),
         // the JH PN is the drawing of the fuel pump; many OR PNs share one
-        new("jhPn", "JH PN", ["jh pn"], Types: FuelPump, DrawingNumber: true),
+        new("jhPn", "JH PN", ["jh pn"], Types: FuelPumpAndInjector, DrawingNumber: true),
         new("boxSize", "Individual Box Size", ["individual box size"], Types: FuelPump),
     ];
 
     /// <summary>The attribute fields that hold a drawing number. The SENSEN # (the part's drawing number column) always counts as well.</summary>
     public static IEnumerable<PartAttributeDef> DrawingNumberFields => All.Where(a => a.DrawingNumber);
+
+    /// <summary>True when the field is shown for parts of the family with this code (null code: a part without a family).</summary>
+    public static bool AppliesTo(PartAttributeDef d, string? code) =>
+        (d.Types is not { Length: > 0 } || (code is not null && d.Types.Contains(code))) && !(code is not null && d.NotTypes is { } n && n.Contains(code));
 
     public static PartAttributeDef? Find(string key) => All.FirstOrDefault(a => a.Key == key);
 
