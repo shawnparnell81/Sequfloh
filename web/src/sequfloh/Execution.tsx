@@ -78,7 +78,7 @@ export function ExecutionQueuePage() {
     { key: 'type', label: 'Type', render: (r) => trackingTypes[r.type] ?? r.type },
     { key: 'partNumber', label: 'Part', sort: true, render: (r) => r.partNumber ?? '—' },
     { key: 'operation', label: 'Operation', render: (r) => r.operation ?? '—' },
-    { key: 'wi', label: 'Instruction / revision', render: (r) => <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> },
+    { key: 'wi', label: 'Instruction / revision', render: (r) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
   ];
   const tail: Col<ExRow>[] = [{ key: 'actions', label: 'Actions', render: (r) => row.buttons(r, cfg.actions) }];
   const cols: Col<ExRow>[] = view === 'paused' ? [...base,
@@ -202,7 +202,7 @@ export function ActiveStationPage() {
                 </Stack>
                 <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, minmax(0, 1fr))' } }}>
                   <Fact k="Tracking number"><Mono>{r.number}</Mono></Fact>
-                  <Fact k="Work instruction"><Mono>{s(r.workInstructionNumber)}</Mono></Fact>
+                  <Fact k="Work instruction">{r.workInstructionNumber ? <Mono>{s(r.workInstructionNumber)}</Mono> : '—'}</Fact>
                   <Fact k="Revision">{s(r.workInstructionRevision)}</Fact>
                   <Fact k="Status"><SqfStatus status={r.status} /></Fact>
                   <Fact k="Part">{r.partNumber ? `${s(r.partNumber)} — ${s(r.partDescription)}` : '—'}</Fact>
@@ -302,7 +302,7 @@ export function WorkHistoryPage() {
             { key: 'number', label: 'Tracking number', sort: true, render: (r) => <Mono>{r.number}</Mono> },
             { key: 'type', label: 'Type', render: (r) => trackingTypes[r.type] ?? r.type },
             { key: 'partNumber', label: 'Part', sort: true, render: (r) => r.partNumber ?? '—' },
-            { key: 'wi', label: 'Instruction / revision', render: (r) => <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> },
+            { key: 'wi', label: 'Instruction / revision', render: (r) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
             { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
             { key: 'result', label: 'Result', render: (r) => <SqfStatus status={r.result} /> },
             { key: 'active', label: 'Active', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> },

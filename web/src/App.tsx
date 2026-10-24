@@ -49,6 +49,7 @@ const SqfCbList = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ def
 const SqfCbEdit = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ default: m.ChargebackEditPage })));
 const SqfCbView = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ default: m.ChargebackViewPage })));
 const SqfReport = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ReportPage })));
+const CompletedFormsPage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.CompletedFormsPage })));
 const ImportedFilesPage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilesPage })));
 const ImportedFilePage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilePage })));
 const SqfExportCenter = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ExportCenterPage })));
@@ -168,6 +169,7 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/sequfloh/audit/:view" element={<SqfAudit />} />
         <Route path="/sequfloh/search" element={<SqfSearch />} />
         <Route path="/sequfloh/imported-files" element={<ImportedFilesPage />} />
+        <Route path="/sequfloh/completed-forms" element={<CompletedFormsPage />} />
         <Route path="/sequfloh/imported-files/:id" element={<ImportedFilePage />} />
         <Route path="/sequfloh/quality" element={<SqfQDash />} />
         <Route path="/sequfloh/quality/validation" element={<SqfQVal />} />

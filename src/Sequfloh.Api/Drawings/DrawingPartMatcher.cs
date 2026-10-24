@@ -9,7 +9,7 @@ namespace Sequfloh.Drawings;
 
 /// <summary>
 /// Links drawings to parts by name. A folder or file name (without its extension) links to every part whose OR #, SENSEN # or family drawing number field
-/// (see PartAttributes.DrawingNumberFields, for example the JH PN of fuel pumps) is the same, ignoring case, spaces, dashes and underscores. One drawing can
+/// (see PartAttributes.DrawingNumberFields, for example the JH PN of fuel pumps) is the same, ignoring case, spaces, dashes, underscores and a family prefix from the drawing prefixes list (so D1004Z.pdf links to INJ-D1004Z). One drawing can
 /// link to many parts. Links are only ever added here, never removed, so links made by hand are kept.
 /// </summary>
 public sealed class DrawingPartMatcher(AppDbContext db, ICurrentUser me)
@@ -36,18 +36,35 @@ public sealed class DrawingPartMatcher(AppDbContext db, ICurrentUser me)
         var q = db.Parts.AsNoTracking();
         if (only is not null) q = q.Where(p => only.Contains(p.Id));
         var rows = await q.Select(p => new { p.Id, p.PartNumber, p.DrawingNumber, p.Attributes }).ToListAsync(ct);
+        var prefixes = await PrefixesAsync(ct);
         var map = new Dictionary<string, List<PartHit>>();
         foreach (var r in rows)
         {
             var attrs = PartAttributes.Read(r.Attributes);
             var names = new[] { r.PartNumber, r.DrawingNumber }.Concat(fields.Select(f => attrs.GetValueOrDefault(f)));
-            foreach (var n in names.Select(Normalize).Where(n => n.Length > 0).Distinct())
+            foreach (var n in names.Select(Normalize).Where(n => n.Length > 0).SelectMany(n => WithPrefixes(n, prefixes)).Distinct())
             {
                 if (!map.TryGetValue(n, out var l)) map[n] = l = [];
                 l.Add(new PartHit(r.Id, r.PartNumber));
             }
         }
         return map;
+    }
+
+    /// <summary>The family prefixes (for example INJ-) a drawing or part number may leave out, from the admin-editable drawing prefixes list.</summary>
+    public async Task<List<string>> PrefixesAsync(CancellationToken ct) =>
+        (await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.DrawingPrefixes && v.IsActive).Select(v => v.Label).ToListAsync(ct))
+            .Select(Normalize).Where(p => p.Length > 0).Distinct().ToList();
+
+    /// <summary>A normalized number plus the same number with a family prefix taken off or put on, so D1004Z and INJ-D1004Z find each other.</summary>
+    public static IEnumerable<string> WithPrefixes(string n, IReadOnlyCollection<string> prefixes)
+    {
+        yield return n;
+        foreach (var p in prefixes)
+        {
+            if (n.StartsWith(p, StringComparison.Ordinal)) { if (n.Length > p.Length) yield return n[p.Length..]; }
+            else yield return p + n;
+        }
     }
 
     public static List<PartHit> Match(Dictionary<string, List<PartHit>> index, IEnumerable<string?> names) =>

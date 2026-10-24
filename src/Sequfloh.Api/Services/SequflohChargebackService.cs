@@ -239,7 +239,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var jobFields = new List<(string, string?)>();
         if (on.Contains("job"))
             jobFields.AddRange([("Work order", x.WorkOrderNumber), ("Record", x.TrackingNumber), ("Job type", job?.Type),
-                ("Work instruction", job is null ? null : $"{job.WorkInstructionNumber} rev {job.WorkInstructionRevision} {job.Title}".Trim()),
+                ("Work instruction", job is null ? null : (string.IsNullOrEmpty(job.WorkInstructionNumber) ? "—" : $"{job.WorkInstructionNumber} rev {job.WorkInstructionRevision} {job.Title}").Trim()),
                 ("Dates", x.DateFrom is null && x.DateTo is null ? null : $"{x.DateFrom:yyyy-MM-dd} to {x.DateTo:yyyy-MM-dd}"), ("Status", job?.Status)]);
         if (on.Contains("part")) jobFields.AddRange([("Assembly part number", x.PartNumber ?? "—"), ("Description", x.PartDescription ?? "—")]);
         if (on.Contains("task")) jobFields.Add(("Task description", x.TaskDescription));
@@ -267,20 +267,32 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         if (on.Contains("correctiveAction")) repair.Add(("Corrective action requested", x.CorrectiveAction));
         if (repair.Any(v => !string.IsNullOrWhiteSpace(v.Item2))) blocks.Add(new(on.Contains("rootCause") ? "rootCause" : "correctiveAction", "Repair description", repair));
 
-        // worker time: crew (no names) and registered people, then the combined total
-        if (on.Contains("crewSummary") && (sessions.Count > 0 || x.CrewHours is not null || x.UserHours is not null))
+        // worker time: crew (no names), named day workers and registered people, then the combined total
+        var named = sessions.Where(s => s.WorkerId != null).ToList();
+        var allCrew = sessions;
+        sessions = [.. sessions.Where(s => s.WorkerId == null)];
+        if (on.Contains("crewSummary") && (allCrew.Count > 0 || x.CrewHours is not null || x.UserHours is not null))
         {
             var sizes = sessions.Select(s => s.CrewSize).Distinct().Order().ToList();
-            var crewLabor = x.CrewHours ?? (sessions.Count > 0 ? Math.Round(sessions.Sum(s => SequflohCrewService.Labor(s, now)) / 3600m, 2) : (decimal?)null);
+            // CrewHours on the report covers the nameless crew and the day workers together
+            var crewAll = x.CrewHours ?? (allCrew.Count > 0 ? Math.Round(allCrew.Sum(s => SequflohCrewService.Labor(s, now)) / 3600m, 2) : (decimal?)null);
+            var dayHours = named.Count > 0 ? Math.Round(named.Sum(s => SequflohCrewService.Labor(s, now)) / 3600m, 2) : (decimal?)null;
+            var crewLabor = crewAll is { } ca ? ca - (dayHours ?? 0) : (decimal?)null;
             blocks.Add(new("crewSummary", "Worker time", [
                 ("Crew elapsed hours", sessions.Count == 0 ? null : SequflohCrewService.H(sessions.Sum(s => SequflohCrewService.Worked(s, now))) + " (paused time excluded)"),
                 ("Crew size", sizes.Count == 0 ? null : sizes.Count == 1 ? I(sizes[0]) : $"{sizes[0]} to {sizes[^1]}"),
-                ("Crew labor hours", Hd(crewLabor) is { } cl ? cl + " (elapsed × crew size)" : null),
+                ("Crew labor hours", sessions.Count == 0 && dayHours is not null ? null : Hd(crewLabor) is { } cl ? cl + " (elapsed × crew size)" : null),
+                ("Day worker hours", Hd(dayHours) is { } dh ? $"{dh} ({named.Select(s => s.WorkerId).Distinct().Count()} named)" : null),
                 ("Registered people hours", Hd(x.UserHours)),
-                ("Combined total", crewLabor is null && x.UserHours is null ? null : Hd((crewLabor ?? 0) + (x.UserHours ?? 0))),
+                ("Combined total", crewAll is null && x.UserHours is null ? null : Hd((crewAll ?? 0) + (x.UserHours ?? 0))),
                 ("Total personnel", I(x.TotalPersonnel)),
             ]));
         }
+        if (on.Contains("crewSummary") && named.Count > 0)
+            blocks.Add(new("dayWorkers", "Day workers", Columns: [("Name", 3), ("Sessions", 1), ("Worked hours", 1.3), ("Paused hours (not counted)", 1.8)],
+                Rows: [.. named.GroupBy(s => s.WorkerId).Select(g => new string?[] { g.Last().WorkerName, I(g.Count()), SequflohCrewService.H(g.Sum(s => SequflohCrewService.Worked(s, now))), SequflohCrewService.H(g.Sum(s => SequflohCrewService.Paused(s, now))) })
+                        .OrderBy(r => r[0], StringComparer.OrdinalIgnoreCase),
+                    ["Total", I(named.Count), SequflohCrewService.H(named.Sum(s => SequflohCrewService.Worked(s, now))), SequflohCrewService.H(named.Sum(s => SequflohCrewService.Paused(s, now)))]]));
         if (on.Contains("crewSessions") && sessions.Count > 0)
             blocks.Add(new("crewSessions", "Crew time sessions", Columns: [("Date", 1.4), ("Start", 1.1), ("Stop", 1.1), ("Paused hours", 1.2), ("Crew size", 1), ("Hours", 1), ("Labor hours", 1.2)],
                 Rows: [.. sessions.Select(s => new string?[] { local(s.StartedAt)[..10], local(s.StartedAt)[11..16], s.StoppedAt is { } st ? local(st)[11..16] : "running",

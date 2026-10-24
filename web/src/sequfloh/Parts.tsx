@@ -17,8 +17,8 @@ import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { ImportPartsDialog } from './PartsImport';
 import { ChangeFamilyDialog } from './ChangeFamily';
-import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
-import { StatusEditor, useStatusFilter } from './Job';
+import { DrawingFileFields, DrawingPicker, PartDrawingLinks, ViewDrawingButton, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
+import { InventoryNote } from './Job';
 import { partNo } from './partLabel';
 import { RecordActions } from '../components/RecordActions';
 import { LOT_CHOICES, UNITS, Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, type Col, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
@@ -30,7 +30,7 @@ const partTypeValue: Record<string, number> = { Component: 0, Assembly: 1, Mater
 const masterStatuses = ['Active', 'Inactive', 'Obsolete'];
 /** Labels of the Part Master number fields: the OR # is the part number and the SENSEN # is the drawing number. */
 export const PN_LABEL = 'OR # (Part number)';
-export const DWG_LABEL = 'SENSEN # (Dwg #)';
+export const DWG_LABEL = 'DWG #';
 interface PartTypeValue { id: string; code: string; label: string; isActive: boolean }
 interface AttrDef { key: string; label: string; maxLength: number; types?: string[] | null; notTypes?: string[] | null }
 const FUEL_PUMP = 'FUEL_PUMP';
@@ -41,6 +41,7 @@ const pnLabel = (code?: string) => (code === FUEL_PUMP ? 'OR PN' : PN_LABEL);
 /** Values of the admin-managed product families list, including deactivated ones (shown on parts that still have them). */
 const usePartTypes = () => useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<PartTypeValue[]>(`${S}/reference/product-families`), staleTime: 60_000 });
 /** Attribute fields defined on the server (cross-reference numbers and others). */
+const usePartFields = () => useQuery({ queryKey: ['sqf-part-fields'], queryFn: () => get<{ key: string; label: string }[]>(`${S}/parts/fields`), staleTime: 300_000 });
 const useAttrDefs = () => useQuery({ queryKey: ['sqf-part-attrs'], queryFn: () => get<AttrDef[]>(`${S}/parts/attributes`), staleTime: 300_000 });
 const attrsOf = (json?: string | null): Record<string, string> => { try { return json ? JSON.parse(json) : {}; } catch { return {}; } };
 const COLS_KEY = 'sqf-parts-hidden-cols';
@@ -52,7 +53,7 @@ const withCurrent = (list: string[], current?: string) => (current && !list.some
 
 // ------------------------------------------------------------------ Part Master
 interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; partClass?: string | null; isAssembly?: boolean; lotControl?: string | null; unitOfMeasure: string;
-  status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string; statusTag?: string | null; statusNote?: string | null;
+  status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string;
   typeId?: string | null; typeName?: string | null; attributes?: string | null; notes?: string | null }
 const viewHelp: Record<string, string> = {
   repairable: 'Parts marked Repairable: the part itself can be repaired and can be the subject of a repair work order.',
@@ -90,8 +91,6 @@ export function PartMasterPage() {
   const [changing, setChanging] = useState(false);
   const [ticked, setTicked] = useState<string[]>([]);
   const canChange = can('sequfloh.edit_parts') && can('parts.edit');
-  const tagFilter = useStatusFilter();
-  const qc = useQueryClient();
   const family = !view && v('partType') ? (v('partType') === 'none' ? 'No product family' : types.data?.find((t) => t.id === v('partType'))?.label) : undefined;
   const preset = family && v('partType') !== 'none' ? family : undefined;
   const familyCode = types.data?.find((t) => t.id === v('partType'))?.code;
@@ -104,7 +103,6 @@ export function PartMasterPage() {
           { key: 'isAssembly', label: 'Assembly', render: (r) => yes(r.isAssembly) }, { key: 'unitOfMeasure', label: 'UoM' },
           { key: 'flags', label: 'Repairable / Serialized / Lot', render: (r) => `${yes(r.isRepairable)} / ${yes(r.isSerialized)} / ${r.lotControl ?? yes(r.isLotControlled)}` },
           { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
-          { key: 'statusTag', label: 'Official status in NetSuite', render: (r) => <StatusEditor compact kind="part" id={r.id} tag={r.statusTag} note={r.statusNote} canEdit={can('sequfloh.edit_parts')} onSaved={() => qc.invalidateQueries({ queryKey: ['sqf-parts'] })} /> },
           { key: 'updatedAt', label: 'Updated', sort: true, render: (r) => fmtDateTime(r.updatedAt) }];
   // the Fuel Pump list leads with the numbers of the fuel pump sheet
   const lead = familyCode === FUEL_PUMP ? FP_COLS : ['partNumber'];
@@ -140,8 +138,8 @@ export function PartMasterPage() {
           </Menu></>}
         onClear={() => { setSp(view ? { view } : family ? { partType: v('partType') } : {}); setPage(1); }}
         filters={[{ key: 'partType', label: 'Product family', options: [['none', 'No product family'], ...(types.data ?? []).map((t): [string, string] => [t.id, t.isActive ? t.label : `${t.label} (inactive)`])] },
-          { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) },
-          tagFilter]} />
+          { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) }]} />
+      <InventoryNote />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
         selected={canChange ? ticked : undefined} onSelect={canChange ? setTicked : undefined}
         cols={allCols.filter((c) => !isHidden(c.key))} />
@@ -163,7 +161,7 @@ function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number
   return (
     <Stack gap={3}>
       <ListToolbar onSubmit={() => setQ(text.trim())}>
-        <TextField size="small" label="Search parts" placeholder="OR #, SENSEN #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} sx={{ width: { xs: '100%', sm: 480 } }} />
+        <TextField size="small" label="Search parts" placeholder="OR #, DWG #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} sx={{ width: { xs: '100%', sm: 480 } }} />
         <Button type="submit" variant="outlined">Search</Button>
       </ListToolbar>
       {q && <Paper variant="outlined" data-testid="parts-search-results">
@@ -191,7 +189,7 @@ function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number
   );
 }
 
-interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record<string, string>; productId?: string; material?: string; hasSpecialCharacteristics: boolean; siteId: string; departmentId?: string; rowVersion: number; createdAt: string; createdBy: string; updatedBy: string };
+interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record<string, string>; productId?: string; material?: string; hasSpecialCharacteristics: boolean; hiddenFields?: string[]; siteId: string; departmentId?: string; rowVersion: number; createdAt: string; createdBy: string; updatedBy: string };
   revisions: { id: string; revision: string; reason: string; createdAt: string }[]; partsLists: { id: string; number: string; title: string; revision: string; status: string; listType: string }[];
   related: { partsLists: number }; canEdit: boolean; canEditMaster: boolean }
 
@@ -205,6 +203,9 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
   const attrDefs = useAttrDefs();
   const [typeId, setTypeId] = useState('');
   const [attrs, setAttrs] = useState<Record<string, string>>({});
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [naOpen, setNaOpen] = useState(false);
+  const fieldDefs = usePartFields();
   const typeCode = types.data?.find((t) => t.id === typeId)?.code;
   const shownAttrs = (attrDefs.data ?? []).filter((d) => attrFor(d, typeCode));
   const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'Each', material: '', siteId: '', status: 'Active',
@@ -212,7 +213,7 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
   const [f, setF] = useState(blank);
   const [err, setErr] = useState<string | null>(null);
   const init = () => {
-    setLinks([]); setInline(null); setTypeId(edit?.typeId ?? ''); setAttrs({ ...(edit?.attributes ?? {}) });
+    setLinks([]); setInline(null); setTypeId(edit?.typeId ?? ''); setAttrs({ ...(edit?.attributes ?? {}) }); setHidden(edit?.hiddenFields ?? []);
     if (edit && drawingsOk) get<PartDrawing[]>(`/api/drawings/for-part?partId=${edit.id}`).then((l) => setLinks(l.map((d) => ({ id: d.id, label: `${d.drawingNumber ? d.drawingNumber + ' · ' : ''}${d.title} (rev ${d.currentRevision})` })))).catch(() => undefined);
     const lc = (e?: PartDetail['part']) => (e ? (e.lotControl || (e.isLotControlled ? 'Yes' : 'No')) : '');
     setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, siteId: sites.data?.[0]?.id ?? '' }); };
@@ -227,7 +228,7 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
       execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isRepairPart: f.isRepairPart, isSerialized: f.isSerialized, isLotControlled: f.lotControl === 'Yes',
         partClass: nul(f.partClass), isAssembly: f.isAssembly, lotControl: nul(f.lotControl),
         drawingNumber: nul(f.drawingNumber), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 },
-      typeId: typeId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])), notes: f.notes };
+      typeId: typeId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])), notes: f.notes, hiddenFields: edit || hidden.length ? hidden : null };
     try {
       let id = edit?.id;
       if (edit) await put(`${S}/parts/${edit.id}`, body); else id = (await post<{ id: string }>(`${S}/parts`, body)).id;
@@ -280,6 +281,14 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
         <Typography variant="caption" color="text.secondary" component="p" data-testid="repair-flags-help">
           Repairable: the part itself can be repaired. Repair part: a component or replacement part ordered to carry out repairs (screws, nuts, top mounts); only these appear in Repair Parts.
         </Typography>
+        <Paper variant="outlined" sx={{ p: 2, mt: 1 }} data-testid="part-na-fields">
+          <Stack direction="row" alignItems="center" gap={1}><Typography variant="subtitle2">Not applicable on this part's screen{hidden.length ? ` (${hidden.length} hidden)` : ''}</Typography>
+            <Button size="small" data-testid="part-na-toggle" onClick={() => setNaOpen(!naOpen)}>{naOpen ? 'Done' : 'Choose fields'}</Button></Stack>
+          <Typography variant="caption" color="text.secondary" component="p">Ticked fields are hidden on this part's page. Their values are kept, and the page can show them again.{!edit && ' Left empty, the product family defaults apply.'}</Typography>
+          {naOpen && <Stack direction="row" flexWrap="wrap" columnGap={2}>{(fieldDefs.data ?? []).filter((d) => !(attrDefs.data ?? []).some((a) => a.key === d.key) || shownAttrs.some((a) => a.key === d.key) || hidden.includes(d.key)).map((d) =>
+            <FormControlLabel key={d.key} control={<Checkbox size="small" checked={hidden.includes(d.key)} 
+              onChange={(_, c) => setHidden(c ? [...hidden, d.key] : hidden.filter((x) => x !== d.key))} />} label={d.label} />)}</Stack>}
+        </Paper>
         {drawingsOk && <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
           <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Drawings</Typography>
           <DrawingPicker value={links} onChange={setLinks} />
@@ -292,7 +301,7 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
   );
 }
 
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) =>
+const Field = ({ label, children, hide }: { label: string; children: React.ReactNode; hide?: boolean }) => hide ? null :
   <Box><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="body2">{children ?? '—'}</Typography></Box>;
 
 export function PartDetailPage() {
@@ -302,10 +311,12 @@ export function PartDetailPage() {
   const [edit, setEdit] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState('overview');
+  const [showHidden, setShowHidden] = useState(false);
   const attrDefs = useAttrDefs();
   const ptypes = usePartTypes();
   const p = q.data?.part;
   const code = ptypes.data?.find((t) => t.id === p?.typeId)?.code;
+  const hid = (k: string) => !showHidden && !!p?.hiddenFields?.includes(k);
   const refresh = () => { qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); qc.invalidateQueries({ queryKey: ['sqf-part', id] }); };
   return (
     <SqfPage title={p ? `${p.partNumber} · ${p.name}` : 'Part'} crumbs={crumbs('Part Master', { label: p?.partNumber ?? '…' })} recent={p ? { label: `Part ${p.partNumber}`, itemType: 'Part', recordId: p.id } : null}
@@ -318,20 +329,22 @@ export function PartDetailPage() {
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : p && <>
         {p.notes && <Alert severity="warning" icon={false} sx={{ mb: 2, whiteSpace: 'pre-wrap' }} data-testid="part-notes"><Typography variant="subtitle2">Notes</Typography>{p.notes}</Alert>}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="part-drawings-box"><Typography variant="subtitle2" sx={{ mb: 1 }}>Drawings</Typography><PartDrawingLinks partId={p.id} /></Paper>
-        <StatusEditor kind="part" id={p.id} tag={p.statusTag} note={p.statusNote} canEdit={!!q.data?.canEdit} onSaved={refresh} />
+        <InventoryNote />
         {tab === 'overview' && !p.typeId && <Alert severity="warning" sx={{ mb: 2 }} data-testid="set-part-type"
           action={q.data?.canEdit && <Button color="inherit" size="small" onClick={() => setEdit(true)}>Set product family</Button>}>This part has no product family yet.</Alert>}
         {tab === 'overview' && <Paper variant="outlined" sx={{ p: 2 }}>
           {!q.data!.canEditMaster && q.data!.canEdit && <Alert severity="info" sx={{ mb: 2 }}>You can change SEQUFLOH execution attributes. Core Part Master fields need Master Data edit permission.</Alert>}
+          {(p.hiddenFields?.length ?? 0) > 0 && <Button size="small" sx={{ mb: 1 }} data-testid="show-hidden-fields" onClick={() => setShowHidden(!showHidden)}>
+            {showHidden ? 'Hide not-applicable fields' : `Show ${p.hiddenFields!.length} not-applicable field${p.hiddenFields!.length === 1 ? '' : 's'}`}</Button>}
           <Grid cols={4}>
-            <Field label={pnLabel(code)}><Mono>{p.partNumber}</Mono></Field><Field label="Name">{p.name}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
-            <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class">{p.partClass}</Field><Field label="Assembly">{yes(p.isAssembly)}</Field><Field label="Unit of measure">{p.unitOfMeasure}</Field>
-            <Field label="Repairable">{yes(p.isRepairable)}</Field><Field label="Repair part">{yes(!!p.isRepairPart)}</Field><Field label="Serialized">{yes(p.isSerialized)}</Field><Field label="Lot controlled">{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material">{p.material}</Field>
-            {(attrDefs.data ?? []).filter((d) => attrFor(d, code)).map((d) => <Field key={d.key} label={d.label}>{p.attributes?.[d.key]}</Field>)}
+            <Field label={pnLabel(code)}><Mono>{p.partNumber}</Mono><ViewDrawingButton partId={p.id} /></Field><Field label="Name">{p.name}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
+            <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class" hide={hid('partClass')}>{p.partClass}</Field><Field label="Assembly" hide={hid('isAssembly')}>{yes(p.isAssembly)}</Field><Field label="Unit of measure" hide={hid('unitOfMeasure')}>{p.unitOfMeasure}</Field>
+            <Field label="Repairable" hide={hid('isRepairable')}>{yes(p.isRepairable)}</Field><Field label="Repair part" hide={hid('isRepairPart')}>{yes(!!p.isRepairPart)}</Field><Field label="Serialized" hide={hid('isSerialized')}>{yes(p.isSerialized)}</Field><Field label="Lot controlled" hide={hid('isLotControlled')}>{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material" hide={hid('material')}>{p.material}</Field>
+            {(attrDefs.data ?? []).filter((d) => attrFor(d, code)).map((d) => <Field key={d.key} label={d.label} hide={hid(d.key)}>{p.attributes?.[d.key]}</Field>)}
             {(attrDefs.data ?? []).filter((d) => !attrFor(d, code) && p.attributes?.[d.key]).map((d) => <Field key={d.key} label={`${d.label} (kept from another family)`}>{p.attributes?.[d.key]}</Field>)}
-            {code !== FUEL_PUMP && <Field label={DWG_LABEL}>{p.drawingNumber}</Field>}<Field label="Specification">{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
+            {code !== FUEL_PUMP && <Field label={DWG_LABEL} hide={hid('drawingNumber')}>{p.drawingNumber}</Field>}<Field label="Specification" hide={hid('specification')}>{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
-          {p.description && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}
+          {p.description && !hid('description') && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}
           <Typography variant="subtitle2" sx={{ mt: 2 }}>Related SEQUFLOH records</Typography>
           <Typography variant="body2">Parts lists: {q.data!.related.partsLists}</Typography>
         </Paper>}
@@ -387,7 +400,7 @@ function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChan
     getOptionLabel={(p) => `${partNo(p)} · ${p.name}`} noOptionsText={text ? 'No part matches' : 'Type a part number'}
     renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partNo(p)} · {p.name}</Typography>{otherNumbers(p) && <Typography variant="caption" color="text.secondary">{otherNumbers(p)}</Typography>}</Box></li>}
     onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, p) => onChange(p?.id ?? '', p?.partNumber)}
-    renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by OR #, SENSEN #, NAPA, DMA or JH PN" />} />;
+    renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by OR #, DWG #, NAPA, DMA or JH PN" />} />;
 }
 
 interface ListDetail { list: { id: string; number: string; title: string; parentPartId?: string; revision: string; status: string; description?: string; listType: string; releasedAt?: string; releasedBy: string;

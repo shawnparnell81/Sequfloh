@@ -58,6 +58,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Repair Test Instructions', path: '/sequfloh/instructions/repair-test' },
         { label: 'Repair Work Instructions', path: '/sequfloh/instructions/repair' },
         { label: 'Inspection Work Instructions', path: '/sequfloh/instructions/inspection' },
+        { label: 'Procedure Instructions', path: '/sequfloh/instructions/procedure' },
         { label: 'Draft Instructions', path: '/sequfloh/instructions/draft' },
         { label: 'Released Instructions', path: '/sequfloh/instructions/released' },
         { label: 'Obsolete Instructions', path: '/sequfloh/instructions/obsolete' },
@@ -80,6 +81,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Blank Forms', path: '/sequfloh/imported-files?kind=blank' },
         { label: 'Filled Forms', path: '/sequfloh/imported-files?kind=filled' },
       ] },
+      { label: 'Completed Validation/FAI', path: '/sequfloh/completed-forms', permission: 'sequfloh.view_imported_files', icon: <ArchitectureOutlined fontSize="small" />, match: ['/sequfloh/completed-forms'] },
       { label: 'Parts Drawings', path: '/sequfloh/drawings', permission: 'sequfloh.view_drawings', icon: <ArchitectureOutlined fontSize="small" />, match: ['/sequfloh/drawings'] },
       { label: 'Quality', path: '/sequfloh/quality', permission: 'sequfloh.view_quality_folder', icon: <VerifiedOutlined fontSize="small" />, match: ['/sequfloh/quality'], children: [
         { label: 'Quality Dashboard', path: '/sequfloh/quality' },

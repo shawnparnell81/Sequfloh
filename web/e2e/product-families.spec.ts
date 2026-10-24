@@ -23,10 +23,10 @@ test('product families and cross-reference fields', async ({ page }) => {
   await view(page).getByRole('button', { name: 'New part' }).click();
   const dlg = page.getByRole('dialog');
   await expect(dlg.getByLabel('OR # (Part number)')).toBeVisible();
-  await expect(dlg.getByLabel('SENSEN # (Dwg #)')).toBeVisible();
+  await expect(dlg.getByLabel('DWG #')).toBeVisible();
   await dlg.getByLabel('OR # (Part number)').fill(`OR-${k}`);
   await choosePartName(page, 'Struts');
-  await dlg.getByLabel('SENSEN # (Dwg #)').fill(`SN-${k}`);
+  await dlg.getByLabel('DWG #').fill(`SN-${k}`);
   const site_ = dlg.getByLabel('Site');
   if (!(await site_.textContent())?.trim().replace('\u200b', '')) { await site_.click(); await page.getByRole('option').first().click(); }
   await dlg.getByLabel('Nissan VA #').fill(`NVA-${k}`);

@@ -174,7 +174,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         {
             new PrintHeading("Record"),
             new PrintFields([("Tracking number", x.Number), ("Type", typeTitle), ("Status", W(x.Status)), ("Result", W(x.Result)), ("Priority", x.Priority),
-                ("Work instruction", $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision}"), ("Instruction title", x.WorkInstructionTitle), ("Site", site), ("Owner", N(x.OwnerId)), ("Assigned", N(x.AssignedUserId))]),
+                ("Work instruction", (string.IsNullOrEmpty(x.WorkInstructionNumber) ? "—" : $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision}")), ("Instruction title", x.WorkInstructionTitle), ("Site", site), ("Owner", N(x.OwnerId)), ("Assigned", N(x.AssignedUserId))]),
             new PrintHeading("References"),
             new PrintFields([("Part number", x.PartNumber), ("Part description", x.PartDescription), ("Serial number", x.SerialNumber), ("Lot number", x.LotNumber), ("Work order", x.WorkOrder),
                 ("Repair order", x.RepairOrder), ("Customer return", x.CustomerReturnReference), ("Project", x.Project), ("Operation", x.Operation), ("FAI type", x.FaiType)]),
@@ -213,7 +213,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         blocks.Add(new PrintTable([("When", 1.3), ("Event", 1), ("From", 1), ("To", 1), ("User", 1.2), ("Reason / comment", 2.5)],
             events.Select(e => new[] { local(e.CreatedAt), W(e.EventType), W(e.FromStatus), W(e.ToStatus), e.UserName, e.Reason ?? e.Comment }).ToList()));
         var terminal = x.Status is TrackingStatus.Completed or TrackingStatus.Failed or TrackingStatus.Canceled;
-        var header = new PrintHeader(await OrganizationAsync(ct), $"{typeTitle}: {x.WorkInstructionTitle}", x.Number, x.WorkInstructionRevision, W(x.Status), null,
+        var header = new PrintHeader(await OrganizationAsync(ct), $"{typeTitle}: {(string.IsNullOrEmpty(x.WorkInstructionTitle) ? x.Number : x.WorkInstructionTitle)}", x.Number, x.WorkInstructionRevision, W(x.Status), null,
             x.PartNumber is null ? null : $"Part {x.PartNumber}{(x.PartDescription is null ? "" : " " + x.PartDescription)}", settings.WorkInstructions.PrintFooter, current.UserName, printed, terminal ? null : W(x.Status));
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("TrackingRecordPrinted", SequflohTrackingService.EntityType, x.Id, $"Printed {x.Number} ({W(x.Status).ToLowerInvariant()})", x.SiteId);

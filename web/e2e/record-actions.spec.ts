@@ -214,3 +214,107 @@ test('full screen screenshots (window-filling fallback)', async ({ page }) => {
   await shot('05-back-to-normal');
   page.on('dialog', (d) => d.accept());
 });
+
+/**
+ * Work orders without a work instruction, one-click drawings, not-applicable part fields, Completed Validation/FAI and named day workers. Made-up records only.
+ */
+test('fix list: optional instruction, drawings, hidden part fields, completed forms and day workers', async ({ page }) => {
+  test.setTimeout(180_000);
+  const ok = async (r: Promise<import('@playwright/test').APIResponse>) => { const x = await r; expect(x.ok(), await x.text()).toBeTruthy(); return x.status() === 204 ? null : x.json(); };
+  const stamp = Date.now().toString().slice(-6);
+  await signIn(page);
+  const rq = page.request;
+  const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
+
+  // a work order made with no instruction; one is added and removed later from the record page
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Optional instruction ${stamp}`, siteId: site } }))).id as string;
+  const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
+  await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
+    content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Check' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
+  await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', siteId: site, workOrder: `WO-FX${stamp}` } }))).id as string;
+  await page.goto(`/sequfloh/record/${wo}`);
+  const ref = view(page).getByTestId('wo-instruction').first();
+  await expect(ref).toContainText('—');
+  await ref.getByTestId('wo-instruction-change').click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('Released work instruction').fill(`Optional instruction ${stamp}`);
+  await page.getByRole('option', { name: new RegExp(`Optional instruction ${stamp}`) }).click();
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await expect(ref).toContainText(`Optional instruction ${stamp}`);
+  await ref.getByTestId('wo-instruction-remove').click();
+  await expect(ref).not.toContainText(`Optional instruction ${stamp}`);
+
+  // day workers: typed names, each with their own clock, plus entered time
+  await view(page).getByRole('tab', { name: 'Time' }).click().catch(() => {});
+  const dw = view(page).locator('[data-testid="day-workers"]:visible').first();
+  await expect(async () => { await dw.getByTestId('day-worker-name').fill(`Made-up Pat ${stamp}`); await dw.getByTestId('day-worker-add').click({ timeout: 2000 }); }).toPass({ timeout: 30_000 });
+  await expect(dw.locator(`[data-testid="day-worker-row"][data-name="Made-up Pat ${stamp}"]`)).toBeVisible();
+  await dw.getByTestId('day-worker-name').fill(`Made-up Lee ${stamp}`);
+  await dw.getByTestId('day-worker-name').press('Enter');
+  const pat = dw.locator(`[data-testid="day-worker-row"][data-name="Made-up Pat ${stamp}"]`);
+  const lee = dw.locator(`[data-testid="day-worker-row"][data-name="Made-up Lee ${stamp}"]`);
+  await expect(pat).toBeVisible(); await expect(lee).toBeVisible();
+  await pat.getByTestId('day-worker-start').click();
+  await expect(pat.getByTestId('day-worker-pause')).toBeVisible();
+  await expect(lee.getByTestId('day-worker-start')).toBeVisible(); // Lee's clock is separate
+  await pat.getByTestId('day-worker-pause').click();
+  await pat.getByTestId('day-worker-continue').click();
+  await pat.getByTestId('day-worker-stop').click();
+  await expect(pat.getByTestId('day-worker-start')).toBeVisible();
+  await lee.getByTestId('day-worker-add-time').click();
+  const d = new Date(Date.now() - 2 * 86400_000); const p2 = (n: number) => String(n).padStart(2, '0');
+  const at = (h: number) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(h)}:00`;
+  await page.getByTestId('session-start').fill(at(8)); await page.getByTestId('session-stop').fill(at(10));
+  await page.getByTestId('session-save').click();
+  await expect(lee.getByTestId('day-worker-hours')).toHaveText('2.00');
+  await expect(view(page).getByTestId('crew-day-hours').first()).not.toHaveText('0.00');
+  await expect(page.locator('body')).not.toContainText(/\bpay\b/i);
+
+  // drawings: one click opens the viewer; the detail page is behind Details; a single-drawing folder shows it inline
+  const folder = (await ok(rq.post('/api/drawings/folders', { data: { name: `Fix ${stamp}`, siteId: site } }))).id as string;
+  const drawing = (await ok(rq.post(`/api/drawings/folders/${folder}/drawings`, { multipart: {
+    file: { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% made-up test drawing\n%%EOF\n') }, title: 'Test bracket', drawingNumber: `DWG-FX${stamp}`, revision: 'A' } }))).id as string;
+  await page.goto(`/sequfloh/drawings?folder=${folder}`);
+  await expect(view(page).getByTestId('folder-inline-drawing')).toBeVisible();
+  const open = view(page).getByTestId('drawing-open').first();
+  await expect(open).toHaveAttribute('target', '_blank');
+  await view(page).getByTestId('drawing-details').first().click();
+  await expect(page).toHaveURL(new RegExp(`/sequfloh/drawings/d/${drawing}`));
+
+  // a part with Material marked not applicable hides it until Show hidden fields
+  const part = (await ok(rq.post('/api/sequfloh/parts', { data: {
+    part: { partNumber: `FX-${stamp}`, name: 'Test spacer', partType: 0, revision: 'A', unitOfMeasure: 'EA', siteId: site, status: 0, hasSpecialCharacteristics: false, material: 'Made-up steel' },
+    execution: { productFamily: 'Test', isRepairable: false, isSerialized: false, isLotControlled: false }, hiddenFields: ['material'] } }))).id as string;
+  await ok(rq.put(`/api/drawings/for-part/${part}`, { data: { ids: [drawing] } }));
+  await page.goto(`/sequfloh/parts/${part}`);
+  await expect(view(page).getByTestId('view-drawing').first()).toBeVisible();
+  await expect(view(page).getByText('Made-up steel')).toHaveCount(0);
+  await view(page).getByTestId('show-hidden-fields').click();
+  await expect(view(page).getByText('Made-up steel').first()).toBeVisible();
+
+  // Completed Validation/FAI: a filled copy is saved under a family, listed on that tab, and can be moved to Unassigned from Edit
+  const blank = (await ok(rq.post('/api/imported-files', { multipart: {
+    file: { name: `fai-${stamp}.csv`, mimeType: 'text/csv', buffer: Buffer.from('Check,Result\nTorque,\n') }, siteId: site, blankForm: 'true' } }))).id as string;
+  const fam = ((await ok(rq.get('/api/sequfloh/reference/product-families'))) as { id: string; label: string; isActive: boolean }[]).find((f) => f.isActive)!;
+  await page.goto(`/sequfloh/imported-files/${blank}`);
+  await view(page).getByTestId('fill-out').click();
+  const cd = page.getByRole('dialog');
+  await cd.getByTestId('copy-title').fill(`FAI copy ${stamp}`);
+  await cd.getByLabel('Product family').click();
+  await page.getByRole('option', { name: fam.label, exact: true }).click();
+  await cd.getByTestId('copy-confirm').click();
+  await page.waitForURL((u) => u.pathname.startsWith('/sequfloh/imported-files/') && !u.pathname.endsWith(blank));
+  await page.goto('/sequfloh/completed-forms');
+  await page.getByRole('tab', { name: fam.label, exact: true }).click();
+  const row = view(page).getByRole('row', { name: new RegExp(`FAI copy ${stamp}`) });
+  await expect(row).toBeVisible();
+  await expect(row.getByTestId('completed-print')).toBeVisible();
+  await row.getByTestId('completed-open').click();
+  await view(page).locator('[data-action="edit"]').first().click();
+  await page.getByRole('dialog').getByLabel('Product family').click();
+  await page.getByRole('option', { name: 'Unassigned' }).click();
+  await page.getByTestId('family-save').click();
+  await page.goto('/sequfloh/completed-forms?family=none');
+  await expect(view(page).getByRole('row', { name: new RegExp(`FAI copy ${stamp}`) })).toBeVisible();
+});

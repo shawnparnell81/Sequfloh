@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Sequfloh.Application.Abstractions;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
@@ -239,5 +240,81 @@ public sealed class CrewChargebackTests(TestApp app)
         var upd = await d2.AuditEntries.AsNoTracking().SingleAsync(e => e.EntityId == rep.Id() && e.Action == "ChargebackReportUpdated");
         Assert.Contains("before", upd.Changes!); Assert.Contains("after", upd.Changes!);
         Assert.Contains("37", upd.Changes!); Assert.Contains("40", upd.Changes!);
+    }
+
+    [Fact]
+    public async Task Named_day_workers_have_their_own_clocks_and_are_listed_by_name_on_the_chargeback()
+    {
+        var (_, id, lead, plain, _) = await JobAsync();
+        // nameless crew time keeps working next to the named workers
+        var day = DateTimeOffset.UtcNow.AddDays(-2).Date;
+        var start = new DateTimeOffset(day.AddHours(13), TimeSpan.Zero);
+        await lead.PostOkAsync($"{U}/{id}/crew/sessions", new { crewSize = 2, start, stop = start.AddHours(4) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync($"{U}/{id}/crew/workers", new { name = "  " })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await plain.PostAsync($"{U}/{id}/crew/workers", new { name = "Made-up Pat" })).StatusCode);
+        await lead.PostOkAsync($"{U}/{id}/crew/workers", new { name = "Made-up Pat" });
+        await lead.PostOkAsync($"{U}/{id}/crew/workers", new { name = "Made-up Lee" });
+        Assert.Equal(HttpStatusCode.Conflict, (await lead.PostAsync($"{U}/{id}/crew/workers", new { name = "made-up pat" })).StatusCode);
+        var sum = await lead.GetElAsync($"{U}/{id}/crew");
+        var pat = sum.GetProperty("workers").EnumerateArray().First(w => w.Str("name") == "Made-up Pat").Id();
+        var lee = sum.GetProperty("workers").EnumerateArray().First(w => w.Str("name") == "Made-up Lee").Id();
+
+        // each worker has their own clock, and it can run while the crew and other workers are on
+        await lead.PostOkAsync($"{U}/{id}/crew/start", new { crewSize = 1, workerId = pat });
+        Assert.Equal(HttpStatusCode.Conflict, (await lead.PostAsync($"{U}/{id}/crew/start", new { crewSize = 1, workerId = pat })).StatusCode);
+        await lead.PostOkAsync($"{U}/{id}/crew/start", new { crewSize = 1, workerId = lee });
+        await lead.PostOkAsync($"{U}/{id}/crew/pause?workerId={pat}", new { });
+        await lead.PostOkAsync($"{U}/{id}/crew/continue?workerId={pat}", new { });
+        await lead.PostOkAsync($"{U}/{id}/crew/stop?workerId={pat}", new { });
+        sum = await lead.GetElAsync($"{U}/{id}/crew");
+        Assert.Equal(JsonValueKind.Null, sum.GetProperty("running").ValueKind); // the crew clock is not affected
+        Assert.NotEqual(JsonValueKind.Null, sum.GetProperty("workers").EnumerateArray().First(w => w.Id() == lee).GetProperty("running").ValueKind);
+        await lead.PostOkAsync($"{U}/{id}/crew/stop?workerId={lee}", new { });
+
+        // entered time: per-worker overlap check, no future end, and the crew's times don't clash with a worker's
+        await lead.PostOkAsync($"{U}/{id}/crew/sessions", new { crewSize = 1, workerId = pat, start, stop = start.AddHours(3), pauses = new[] { new { from = start.AddHours(1), to = start.AddHours(1.5) } } });
+        Assert.Equal(HttpStatusCode.Conflict, (await lead.PostAsync($"{U}/{id}/crew/sessions", new { crewSize = 1, workerId = pat, start = start.AddHours(2), stop = start.AddHours(5) })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync($"{U}/{id}/crew/sessions", new { crewSize = 1, workerId = lee, start = DateTimeOffset.UtcNow, stop = DateTimeOffset.UtcNow.AddHours(3) })).StatusCode);
+        await lead.PostOkAsync($"{U}/{id}/crew/sessions", new { crewSize = 1, workerId = lee, start, stop = start.AddHours(2) });
+        sum = await lead.GetElAsync($"{U}/{id}/crew");
+        var leeSession = sum.GetProperty("sessions").EnumerateArray().First(x => x.GetProperty("workerId").ValueKind != JsonValueKind.Null && x.GetProperty("workerId").GetGuid() == lee && x.GetProperty("entered").GetBoolean()).Id();
+        Assert.True((await lead.PutAsync($"{U}/crew/sessions/{leeSession}", new { crewSize = 9, start, stop = start.AddHours(1) })).IsSuccessStatusCode);
+        sum = await lead.GetElAsync($"{U}/{id}/crew");
+        var edited = sum.GetProperty("sessions").EnumerateArray().First(x => x.Id() == leeSession);
+        Assert.Equal(1, edited.GetProperty("crewSize").GetInt32()); // a named worker is always one person
+        Assert.Equal(3600, edited.GetProperty("laborSeconds").GetInt64());
+        Assert.True((await lead.PutAsync($"{U}/crew/workers/{lee}", new { name = "Made-up Lee Ray" })).IsSuccessStatusCode);
+
+        // totals: crew 2 x 4 h = 8, Pat 2.5 h entered (+ seconds live), Lee 1 h (+ seconds live)
+        var labor = sum.GetProperty("crewLaborSeconds").GetInt64();
+        Assert.InRange(labor, (8 + 2.5 + 1) * 3600, (8 + 2.5 + 1) * 3600 + 120);
+        Assert.InRange(sum.GetProperty("dayWorkerSeconds").GetInt64(), 3.5 * 3600, 3.5 * 3600 + 120);
+        Assert.Equal(4, sum.GetProperty("personnel").GetInt32()); // crew of 2 plus two named workers
+
+        var rep = await (await lead.PostOkAsync(C, new { workOrderNumber = "WO-MADEUP-DW", trackingRecordId = id })).JsonAsync();
+        var view = await lead.GetElAsync($"{C}/{rep.Id()}/view");
+        var dw = view.EnumerateArray().First(b => b.Str("key") == "dayWorkers");
+        var names = dw.GetProperty("rows").EnumerateArray().Select(r => r[0].GetString()).ToList();
+        Assert.Contains("Made-up Pat", names); Assert.Contains("Made-up Lee Ray", names); Assert.Contains("Total", names);
+        var summary = view.EnumerateArray().First(b => b.Str("key") == "crewSummary").GetProperty("fields").EnumerateArray().ToDictionary(f => f.Str("label")!, f => f.Str("value")!);
+        Assert.StartsWith("8.00", summary["Crew labor hours"]);
+        Assert.StartsWith("3.5", summary["Day worker hours"]);
+        Assert.StartsWith("11.5", summary["Combined total"]);
+        var crewRows = view.EnumerateArray().First(b => b.Str("key") == "crewSessions").GetProperty("rows").GetArrayLength();
+        Assert.Equal(2, crewRows); // the nameless session plus the total row
+
+        // removing a worker removes their time and is audited
+        Assert.Equal(HttpStatusCode.NoContent, (await lead.DeleteAsync($"{U}/crew/workers/{pat}")).StatusCode);
+        sum = await lead.GetElAsync($"{U}/{id}/crew");
+        Assert.DoesNotContain(sum.GetProperty("sessions").EnumerateArray(), x => x.GetProperty("workerId").ValueKind != JsonValueKind.Null && x.GetProperty("workerId").GetGuid() == pat);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var audit = await db.AuditEntries.Where(a => a.EntityId == id).Select(a => a.Action + ": " + a.Description).ToListAsync();
+        Assert.Contains(audit, a => a.StartsWith("DayWorkerAdded") && a.Contains("Made-up Pat"));
+        Assert.Contains(audit, a => a.StartsWith("DayWorkerRenamed") && a.Contains("from Made-up Lee to Made-up Lee Ray"));
+        Assert.Contains(audit, a => a.StartsWith("DayWorkerRemoved") && a.Contains("Made-up Pat"));
+        Assert.Contains(audit, a => a.StartsWith("CrewStarted") && a.Contains("Made-up Pat clocked on"));
+        Assert.Contains(audit, a => a.StartsWith("CrewTimeEdited") && a.Contains("Made-up Lee"));
     }
 }

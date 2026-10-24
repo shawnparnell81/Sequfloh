@@ -17,7 +17,7 @@ export interface DSection { key: string; title: string; fields: DField[] }
 export interface DSchema { type: string; title: string; numberingType: string; sections: DSection[]; stepsTitle: string; stepColumns: DField[]; hasCharacteristics: boolean;
   characteristicColumns: DField[]; hasPartsRows: boolean; partsRowColumns: DField[] }
 export const useSchemas = () => useQuery({ queryKey: ['sqf-wi-schema'], queryFn: () => get<DSchema[]>(`${S}/instructions/schema`), staleTime: Infinity });
-export const typeLabels: Record<string, string> = { Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection' };
+export const typeLabels: Record<string, string> = { Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection', Procedure: 'Procedure Instructions' };
 export const types = Object.keys(typeLabels);
 
 export type Row = Record<string, unknown> & { id?: string; sequence?: number };

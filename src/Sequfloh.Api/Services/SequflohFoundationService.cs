@@ -246,6 +246,15 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
             await db.Parts.Where(p => p.TypeId == v.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.ProductFamily, v.Label), ct);
     }
 
+    /// <summary>The fields that start as Not applicable on new and imported parts of a product family.</summary>
+    public async Task SetFamilyHiddenFieldsAsync(Guid id, List<string>? keys, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
+        var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == id && x.ListKey == SequflohCatalog.ProductFamilies, ct) ?? throw new NotFoundException("Product family");
+        v.HiddenFields = PartFields.Write(keys);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task SetActiveAsync(Guid id, bool active, CancellationToken ct)
     {
         await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);

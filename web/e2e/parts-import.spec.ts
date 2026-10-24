@@ -24,7 +24,7 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await expect(dlg.getByText('7 rows found')).toBeVisible();
   await expect(dlg.locator('input[data-field="partNumber"]')).toHaveValue('col:0');
   await expect(dlg.locator('input[data-field="isRepairPart"]')).toHaveValue('col:5');
-  await expect(dlg.locator('input[data-field="statusTag"]')).toHaveValue('col:6');
+  await expect(dlg.locator('input[data-field="statusTag"]')).toHaveCount(0); // the NetSuite Status column is ignored
   await expect(dlg.getByRole('button', { name: 'Preview' })).toBeDisabled();
   await dlg.getByRole('combobox', { name: /^Name/ }).click();
   await page.getByRole('option', { name: 'Gas Lift', exact: true }).click();

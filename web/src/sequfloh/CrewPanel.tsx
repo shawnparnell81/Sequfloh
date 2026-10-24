@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Tooltip, Typography } from '@mui/material';
@@ -10,11 +10,13 @@ import { fmtDateTime } from '../components/Status';
 import { S } from './common';
 
 interface Pause { from: string; to: string }
-interface Session { id: string; crewSize: number; startedAt: string; stoppedAt?: string | null; entered: boolean; note?: string | null; elapsedSeconds: number; pausedSeconds: number; workedSeconds: number; laborSeconds: number; pauses: Pause[] }
+interface Session { id: string; crewSize: number; workerId?: string | null; workerName?: string | null; startedAt: string; stoppedAt?: string | null; entered: boolean; note?: string | null; elapsedSeconds: number; pausedSeconds: number; workedSeconds: number; laborSeconds: number; pauses: Pause[] }
 export interface CrewSummary {
   serverTime: string; canEdit: boolean; running?: { id: string; crewSize: number; startedAt: string; pausedAt?: string | null; seconds: number; pausedSeconds: number } | null;
   crewWorkedSeconds: number; crewPausedSeconds: number; crewLaborSeconds: number; userSeconds: number; users: number; totalSeconds: number; personnel: number; maxCrew: number; sessions: Session[];
+  dayWorkerSeconds?: number; workers?: Worker[];
 }
+interface Worker { id: string; name: string; seconds: number; running?: { id: string; startedAt: string; pausedAt?: string | null; seconds: number; pausedSeconds: number } | null }
 
 export const hrs = (s: number) => (s / 3600).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -41,6 +43,7 @@ export function CrewPanel({ recordId }: { recordId: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Session | 'new' | null>(null);
+  const [editWorker, setEditWorker] = useState<string | null>(null);
   const [bulk, setBulk] = useState(false);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
@@ -52,7 +55,11 @@ export function CrewPanel({ recordId }: { recordId: string }) {
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   const extra = d?.running && !d.running.pausedAt ? Math.max(0, (now - q.dataUpdatedAt) / 1000) : 0;
-  const crewLabor = (d?.crewLaborSeconds ?? 0) + extra * (d?.running?.crewSize ?? 0);
+  const runningWorkers = (d?.workers ?? []).filter((w) => w.running && !w.running.pausedAt).length;
+  const live = Math.max(0, (now - q.dataUpdatedAt) / 1000);
+  const dayLabor = (d?.dayWorkerSeconds ?? 0) + live * runningWorkers;
+  const crewLabor = (d?.crewLaborSeconds ?? 0) - (d?.dayWorkerSeconds ?? 0) + extra * (d?.running?.crewSize ?? 0);
+  const crewSessions = (d?.sessions ?? []).filter((s) => !s.workerId);
   return (
     <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Crew time">
       <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1.5 }} flexWrap="wrap">
@@ -79,15 +86,16 @@ export function CrewPanel({ recordId }: { recordId: string }) {
         <Big label="Crew elapsed hours (paused left out)" value={hrs(d.crewWorkedSeconds)} testid="crew-elapsed" />
         <Big label="Crew size" value={d.running ? String(d.running.crewSize) : d.maxCrew ? `up to ${d.maxCrew}` : '—'} testid="crew-size-now" />
         <Big label="Crew labor hours" value={hrs(crewLabor)} testid="crew-labor" />
+        <Big label="Day worker hours" value={hrs(dayLabor)} testid="crew-day-hours" />
         <Big label="Registered people hours" value={hrs(d.userSeconds)} testid="crew-user-hours" />
-        <Big label="Total labor hours" value={hrs(crewLabor + d.userSeconds)} testid="crew-total" strong />
+        <Big label="Total labor hours" value={hrs(crewLabor + dayLabor + d.userSeconds)} testid="crew-total" strong />
         <Big label="Total personnel" value={String(d.personnel)} testid="crew-personnel" />
       </Stack>}
-      {d && (d.sessions.length === 0 ? <Typography variant="body2" color="text.secondary">No crew time yet.</Typography> :
+      {d && (crewSessions.length === 0 ? <Typography variant="body2" color="text.secondary">No crew time yet.</Typography> :
         <Table size="small" data-testid="crew-sessions">
           <TableHead><TableRow><TableCell>Start</TableCell><TableCell>Stop</TableCell><TableCell align="right">Crew</TableCell><TableCell align="right">Elapsed h</TableCell>
             <TableCell align="right">Paused h</TableCell><TableCell align="right">Labor h</TableCell><TableCell>Note</TableCell><TableCell /></TableRow></TableHead>
-          <TableBody>{d.sessions.map((s) => <TableRow key={s.id}>
+          <TableBody>{crewSessions.map((s) => <TableRow key={s.id}>
             <TableCell>{fmtDateTime(s.startedAt)}</TableCell><TableCell>{s.stoppedAt ? fmtDateTime(s.stoppedAt) : 'running'}</TableCell>
             <TableCell align="right">{s.crewSize}</TableCell><TableCell align="right">{hrs(s.elapsedSeconds)}</TableCell><TableCell align="right">{hrs(s.pausedSeconds)}</TableCell>
             <TableCell align="right"><b>{hrs(s.laborSeconds)}</b></TableCell><TableCell>{s.entered ? <i>entered</i> : ''}{s.note ? ` ${s.note}` : ''}</TableCell>
@@ -98,15 +106,17 @@ export function CrewPanel({ recordId }: { recordId: string }) {
           </TableRow>)}</TableBody>
         </Table>)}
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-        Labor hours = (elapsed − paused) × crew size. Total personnel = largest crew + each registered person who clocked on. Every change is kept in History.
+        Labor hours = (elapsed − paused) × crew size. Total personnel = largest crew + each day worker with time + each registered person who clocked on. Every change is kept in History.
       </Typography>
-      {edit && <SessionDialog recordId={recordId} session={edit === 'new' ? null : edit} onClose={() => setEdit(null)} onSaved={async () => { setEdit(null); await refresh(); }} />}
+      {d && <DayWorkers recordId={recordId} d={d} now={live} onEdit={setEdit} onAddPast={setEditWorker} onError={setErr} refresh={refresh} />}
+      {editWorker && <SessionDialog recordId={recordId} session={null} workerId={editWorker} workerName={d?.workers?.find((w) => w.id === editWorker)?.name} onClose={() => setEditWorker(null)} onSaved={async () => { setEditWorker(null); await refresh(); }} />}
+      {edit && <SessionDialog recordId={recordId} session={edit === 'new' ? null : edit} workerId={edit !== 'new' ? edit.workerId : null} workerName={edit !== 'new' ? edit.workerName : null} onClose={() => setEdit(null)} onSaved={async () => { setEdit(null); await refresh(); }} />}
       {bulk && <BulkDialog recordId={recordId} onClose={() => setBulk(false)} onSaved={async () => { setBulk(false); await refresh(); }} />}
     </Paper>
   );
 }
 
-function SessionDialog({ recordId, session, onClose, onSaved }: { recordId: string; session: Session | null; onClose: () => void; onSaved: () => void }) {
+function SessionDialog({ recordId, session, workerId, workerName, onClose, onSaved }: { recordId: string; session: Session | null; workerId?: string | null; workerName?: string | null; onClose: () => void; onSaved: () => void }) {
   const [crew, setCrew] = useState(String(session?.crewSize ?? 3));
   const [start, setStart] = useState(toInput(session?.startedAt));
   const [stop, setStop] = useState(toInput(session?.stoppedAt));
@@ -117,17 +127,17 @@ function SessionDialog({ recordId, session, onClose, onSaved }: { recordId: stri
     setErr(null);
     if (!start || !stop) { setErr('Enter the start and stop.'); return; }
     if (pauses.some((p) => !p.from || !p.to)) { setErr('Fill in both times for each pause, or remove it.'); return; }
-    const body = { crewSize: Number(crew), start: toIso(start), stop: toIso(stop), pauses: pauses.map((p) => ({ from: toIso(p.from), to: toIso(p.to) })), note: note || null };
+    const body = { crewSize: workerId ? 1 : Number(crew), workerId: workerId ?? null, start: toIso(start), stop: toIso(stop), pauses: pauses.map((p) => ({ from: toIso(p.from), to: toIso(p.to) })), note: note || null };
     try { if (session) await put(`${S}/tracking/crew/sessions/${session.id}`, body); else await post(`${S}/tracking/${recordId}/crew/sessions`, body); onSaved(); }
     catch (e) { setErr((e as Error).message); }
   };
   return <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-    <FormDialogTitle>{session ? 'Edit crew time' : 'Add past crew time'}</FormDialogTitle>
+    <FormDialogTitle>{workerName ? (session ? `Edit time for ${workerName}` : `Add time for ${workerName}`) : session ? 'Edit crew time' : 'Add past crew time'}</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
-      <TextField type="number" label="Crew size (workers)" value={crew} onChange={(e) => setCrew(e.target.value)} inputProps={{ min: 1 }} />
+      {!workerId && <TextField type="number" label="Crew size (workers)" value={crew} onChange={(e) => setCrew(e.target.value)} inputProps={{ min: 1 }} />}
       <Stack direction="row" gap={2}>
-        <TextField type="datetime-local" label="Start" value={start} onChange={(e) => setStart(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
-        <TextField type="datetime-local" label="Stop" value={stop} onChange={(e) => setStop(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+        <TextField type="datetime-local" label="Start" inputProps={{ 'data-testid': 'session-start' }} value={start} onChange={(e) => setStart(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+        <TextField type="datetime-local" label="Stop" inputProps={{ 'data-testid': 'session-stop' }} value={stop} onChange={(e) => setStop(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
       </Stack>
       {pauses.map((p, i) => <Stack key={i} direction="row" gap={2} alignItems="center">
         <TextField type="datetime-local" label={`Pause ${i + 1}`} value={p.from} onChange={(e) => setPauses(pauses.map((x, j) => (j === i ? { ...x, from: e.target.value } : x)))} InputLabelProps={{ shrink: true }} fullWidth />
@@ -138,7 +148,7 @@ function SessionDialog({ recordId, session, onClose, onSaved }: { recordId: stri
       <TextField label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} inputProps={{ maxLength: 300 }} />
       {err && <Alert severity="error">{err}</Alert>}
     </Stack></DialogContent>
-    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Save</Button></DialogActions>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} data-testid="session-save">Save</Button></DialogActions>
   </Dialog>;
 }
 
@@ -193,4 +203,60 @@ function BulkDialog({ recordId, onClose, onSaved }: { recordId: string; onClose:
     </Stack></DialogContent>
     <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" disabled={chosen.length === 0} data-testid="bulk-save" onClick={save}>Add {chosen.length} days</Button></DialogActions>
   </Dialog>;
+}
+
+const clock = (sec: number) => { const t = Math.floor(sec); return `${Math.floor(t / 3600)}:${pad(Math.floor((t % 3600) / 60))}:${pad(t % 60)}`; };
+
+/** Day workers: typed names on this work order only (no account or login), each with their own Start / Pause / Continue / Stop and their own times. */
+function DayWorkers({ recordId, d, now, onEdit, onAddPast, onError, refresh }: { recordId: string; d: CrewSummary; now: number; onEdit: (s: Session) => void; onAddPast: (workerId: string) => void;
+  onError: (m: string) => void; refresh: () => Promise<unknown> }) {
+  const [name, setName] = useState(''); const [busy, setBusy] = useState(false);
+  const call = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); await refresh(); } catch (e) { onError((e as Error).message); } finally { setBusy(false); } };
+  const add = () => { const n = name; call(async () => { await post(`${S}/tracking/${recordId}/crew/workers`, { name: n }); setName((cur) => (cur === n ? '' : cur)); }); };
+  const workers = d.workers ?? [];
+  const go = (w: Worker, what: 'start' | 'pause' | 'continue' | 'stop') => call(() => what === 'start'
+    ? post(`${S}/tracking/${recordId}/crew/start`, { crewSize: 1, workerId: w.id }) : post(`${S}/tracking/${recordId}/crew/${what}?workerId=${w.id}`));
+  return <Box sx={{ mt: 2 }} data-testid="day-workers">
+    <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1 }} flexWrap="wrap">
+      <Typography variant="h4">Day workers</Typography>
+      <Box sx={{ flex: 1 }} />
+      {d.canEdit && <>
+        <TextField size="small" label="Day worker name" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ maxLength: 120, 'data-testid': 'day-worker-name' }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && name.trim() && !busy) add(); }} />
+        <Button variant="outlined" disabled={busy || !name.trim()} data-testid="day-worker-add" onClick={add}>Add day worker</Button>
+      </>}
+    </Stack>
+    {workers.length === 0 ? <Typography variant="body2" color="text.secondary">No day workers yet. Type a name to add one; no account or login is needed.</Typography> :
+      <Table size="small">
+        <TableHead><TableRow><TableCell>Name</TableCell><TableCell>Clock</TableCell><TableCell align="right">Worked h</TableCell><TableCell /></TableRow></TableHead>
+        <TableBody>{workers.map((w) => {
+          const mine = d.sessions.filter((s) => s.workerId === w.id);
+          const runSec = w.running ? w.running.seconds + (w.running.pausedAt ? 0 : now) : 0;
+          return <Fragment key={w.id}><TableRow data-testid="day-worker-row" data-name={w.name}>
+            <TableCell><b>{w.name}</b></TableCell>
+            <TableCell sx={{ whiteSpace: 'nowrap' }}>
+              {w.running ? <Typography component="span" variant="body2" sx={{ mr: 1, fontVariantNumeric: 'tabular-nums' }} data-testid="day-worker-clock">{clock(runSec)}{w.running.pausedAt ? ' (paused)' : ''}</Typography> : null}
+              {d.canEdit && (w.running
+                ? <>{w.running.pausedAt
+                    ? <Button size="small" variant="contained" disabled={busy} data-testid="day-worker-continue" onClick={() => go(w, 'continue')}>Continue</Button>
+                    : <Button size="small" variant="outlined" disabled={busy} data-testid="day-worker-pause" onClick={() => go(w, 'pause')}>Pause</Button>}
+                  <Button size="small" color="error" variant="contained" sx={{ ml: 1 }} disabled={busy} data-testid="day-worker-stop" onClick={() => go(w, 'stop')}>Stop</Button></>
+                : <Button size="small" color="success" variant="contained" disabled={busy} data-testid="day-worker-start" onClick={() => go(w, 'start')}>Start</Button>)}
+            </TableCell>
+            <TableCell align="right" data-testid="day-worker-hours">{hrs(w.seconds + (w.running && !w.running.pausedAt ? now : 0))}</TableCell>
+            <TableCell sx={{ whiteSpace: 'nowrap' }} align="right">{d.canEdit && <>
+              <Button size="small" data-testid="day-worker-add-time" onClick={() => onAddPast(w.id)}>Add time</Button>
+              <IconButton size="small" aria-label={`Rename ${w.name}`} data-testid="day-worker-rename" onClick={() => { const n = prompt('Day worker name', w.name); if (n && n.trim() && n.trim() !== w.name) call(() => put(`${S}/tracking/crew/workers/${w.id}`, { name: n })); }}><EditOutlined fontSize="small" /></IconButton>
+              <IconButton size="small" aria-label={`Remove ${w.name}`} data-testid="day-worker-remove" onClick={() => { if (confirm(`Remove ${w.name}${mine.length ? ' and their time' : ''} from this work order?`)) call(() => del(`${S}/tracking/crew/workers/${w.id}`)); }}><DeleteOutline fontSize="small" /></IconButton></>}</TableCell>
+          </TableRow>
+          {mine.filter((s) => s.stoppedAt).map((s) => <TableRow key={s.id} data-testid="day-worker-session">
+            <TableCell sx={{ pl: 4 }} colSpan={2}><Typography variant="body2" color="text.secondary">{fmtDateTime(s.startedAt)} – {fmtDateTime(s.stoppedAt)}{s.pausedSeconds ? ` · paused ${hrs(s.pausedSeconds)} h` : ''}{s.note ? ` · ${s.note}` : ''}</Typography></TableCell>
+            <TableCell align="right">{hrs(s.workedSeconds)}</TableCell>
+            <TableCell align="right">{d.canEdit && <>
+              <IconButton size="small" aria-label={`Edit time for ${w.name}`} data-testid="day-worker-session-edit" onClick={() => onEdit(s)}><EditOutlined fontSize="small" /></IconButton>
+              <IconButton size="small" aria-label={`Delete time for ${w.name}`} onClick={() => { if (confirm('Delete this time?')) call(() => del(`${S}/tracking/crew/sessions/${s.id}`)); }}><DeleteOutline fontSize="small" /></IconButton></>}</TableCell>
+          </TableRow>)}</Fragment>;
+        })}</TableBody>
+      </Table>}
+  </Box>;
 }

@@ -58,3 +58,18 @@ test('every upload page shows Import file and Import folder', async ({ page }) =
     await expect(box.getByRole('button', { name: 'Import folder' }), s).toBeVisible();
   }
 });
+
+test('Procedure Instructions import as file-only instructions shown in the viewer', async ({ page }) => {
+  await signIn(page);
+  const stamp = Date.now().toString().slice(-6);
+  await page.goto('/sequfloh/instructions/procedure');
+  await view(page).locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: `Made-up procedure ${stamp}.pdf`, mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n% made-up procedure\n%%EOF\n') });
+  await expect(page.getByText('Each file becomes a Procedure Instruction').first()).toBeVisible();
+  await page.getByTestId('bulk-import-start').click();
+  await expect(page.getByTestId('bulk-import').getByText('Imported 1')).toBeVisible({ timeout: 20_000 });
+  await page.goto('/sequfloh/instructions/procedure');
+  await view(page).getByText(`Made-up procedure ${stamp}`).first().click({ timeout: 20_000 });
+  await expect(view(page).getByTestId('procedure-file')).toBeVisible();
+  await expect(view(page).getByTestId('procedure-file').locator('iframe')).toHaveCount(1);
+});

@@ -563,11 +563,63 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("WorkerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WorkerName")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("WorkerId");
 
                     b.HasIndex("TrackingRecordId", "StartedAt");
 
                     b.ToTable("sequfloh_crew_sessions", "sqf");
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDayWorker", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("TrackingNumber")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("TrackingRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrackingRecordId");
+
+                    b.ToTable("sequfloh_day_workers", "sqf");
                 });
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohInspectionRequest", b =>
@@ -1059,6 +1111,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("HiddenFields")
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -1718,7 +1773,7 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
-                    b.Property<Guid>("WorkInstructionId")
+                    b.Property<Guid?>("WorkInstructionId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("WorkInstructionNumber")
@@ -2152,6 +2207,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("FamilyId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("boolean");
 
@@ -2325,6 +2383,9 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<bool>("HasSpecialCharacteristics")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("HiddenFields")
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsAssembly")
                         .HasColumnType("boolean");
@@ -3004,6 +3065,15 @@ namespace Sequfloh.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDayWorker", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohTrackingRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TrackingRecordId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohInstructionTemplate", b =>
                 {
                     b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
@@ -3152,8 +3222,7 @@ namespace Sequfloh.Data.Migrations
                     b.HasOne("Sequfloh.Domain.Execution.SequflohWorkInstruction", null)
                         .WithMany()
                         .HasForeignKey("WorkInstructionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohUserItem", b =>

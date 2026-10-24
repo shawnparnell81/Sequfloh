@@ -25,8 +25,6 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var query = await wi.QueryAsync(ct);
-        if (tag == "none") query = query.Where(x => x.StatusTag == null);
-        else if (!string.IsNullOrWhiteSpace(tag)) query = query.Where(x => x.StatusTag == tag);
         WorkInstructionType[] validation = [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai];
         WorkInstructionType[] repair = [WorkInstructionType.RepairTest, WorkInstructionType.RepairWork];
         query = (folder ?? "all") switch
@@ -45,6 +43,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             "repair-test" => query.Where(x => x.Type == WorkInstructionType.RepairTest),
             "repair-work" => query.Where(x => x.Type == WorkInstructionType.RepairWork),
             "inspection" => query.Where(x => x.Type == WorkInstructionType.Inspection),
+            "procedure" => query.Where(x => x.Type == WorkInstructionType.Procedure),
             _ => query
         };
         if (status is not null) query = query.Where(x => x.Status == status);
@@ -65,7 +64,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         };
         return await Paging.PageAsync(query.Select(x => new
         {
-            x.Id, x.Number, x.Title, x.Type, x.Revision, x.Status, x.StatusTag, x.StatusNote, x.PartId, x.PartNumber, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription, x.ResultStatus,
+            x.Id, x.Number, x.Title, x.Type, x.Revision, x.Status, x.PartId, x.PartNumber, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription, x.ResultStatus,
             x.EffectiveDate, x.UpdatedAt, x.Project, x.TargetCompletionDate, x.DevelopmentStatus, x.ReleasedAt,
             AssignedEngineer = db.Users.Where(u => u.Id == x.AssignedEngineerId).Select(u => u.DisplayName).FirstOrDefault(),
             Owner = db.Users.Where(u => u.Id == x.OwnerId).Select(u => u.DisplayName).FirstOrDefault(),
@@ -87,7 +86,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         {
             Instruction = new
             {
-                x.Id, x.FamilyId, x.Number, x.Type, x.Title, x.Revision, x.Status, x.StatusTag, x.StatusNote, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.PartId, x.PartNumber, x.PartDescription,
+                x.Id, x.FamilyId, x.Number, x.Type, x.Title, x.Revision, x.Status, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.PartId, x.PartNumber, x.PartDescription,
                 x.ProductFamily, x.Assembly, x.Model, x.Variant, x.Process, x.Operation, x.Workstation, x.Location, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription,
                 x.SourcePartsListId, x.ResultStatus, x.EffectiveDate, x.SupersededAt, x.ObsoleteAt, x.ReleasedAt, x.RevisionReason, x.CreatedAt, x.UpdatedAt, x.RowVersion,
                 x.AssignedEngineerId, x.TargetCompletionDate, x.Project, x.EngineeringNotes, x.DevelopmentStatus,
@@ -117,6 +116,14 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         global::Sequfloh.Platform.FilesController.Check(file);
         var title = Path.GetFileNameWithoutExtension(Path.GetFileName(file.FileName)).Trim();
         if (title.Length > 200) title = title[..200];
+        // a Procedure Instruction imported again under the same title is revised: a released one gets a new draft revision, which then carries the new file
+        if (type == WorkInstructionType.Procedure && await wi.ProcedureToReviseAsync(title, siteId, ct) is { } current)
+        {
+            var target = current.Status == WorkInstructionStatus.Released ? await wi.ReviseAsync(current.Id, new ReviseInput("New file imported"), ct) : current;
+            await wi.ArchiveFilesAsync(target.Id, ct);
+            await global::Sequfloh.Platform.FilesController.AttachAsync(db, storage, "SequflohWorkInstruction", target.Id, target.SiteId, file, ct);
+            return new { target.Id, target.Number, Title = title, Revised = true };
+        }
         // the file was checked above; creating the draft runs in its own transaction, so a failed attach takes the new draft away again
         var x = await wi.CreateAsync(new InstructionCreateInput(type, title, siteId, departmentId, null), ct);
         try { await global::Sequfloh.Platform.FilesController.AttachAsync(db, storage, "SequflohWorkInstruction", x.Id, x.SiteId, file, ct); }
@@ -129,6 +136,10 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         }
         return new { x.Id, x.Number, Title = title };
     }
+    public sealed record InstructionTypeInput(WorkInstructionType Type);
+    /// <summary>Changes the instruction type (any type to any type); the change is recorded in the audit trail with the old and new type.</summary>
+    [HttpPut("{id:guid}/type")] [RequirePermission(Permissions.SequflohEditDraftWorkInstruction)]
+    public async Task<IActionResult> ChangeType(Guid id, InstructionTypeInput r, CancellationToken ct) { await wi.ChangeTypeAsync(id, r.Type, ct); return NoContent(); }
     [HttpPut("{id:guid}")] [RequirePermission(Permissions.SequflohEditDraftWorkInstruction)]
     public async Task<IActionResult> Save(Guid id, InstructionSaveInput r, CancellationToken ct) { await wi.SaveAsync(id, r, ct); return NoContent(); }
     [HttpPut("{id:guid}/development")] [RequirePermission(Permissions.SequflohEditEngineeringFolder)]

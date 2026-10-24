@@ -21,7 +21,19 @@ public class SequflohCrewSession : Entity, IAudited
     /// <summary>True when the session was typed in after the fact rather than clocked live.</summary>
     public bool Entered { get; set; }
     public string? Note { get; set; }
+    /// <summary>The named day worker this time is for; null for the nameless crew.</summary>
+    public Guid? WorkerId { get; set; }
+    public string? WorkerName { get; set; }
     public string AuditLabel => $"crew time on {TrackingNumber}";
+}
+
+/// <summary>A day worker on one work order, known by a typed name only (no account, no login), with their own clock.</summary>
+public class SequflohDayWorker : Entity, IAudited
+{
+    public Guid TrackingRecordId { get; set; }
+    public string TrackingNumber { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string AuditLabel => $"day worker {Name} on {TrackingNumber}";
 }
 
 /// <summary>A saved supplier chargeback report. The work order number is typed by the user; inventory stays in NetSuite.</summary>

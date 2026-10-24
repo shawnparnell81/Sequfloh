@@ -2,8 +2,8 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { settledShot, signIn, view } from './support';
 
-/** Made-up records only. Covers the Job tab, the chargeback report, the Official status in NetSuite field, history filter and CSV export. */
-test('job quantity, parts, tester files, chargeback report and official status', async ({ page }) => {
+/** Made-up records only. Covers the Job tab, the chargeback report, the NetSuite inventory note, history filter and CSV export. */
+test('job quantity, parts, tester files, chargeback report and the NetSuite note', async ({ page }) => {
   const shots = process.env.E2E_SHOTS;
   let n = 0;
   const shot = async (name: string) => { n++; if (shots) await settledShot(page, path.join(shots, `${String(n).padStart(2, '0')}-${name}.png`)); };
@@ -14,21 +14,19 @@ test('job quantity, parts, tester files, chargeback report and official status',
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
   const dialog = () => page.getByRole('dialog');
 
-  // a part with an official status chosen inline in the Parts list
+  // a part: no official status anywhere, only the note that inventory status lives in NetSuite
   const pn = `34BW${stamp}`;
   const part = (await ok(rq.post('/api/sequfloh/parts', { data: {
     part: { partNumber: pn, name: 'Test assembly CSA', partType: 1, revision: 'A', unitOfMeasure: 'EA', siteId: site, status: 0, hasSpecialCharacteristics: false },
     execution: { productFamily: 'Test', isRepairable: true, isSerialized: false, isLotControlled: false } } }))).id as string;
   await page.goto(`/sequfloh/parts?q=${pn}`);
-  const row = view(page).locator('tbody tr', { hasText: pn });
-  await row.getByLabel('Official status in NetSuite').click();
-  await page.getByRole('option', { name: 'Quarantine hold (NetSuite)' }).click();
-  await expect.poll(async () => (await ok(rq.get(`/api/sequfloh/parts/${part}`))).part.statusTag).toBe('Quarantine hold (NetSuite)');
-  await shot('parts-list-official-status');
+  await expect(view(page).getByTestId('inventory-note')).toHaveText('Inventory status is kept in NetSuite. Sequfloh does not connect to NetSuite.');
+  await expect(view(page)).not.toContainText('Official status');
+  await shot('parts-list-inventory-note');
   await page.goto(`/sequfloh/parts/${part}`);
-  await expect(view(page).getByTestId('netsuite-status')).toHaveText('Quarantine hold (NetSuite)');
-  await expect(view(page)).toContainText('Official holds and releases are made in NetSuite');
-  await shot('part-page-official-status');
+  await expect(view(page).getByTestId('inventory-note')).toBeVisible();
+  await expect(view(page).getByTestId('netsuite-status')).toHaveCount(0);
+  await shot('part-page-inventory-note');
 
   // released instruction and a work order
   const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Job report instruction ${stamp}`, siteId: site } }))).id as string;
@@ -45,14 +43,9 @@ test('job quantity, parts, tester files, chargeback report and official status',
   await page.waitForTimeout(1500);
   await view(page).getByTestId('stop-timer').click();
 
-  // official status on the work order
-  await view(page).getByTestId('edit-netsuite-status').click();
-  await dialog().getByLabel('Official status in NetSuite').click();
-  await page.getByRole('option', { name: 'Repair hold' }).click();
-  await dialog().getByLabel('Note (optional)').fill('Made-up note: waiting on supplier credit');
-  await shot('work-order-official-status-dialog');
-  await dialog().getByRole('button', { name: 'Save' }).click();
-  await expect(view(page).getByTestId('netsuite-status')).toHaveText('Repair hold');
+  // no official status on the work order either
+  await expect(view(page).getByTestId('edit-netsuite-status')).toHaveCount(0);
+  await expect(view(page).getByTestId('inventory-note')).toBeVisible();
 
   // Job tab: quantity, parts, tester file
   await view(page).getByRole('tab', { name: 'Job' }).click();
@@ -101,11 +94,9 @@ test('job quantity, parts, tester files, chargeback report and official status',
   await page.goto(`/sequfloh/record/${wo}?tab=history`);
   await expect(view(page).getByLabel('Filter history')).toHaveCount(0);
 
-  // work order list filtered by official status
-  await page.goto('/sequfloh/tracking/open?tag=Repair%20hold');
-  await expect(view(page).locator('tbody tr', { hasText: `WO-${stamp}` }).or(view(page).locator('tbody tr').first())).toBeVisible();
-  await expect(view(page)).toContainText('Official status in NetSuite');
-  await shot('work-orders-filtered-by-official-status');
+  // the work order list has no official status filter
+  await page.goto('/sequfloh/tracking/open');
+  await expect(view(page)).not.toContainText('Official status in NetSuite');
 
   // org audit page with CSV export
   await page.goto('/sequfloh/audit/changes');

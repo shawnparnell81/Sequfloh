@@ -64,13 +64,13 @@ export function RecordHeader({ title, meta, actions, testid }: { title: ReactNod
   );
 }
 
-/** The row above a list: search box, filters, the Search button, then checkboxes pushed to the right. Wraps on narrow screens. */
+/** The row above a list: search box, filters, the Search button, then the checkboxes right after it (no gap). Wraps on narrow screens. */
 export function ListToolbar({ onSubmit, children, end }: { onSubmit: () => void; children: ReactNode; end?: ReactNode }) {
   return (
     <Box component="form" data-list-toolbar onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
       sx={{ display: 'flex', gap: SPACE.gap, rowGap: 1.5, flexWrap: 'wrap', alignItems: 'center', mb: SPACE.block }}>
       {children}
-      {end && <Box sx={{ ml: 'auto', display: 'flex', gap: SPACE.gap, alignItems: 'center', flexWrap: 'wrap' }}>{end}</Box>}
+      {end && <Box data-toolbar-end sx={{ display: 'flex', gap: SPACE.gap, alignItems: 'center', flexWrap: 'wrap' }}>{end}</Box>}
     </Box>
   );
 }

@@ -9,7 +9,7 @@ import { ApiError, api, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
-import { Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
+import { Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, S, SqfPage, qs, useUnsaved } from './common';
 import { PartDrawingLinks } from './Drawings';
 import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
@@ -23,7 +23,7 @@ const crumbs = (label: string, extra?: { label: string }) => [{ label: 'SEQUFLOH
 interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; isBlankForm: boolean; blankForm?: string | null }
 interface Detail {
   id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; createdAt: string; updatedAt: string; canEdit: boolean;
-  isBlankForm: boolean; partNumber?: string | null; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
+  isBlankForm: boolean; partNumber?: string | null; familyId?: string | null; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
   copies?: { id: string; number: string; title: string; blankFormVersion?: number | null; createdAt: string; updatedAt: string }[] | null;
   summary: { formulaTotal?: number; formulaClasses?: Record<string, number>; warnings?: string[]; security?: string[]; sheets?: { name: string; charts: number; pivots: number }[]; paragraphs?: number; tables?: number; controls?: number };
   versions: { version: number; fileName: string; sizeBytes: number; note?: string; createdAt: string }[];
@@ -35,24 +35,26 @@ const today = () => new Date().toLocaleDateString('en-CA');
 const listTitles: Record<string, string> = { spreadsheet: 'Spreadsheets', document: 'Word Documents', blank: 'Blank Forms', filled: 'Filled Forms' };
 
 /** Asks for the title of a new file made from this one (a filled copy of a blank form, or a saved copy). */
-function CopyDialog({ open, heading, initial, action, busy, error, onClose, onConfirm, partNumber }: { open: boolean; heading: string; initial: string; action: string; busy: boolean; error?: string | null; onClose: () => void; onConfirm: (title: string, partNumber?: string) => void; partNumber?: boolean }) {
+function CopyDialog({ open, heading, initial, action, busy, error, onClose, onConfirm, partNumber, initialFamily }: { open: boolean; heading: string; initial: string; action: string; busy: boolean; error?: string | null; onClose: () => void; onConfirm: (title: string, partNumber?: string, familyId?: string | null) => void; partNumber?: boolean; initialFamily?: string | null }) {
   const [title, setTitle] = useState(initial);
+  const [family, setFamily] = useState(initialFamily ?? '');
   const [pn, setPn] = useState('');
   const [typed, setTyped] = useState('');
   useEffect(() => { const t = setTimeout(() => setTyped(pn), 400); return () => clearTimeout(t); }, [pn]);
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setTitle(initial); setPn(''); setTyped(''); } }}>
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setTitle(initial); setPn(''); setTyped(''); setFamily(initialFamily ?? ''); } }}>
       <FormDialogTitle>{heading}</FormDialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         <TextField autoFocus fullWidth label="Title" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ mt: 1 }} inputProps={{ 'data-testid': 'copy-title' }} />
+        <FamilySelect value={family} onChange={setFamily} sx={{ mt: 2 }} helperText="The filled form is listed under this family in Completed Validation/FAI." />
         {partNumber && <>
           <TextField fullWidth label="Part number (optional)" value={pn} onChange={(e) => setPn(e.target.value)} sx={{ mt: 2 }} inputProps={{ 'data-testid': 'copy-part-number' }}
             helperText="The part this copy is for. Its drawings can be opened from here and from the filled copy." />
           {typed.trim() && <Box sx={{ mt: 1 }}><PartDrawingLinks partNumber={typed} checkboxes /></Box>}
         </>}
       </DialogContent>
-      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!title.trim() || busy} onClick={() => onConfirm(title.trim(), pn.trim() || undefined)} data-testid="copy-confirm">{busy ? 'Working…' : action}</Button></DialogActions>
+      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!title.trim() || busy} onClick={() => onConfirm(title.trim(), pn.trim() || undefined, family || null)} data-testid="copy-confirm">{busy ? 'Working…' : action}</Button></DialogActions>
     </Dialog>
   );
 }
@@ -79,14 +81,14 @@ function useSaveAsCopy(file: Detail, body: () => object) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const confirm = async (title: string, after: () => void) => {
+  const confirm = async (title: string, familyId: string | null | undefined, after: () => void) => {
     setBusy(true); setError(null);
-    try { const r = await post<{ id: string }>(`${A}/${file.id}/save-as-copy`, { baseVersion: file.currentVersion, title, ...body() }); after(); setOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
+    try { const r = await post<{ id: string }>(`${A}/${file.id}/save-as-copy`, { baseVersion: file.currentVersion, title, familyId: familyId ?? null, ...body() }); after(); setOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const base = file.blankForm?.title ?? file.title;
   return { open: () => { setError(null); setOpen(true); }, dialog: (after: () => void) => <CopyDialog open={open} heading="Save as new copy" initial={`${base} – ${today()}`} action="Save copy" busy={busy} error={error}
-    onClose={() => setOpen(false)} onConfirm={(t) => confirm(t, after)} /> };
+    initialFamily={file.familyId} onClose={() => setOpen(false)} onConfirm={(t, _p, fam) => confirm(t, fam, after)} /> };
 }
 
 /** The list of imported files, with upload. */
@@ -154,9 +156,12 @@ export function ImportedFilePage() {
   const latest = !d || shown === d.currentVersion;
   const refresh = () => { q.refetch(); };
   const qc = useQueryClient();
-  const fillOut = async (title: string, partNumber?: string) => {
+  const [famOpen, setFamOpen] = useState(false);
+  const [printSp] = useSearchParams();
+  useEffect(() => { if (d && printSp.get('print')) { const t = setTimeout(() => window.print(), 1500); return () => clearTimeout(t); } }, [d?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fillOut = async (title: string, partNumber?: string, familyId?: string | null) => {
     setFillBusy(true); setFillError(null);
-    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title, partNumber }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
+    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title, partNumber, familyId: familyId ?? null }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
     catch (e) { setFillError((e as Error).message); } finally { setFillBusy(false); }
   };
   const uploadVersion = async (f: File) => {
@@ -176,7 +181,7 @@ export function ImportedFilePage() {
       recent={d ? { label: `${d.number} ${d.title}`, itemType: 'ImportedFile', recordId: d.id } : null}
       tabs={[{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' },
         ...(d?.isBlankForm ? [{ label: `Filled copies (${d.copies?.length ?? 0})`, value: 'copies' }] : [])]} tab={tab} onTab={setTab}
-      actions={d && <RecordActions surface="imported-file" print={{ onClick: () => window.print() }}
+      actions={d && <RecordActions surface="imported-file" print={{ onClick: () => window.print() }} edit={d.canEdit && !!d.blankForm && { onClick: () => setFamOpen(true) }}
         importNode={d.canEdit && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
           <input hidden type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc" data-testid="upload-version-input" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadVersion(f); }} /></Button>}
         del={{ what: `${d.number} ${d.title}`, url: `${A}/${d.id}`, to: '/sequfloh/imported-files',
@@ -201,6 +206,7 @@ export function ImportedFilePage() {
           {d.kind === 'spreadsheet' && (d.summary.formulaTotal ?? 0) > 0 && <Chip size="small" variant="outlined" sx={{ borderColor: GREEN, color: GREEN }} label={`${d.summary.formulaTotal} formulas`} />}
           {d.kind === 'document' && <Chip size="small" variant="outlined" label={`${d.summary.paragraphs ?? 0} paragraphs · ${d.summary.tables ?? 0} tables`} />}
         </Stack>
+        {d.blankForm && <FamilyDialog open={famOpen} file={d} onClose={() => setFamOpen(false)} onSaved={() => { setFamOpen(false); refresh(); }} />}
         {!d.isBlankForm && (d.partNumber || d.canEdit) && <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}><CopyPartNumber d={d} onSaved={refresh} /></Paper>}
         {upMsg && <Alert severity={upMsg.kind} sx={{ mb: 1 }} onClose={() => setUpMsg(null)}>{upMsg.text}</Alert>}
         {d.isBlankForm && tab === 'file' && <Alert severity={editBlank ? 'warning' : 'info'} sx={{ mb: 1 }}>{editBlank
@@ -511,5 +517,57 @@ function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file:
       {copy.dialog(() => { setEdits({}); setEditing(null); })}
       {d.blocks.length === 0 && <Empty text="The document is empty." />}
     </Stack>
+  );
+}
+
+interface FamilyValue { id: string; label: string; isActive: boolean }
+export const useFamilies = () => useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<FamilyValue[]>(`${S}/reference/product-families`), staleTime: 60_000 });
+
+/** The product family a filled form belongs to, from the admin-managed product family list. */
+function FamilySelect({ value, onChange, sx, helperText }: { value: string; onChange: (v: string) => void; sx?: object; helperText?: string }) {
+  const fams = useFamilies();
+  return <TextField select fullWidth label="Product family" value={fams.data ? value : ''} onChange={(e) => onChange(e.target.value)} sx={sx} helperText={helperText} inputProps={{ 'data-testid': 'copy-family' }}>
+    <MenuItem value=""><em>Unassigned</em></MenuItem>
+    {(fams.data ?? []).filter((f) => f.isActive || f.id === value).map((f) => <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>)}</TextField>;
+}
+
+/** Edit on a filled form: change its product family. The change is kept in the audit trail. */
+function FamilyDialog({ open, file, onClose, onSaved }: { open: boolean; file: Detail; onClose: () => void; onSaved: () => void }) {
+  const [v, setV] = useState(file.familyId ?? ''); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { if (open) { setV(file.familyId ?? ''); setErr(null); } }, [open, file.familyId]);
+  const save = async () => { try { await put(`${A}/${file.id}/family`, { familyId: v || null }); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <FormDialogTitle>Edit {file.number}</FormDialogTitle>
+    <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}<FamilySelect value={v} onChange={setV} sx={{ mt: 1 }} /></DialogContent>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={v === (file.familyId ?? '')} data-testid="family-save">Save</Button></DialogActions>
+  </Dialog>;
+}
+
+interface CompletedRow { id: string; number: string; title: string; partNumber?: string | null; updatedAt: string }
+/** Completed Validation/FAI: the filled forms made from blank forms, one tab per product family plus Unassigned. */
+export function CompletedFormsPage() {
+  const fams = useFamilies();
+  const [sp, setSp] = useSearchParams();
+  const nav = useNavigate();
+  const families = (fams.data ?? []).filter((f) => f.isActive);
+  const tab = sp.get('family') ?? families[0]?.id ?? 'none';
+  const [page, setPage] = useState(1); const [size, setSize] = useState(50);
+  useEffect(() => setPage(1), [tab]);
+  const q = useQuery({ queryKey: ['imported-completed', tab, page, size], enabled: !!fams.data,
+    queryFn: () => get<Paged<CompletedRow>>(`${A}?${qs({ kind: 'filled', family: tab, page, pageSize: size })}`) });
+  return (
+    <SqfPage title="Completed Validation/FAI" crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Completed Validation/FAI' }]} permission="sequfloh.view_imported_files"
+      description="Filled forms made from blank forms in Imported Files, one tab per product family. Change a form's family from Edit on the form.">
+      <Tabs value={fams.data ? tab : false} onChange={(_, v) => setSp({ family: v })} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile data-testid="completed-family-tabs" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+        {families.map((f) => <Tab key={f.id} value={f.id} label={f.label} />)}
+        <Tab value="none" label="Unassigned" data-testid="completed-unassigned" />
+      </Tabs>
+      {fams.isLoading ? <Loading /> : <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty="No filled forms in this family yet."
+        cols={[{ key: 'title', label: 'Title', render: (r: CompletedRow) => <><Mono>{r.number}</Mono> {r.title}</> }, { key: 'partNumber', label: 'Part number', render: (r: CompletedRow) => r.partNumber ? <Mono>{r.partNumber}</Mono> : '—' },
+          { key: 'updatedAt', label: 'Saved', render: (r: CompletedRow) => fmtDateTime(r.updatedAt) },
+          { key: 'actions', label: '', render: (r: CompletedRow) => <Stack direction="row" gap={1} onClick={(e) => e.stopPropagation()}>
+            <Button size="small" component={RouterLink} to={`/sequfloh/imported-files/${r.id}`} data-testid="completed-open">Open</Button>
+            <Button size="small" component={RouterLink} to={`/sequfloh/imported-files/${r.id}?print=1`} data-testid="completed-print">Print</Button></Stack> }]} />}
+    </SqfPage>
   );
 }

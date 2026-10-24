@@ -24,7 +24,8 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string? StatusNote { get; set; }
     public string Number { get; set; } = "";
     public TrackingType Type { get; set; }
-    public Guid WorkInstructionId { get; set; }
+    /// <summary>The released instruction the work order runs, or null for a work order made without one (for example from an inspection request); the number, revision and title are then empty.</summary>
+    public Guid? WorkInstructionId { get; set; }
     public string WorkInstructionNumber { get; set; } = "";
     public string WorkInstructionRevision { get; set; } = "";
     public string WorkInstructionTitle { get; set; } = "";

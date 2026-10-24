@@ -50,7 +50,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         {
             Record = new
             {
-                x.Id, x.Number, x.Type, x.StatusTag, x.StatusNote, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle, x.PartId, x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber,
+                x.Id, x.Number, x.Type, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle, x.PartId, x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber,
                 x.WorkOrder, x.RepairOrder, x.CustomerReturnReference, x.Project, x.Operation, x.OwnerId, x.AssignedUserId, x.DepartmentId, x.SiteId, x.Status, x.Priority, x.PlannedStart, x.DueAt,
                 x.ActualStart, x.ActualCompletion, x.CurrentStateStartedAt, x.StateVersion, x.LastTransitionId, x.LastTransitionAt, x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes,
                 x.VarianceReason, x.Result, x.EngineeringConclusion,
@@ -80,6 +80,10 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
 
     [HttpPost]
     public async Task<object> Create(TrackingCreateInput r, CancellationToken ct) { var x = await tracking.CreateAsync(r, ct); return new { x.Id, x.Number }; }
+    public sealed record InstructionRefInput(Guid? WorkInstructionId);
+    /// <summary>Attaches, replaces or removes the optional work instruction of a work order before work starts.</summary>
+    [HttpPut("{id:guid}/instruction")]
+    public async Task<object> SetInstruction(Guid id, InstructionRefInput r, CancellationToken ct) { var x = await tracking.SetInstructionAsync(id, r.WorkInstructionId, ct); return new { x.Id, x.WorkInstructionId }; }
     [HttpPut("{id:guid}")]
     public async Task<object> Save(Guid id, TrackingSaveInput r, CancellationToken ct) { var x = await tracking.SaveAsync(id, r, ct); return new { x.Id, x.StateVersion, x.Result }; }
     [HttpPost("{id:guid}/actions/{name}")]

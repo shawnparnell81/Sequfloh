@@ -24,8 +24,6 @@ internal static class SequflohTrackingQuery
         var now = await tracking.DbNowAsync(ct);
         var me = m.UserId;
         var overdueCutoff = now.AddHours(-(await f.GetSettingsAsync(ct)).Tracking.OverdueThresholdHours);
-        if (p.Tag == "none") query = query.Where(x => x.StatusTag == null);
-        else if (!string.IsNullOrWhiteSpace(p.Tag)) query = query.Where(x => x.StatusTag == p.Tag);
         query = (p.Folder ?? "all") switch
         {
             "validation" => query.Where(x => x.Type == TrackingType.Validation),
@@ -107,7 +105,7 @@ internal static class SequflohTrackingQuery
             var (active, paused, hold) = SequflohTrackingService.Durations(x, now);
             items.Add(new
             {
-                x.Id, x.Number, x.Type, x.Status, x.Result, x.Priority, x.StatusTag, x.StatusNote, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle,
+                x.Id, x.Number, x.Type, x.Status, x.Result, x.Priority, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle,
                 x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber, x.WorkOrder, x.RepairOrder, x.Operation, x.PlannedStart, x.DueAt, x.ActualStart, x.ActualCompletion, x.CreatedAt, x.UpdatedAt,
                 x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes, x.VarianceReason, x.StateVersion, x.AssignedUserId, x.PauseReason, x.HoldReason, x.FailureReason, x.CancelReason,
                 PausedAt = x.Status == TrackingStatus.Paused ? x.CurrentStateStartedAt : null, HeldAt = x.Status == TrackingStatus.OnHold ? x.CurrentStateStartedAt : null,

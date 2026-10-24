@@ -32,6 +32,8 @@ public class ImportedFile : Entity, IAudited, IArchivable, ISiteScoped
     public int? BlankFormVersion { get; set; }
     /// <summary>The part number a filled copy is for, as typed (it need not be in Parts and Items).</summary>
     public string? PartNumber { get; set; }
+    /// <summary>The product family a filled form belongs to (a product-families reference value); null shows it under Unassigned.</summary>
+    public Guid? FamilyId { get; set; }
     public List<ImportedFileVersion> Versions { get; set; } = [];
     public string AuditLabel => $"imported file {Number} {Title}";
 }

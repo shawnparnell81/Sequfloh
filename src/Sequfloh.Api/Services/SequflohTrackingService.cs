@@ -11,7 +11,7 @@ using Sequfloh.Infrastructure.Services;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
-public sealed record TrackingCreateInput(TrackingType Type, Guid WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
+public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
     string? ReportedCondition = null, List<Guid>? AssigneeIds = null);
@@ -131,9 +131,10 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     {
         await m.RequireAsync(CreatePermission(r.Type), r.SiteId, r.DepartmentId, ct);
         await m.ValidateLocationAsync(r.SiteId, r.DepartmentId, ct);
-        var wi = await db.SequflohWorkInstructions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == r.WorkInstructionId, ct) ?? throw new AppException("Choose a released work instruction.");
-        if (wi.Status != WorkInstructionStatus.Released) throw new AppException($"{wi.Number} rev {wi.Revision} is not released. Only a released revision can be executed.");
-        if (!InstructionTypes(r.Type).Contains(wi.Type)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(r.Type)} record can use.");
+        // the work order is the task; a work instruction is an optional reference with how-to steps. Without one the order has no steps.
+        SequflohWorkInstruction? wi = r.WorkInstructionId is { } wid ? await db.SequflohWorkInstructions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == wid, ct) ?? throw new AppException("The work instruction does not exist.") : null;
+        if (wi is not null && wi.Status != WorkInstructionStatus.Released) throw new AppException($"{wi.Number} rev {wi.Revision} is not released. Only a released revision can be executed.");
+        if (wi is not null && !InstructionTypes(r.Type).Contains(wi.Type)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(r.Type)} record can use.");
         if (r.AssignedUserId is { } au)
         {
             await m.RequireActiveUserAsync(au, "assigned user", ct);
@@ -149,19 +150,19 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         if (r.MinBenchmarkMinutes < 0 || r.MaxBenchmarkMinutes < 0) throw new AppException("Benchmarks cannot be negative.");
         if (r.MinBenchmarkMinutes is { } mn && r.MaxBenchmarkMinutes is { } mx && mn > mx) throw new AppException("The minimum benchmark cannot be greater than the maximum benchmark.");
         if (r.PlannedStart is { } ps && r.DueAt is { } du && du < ps) throw new AppException("The due date cannot be before the planned start.");
-        var partId = r.PartId ?? wi.PartId;
+        var partId = r.PartId ?? wi?.PartId;
         if (r.Type == TrackingType.Repair && partId is null) throw new AppException("Choose the repairable part.");
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         me = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
         var now = await DbNowAsync(ct);
         var rec = new SequflohTrackingRecord
         {
-            Type = r.Type, WorkInstructionId = wi.Id, WorkInstructionNumber = wi.Number, WorkInstructionRevision = wi.Revision, WorkInstructionTitle = wi.Title,
-            SiteId = r.SiteId, DepartmentId = r.DepartmentId ?? wi.DepartmentId, OwnerId = m.UserId, AssignedUserId = r.AssignedUserId, Priority = priority,
+            Type = r.Type, WorkInstructionId = wi?.Id, WorkInstructionNumber = wi?.Number ?? "", WorkInstructionRevision = wi?.Revision ?? "", WorkInstructionTitle = wi?.Title ?? "",
+            SiteId = r.SiteId, DepartmentId = r.DepartmentId ?? wi?.DepartmentId, OwnerId = m.UserId, AssignedUserId = r.AssignedUserId, Priority = priority,
             SerialNumber = T(r.SerialNumber, 100), LotNumber = T(r.LotNumber, 100), WorkOrder = T(r.WorkOrder, 100), RepairOrder = T(r.RepairOrder, 100),
-            CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
+            CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi?.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
             Status = r.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned, CurrentStateStartedAt = now, LastTransitionAt = now,
-            ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi.RepairDescription, FaiType = wi.FaiType,
+            ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi?.RepairDescription, FaiType = wi?.FaiType,
             MinBenchmarkMinutes = r.MinBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection ? settings.Tracking.DefaultMinimumMinutes : null),
             MaxBenchmarkMinutes = r.MaxBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection ? settings.Tracking.DefaultMaximumMinutes : null),
         };
@@ -174,8 +175,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
             rec.PartId = p.Id; rec.PartNumber = p.PartNumber; rec.PartDescription = p.Name;
         }
         // the instruction revision's content is copied (execution fields start empty)
-        rec.Steps = Snapshot(wi.Steps); rec.Characteristics = Snapshot(wi.Characteristics); rec.PartsRows = Snapshot(wi.PartsRows);
-        var content = JsonNode.Parse(wi.Content)!.AsObject();
+        rec.Steps = Snapshot(wi?.Steps ?? "[]"); rec.Characteristics = Snapshot(wi?.Characteristics ?? "[]"); rec.PartsRows = Snapshot(wi?.PartsRows ?? "[]");
+        var content = JsonNode.Parse(wi?.Content ?? "{}")!.AsObject();
         var details = new JsonObject();
         if (content["samples"] is JsonObject smp) details["samplePlan"] = smp.DeepClone();
         if (content["conditions"] is JsonObject cnd) details["conditionLimits"] = cnd.DeepClone();
@@ -184,13 +185,40 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         db.SequflohTrackingRecords.Add(rec);
         foreach (var u in team) db.SequflohTaskAssignees.Add(new SequflohTaskAssignee { TrackingRecordId = rec.Id, UserId = u, AddedAt = now });
         if (r.Type == TrackingType.Validation && rec.PartId is { } attachFor) await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct);
-        Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
-        f.Audit("TrackingRecordCreated", EntityType, rec.Id, $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
-            context: new { trackingType = r.Type.ToString(), workInstruction = wi.Number, revision = wi.Revision, part = rec.PartNumber });
+        Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, wi is null ? "Created without a work instruction" : $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
+        f.Audit("TrackingRecordCreated", EntityType, rec.Id, wi is null ? $"{rec.Number} ({Label(r.Type)}) created without a work instruction" : $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
+            context: new { trackingType = r.Type.ToString(), workInstruction = wi?.Number, revision = wi?.Revision, part = rec.PartNumber });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         await IndexAsync(rec, ct);
         await notify.TrackingChangedAsync(rec, "create", null, ct);
+        return rec;
+    }
+
+    /// <summary>
+    /// Attaches a released work instruction to a work order, replaces it, or removes it (null), before work has started. Attaching copies the instruction's
+    /// steps onto the order; removing clears them. Nothing else on the work order changes.
+    /// </summary>
+    public async Task<SequflohTrackingRecord> SetInstructionAsync(Guid id, Guid? workInstructionId, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var rec = await LockAsync(id, ct);
+        await m.RequireAsync(CreatePermission(rec.Type), rec.SiteId, rec.DepartmentId, ct);
+        if (rec.Status is not (TrackingStatus.NotStarted or TrackingStatus.Assigned)) throw new ConflictException("The work instruction can only be changed before work starts.");
+        SequflohWorkInstruction? wi = null;
+        if (workInstructionId is { } wid)
+        {
+            wi = await db.SequflohWorkInstructions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == wid, ct) ?? throw new AppException("The work instruction does not exist.");
+            if (wi.Status != WorkInstructionStatus.Released) throw new AppException($"{wi.Number} rev {wi.Revision} is not released.");
+            if (!InstructionTypes(rec.Type).Contains(wi.Type)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(rec.Type)} record can use.");
+        }
+        var before = rec.WorkInstructionId is null ? "none" : $"{rec.WorkInstructionNumber} rev {rec.WorkInstructionRevision}";
+        rec.WorkInstructionId = wi?.Id; rec.WorkInstructionNumber = wi?.Number ?? ""; rec.WorkInstructionRevision = wi?.Revision ?? ""; rec.WorkInstructionTitle = wi?.Title ?? "";
+        rec.Steps = Snapshot(wi?.Steps ?? "[]"); rec.Characteristics = Snapshot(wi?.Characteristics ?? "[]"); rec.PartsRows = Snapshot(wi?.PartsRows ?? "[]");
+        var after = wi is null ? "none" : $"{wi.Number} rev {wi.Revision}";
+        f.Audit("TrackingInstructionChanged", EntityType, rec.Id, $"{rec.Number} work instruction changed from {before} to {after}", rec.SiteId);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return rec;
     }
 

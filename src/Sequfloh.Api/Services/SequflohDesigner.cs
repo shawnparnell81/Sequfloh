@@ -125,7 +125,12 @@ public static class SequflohDesigner
         [WorkInstructionType.RepairTest] = new(WorkInstructionType.RepairTest, "Repair Test", "SqfRepairTestInstruction", Merge(RepairTest), "Test steps", TestSteps, false, [], false, []),
         [WorkInstructionType.RepairWork] = new(WorkInstructionType.RepairWork, "Repair Work Instruction", "SqfRepairWorkInstruction", Merge(RepairWork), "Repair steps", RepairSteps, false, [], true, PartsRowColumns),
         [WorkInstructionType.Inspection] = new(WorkInstructionType.Inspection, "Inspection", "SqfInspectionInstruction", Merge(Inspection), "Inspection steps", ProcedureSteps, false, [], false, []),
+        // imported files that apply to every part of a product family: the file is the content, so there are no sections or steps
+        [WorkInstructionType.Procedure] = new(WorkInstructionType.Procedure, "Procedure Instructions", "SqfInspectionInstruction", [], "Steps", ProcedureSteps, false, [], false, []),
     };
+
+    /// <summary>Procedure Instructions are imported files only: no blocks, steps or fields are edited in the app, and they never run as work orders.</summary>
+    public static bool IsFileOnly(WorkInstructionType t) => t == WorkInstructionType.Procedure;
 
     /// <summary>The validation folder holds Validation, Validation / FAI and FAI; the repair folder holds Repair Test and Repair Work Instructions.</summary>
     public static bool IsValidationFamily(WorkInstructionType t) => t is WorkInstructionType.Validation or WorkInstructionType.ValidationFai or WorkInstructionType.Fai;

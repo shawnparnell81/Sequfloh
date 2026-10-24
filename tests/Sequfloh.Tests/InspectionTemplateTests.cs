@@ -58,7 +58,7 @@ public sealed class InspectionTemplateTests(TestApp app)
         using (var scope = app.Services.CreateScope())
             await SequflohTypeTemplates.SeedAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>());
         var (_, user) = await app.CreateUserAsync([Permissions.SequflohAccess], await app.CreateSiteAsync());
-        foreach (var type in Enum.GetValues<Sequfloh.Domain.Execution.WorkInstructionType>())
+        foreach (var type in Enum.GetValues<Sequfloh.Domain.Execution.WorkInstructionType>().Where(t => t != Sequfloh.Domain.Execution.WorkInstructionType.Procedure))
         {
             var (_, name) = Assert.Single(SequflohTypeTemplates.All, x => x.Type == type);
             var list = (await user.GetElAsync($"/api/sequfloh/instruction-templates?type={type}")).EnumerateArray().ToList();

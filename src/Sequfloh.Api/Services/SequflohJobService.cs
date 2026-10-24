@@ -377,7 +377,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             new PrintHeading("Chargeback"),
             new PrintFields([("Supplier", Blank(supplier ?? fd.Supplier)), ("Our company", org), ("Supplier reference / PO", Blank(reference ?? fd.PurchaseOrder)), ("Report date", local(x.GeneratedAt))]),
             new PrintHeading("Job"),
-            new PrintFields([("Work order", x.WorkOrder ?? x.Number), ("Record", x.Number), ("Job type", x.Type), ("Work instruction", $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision} {x.Title}".Trim()),
+            new PrintFields([("Work order", x.WorkOrder ?? x.Number), ("Record", x.Number), ("Job type", x.Type), ("Work instruction", (string.IsNullOrEmpty(x.WorkInstructionNumber) ? "—" : $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision} {x.Title}").Trim()),
                 ("Assembly part number", x.PartNumber ?? "—"), ("Description", x.PartDescription ?? "—"),
                 ("Quantity target", x.QuantityTarget?.ToString(CultureInfo.InvariantCulture)), ("Quantity repaired", x.QuantityCompleted.ToString(CultureInfo.InvariantCulture)),
                 ("Could not repair", x.QuantityNotRepaired == 0 ? null : x.QuantityNotRepaired.ToString(CultureInfo.InvariantCulture)), ("Status", x.Status),
@@ -468,7 +468,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         if (fd.RepairMethod is not null || fd.RootCause is not null)
         {
             blocks.Add(new PrintHeading("Repair description"));
-            blocks.Add(new PrintFields([("Repair method", fd.RepairMethod), ("Work instruction used", $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision}"), ("Supplier root cause", fd.RootCause)]));
+            blocks.Add(new PrintFields([("Repair method", fd.RepairMethod), ("Work instruction used", (string.IsNullOrEmpty(x.WorkInstructionNumber) ? "—" : $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision}")), ("Supplier root cause", fd.RootCause)]));
         }
     }
 }

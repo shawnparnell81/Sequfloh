@@ -43,12 +43,11 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         ("unitOfMeasure", "Unit of measure", ["unit of measure", "uom", "unit", "units"]),
         ("isAssembly", "Assembly", ["assembly", "is assembly", "assembly type"]),
         ("material", "Material", ["material"]),
-        ("drawingNumber", "SENSEN # (Dwg #)", ["sensen", "sensen #", "sensen#", "sensen no", "sensen number", "dwg #", "dwg#", "drawing number", "drawing", "drawing no", "dwg"]),
+        ("drawingNumber", "DWG #", ["sensen", "sensen #", "sensen#", "sensen no", "sensen number", "dwg #", "dwg#", "drawing number", "drawing", "drawing no", "dwg"]),
         ("specification", "Specification", ["specification", "spec"]),
         ("isRepairable", "Repairable", ["repairable", "can be repaired"]),
         ("isRepairPart", "Repair part", ["repair part", "repair parts", "spare part"]),
         ("isLotControlled", "Lot controlled", ["lot controlled", "lot control", "lot"]),
-        ("statusTag", "Official status in NetSuite", ["netsuite status", "official status", "status in netsuite", "netsuite"]),
         .. PartAttributes.All.Select(a => ("attr:" + a.Key, a.Label, a.Words)),
     ];
 
@@ -215,8 +214,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         if (string.IsNullOrWhiteSpace(r.Fixed?.GetValueOrDefault("name"))) throw new AppException("Choose the Name for all rows before you preview or import.");
         if (!r.Mapping.TryGetValue("partNumber", out _)) throw new AppException("Choose the column that holds the part number.");
         if (r.Rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
-        var tags = await f.OptionsAsync("status-tags", ct);
         var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive).Select(v => new { v.Id, v.Code, v.Label }).ToListAsync(ct);
+        var familyHidden = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.HiddenFields != null).ToDictionaryAsync(v => v.Id, v => v.HiddenFields, ct);
         if (r.RowNumbers is { } rn && rn.Count != r.Rows.Count) throw new AppException("The row numbers do not match the rows.");
         if (r.DefaultTypeId is { } dt && partTypes.All(x => x.Id != dt)) throw new AppException("The product family for all rows is not an active product family.");
         var list = new List<Parsed>();
@@ -257,9 +256,10 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (typeId is null) errors.Add($"Product family \"{tn}\" is not in the product families list.");
             }
             var name = chosenName;
-            string? tag = null;
-            var tg = Get("statusTag");
-            if (tg.Length > 0) { tag = tags.FirstOrDefault(x => string.Equals(x, tg, StringComparison.OrdinalIgnoreCase)); if (tag is null) errors.Add($"\"{tg}\" is not an official status in the list."); }
+            // mapped fields that are empty or hold a placeholder ("/", "-", "N/A") are marked Not applicable on the part; the value is still kept
+            var fieldKeys = PartFields.All.Select(x => x.Key).ToHashSet();
+            var blanks = r.Mapping.Keys.Select(k => k.StartsWith("attr:", StringComparison.Ordinal) ? k[5..] : k).Where(fieldKeys.Contains)
+                .Where(k => PartFields.IsBlank(Get(fieldKeys.Contains(k) && PartAttributes.Find(k) is not null ? "attr:" + k : k))).ToList();
             var key = string.Join("\u001f", r.Mapping.Keys.Concat(r.Fixed?.Keys ?? Enumerable.Empty<string>()).Distinct().Order(StringComparer.Ordinal).Select(k => k + "=" + Get(k)));
             list.Add(new Parsed(r.RowNumbers?[i] ?? i + 1, pn, name, rev, errors, p =>
             {
@@ -275,9 +275,11 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (rep is not null) p.IsRepairable = rep.Value;
                 if (rp is not null) p.IsRepairPart = rp.Value;
                 if (lot is not null) { p.LotControl = lot; p.IsLotControlled = lot == "Yes"; }
-                if (tag is not null) p.StatusTag = tag;
                 if (typeId is not null) { p.TypeId = typeId; p.ProductFamily = partTypes.First(x => x.Id == typeId).Label; }
                 PartAttributes.Merge(p, attrs);
+                var hidden = PartFields.Read(p.HiddenFields);
+                if (p.HiddenFields is null && p.TypeId is { } ft) hidden.AddRange(PartFields.Read(familyHidden.GetValueOrDefault(ft)));
+                p.HiddenFields = PartFields.Write(hidden.Concat(blanks));
             }, key, attrs.GetValueOrDefault("position")));
         }
         return list;

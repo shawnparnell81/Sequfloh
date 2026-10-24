@@ -56,6 +56,9 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     public async Task<object> CreateValue(string key, ReferenceValueInput r, CancellationToken ct) { var v = await f.CreateValueAsync(key, r, ct); return new { v.Id, v.Code }; }
     [HttpPut("reference/values/{id:guid}")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> UpdateValue(Guid id, ReferenceValueInput r, CancellationToken ct) { await f.UpdateValueAsync(id, r, ct); return NoContent(); }
+    public sealed record HiddenFieldsInput(List<string>? Fields);
+    [HttpPut("reference/values/{id:guid}/hidden-fields")] [RequirePermission(Permissions.SequflohManageDropdowns)]
+    public async Task<IActionResult> FamilyHiddenFields(Guid id, HiddenFieldsInput r, CancellationToken ct) { await f.SetFamilyHiddenFieldsAsync(id, r.Fields, ct); return NoContent(); }
     [HttpPost("reference/values/{id:guid}/activate")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> Activate(Guid id, CancellationToken ct) { await f.SetActiveAsync(id, true, ct); return NoContent(); }
     [HttpPost("reference/values/{id:guid}/deactivate")] [RequirePermission(Permissions.SequflohManageDropdowns)]
