@@ -1149,6 +1149,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ValidationFormId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ListKey", "Code")
@@ -1594,12 +1597,23 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("jsonb")
                         .HasDefaultValueSql("'{}'::jsonb");
 
+                    b.Property<bool?>("FurtherInspection")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("HoldReason")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
                     b.Property<long>("HoldSeconds")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("InspectionDescription")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("InspectionSubType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTimeOffset?>("LastTransitionAt")
                         .HasColumnType("timestamp with time zone");
@@ -1679,6 +1693,12 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<int?>("QtyBad")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("QtyGood")
+                        .HasColumnType("integer");
+
                     b.Property<string>("QualityComments")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
@@ -1691,6 +1711,13 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<int?>("QuantityTarget")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("Quarantine")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<string>("RepairDescription")
                         .HasMaxLength(300)

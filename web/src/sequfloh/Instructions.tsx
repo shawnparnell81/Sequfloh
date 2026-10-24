@@ -1,4 +1,4 @@
-import { SetupHint, setupOptions, useSetupListbox } from '../components/SetupLink';
+import { setupOptions, useSetupListbox } from '../components/SetupLink';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -23,7 +23,7 @@ import { api } from '../api';
 import { SimpleTable } from './Parts';
 import { DevelopmentPanel } from './Personnel';
 import { type Block, BlocksEditor, LayoutTemplates, TemplateActions, TemplatePicker } from './Blocks';
-import { partNo } from './partLabel';
+import { partNo, partOption } from './partLabel';
 import { type DSchema, FieldInput, ProblemList, type Row, RowsEditor, SectionCard, type Val, sequenceProblems, typeLabels, types, useSchemas } from './Designer';
 
 export const wiCrumbs = (label: string, folder?: { label: string; to: string }) =>
@@ -40,8 +40,7 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
   all: { api: 'all', title: 'All Work Instructions', kind: 'generic', description: 'Every SEQUFLOH work instruction you can see, all types and statuses.' },
   validation: { api: 'validation', title: 'Validation Work Instructions', kind: 'validation', newType: 'Validation', description: 'Validation folder: Validation, Validation / FAI and FAI instructions, kept separate from repair instructions.' },
   fai: { api: 'fai', title: 'FAI Work Instructions', kind: 'validation', newType: 'Fai', description: 'First article inspection instructions with their characteristics.' },
-  'repair-test': { api: 'repair-test', title: 'Repair Test Instructions', kind: 'repair', newType: 'RepairTest', description: 'Repair test instructions: test steps, parameters and pass / fail criteria.' },
-  repair: { api: 'repair', title: 'Repair Work Instructions', kind: 'repair', newType: 'RepairWork', description: 'Repair folder: Repair Work Instructions and Repair Test instructions, kept separate from validation instructions.' },
+  repair: { api: 'repair', title: 'Repair Work Instructions', kind: 'repair', newType: 'RepairWork', description: 'Repair work instructions, kept separate from validation instructions.' },
   inspection: { api: 'inspection', title: 'Inspection Work Instructions', kind: 'generic', newType: 'Inspection', description: 'Inspection instructions used when an inspection request is turned into a work order.' },
   procedure: { api: 'procedure', title: 'Procedure Instructions', kind: 'generic', newType: 'Procedure', description: 'Imported PDF instructions that apply to every part of a product family. The file is the instruction: to change one, update the file and import it again, which revises it.' },
   draft: { api: 'drafts', title: 'Draft Instructions', kind: 'generic', description: 'Instructions that can still be edited. Release one when it is ready.' },
@@ -110,7 +109,7 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
       { key: 'resultStatus', label: 'Result status', render: (r: WiRow) => <SqfStatus status={r.resultStatus ?? null} /> }, actions]
     : cfg.kind === 'repair'
       ? [num, { key: 'title', label: 'Title', sort: true }, { key: 'partNumber', label: 'Part being repaired', render: (r: WiRow) => r.partNumber ?? '—' },
-        { key: 'repairDescription', label: 'Repair description', render: (r: WiRow) => r.repairDescription ?? (r.type === 'RepairTest' ? 'Repair test' : '—') },
+        { key: 'repairDescription', label: 'Repair description', render: (r: WiRow) => r.repairDescription ?? '—' },
         { key: 'repairCategory', label: 'Repair category', render: (r: WiRow) => r.repairCategory ?? '—' }, { key: 'revision', label: 'Rev' },
         { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, ...people, ...tail, actions]
       : [num, { key: 'title', label: 'Title', sort: true }, { key: 'type', label: 'Type', render: (r: WiRow) => typeLabels[r.type] ?? r.type },
@@ -163,16 +162,16 @@ function RowActions({ row }: { row: WiRow }) {
 }
 
 // ------------------------------------------------------------------ new instruction (starts with the type)
-interface PartOpt { drawingNumber?: string | null; id: string; partNumber: string; name: string; revision: string; productFamily?: string; assemblyType?: string; partType: string; status: string; isRepairable?: boolean ; attributes?: string | null }
+interface PartOpt { drawingNumber?: string | null; id: string; partNumber: string; name: string; description?: string | null; revision: string; productFamily?: string; assemblyType?: string; partType: string; status: string; isRepairable?: boolean ; attributes?: string | null }
 export function PartPicker({ value, label, onChange, disabled, repairable }: { value: { id: string; partNumber: string; name?: string } | null; label: string; onChange: (p: PartOpt | null) => void; disabled?: boolean; repairable?: boolean }) {
   const [text, setText] = useState('');
   const q = usePartSearch<PartOpt>(text, { status: 'Active', view: repairable ? 'repairable' : undefined });
   const opts: PartOpt[] = q.items;
   const listbox = useSetupListbox('sqfPart');
   const current = value ? (opts.find((o) => o.id === value.id) ?? ({ id: value.id, partNumber: value.partNumber, name: value.name ?? '', revision: '', partType: '', status: 'Active' } as PartOpt)) : null;
-  return <Autocomplete size="small" options={opts} value={current} slots={{ listbox }} noOptionsText={text ? 'No matching part' : <SetupHint kind="sqfPart" count={0} />} disabled={disabled} loading={q.loading} filterOptions={(x) => x}
-    isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => `${partNo(o)}${o.name ? ' — ' + o.name : ''}`}
-    renderOption={(props, o) => <li {...props} key={o.id}><Box><Typography variant="body2">{partNo(o)}{o.name ? ' — ' + o.name : ''}</Typography>{otherNumbers(o) && <Typography variant="caption" color="text.secondary">{otherNumbers(o)}</Typography>}</Box></li>}
+  return <Autocomplete size="small" options={opts} value={current} slots={{ listbox }} noOptionsText={text ? 'No matching part' : 'Type a part number, JH PN, DWG #, NAPA or DMA'} disabled={disabled} loading={q.loading} filterOptions={(x) => x}
+    isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => partOption(o)}
+    renderOption={(props, o) => <li {...props} key={o.id} data-testid="part-option"><Box><Typography variant="body2">{partOption(o)}</Typography>{otherNumbers(o) && <Typography variant="caption" color="text.secondary">{otherNumbers(o)}</Typography>}</Box></li>}
     onInputChange={(_, t, reason) => { if (reason === 'input') setText(t); }} onChange={(_, o) => onChange(o)}
     renderInput={(p) => <TextField {...p} label={label} helperText={q.hint} />} />;
 }
@@ -202,7 +201,7 @@ export function NewInstructionPage() {
   };
   return (
     <SqfPage title="New work instruction" crumbs={wiCrumbs('New work instruction')} permission="sequfloh.create_work_instruction" recent={null}
-      description="Choose the work instruction type first. The type decides which designer opens: Validation, Validation / FAI, FAI, Repair Test, Repair Work Instruction or Inspection.">
+      description="Choose the work instruction type first. The type decides which designer opens: Validation, Validation / FAI, FAI, Repair Work Instruction or Inspection.">
       <Paper variant="outlined" sx={{ p: 3, maxWidth: 880 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Typography variant="overline" component="h2" sx={{ fontWeight: 700 }}>WORK INSTRUCTION TYPE</Typography>
@@ -251,7 +250,7 @@ export function TemplatesPage() {
             {can('sequfloh.create_work_instruction') && <CardActions><Button size="small" component={RouterLink} to={`/sequfloh/instructions/new?type=${s.type}`}>Use template</Button></CardActions>}
           </Card>)}
         </Box>}
-      <LayoutTemplates typeLabels={typeLabels} />
+      <LayoutTemplates typeLabels={Object.fromEntries(types.map((t) => [t, typeLabels[t]]))} />
       <Typography variant="h3" sx={{ mb: 1 }}>Released instructions</Typography>
       {released.isLoading ? <Loading /> : released.error ? <ErrorState error={released.error} /> : !released.data?.items.length ? <Empty text="No released instructions yet." /> :
         <SimpleTable head={['Instruction', 'Title', 'Type', 'Rev', '']} rows={released.data.items.map((r) => [
@@ -549,7 +548,7 @@ function PartsMulti({ value, onChange }: { value: PartOpt[]; onChange: (v: PartO
   const listbox = useSetupListbox('sqfPart');
   const [text, setText] = useState('');
   const q = usePartSearch<PartOpt>(text, { status: 'Active' });
-  return <Autocomplete multiple size="small" options={q.items} value={value} slots={{ listbox }} noOptionsText={text ? 'No matching part' : <SetupHint kind="sqfPart" count={0} />} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
+  return <Autocomplete multiple size="small" options={q.items} value={value} slots={{ listbox }} noOptionsText={text ? 'No matching part' : 'Type a part number, JH PN, DWG #, NAPA or DMA'} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
     getOptionLabel={(o) => `${partNo(o)} — ${o.name}`} onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label="Parts" helperText={q.hint} />} />;
 }
 

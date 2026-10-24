@@ -40,7 +40,7 @@ test('inspection work order type: offered in the dropdown and the default on con
   await cd.getByRole('button', { name: 'Create work order' }).click();
   await expect(page).toHaveURL(/sequfloh\/record\//);
   await expect(page.getByRole('dialog')).toBeHidden();
-  await expect(view(page)).toContainText('Inspection record');
+  await expect(view(page)).toContainText('Inspection work order');
   const woId = page.url().split('/').pop()!;
   expect((await ok(rq.get(`/api/sequfloh/tracking/${woId}`))).record.type).toBe('Inspection');
   await shot('02-converted-work-order-inspection');

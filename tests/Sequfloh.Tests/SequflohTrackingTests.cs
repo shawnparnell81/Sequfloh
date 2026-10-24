@@ -199,7 +199,7 @@ public sealed class SequflohTrackingTests(TestApp app)
         Assert.Equal(HttpStatusCode.OK, (await Save(tech, id, r => Body(r, new[] { new { id = s, result = "Pass", acknowledged = true } }, new[] { new { id = p, issuedQuantity = 3, usedQuantity = 2 } }, null, null))).StatusCode);
         var problems = (await Rec(tech, id)).GetProperty("completionProblems").EnumerateArray().Select(x => x.GetString()!).ToList();
         Assert.Contains(problems, x => x.Contains("lot number"));
-        Assert.Contains(problems, x => x.Contains("repair test result"));
+        Assert.DoesNotContain(problems, x => x.Contains("test result")); // the test results block is optional
         Assert.DoesNotContain(problems, x => x.Contains("disposition")); // disposition and scrap are handled in the ERP
         await Save(inspector, id, r => Body(r, new[] { new { id = s, result = "Pass" } }, new[] { new { id = p, issuedQuantity = 3, usedQuantity = 2, returnedQuantity = 1, lotNumber = "L-9" } },
             "Return to service", "Pass"));

@@ -81,7 +81,7 @@ test('drawings: import at the top level keeps the folder tree, PDFs only; the pa
   const nf = page.getByRole('dialog');
   const picker = nf.getByLabel('Linked part (optional)');
   await picker.click();
-  await expect(nf.getByText(/Showing \d+ of [\d,]+ parts/)).toBeVisible();
+  await expect(page.getByRole('option')).toHaveCount(0); // nothing listed until you type
   await picker.fill(`DM${k}125`);
   await expect(page.getByRole('option')).toHaveCount(1);
   await expect(page.getByRole('option')).toContainText(pn(125));

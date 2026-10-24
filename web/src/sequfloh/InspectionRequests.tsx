@@ -45,7 +45,7 @@ function RequestForm({ value, onChange }: { value: Form; onChange: (v: Form) => 
         {sites.data!.map((s) => <MenuItem key={s.id} value={s.id}>{s.code} — {s.name}</MenuItem>)}</TextField>}
       <Autocomplete freeSolo options={parts.items} inputValue={text} filterOptions={(x) => x}
         getOptionLabel={(o) => (typeof o === 'string' ? o : o.partNumber)}
-        renderOption={(props, o) => <li {...props} key={o.id}><Box><Mono>{partNo(o)}</Mono><Typography variant="caption" display="block" color="text.secondary">{o.name ?? o.description}{otherNumbers(o) ? ` · ${otherNumbers(o)}` : ''}</Typography></Box></li>}
+        renderOption={(props, o) => <li {...props} key={o.id}><Box><Mono>{partNo(o)}</Mono><Typography variant="caption" display="block" color="text.secondary">{o.description || o.name}{otherNumbers(o) ? ` · ${otherNumbers(o)}` : ''}</Typography></Box></li>}
         onInputChange={(_, v, reason) => { setText(v); if (reason === 'input') set({ partNumber: v, partId: null }); }}
         onChange={(_, o) => { if (o && typeof o !== 'string') set({ partNumber: o.partNumber, partId: o.id, partDescription: o.name ?? o.description ?? value.partDescription }); }}
         renderInput={(p) => <TextField {...p} required label="Part number" helperText="Pick from the Part Master to fill the description, or type any part number." />} />

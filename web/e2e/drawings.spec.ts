@@ -123,9 +123,9 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
   await page.getByRole('option').first().click();
   await view(page).getByLabel('Part', { exact: true }).fill(part);
   await page.getByRole('option', { name: new RegExp(part) }).click();
-  await expect(view(page).getByTestId('new-record-drawings')).toContainText('attached to the record');
+  await expect(view(page).getByTestId('new-record-drawings')).toContainText('attached to the work order');
   await shot('new-validation-record-part-drawings');
-  await view(page).getByRole('button', { name: 'Create record' }).click();
+  await view(page).getByRole('button', { name: 'Create work order' }).click();
   await expect(view(page).getByTestId('record-drawings')).toContainText('Rev B (attached)');
   await shot('work-order-drawings-attached');
 

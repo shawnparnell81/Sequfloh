@@ -246,6 +246,41 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
             await db.Parts.Where(p => p.TypeId == v.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.ProductFamily, v.Label), ct);
     }
 
+    /// <summary>
+    /// Each product family with its confirmed validation form, and a suggested blank form whose title contains the family name and "validation".
+    /// The suggestion is only shown; an administrator confirms it by saving.
+    /// </summary>
+    public async Task<object> ValidationFormsAsync(CancellationToken ct)
+    {
+        var families = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive).OrderBy(v => v.SortOrder).ThenBy(v => v.Label)
+            .Select(v => new { v.Id, v.Label, v.Code, v.ValidationFormId }).ToListAsync(ct);
+        var blanks = await db.ImportedFiles.AsNoTracking().Where(b => b.IsBlankForm && !b.IsArchived).OrderBy(b => b.Title).Select(b => new { b.Id, b.Number, b.Title }).ToListAsync(ct);
+        static bool Has(string s, string w) => s.Contains(w, StringComparison.OrdinalIgnoreCase);
+        return new
+        {
+            Blanks = blanks,
+            Families = families.Select(v => new
+            {
+                v.Id, v.Label, BlankFormId = v.ValidationFormId,
+                SuggestedId = blanks.Where(b => Has(b.Title, "validation") && (Has(b.Title, v.Label) || (v.Code.Length > 1 && Has(b.Title, v.Code)))).Select(b => (Guid?)b.Id).FirstOrDefault()
+            })
+        };
+    }
+
+    public async Task SetValidationFormAsync(Guid familyId, Guid? blankId, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageSettings, ct);
+        var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == familyId && x.ListKey == SequflohCatalog.ProductFamilies, ct) ?? throw new NotFoundException("Product family");
+        string? title = null;
+        if (blankId is { } b)
+            title = await db.ImportedFiles.Where(x => x.Id == b && x.IsBlankForm && !x.IsArchived).Select(x => x.Number + " " + x.Title).FirstOrDefaultAsync(ct) ?? throw new AppException("Choose a blank form that is not archived.");
+        if (v.ValidationFormId == blankId) return;
+        var before = v.ValidationFormId is { } old ? await db.ImportedFiles.Where(x => x.Id == old).Select(x => x.Number + " " + x.Title).FirstOrDefaultAsync(ct) : null;
+        v.ValidationFormId = blankId;
+        Audit("ValidationFormConfirmed", nameof(SequflohReferenceValue), v.Id, $"Validation form for {v.Label} changed from {before ?? "none"} to {title ?? "none"}");
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>The fields that start as Not applicable on new and imported parts of a product family.</summary>
     public async Task SetFamilyHiddenFieldsAsync(Guid id, List<string>? keys, CancellationToken ct)
     {

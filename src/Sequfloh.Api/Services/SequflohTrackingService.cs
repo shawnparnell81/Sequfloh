@@ -14,7 +14,8 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null, List<Guid>? AssigneeIds = null);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null);
+public sealed record InspectionResultsInput(int? QtyGood, int? QtyBad, bool? FurtherInspection, bool Quarantine, string? QuarantineReason);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
     string? TechnicianComments = null, string? QualityComments = null, string? EngineeringComments = null, string? Deviations = null, string? NonconformanceReferences = null,
@@ -151,6 +152,9 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         if (r.MinBenchmarkMinutes is { } mn && r.MaxBenchmarkMinutes is { } mx && mn > mx) throw new AppException("The minimum benchmark cannot be greater than the maximum benchmark.");
         if (r.PlannedStart is { } ps && r.DueAt is { } du && du < ps) throw new AppException("The due date cannot be before the planned start.");
         var partId = r.PartId ?? wi?.PartId;
+        if (r.Quantity is < 0) throw new AppException("The quantity can't be negative.");
+        var subType = T(r.InspectionSubType, 100);
+        if (r.Type is TrackingType.Inspection or TrackingType.Warranty && subType is not null) await f.RequireOptionAsync(SequflohCatalog.InspectionSubTypes, subType, "Inspection sub-type", ct);
         if (r.Type == TrackingType.Repair && partId is null) throw new AppException("Choose the repairable part.");
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         me = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
@@ -162,9 +166,11 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
             SerialNumber = T(r.SerialNumber, 100), LotNumber = T(r.LotNumber, 100), WorkOrder = T(r.WorkOrder, 100), RepairOrder = T(r.RepairOrder, 100),
             CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi?.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
             Status = r.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned, CurrentStateStartedAt = now, LastTransitionAt = now,
+            QuantityTarget = r.Quantity, InspectionSubType = r.Type is TrackingType.Inspection or TrackingType.Warranty ? subType : null,
+            InspectionDescription = r.Type is TrackingType.Inspection or TrackingType.Warranty ? T(r.InspectionDescription, 4000) : null,
             ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi?.RepairDescription, FaiType = wi?.FaiType,
-            MinBenchmarkMinutes = r.MinBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection ? settings.Tracking.DefaultMinimumMinutes : null),
-            MaxBenchmarkMinutes = r.MaxBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection ? settings.Tracking.DefaultMaximumMinutes : null),
+            MinBenchmarkMinutes = r.MinBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection or TrackingType.Warranty ? settings.Tracking.DefaultMinimumMinutes : null),
+            MaxBenchmarkMinutes = r.MaxBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection or TrackingType.Warranty ? settings.Tracking.DefaultMaximumMinutes : null),
         };
         if (partId is { } pid)
         {
@@ -184,7 +190,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         rec.Number = await numbers.NextAsync(NumberingType(r.Type), null, ct);
         db.SequflohTrackingRecords.Add(rec);
         foreach (var u in team) db.SequflohTaskAssignees.Add(new SequflohTaskAssignee { TrackingRecordId = rec.Id, UserId = u, AddedAt = now });
-        if (r.Type == TrackingType.Validation && rec.PartId is { } attachFor) await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct);
+        // drawings already linked to this exact part are attached; nothing is matched loosely here
+        if (rec.PartId is { } attachFor) await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct);
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, wi is null ? "Created without a work instruction" : $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
         f.Audit("TrackingRecordCreated", EntityType, rec.Id, wi is null ? $"{rec.Number} ({Label(r.Type)}) created without a work instruction" : $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
             context: new { trackingType = r.Type.ToString(), workInstruction = wi?.Number, revision = wi?.Revision, part = rec.PartNumber });
@@ -220,6 +227,36 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return rec;
+    }
+
+    /// <summary>Records the inspection results of an inspection or warranty work order: qty good and bad, further inspection, and the quarantine flag with its reason. Audited old to new.</summary>
+    public async Task<SequflohTrackingRecord> SetInspectionResultsAsync(Guid id, InspectionResultsInput r, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var rec = await LockAsync(id, ct);
+        if (rec.Type is not (TrackingType.Inspection or TrackingType.Warranty)) throw new AppException("Inspection results are kept on inspection and warranty work orders.");
+        if (rec.Status == TrackingStatus.Canceled) throw new ConflictException($"{rec.Number} is canceled and cannot be changed.");
+        if (r.QtyGood is < 0 || r.QtyBad is < 0) throw new AppException("Quantities can't be negative.");
+        var reason = T(r.QuarantineReason, 1000);
+        if (r.Quarantine && reason is null) throw new AppException("Say why quarantine is required.");
+        string Show(SequflohTrackingRecord x) => $"good {x.QtyGood?.ToString() ?? "-"}, bad {x.QtyBad?.ToString() ?? "-"}, further inspection {(x.FurtherInspection is null ? "-" : x.FurtherInspection.Value ? "yes" : "no")}, quarantine {(x.Quarantine ? $"yes ({x.QuarantineReason})" : "no")}";
+        var before = Show(rec);
+        rec.QtyGood = r.QtyGood; rec.QtyBad = r.QtyBad; rec.FurtherInspection = r.FurtherInspection; rec.Quarantine = r.Quarantine; rec.QuarantineReason = r.Quarantine ? reason : null;
+        var after = Show(rec);
+        if (before != after) f.Audit("InspectionResultsChanged", EntityType, rec.Id, $"{rec.Number} inspection results changed from {before} to {after}", rec.SiteId, context: new { before, after });
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return rec;
+    }
+
+    /// <summary>Stores what the validation form step did on a new work order (the attached copy, or why nothing was attached).</summary>
+    public async Task SetValidationFormAsync(Guid id, JsonObject info, CancellationToken ct)
+    {
+        var rec = await db.SequflohTrackingRecords.FirstAsync(x => x.Id == id, ct);
+        var d = JsonNode.Parse(rec.Details)!.AsObject();
+        d["validationForm"] = info;
+        rec.Details = d.ToJsonString();
+        await db.SaveChangesAsync(ct);
     }
 
     static string Snapshot(string json)
@@ -447,12 +484,10 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
                     if (Flag(pr, "lotNumberRequired") && (used ?? 0) > 0 && !Has(pr, "lotNumber")) p.Add($"{pn}: record the lot number.");
                     if (Flag(pr, "serialNumberRequired") && (used ?? 0) > 0 && !Has(pr, "serialNumber")) p.Add($"{pn}: record the serial number.");
                 }
-                var d = JsonNode.Parse(rec.Details)!.AsObject();
-                if (settings.Repair.RepairTestRequired && string.IsNullOrWhiteSpace(d["repairTestResult"]?.ToString())) p.Add("Record the repair test result.");
                 if (string.IsNullOrWhiteSpace(rec.ObservedCondition)) p.Add("Record the observed condition.");
                 break;
             default:
-                if (rec.Result is "Pending" or "") p.Add("Record the result.");
+                if (rec.Type is TrackingType.Inspection or TrackingType.Warranty && rec.Quarantine && string.IsNullOrWhiteSpace(rec.QuarantineReason)) p.Add("Say why quarantine is required.");
                 break;
         }
         return p;
@@ -631,7 +666,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     }
 
     async Task<string> NameAsync(Guid? id, CancellationToken ct) => id is null ? "nobody" : await db.Users.Where(u => u.Id == id).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "unknown";
-    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "FAI", TrackingType.Validation => "validation", TrackingType.Repair => "repair", _ => "production" };
+    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "FAI", TrackingType.Validation => "validation", TrackingType.Repair => "repair", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", _ => "production" };
     public static string Words(TrackingStatus s) => SequflohInstructionService.Words(s.ToString());
     static string Words(string s) => SequflohInstructionService.Words(s);
     static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];

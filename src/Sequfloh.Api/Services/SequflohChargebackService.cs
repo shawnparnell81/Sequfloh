@@ -77,7 +77,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         return new
         {
             TrackingRecordId = r.Id, TrackingNumber = r.Number, r.Type, WorkOrderNumber = r.WorkOrder, r.PartId, r.PartNumber, r.PartDescription, Result = r.Result == "Pending" ? null : r.Result,
-            QtyInspected = fd.QtyInspected ?? (r.QuantityCompleted > 0 ? r.QuantityCompleted : r.QuantityTarget), QtyBad = fd.QtyNonconforming ?? (r.QuantityNotRepaired > 0 ? r.QuantityNotRepaired : (int?)null),
+            QtyInspected = fd.QtyInspected ?? (r.QtyGood is not null || r.QtyBad is not null ? (r.QtyGood ?? 0) + (r.QtyBad ?? 0) : (int?)null) ?? (r.QuantityCompleted > 0 ? r.QuantityCompleted : r.QuantityTarget), QtyBad = r.QtyBad ?? fd.QtyNonconforming ?? (r.QuantityNotRepaired > 0 ? r.QuantityNotRepaired : (int?)null),
             fd.Supplier, SupplierReference = fd.PurchaseOrder, fd.DiscoveryMethod, fd.SupplierPartNumber, fd.LotDateCodes, fd.RootCause, TaskDescription = fd.Description ?? r.WorkInstructionTitle,
             CrewHours = Hr(t.CrewLaborSeconds), UserHours = Hr(t.UserSeconds), TotalHours = Hr(t.TotalSeconds), TotalPersonnel = t.Personnel, CrewSize = t.MaxCrew, t.Users,
             DateFrom = t.From, DateTo = t.To,

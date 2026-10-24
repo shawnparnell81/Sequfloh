@@ -21,12 +21,21 @@ import { InventoryNote, JobPanel } from './Job';
 import { PartPicker } from './Instructions';
 import { ViewDrawingButton } from './Drawings';
 import { PartDrawingLinks, RecordDrawings } from './Drawings';
+import { useFamilies } from './Imports';
 
-export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection' };
+export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty' };
+/** Types offered by the New work order builder; FAI and Production stay available for links that ask for them. */
+const builderTypes: Record<string, string> = { Validation: 'Validation/FAI', Repair: 'Repair', Inspection: 'Inspection', Warranty: 'Warranty' };
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
-const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task' };
+const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Tracking', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
+/** The one way to start a work order: the type is chosen inside the builder. */
+export function NewWorkOrderButton({ type, variant = 'contained' }: { type?: string; variant?: 'contained' | 'outlined' }) {
+  const { can } = useAuth();
+  if (!Object.values(createPerm).some((p) => can(p))) return null;
+  return <Button variant={variant} component={RouterLink} to={`/sequfloh/tracking/new${type ? `?type=${type}` : ''}`} data-testid="new-work-order">New work order</Button>;
+}
 /** Operation ID for one user action: the server applies an ID once, so a repeated click or resubmission cannot apply the change twice. */
 export const newOpId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16); }));
@@ -48,21 +57,22 @@ export interface TrRow { id: string; number: string; type: string; status: strin
 const folders: Record<string, { title: string; description: string; type?: string }> = {
   validation: { title: 'Validation Tracking', type: 'Validation', description: 'Validation records executed against released Validation and Validation / FAI work instructions.' },
   fai: { title: 'FAI Tracking', type: 'Fai', description: 'First article inspection records with characteristic results, verifications and final disposition.' },
-  repair: { title: 'Repair Tracking', type: 'Repair', description: 'Repair records: conditions, operations, material quantities, repair tests and final disposition.' },
+  repair: { title: 'Repair Tracking', type: 'Repair', description: 'Repair work orders: conditions, operations, material quantities, test results and final disposition.' },
   production: { title: 'Production Tracking', type: 'Production', description: 'Production tasks with work order, operation, benchmark range and persisted timing.' },
-  open: { title: 'Open Activities', description: 'Every tracking record and task that is not completed, failed or canceled.' },
-  completed: { title: 'Completed Activities', description: 'Completed tracking records and tasks.' },
+  inspection: { title: 'Inspection Tracking', type: 'Inspection', description: 'Inspection work orders: sub-type, what to inspect, and qty good, qty bad, further inspection and quarantine.' },
+  warranty: { title: 'Warranty Tracking', type: 'Warranty', description: 'Warranty work orders with the same fields and results as inspections.' },
+  open: { title: 'Open Activities', description: 'Every work order that is not completed, failed or canceled.' },
+  completed: { title: 'Completed Activities', description: 'Completed work orders.' },
 };
 const Elapsed = ({ r }: { r: TrRow }) => <LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} />;
 export const trackingCols = (extra: { key: string; label: string; render?: (r: TrRow) => ReactNode; sort?: boolean }[] = []) => [
-  { key: 'number', label: 'Tracking number', sort: true, render: (r: TrRow) => <Mono>{r.number}</Mono> },
+  { key: 'number', label: 'Work order', sort: true, render: (r: TrRow) => <Mono>{r.number}</Mono> },
   { key: 'type', label: 'Type', render: (r: TrRow) => trackingTypes[r.type] ?? r.type },
   { key: 'wi', label: 'Work instruction', render: (r: TrRow) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
   { key: 'partNumber', label: 'Part', sort: true, render: (r: TrRow) => r.partNumber ?? '—' },
   ...extra,
   { key: 'assignedUser', label: 'Assigned', render: (r: TrRow) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
   { key: 'status', label: 'Status', sort: true, render: (r: TrRow) => <SqfStatus status={r.status} /> },
-  { key: 'result', label: 'Result', render: (r: TrRow) => <SqfStatus status={r.result} /> },
   { key: 'priority', label: 'Priority', sort: true },
   { key: 'dueAt', label: 'Due', sort: true, render: (r: TrRow) => fmtDateTime(r.dueAt) },
   { key: 'elapsed', label: 'Elapsed', render: (r: TrRow) => <Elapsed r={r} /> },
@@ -71,7 +81,6 @@ export const trackingCols = (extra: { key: string; label: string; render?: (r: T
 export function TrackingFolderPage() {
   const { folder = 'open' } = useParams();
   const cfg = folders[folder] ?? folders.open;
-  const { can } = useAuth();
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
   const v = (k: string) => sp.get(k) ?? '';
@@ -81,7 +90,7 @@ export function TrackingFolderPage() {
   const users = useUsers(); const sites = useSites(); const priorities = useOptions('priorities');
   const q = useQuery({ queryKey: ['sqf-tr', folder, sp.toString(), page, size, sort], queryFn: () => get<{ items: TrRow[]; total: number }>(`${S}/tracking?${qs({ folder, q: v('q'), status: v('status'),
     type: v('type'), owner: v('owner'), assigned: v('assigned'), part: v('part'), department: v('department'), site: v('site'), dateField: v('dateField'), from: v('from'), to: v('to'), priority: v('priority'),
-    result: v('result'), tag: v('tag'), sort, page, pageSize: size })}`) });
+    tag: v('tag'), sort, page, pageSize: size })}`) });
   const userOpts: [string, string][] = (users.data ?? []).map((u) => [u.id, u.displayName]);
   const depts: [string, string][] = (sites.data ?? []).filter((s) => !v('site') || s.id === v('site')).flatMap((s) => s.departments.map((d) => [d.id, `${s.code} · ${d.name}`] as [string, string]));
   const filters: { key: string; label: string; options: [string, string][] }[] = [
@@ -91,15 +100,13 @@ export function TrackingFolderPage() {
     { key: 'department', label: 'Department', options: depts },
     { key: 'site', label: 'Site', options: (sites.data ?? []).map((s) => [s.id, s.code]) },
     { key: 'priority', label: 'Priority', options: (priorities.data ?? []).map((p) => [p, p]) },
-    { key: 'result', label: 'Result', options: ['Pending', 'Pass', 'Fail', 'Conditional'].map((r) => [r, r]) },
   ];
   const extra = folder === 'repair' ? [{ key: 'serialNumber', label: 'Serial', render: (r: TrRow) => r.serialNumber ?? '—' }, { key: 'repairOrder', label: 'Repair order', render: (r: TrRow) => r.repairOrder ?? '—' }]
     : folder === 'production' ? [{ key: 'workOrder', label: 'Work order', render: (r: TrRow) => r.workOrder ?? '—' }, { key: 'operation', label: 'Operation', render: (r: TrRow) => r.operation ?? '—' }]
     : [{ key: 'lotSerial', label: 'Lot / serial', render: (r: TrRow) => [r.lotNumber, r.serialNumber].filter(Boolean).join(' / ') || '—' }];
-  const newType = cfg.type ?? Object.keys(createPerm).find((t) => can(createPerm[t]));
   return (
     <SqfPage title={cfg.title} crumbs={trCrumbs(cfg.title)} description={cfg.description} permission="sequfloh.view_live_execution"
-      actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" />{newType && can(createPerm[newType]) && <Button variant="contained" component={RouterLink} to={`/sequfloh/tracking/new?type=${newType}`}>New {cfg.type ? `${trackingTypes[cfg.type]} record` : 'record'}</Button>}</Stack>}>
+      actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" /><NewWorkOrderButton type={cfg.type} /></Stack>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} filters={filters} values={Object.fromEntries(filters.map((f) => [f.key, v(f.key)]))} onChange={set} onClear={() => { setSp({}); setPage(1); }}
         extra={<>
           <TextField size="small" label="Part number" defaultValue={v('part')} key={'p' + v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 150 }} />
@@ -109,20 +116,28 @@ export function TrackingFolderPage() {
           <TextField size="small" type="date" label="To" value={v('to')} onChange={(e) => set('to', e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
         </>} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}`)}
-        empty={sp.toString() ? 'No tracking records match these filters.' : 'No tracking records in this folder yet.'} cols={trackingCols(extra)} />
+        empty={sp.toString() ? 'No work orders match these filters.' : 'No work orders in this folder yet.'} cols={trackingCols(extra)} />
     </SqfPage>
   );
 }
 
-// ------------------------------------------------------------------ new record
+// ------------------------------------------------------------------ new work order
+export interface ValidationForms { blanks: { id: string; number: string; title: string }[]; families: { id: string; label: string; blankFormId?: string | null; suggestedId?: string | null }[] }
 interface WiOpt { id: string; number: string; revision: string; title: string; type: string; partId?: string; partNumber?: string; partDescription?: string; operation?: string; repairDescription?: string; siteId: string; departmentId?: string }
 export function NewTrackingPage() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const { can } = useAuth();
   const sites = useSites(); const users = useUsers(); const priorities = useOptions('priorities');
-  const allowed = Object.keys(createPerm).filter((t) => can(createPerm[t]));
-  const [type, setType] = useState(sp.get('type') && allowed.includes(sp.get('type')!) ? sp.get('type')! : allowed[0] ?? '');
+  const asked = sp.get('type') ?? '';
+  const allowed = Object.keys(createPerm).filter((t) => can(createPerm[t]) && (t in builderTypes || t === asked));
+  const [type, setType] = useState(asked && allowed.includes(asked) ? asked : allowed[0] ?? '');
+  const [familyId, setFamilyId] = useState('');
+  const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
+  const forms = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`), enabled: type === 'Validation' });
+  const famForm = forms.data?.families.find((x) => x.id === familyId);
+  const famBlank = famForm?.blankFormId ? forms.data?.blanks.find((b) => b.id === famForm.blankFormId) : undefined;
+  const isInsp = type === 'Inspection' || type === 'Warranty';
   const [wi, setWi] = useState<WiOpt | null>(null);
   const [wiText, setWiText] = useState('');
   const [part, setPart] = useState<{ id: string; partNumber: string; name?: string } | null>(null);
@@ -137,7 +152,9 @@ export function NewTrackingPage() {
   const create = async () => {
     setBusy(true); setErr(null);
     try {
-      const r = await post<{ id: string }>(`${S}/tracking`, { type, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
+      if (isInsp && !f.subType) throw new Error('Choose the inspection sub-type.');
+      const r = await post<{ id: string }>(`${S}/tracking`, { type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' ? nul(familyId) : null,
+        inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
         maxBenchmarkMinutes: numOrNull(f.max), reportedCondition: nul(f.reportedCondition) });
@@ -145,22 +162,32 @@ export function NewTrackingPage() {
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   return (
-    <SqfPage title="New tracking record" crumbs={trCrumbs('New tracking record')} recent={null} permission={allowed.length ? undefined : 'sequfloh.create_validation_record'}
-      description="Fill in the work order. A released work instruction is optional: when you add one, its steps, characteristics and parts are copied onto the work order, and later revisions never change it. You can also add or remove it later, before work starts.">
+    <SqfPage title="New work order" crumbs={trCrumbs('New work order')} recent={null} permission={allowed.length ? undefined : 'sequfloh.create_validation_record'}
+      description="Choose the type, then fill in the work order. A work instruction is optional: when you add one, its steps are copied onto the work order. The drawing for the exact part number is attached automatically.">
       <Paper variant="outlined" sx={{ p: 3, maxWidth: 980 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Grid cols={2}>
-          <TextField select size="small" label="Tracking type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }}>
-            {allowed.map((t) => <MenuItem key={t} value={t}>{trackingTypes[t]}</MenuItem>)}</TextField>
+          <TextField select size="small" label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }} inputProps={{ 'data-testid': 'new-wo-type' }}>
+            {allowed.map((t) => <MenuItem key={t} value={t}>{builderTypes[t] ?? trackingTypes[t]}</MenuItem>)}</TextField>
           <Autocomplete size="small" options={wis.data ?? []} value={wi} loading={wis.isLoading} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} onInputChange={(_, t, r) => { if (r === 'input') setWiText(t); }}
             onChange={(_, o) => { setWi(o); if (o?.partId) setPart({ id: o.partId, partNumber: o.partNumber ?? '', name: o.partDescription }); if (o?.operation && !f.operation) setF({ ...f, operation: o.operation }); }}
-            renderInput={(p) => <TextField {...p} label="Work instruction (optional)" inputProps={{ ...p.inputProps, 'data-testid': 'new-wo-wi' }} helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type. You can create the work order without one.' : 'Optional how-to steps for the technician.'} />} />
+            renderInput={(p) => <TextField {...p} label="Work instruction number (optional)" inputProps={{ ...p.inputProps, 'data-testid': 'new-wo-wi' }} helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type. You can create the work order without one.' : 'Optional how-to steps for the technician.'} />} />
           <PartPicker label={type === 'Repair' ? 'Repairable part' : 'Part'} repairable={type === 'Repair'} value={part} onChange={(p) => setPart(p)} />
           <TextField size="small" label="Part description" value={part?.name ?? ''} disabled InputLabelProps={{ shrink: true }} />
+          {fld('quantity', 'Qty', { type: 'number', inputProps: { min: 0, 'data-testid': 'new-wo-qty' } })}
+          {type === 'Validation' && <TextField select size="small" label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
+            helperText="The confirmed validation form for this family is attached as a copy to fill out.">
+            <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
+          {type === 'Validation' && familyId && forms.data && <Box sx={{ gridColumn: '1 / -1' }}>
+            {famBlank ? <Alert severity="success" data-testid="new-wo-form-note">A copy of {famBlank.number} {famBlank.title} will be attached to fill out.</Alert>
+              : <Alert severity="warning" data-testid="new-wo-form-note">No validation form is confirmed for this product family. An administrator can set one in Settings, Validation forms by product.</Alert>}</Box>}
+          {isInsp && <TextField select size="small" label="Inspection sub-type" value={subTypes.data ? f.subType ?? '' : ''} onChange={(e) => setF({ ...f, subType: e.target.value })} inputProps={{ 'data-testid': 'new-wo-subtype' }}>
+            {(subTypes.data ?? []).map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}</TextField>}
+          {isInsp && <Box sx={{ gridColumn: '1 / -1' }}>{fld('inspectionDescription', 'Description of the inspection', { multiline: true, minRows: 2, fullWidth: true, inputProps: { 'data-testid': 'new-wo-description' } })}</Box>}
           {part && <Box sx={{ gridColumn: { md: 'span 2' } }} data-testid="new-record-drawings">
             <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 0.5 }}>
-              {type === 'Validation' ? 'Drawings for this part (attached to the record when it is created)' : 'Drawings for this part'}</Typography>
+              Drawings for this exact part number (attached to the work order when it is created)</Typography>
             <PartDrawingLinks partId={part.id} /></Box>}
           <TextField select size="small" label="Site" value={sites.data ? siteId : ''} onChange={(e) => { setSiteId(e.target.value); setDepartmentId(''); }}>
             {(sites.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}{setupOptions('site', sites.data)}</TextField>
@@ -174,12 +201,12 @@ export function NewTrackingPage() {
           {fld('workOrder', 'Work order')}{type === 'Repair' ? fld('repairOrder', 'Repair order') : fld('project', 'Project')}
           {type === 'Repair' && fld('customerReturnReference', 'Customer-return reference')}
           {fld('operation', 'Operation')}
-          {fld('plannedStart', 'Planned start', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Due date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
+          {fld('plannedStart', 'Date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
           {fld('min', 'Minimum benchmark (minutes)', { type: 'number' })}{fld('max', 'Maximum benchmark (minutes)', { type: 'number' })}
           {type === 'Repair' && <Box sx={{ gridColumn: '1 / -1' }}>{fld('reportedCondition', 'Reported condition', { multiline: true, minRows: 2, fullWidth: true })}</Box>}
         </Grid>
         <Stack direction="row" gap={1} sx={{ mt: 3 }}>
-          <Button variant="contained" disabled={!type || !siteId || busy} onClick={create}>Create record</Button>
+          <Button variant="contained" disabled={!type || !siteId || busy} onClick={create} data-testid="new-wo-create">Create work order</Button>
           <Button component={RouterLink} to="/sequfloh/tracking/open">Cancel</Button>
         </Stack>
       </Paper>
@@ -214,8 +241,8 @@ export function TrackingRecordPage() {
   const [act, setAct] = useState<TrAction | null>(null);
   useUnsaved(dirty);
   useEffect(() => { if (q.data && !dirty) setDoc(structuredClone(q.data.record)); }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (q.isLoading) return <SqfPage title="Tracking record" crumbs={trCrumbs('Loading')}><Loading /></SqfPage>;
-  if (q.error) return <SqfPage title="Tracking record" crumbs={trCrumbs('Not available')}><ErrorState error={q.error} retry={q.refetch} /></SqfPage>;
+  if (q.isLoading) return <SqfPage title="Work order" crumbs={trCrumbs('Loading')}><Loading /></SqfPage>;
+  if (q.error) return <SqfPage title="Work order" crumbs={trCrumbs('Not available')}><ErrorState error={q.error} retry={q.refetch} /></SqfPage>;
   if (!doc || !q.data) return null;
   const rec = q.data.record;
   const upd = (patch: Partial<TrRecord>) => { setDoc({ ...doc, ...patch }); setDirty(true); };
@@ -238,8 +265,9 @@ export function TrackingRecordPage() {
   };
   const enter = q.data.canEnter && !busy;
   const plan = q.data.canPlan && !busy;
-  const folder = { Validation: 'validation', Fai: 'fai', Repair: 'repair', Production: 'production' }[rec.type] ?? 'open';
-  const title = `${rec.number} — ${trackingTypes[rec.type]} record`;
+  const folder = { Validation: 'validation', Fai: 'fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty' }[rec.type] ?? 'open';
+  const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
+  const vf = (rec.details as unknown as { validationForm?: { family?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
     { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
@@ -250,7 +278,7 @@ export function TrackingRecordPage() {
     onChange={(e) => upd({ [k]: e.target.value } as Partial<TrRecord>)} />;
   const running = rec.status === 'InProgress';
   return (
-    <SqfPage title={title} crumbs={trCrumbs(rec.number, { label: folders[folder].title, to: `/sequfloh/tracking/${folder}` })} recent={{ label: `${rec.number} ${rec.workInstructionTitle}`, itemType: 'Tracking record', recordId: rec.id }}
+    <SqfPage title={title} crumbs={trCrumbs(rec.number, { label: folders[folder].title, to: `/sequfloh/tracking/${folder}` })} recent={{ label: `${rec.number} ${rec.workInstructionTitle}`, itemType: 'Work order', recordId: rec.id }}
       tabs={tabs} tab={tab} onTab={(t) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); }}
       actions={<RecordActions surface="work-order" dirty={dirty} busy={busy}
         save={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => void save() }}
@@ -273,11 +301,20 @@ export function TrackingRecordPage() {
         <CrewPanel recordId={rec.id} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
-        <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Tracking record">
-          <Typography variant="h3" sx={{ mb: 1.5 }}>Tracking record</Typography>
-          <Facts items={[['Tracking number', <Mono>{rec.number}</Mono>], ['Tracking type', trackingTypes[rec.type]],
+        {vf && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
+          <Typography variant="h3" sx={{ mb: 1 }}>Validation form{vf.family ? ` — ${vf.family}` : ''}</Typography>
+          {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. It is saved under Completed Validation/FAI for this product family.</Typography>
+            : <Alert severity="warning">{vf.message ?? 'No validation form is confirmed for this product family.'}</Alert>}
+        </Paper>}
+        {(rec.type === 'Inspection' || rec.type === 'Warranty') && <InspectionResults rec={rec} onSaved={refresh} />}
+        <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Work order">
+          <Typography variant="h3" sx={{ mb: 1.5 }}>Work order</Typography>
+          <Facts items={[['Work order number', <Mono>{rec.number}</Mono>], ['Type', trackingTypes[rec.type]],
+            ...(rec.inspectionSubType ? [['Inspection sub-type', s(rec.inspectionSubType)] as [string, ReactNode]] : []),
+            ...(rec.inspectionDescription ? [['Description', s(rec.inspectionDescription)] as [string, ReactNode]] : []),
+            ...(rec.quantityTarget != null ? [['Qty', s(rec.quantityTarget)] as [string, ReactNode]] : []),
             ['Work instruction', <InstructionRef key="wi" rec={rec} canChange={['NotStarted', 'Assigned'].includes(rec.status) && !dirty} onSaved={refresh} />],
-            ['Part', rec.partNumber ? <span key="p">{`${s(rec.partNumber)} — ${s(rec.partDescription)}`}<ViewDrawingButton partId={rec.partId as string | undefined} partNumber={s(rec.partNumber)} /></span> : '—'], ['Status', <SqfStatus status={rec.status} />], ['Result', <SqfStatus status={rec.result} />],
+            ['Part', rec.partNumber ? <span key="p">{`${s(rec.partNumber)} — ${s(rec.partDescription)}`}<ViewDrawingButton partId={rec.partId as string | undefined} partNumber={s(rec.partNumber)} /></span> : '—'], ['Status', <SqfStatus status={rec.status} />],
             ['Assigned people', rec.assignees?.length ? rec.assignees.map((a) => a.displayName).join(', ') : s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
             ['Site', s(rec.site) || '—'], ['Owner', s(rec.owner) || '—'], ['Created', `${fmtDateTime(rec.createdAt)}${rec.createdBy ? ' · ' + s(rec.createdBy) : ''}`],
             ['Updated', `${fmtDateTime(s(rec.updatedAt))}${rec.updatedBy ? ' · ' + s(rec.updatedBy) : ''}`],
@@ -306,18 +343,17 @@ export function TrackingRecordPage() {
           <Typography variant="h3" sx={{ mb: 1.5 }}>Results and evidence</Typography>
           {!q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Results are recorded while the record is in progress or pending inspection.</Typography>}
           <Grid cols={2}>
-            {(rec.type === 'Production' || rec.type === 'Inspection') && <TextField select size="small" label="Result" value={s(doc.result)} disabled={!enter} onChange={(e) => upd({ result: e.target.value })}>
-              {['Pending', 'Pass', 'Fail', 'Conditional'].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}</TextField>}
             {rec.type === 'Validation' && <>{det('sampleIdentification', 'Sample identification')}{det('controlledConditions', 'Controlled conditions (recorded)')}</>}
             {rec.type === 'Fai' && <>{det('materialVerification', 'Material verification')}{det('specialProcessVerification', 'Special-process verification')}{det('certificateReview', 'Certificate review')}
               {det('drawingBalloonReferences', 'Drawing-balloon references', false)}{det('dimensionalResults', 'Dimensional results')}{det('visualResults', 'Visual results')}{det('functionalResults', 'Functional results')}
               <OptionSelect list="inspection-results" label="Inspection result" value={s(doc.finalDisposition)} disabled={!enter} onChange={(v) => upd({ finalDisposition: v })} /></>}
             {rec.type === 'Repair' && <>{txt('reportedCondition', 'Reported condition', !enter)}{txt('observedCondition', 'Observed condition', !enter)}
-              <OptionSelect list="repair-test-results" label="Repair test result" value={doc.details.repairTestResult ?? ''} disabled={!enter} onChange={(v) => upd({ details: { ...doc.details, repairTestResult: v } })} />
-              {det('repairTestReference', 'Repair test reference', false)}{det('postRepairInspection', 'Post-repair inspection')}{det('failureHandling', 'Failure handling')}{det('rejectionHandling', 'Rejection handling')}</>}
-            {(rec.type === 'Production' || rec.type === 'Inspection') && <>{det('qualityCheckpoints', 'Quality checkpoints')}{det('resultEntry', 'Result entry')}</>}
+              <Box sx={{ gridColumn: '1 / -1' }} component="section" aria-label="Test results" data-testid="wo-test-results"><Typography variant="subtitle2" sx={{ mb: 1 }}>Test results</Typography>
+                <Grid cols={2}><OptionSelect list="repair-test-results" label="Test result" value={doc.details.repairTestResult ?? ''} disabled={!enter} onChange={(v) => upd({ details: { ...doc.details, repairTestResult: v } })} />
+                {det('repairTestReference', 'Test reference', false)}</Grid></Box>{det('postRepairInspection', 'Post-repair inspection')}{det('failureHandling', 'Failure handling')}{det('rejectionHandling', 'Rejection handling')}</>}
+            {(rec.type === 'Production' || rec.type === 'Inspection' || rec.type === 'Warranty') && <>{det('qualityCheckpoints', 'Quality checkpoints')}{det('resultEntry', 'Result entry')}</>}
             {txt('evidenceReferences', 'Evidence references', !enter)}{txt('technicianComments', 'Technician comments', !enter)}
-            {(rec.type !== 'Production' && rec.type !== 'Inspection') && txt('deviations', 'Deviations', !enter)}{txt('nonconformanceReferences', 'Nonconformance references', !enter)}
+            {(rec.type !== 'Production' && rec.type !== 'Inspection' && rec.type !== 'Warranty') && txt('deviations', 'Deviations', !enter)}{txt('nonconformanceReferences', 'Nonconformance references', !enter)}
             {txt('varianceReason', 'Variance reason', !enter)}
           </Grid>
         </Paper>
@@ -378,6 +414,41 @@ export function TrackingRecordPage() {
 
 const Link = ({ to, children }: { to: string; children: ReactNode }) => <RouterLink to={to} style={{ color: 'inherit' }}>{children}</RouterLink>;
 const local = (iso: string) => { if (!iso) return ''; const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+/** Inspection and warranty results: qty good, qty bad (feeds the chargeback report), further inspection and the quarantine flag. Saved on its own and audited. */
+function InspectionResults({ rec, onSaved }: { rec: TrRecord; onSaved: () => Promise<void> }) {
+  const init = () => ({ good: s(rec.qtyGood), bad: s(rec.qtyBad), further: rec.furtherInspection == null ? '' : rec.furtherInspection ? 'yes' : 'no', quarantine: rec.quarantine ? 'yes' : 'no', why: s(rec.quarantineReason) });
+  const [v, setV] = useState(init);
+  const [err, setErr] = useState<string | null>(null); const [ok, setOk] = useState(false); const [busy, setBusy] = useState(false);
+  useEffect(() => setV(init()), [rec.stateVersion, rec.qtyGood, rec.qtyBad, rec.quarantine]); // eslint-disable-line react-hooks/exhaustive-deps
+  const locked = rec.status === 'Canceled';
+  const yn = (k: 'further' | 'quarantine', label: string, testid: string) => <TextField select size="small" label={label} value={v[k]} disabled={locked} onChange={(e) => setV({ ...v, [k]: e.target.value })} inputProps={{ 'data-testid': testid }}>
+    {k === 'further' && <MenuItem value=""><em>Not recorded</em></MenuItem>}<MenuItem value="yes">Yes</MenuItem><MenuItem value="no">No</MenuItem></TextField>;
+  const saveIt = async () => {
+    setBusy(true); setErr(null); setOk(false);
+    try {
+      if (v.quarantine === 'yes' && !v.why.trim()) throw new Error('Say why quarantine is required.');
+      await put(`${S}/tracking/${rec.id}/inspection-results`, { qtyGood: numOrNull(v.good), qtyBad: numOrNull(v.bad), furtherInspection: v.further === '' ? null : v.further === 'yes', quarantine: v.quarantine === 'yes', quarantineReason: nul(v.why) });
+      setOk(true); await onSaved();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Inspection results" data-testid="wo-inspection-results">
+      <Typography variant="h3" sx={{ mb: 1.5 }}>Inspection results</Typography>
+      {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
+      {ok && <Alert severity="success" sx={{ mb: 1.5 }} onClose={() => setOk(false)}>Inspection results saved.</Alert>}
+      <Grid cols={4}>
+        <TextField size="small" type="number" label="Qty good" value={v.good} disabled={locked} onChange={(e) => setV({ ...v, good: e.target.value })} inputProps={{ min: 0, 'data-testid': 'insp-good' }} />
+        <TextField size="small" type="number" label="Qty bad" value={v.bad} disabled={locked} onChange={(e) => setV({ ...v, bad: e.target.value })} inputProps={{ min: 0, 'data-testid': 'insp-bad' }} helperText="Feeds Qty bad on the chargeback report." />
+        {yn('further', 'Further inspection', 'insp-further')}
+        {yn('quarantine', 'Quarantine', 'insp-quarantine')}
+        {v.quarantine === 'yes' && <Box sx={{ gridColumn: '1 / -1' }}><TextField size="small" fullWidth required label="Why?" value={v.why} disabled={locked} onChange={(e) => setV({ ...v, why: e.target.value })} inputProps={{ 'data-testid': 'insp-why' }}
+          helperText="Quarantine is a flag on this work order only." /></Box>}
+      </Grid>
+      {!locked && <Button variant="contained" sx={{ mt: 1.5 }} disabled={busy} onClick={saveIt} data-testid="insp-save">Save inspection results</Button>}
+    </Paper>
+  );
+}
 
 function OptionSelect({ list, label, value, disabled, onChange }: { list: string; label: string; value: string; disabled?: boolean; onChange: (v: string) => void }) {
   const o = useOptions(list);

@@ -65,7 +65,7 @@ public sealed class SequflohExecutionTests(TestApp app)
         var station = await Numbers(tech, "station", site);
         Assert.Equal(a.Number, station[0]); // the running task comes first
         var rec = await tech.GetElAsync($"{T}/{a.Id}");
-        Assert.Equal("Record the result.", rec.Str("nextAction"));
+        Assert.Equal("Complete the task.", rec.Str("nextAction")); // no overall result to record any more
         await Act(tech, a.Id, "pause", "Material shortage");
         var paused = (await tech.GetElAsync($"{X}/queue/paused?site={site}")).GetProperty("items")[0];
         Assert.Equal("Material shortage", paused.Str("pauseReason"));

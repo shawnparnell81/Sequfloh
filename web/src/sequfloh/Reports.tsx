@@ -26,7 +26,7 @@ const filterSets: Record<string, { status?: [string, string][]; type?: [string, 
   'task-performance': { status: opt(trackingStatuses), type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production'], ['Inspection', 'Inspection']] },
   validation: { status: opt(trackingStatuses) }, fai: { status: opt(trackingStatuses) }, repair: { status: opt(trackingStatuses) }, production: { status: opt(trackingStatuses) },
   'time-variance': { type: [['Validation', 'Validation'], ['Fai', 'FAI'], ['Repair', 'Repair'], ['Production', 'Production'], ['Inspection', 'Inspection']] },
-  'work-instructions': { status: opt(wiStatuses), type: [['Validation', 'Validation'], ['ValidationFai', 'Validation / FAI'], ['Fai', 'FAI'], ['RepairTest', 'Repair Test'], ['RepairWork', 'Repair Work Instruction'], ['Inspection', 'Inspection']] },
+  'work-instructions': { status: opt(wiStatuses), type: [['Validation', 'Validation'], ['ValidationFai', 'Validation / FAI'], ['Fai', 'FAI'], ['RepairWork', 'Repair Work Instruction'], ['Inspection', 'Inspection']] },
   'parts-lists': { status: [['Draft', 'Draft'], ['Released', 'Released'], ['Inactive', 'Inactive']] },
 };
 
@@ -191,7 +191,7 @@ function AuditDetailDialog({ id, onClose }: { id: number; onClose: () => void })
 
 // ------------------------------------------------------------------ search
 interface Group { key: string; label: string; items: { id: string; number: string; title: string; status: string; path: string }[] }
-/** SEQUFLOH search across permitted work instructions, parts, parts lists, tracking records, tasks and (for user administrators) users. */
+/** SEQUFLOH search across permitted work instructions, parts, parts lists, work orders, tasks and (for user administrators) users. */
 export function SearchPage() {
   const [sp, setSp] = useSearchParams();
   const term = sp.get('q') ?? '';
@@ -200,7 +200,7 @@ export function SearchPage() {
   const q = useQuery({ queryKey: ['sqf-search', term], enabled: term.trim().length >= 2, queryFn: () => get<{ groups: Group[] }>(`${S}/search?${qs({ q: term })}`) });
   const groups = q.data?.groups.filter((g) => g.items.length > 0) ?? [];
   return (
-    <SqfPage title="Search SEQUFLOH" crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Search' }]} description="Find work instructions, parts, parts lists, tracking records and tasks you have access to.">
+    <SqfPage title="Search SEQUFLOH" crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Search' }]} description="Find work instructions, parts, parts lists, work orders and tasks you have access to.">
       <ListToolbar onSubmit={() => setSp(text.trim() ? { q: text.trim() } : {})}>
         <TextField size="small" label="Search" value={text} onChange={(e) => setText(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} autoFocus />
         <Button type="submit" variant="outlined">Search</Button>

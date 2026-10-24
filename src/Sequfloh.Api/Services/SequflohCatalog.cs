@@ -11,11 +11,13 @@ public static class SequflohCatalog
     /// <summary>The admin-managed product families list; a part stores the value Id in TypeId and a copy of the label in ProductFamily.</summary>
     public const string ProductFamilies = "product-families";
 
+    public const string InspectionSubTypes = "inspection-sub-types";
+
     public const string Module = "sequfloh";
 
     public static readonly ReferenceListDef[] Lists =
     [
-        new("work-instruction-types", "Work instruction types", "Instruction types offered when a work instruction is created.", ["Validation", "Validation / FAI", "FAI", "Repair Test", "Repair Work Instruction", "Inspection", "Procedure Instructions"]),
+        new("work-instruction-types", "Work instruction types", "Instruction types offered when a work instruction is created.", ["Validation", "Validation / FAI", "FAI", "Repair Work Instruction", "Inspection", "Procedure Instructions"]),
         new("lifecycle-statuses", "Lifecycle statuses", "Display labels of the work instruction lifecycle statuses.", ["Draft", "Released", "Superseded", "Obsolete"]),
         new("activity-statuses", "Activity statuses", "Display labels of the tracking and task statuses.", ["Not Started", "Assigned", "In Progress", "Paused", "On Hold", "Completed", "Failed", "Canceled"]),
         new("validation-types", "Validation types", "Kinds of validation.", ["Design validation", "Process validation", "Equipment qualification", "Software validation", "Test method validation", "Packaging validation", "Material validation"]),
@@ -28,7 +30,8 @@ public static class SequflohCatalog
         new("repair-descriptions", "Repair descriptions", "Controlled repair descriptions used by Repair Work Instructions.",
             ["Inspection and diagnosis", "Disassembly", "Cleaning", "Component replacement", "Adjustment", "Rework", "Electrical repair", "Mechanical repair", "Cosmetic repair", "Leak correction",
              "Connector repair", "Fastener replacement", "Functional restoration", "Final testing", "Other controlled repair"]),
-        new("repair-test-results", "Repair test results", "Results of a repair test.", ["Pass", "Fail", "Retest required"]),
+        new(InspectionSubTypes, "Inspection sub-types", "Kinds of inspection and warranty work orders.", ["AQL", "Supplier request", "Warranty claim", "Product alert", "Non-conformance"]),
+        new("repair-test-results", "Test results", "Results of a one-off test on a work order.", ["Pass", "Fail", "Retest required"]),
         new("repair-failure-reasons", "Repair failure reasons", "Why a repair or repair test failed.", ["Fault not found", "Repair ineffective", "Additional damage found", "Part not available", "Test equipment fault", "Workmanship"]),
         new("discovery-methods", "Discovery methods", "How a supplier nonconformance was found, on the work order findings and chargeback report.",
             ["AQL sampling inspection", "Warranty claim inspection", "Product alert", "Recall", "Incoming inspection", "In-process", "Customer complaint", "Other"]),

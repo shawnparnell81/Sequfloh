@@ -10,7 +10,7 @@ import { get, post, put } from '../api';
 import { otherNumbers, usePartSearch } from './partSearch';
 import { fmtDateTime } from '../components/Status';
 import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, SqfPage, qs } from './common';
-import { partNo } from './partLabel';
+import { partOption } from './partLabel';
 import { SimpleTable } from './Parts';
 import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
@@ -113,8 +113,8 @@ export function DrawingPicker({ value, onChange, label: l = 'Link drawing(s)' }:
 /** Picks parts from Parts and Items. */
 export function PartsPicker({ value, onChange, label: l = 'Link to part number(s)' }: { value: Opt[]; onChange: (v: Opt[]) => void; label?: string }) {
   const [text, setText] = useState('');
-  const q = usePartSearch<{ id: string; partNumber: string; name: string; drawingNumber?: string | null; attributes?: string | null }>(text);
-  const opts = q.items.map((p) => ({ id: p.id, label: `${partNo(p)} — ${p.name}`, extra: otherNumbers(p) }));
+  const q = usePartSearch<{ id: string; partNumber: string; name: string; description?: string | null; drawingNumber?: string | null; attributes?: string | null }>(text);
+  const opts = q.items.map((p) => ({ id: p.id, label: partOption(p), extra: otherNumbers(p) }));
   return <Autocomplete multiple options={opts} value={value} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => o.label} loading={q.loading}
     renderOption={(props, o) => <li {...props} key={o.id}><Box><Typography variant="body2">{o.label}</Typography>{o.extra && <Typography variant="caption" color="text.secondary">{o.extra}</Typography>}</Box></li>}
     noOptionsText={text ? 'No part matches' : 'Type a part number'}

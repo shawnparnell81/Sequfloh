@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
-import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Checkbox, Chip, Link, Dialog, DialogActions, DialogContent, FormControlLabel, Menu, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
@@ -158,10 +158,15 @@ export function ImportedFilePage() {
   const qc = useQueryClient();
   const [famOpen, setFamOpen] = useState(false);
   const [printSp] = useSearchParams();
+  const settings = useQuery({ queryKey: ['sqf-settings'], queryFn: () => get<{ display?: { openFormsInNewWindow?: boolean } }>(`${S}/settings`), staleTime: 60_000 });
   useEffect(() => { if (d && printSp.get('print')) { const t = setTimeout(() => window.print(), 1500); return () => clearTimeout(t); } }, [d?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const fillOut = async (title: string, partNumber?: string, familyId?: string | null) => {
     setFillBusy(true); setFillError(null);
-    try { const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title, partNumber, familyId: familyId ?? null }); setFillOpen(false); nav(`/sequfloh/imported-files/${r.id}`); }
+    try {
+      const r = await post<{ id: string }>(`${A}/${d!.id}/fill-out`, { title, partNumber, familyId: familyId ?? null }); setFillOpen(false);
+      if (settings.data?.display?.openFormsInNewWindow) openFormWindow(r.id);
+      nav(`/sequfloh/imported-files/${r.id}`);
+    }
     catch (e) { setFillError((e as Error).message); } finally { setFillBusy(false); }
   };
   const uploadVersion = async (f: File) => {
@@ -213,9 +218,9 @@ export function ImportedFilePage() {
           ? 'You are editing the blank form itself. Saved changes become a new version of the blank; filled copies made earlier stay as they are.'
           : 'This is a blank form, so it is protected. Use Fill out a copy to start a filled one; turn on Edit blank to change the blank itself.'}</Alert>}
         {[...(d.summary.security ?? []), ...(d.summary.warnings ?? [])].slice(0, 4).map((w) => <Alert key={w} severity="info" sx={{ mb: 1 }}>{w}</Alert>)}
-        {tab === 'file' && (d.kind === 'spreadsheet'
+        {tab === 'file' && <FormView fileId={d.id}>{d.kind === 'spreadsheet'
           ? <SheetEditor key={d.id} file={d} version={shown} editable={editable} editBlank={editBlank} onSaved={refresh} />
-          : <DocumentEditor key={d.id} file={d} version={shown} editable={editable} editBlank={editBlank} onSaved={refresh} />)}
+          : <DocumentEditor key={d.id} file={d} version={shown} editable={editable} editBlank={editBlank} onSaved={refresh} />}</FormView>}
         {tab === 'copies' && (d.copies?.length ? <Paper variant="outlined" data-testid="copies">
           {d.copies.map((c) => <Stack key={c.id} direction="row" gap={2} alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: 1, borderColor: 'divider', cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
             onClick={() => nav(`/sequfloh/imported-files/${c.id}`)}>
@@ -236,6 +241,82 @@ export function ImportedFilePage() {
       </>}
       {d && <CopyDialog open={fillOpen} heading="Fill out a copy" initial={`${d.title} – ${today()}`} action="Create and open" busy={fillBusy} error={fillError} onClose={() => setFillOpen(false)} onConfirm={fillOut} partNumber />}
     </SqfPage>
+  );
+}
+
+// ---- form view: fit to width, zoom, full screen, own window ----------------------------------------------------------------------
+
+interface FormViewState { full: boolean; mode: 'fit' | number; fit: number; setFit: (n: number) => void }
+const FormViewCtx = createContext<FormViewState>({ full: false, mode: 'fit', fit: 1, setFit: () => {} });
+const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 2];
+export const openFormWindow = (id: string) => window.open(`/forms/fill/${id}`, `sqf-form-${id}`, 'popup=yes,width=1400,height=900');
+
+/** Scales a form so its whole width shows without scrolling sideways (fit to width), or to the zoom the user picked. Saving is the same at any zoom. */
+function ZoomBox({ natural, children }: { natural: number; children: ReactNode }) {
+  const view = useContext(FormViewCtx);
+  const ref = useRef<HTMLDivElement>(null);
+  const [avail, setAvail] = useState(0);
+  useLayoutEffect(() => {
+    const host = ref.current?.parentElement; if (!host) return;
+    const measure = () => { const cs = getComputedStyle(host); setAvail(host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 2); };
+    measure();
+    const ro = new ResizeObserver(measure); ro.observe(host);
+    return () => ro.disconnect();
+  }, []);
+  const fit = avail > 0 && natural > 0 ? Math.max(0.3, Math.min(1, avail / natural)) : 1;
+  const { setFit } = view;
+  useEffect(() => { setFit(fit); }, [fit, setFit]);
+  const zoom = view.mode === 'fit' ? fit : view.mode;
+  return <div ref={ref} data-testid="form-zoom" data-zoom={zoom.toFixed(2)} style={{ zoom, width: 'max-content', margin: '0 auto' } as CSSProperties}>{children}</div>;
+}
+
+/** The toolbar and frame around a form editor: fit to width (the default), zoom out and in, full screen with only the form, and open in a new window. */
+function FormView({ fileId, standalone, children }: { fileId: string; standalone?: boolean; children: ReactNode }) {
+  const [full, setFull] = useState(false);
+  const [mode, setMode] = useState<'fit' | number>('fit');
+  const [fit, setFit] = useState(1);
+  const ctx = useMemo(() => ({ full: full || !!standalone, mode, fit, setFit }), [full, standalone, mode, fit]);
+  const cur = mode === 'fit' ? fit : mode;
+  const step = (dir: 1 | -1) => { const next = dir > 0 ? ZOOMS.find((z) => z > cur + 0.001) : [...ZOOMS].reverse().find((z) => z < cur - 0.001); if (next) setMode(next); };
+  useEffect(() => { if (!full) return; const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setFull(false); }; window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc); }, [full]);
+  return (
+    <FormViewCtx.Provider value={ctx}>
+      <Box data-testid="form-view" data-full={full || undefined} sx={full ? { position: 'fixed', inset: 0, zIndex: 1400, bgcolor: 'background.default', p: 1.5, overflow: 'auto' } : undefined}>
+        <Stack direction="row" gap={0.5} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap">
+          <Button size="small" variant="outlined" onClick={() => step(-1)} aria-label="Zoom out" data-testid="zoom-out" sx={{ minWidth: 36 }}>−</Button>
+          <Typography variant="body2" sx={{ width: 52, textAlign: 'center' }} data-testid="zoom-level">{Math.round(cur * 100)}%</Typography>
+          <Button size="small" variant="outlined" onClick={() => step(1)} aria-label="Zoom in" data-testid="zoom-in" sx={{ minWidth: 36 }}>+</Button>
+          <Button size="small" variant={mode === 'fit' ? 'contained' : 'outlined'} onClick={() => setMode('fit')} data-testid="zoom-fit">Fit to width</Button>
+          <Box sx={{ flex: 1 }} />
+          {!standalone && <Button size="small" variant={full ? 'contained' : 'outlined'} onClick={() => setFull(!full)} data-testid="form-fullscreen">{full ? 'Exit full screen' : 'Full screen'}</Button>}
+          {!standalone && <Button size="small" variant="outlined" onClick={() => openFormWindow(fileId)} data-testid="form-new-window">Open in new window</Button>}
+        </Stack>
+        {children}
+      </Box>
+    </FormViewCtx.Provider>
+  );
+}
+
+/** A form opened in its own browser window: only the editor, with the same saving and versions as in the app. */
+export function FormFillWindow() {
+  const loc = useLocation();
+  const id = loc.pathname.split('/').filter(Boolean)[2] ?? '';
+  const q = useQuery({ queryKey: ['imported-file', id], queryFn: () => get<Detail>(`${A}/${id}`), enabled: !!id });
+  const d = q.data;
+  useEffect(() => { if (d) document.title = `${d.number} ${d.title}`; }, [d]);
+  return (
+    <Box sx={{ p: 1.5, minHeight: '100vh', bgcolor: 'background.default' }} data-testid="form-window">
+      {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
+        <Stack direction="row" gap={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap">
+          <Typography variant="h3"><Mono>{d.number}</Mono> · {d.title}</Typography>
+          <Chip size="small" color="primary" variant="outlined" label={`Version ${d.currentVersion}`} />
+          {d.isBlankForm && <Chip size="small" color="primary" label="Blank form (view only here)" />}
+        </Stack>
+        <FormView fileId={d.id} standalone>{d.kind === 'spreadsheet'
+          ? <SheetEditor key={d.id} file={d} version={d.currentVersion} editable={d.canEdit && !d.isBlankForm} editBlank={false} onSaved={() => q.refetch()} />
+          : <DocumentEditor key={d.id} file={d} version={d.currentVersion} editable={d.canEdit && !d.isBlankForm} editBlank={false} onSaved={() => q.refetch()} />}</FormView>
+      </>}
+    </Box>
   );
 }
 
@@ -334,6 +415,7 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
     } catch (e) { setMsg({ kind: 'error', text: e instanceof ApiError ? e.message : 'The changes could not be saved.' }); } finally { setBusy(false); }
   };
   const copy = useSaveAsCopy(file, () => ({ cells: allEdits }));
+  const view = useContext(FormViewCtx);
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorState error={q.error} retry={q.refetch} />;
   if (!g) return null;
@@ -388,12 +470,14 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5, ml: 1, minHeight: 20 }}>
           {selCell?.formula ? <>Result: <b>{formatted(selCell.cached, selCell.style?.numberFormat)}</b>{selInfo?.warning ? ` · ${selInfo.warning}` : ' · updates as you edit; saved when you save'}</> : sel && editable ? 'Double-click a cell or type in the bar above. Start with = for a formula.' : ''}</Typography>
       </Paper>
-      <Paper variant="outlined" sx={{ overflow: 'auto', maxHeight: 'calc(100vh - 330px)', minHeight: 300 }}>
+      <Paper variant="outlined" sx={{ overflow: 'auto', maxHeight: view.full ? 'calc(100vh - 190px)' : 'calc(100vh - 330px)', minHeight: 300 }} data-testid="sheet-scroll">
+        <ZoomBox natural={40 + g.widths.reduce((n, w) => n + pt(w), 0) + 2}>
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }} data-testid="sheet-grid">
           <colgroup><col style={{ width: 40 }} />{g.widths.map((w, i) => <col key={i} style={{ width: pt(w) }} />)}</colgroup>
           <thead><tr><th style={{ ...headCss, position: 'sticky', top: 0, left: 0, zIndex: 3 }} />{g.widths.map((_, i) => <th key={i} style={{ ...headCss, position: 'sticky', top: 0, zIndex: 1 }}>{letters(g.c1 + i)}</th>)}</tr></thead>
           <tbody>{rows}</tbody>
         </table>
+        </ZoomBox>
       </Paper>
       {g.truncated && <Typography variant="caption" color="text.secondary">Only the first rows and columns are shown here; download the file to see all of it.</Typography>}
       {copy.dialog(() => setEdits({}))}
@@ -440,6 +524,7 @@ function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file:
       setMsg({ kind: 'success', text: `Saved as version ${r.version}.` });
     } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }); } finally { setBusy(false); }
   };
+  const view = useContext(FormViewCtx);
   const copy = useSaveAsCopy(file, () => ({ paragraphs: Object.entries(edits).map(([ref, text]) => ({ ref: Number(ref), text })) }));
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorState error={q.error} retry={q.refetch} />;
@@ -506,13 +591,15 @@ function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file:
         {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
         <Button variant="contained" disabled={!count || busy} onClick={save} data-testid="save-document" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{busy ? 'Saving…' : count ? `Save ${count} change${count === 1 ? '' : 's'}` : 'Saved'}</Button>
       </Stack></Paper>}
-      <Box sx={{ bgcolor: '#E9EDF2', p: 3, borderRadius: 1, overflow: 'auto', maxHeight: 'calc(100vh - 300px)', '& .sqf-editable:hover': { background: '#EEF4FD' } }}>
+      <Box sx={{ bgcolor: '#E9EDF2', p: { xs: 1, md: 2 }, borderRadius: 1, overflow: 'auto', maxHeight: view.full ? 'calc(100vh - 160px)' : 'calc(100vh - 300px)', '& .sqf-editable:hover': { background: '#EEF4FD' } }} data-testid="document-scroll">
+        <ZoomBox natural={Math.min(fs.widthPt * 4 / 3, 1100) + 4}>
         <Paper elevation={2} data-testid="document-page" sx={{ mx: 'auto', bgcolor: '#fff', color: '#1B2430', width: Math.min(fs.widthPt * 4 / 3, 1100),
           px: `${(fs.marginsPt[0] ?? 72) * 4 / 3 * 0.7}px`, py: `${(fs.marginsPt[2] ?? 72) * 4 / 3 * 0.6}px`, fontFamily: faces.sans, fontSize: '10.5pt', lineHeight: 1.35 }}>
           {d.header.length > 0 && <Box sx={{ borderBottom: '1px solid #E3E7ED', mb: 2, pb: 0.5, color: '#5E6A7A', fontSize: '9pt' }}>{d.header.map((p, i) => para(p, `h${i}`, true))}</Box>}
           {d.blocks.map((b, i) => b.p ? para(b.p, i) : b.t ? table(b.t, i) : b.kind === 'section' ? <hr key={i} style={{ border: 0, borderTop: '1px dashed #C8CFD8', margin: '14px 0' }} title="Section break" /> : null)}
           {d.footer.length > 0 && <Box sx={{ borderTop: '1px solid #E3E7ED', mt: 2, pt: 0.5, color: '#5E6A7A', fontSize: '9pt' }}>{d.footer.map((p, i) => para(p, `f${i}`, true))}</Box>}
         </Paper>
+        </ZoomBox>
       </Box>
       {copy.dialog(() => { setEdits({}); setEditing(null); })}
       {d.blocks.length === 0 && <Empty text="The document is empty." />}

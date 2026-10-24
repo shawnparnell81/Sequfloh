@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sequfloh.Api.Auth;
+using Sequfloh.Application.Abstractions;
 using Sequfloh.Domain.Security;
 using Sequfloh.Domain.Execution;
 using Sequfloh.Infrastructure.Modules.Quality;
@@ -13,7 +14,7 @@ namespace Sequfloh.Api.Controllers.Sequfloh;
 
 /// <summary>SEQUFLOH tracking records and tasks: folders, create from a released instruction, data entry, task actions, task events, history.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh/tracking")]
-public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m, SequflohTrackingService tracking, SequflohPartsService parts, SequflohFoundationService f, SequflohPrintService print) : ControllerBase
+public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m, SequflohTrackingService tracking, SequflohPartsService parts, SequflohFoundationService f, SequflohPrintService print, global::Sequfloh.Imports.ImportedFileService files) : ControllerBase
 {
     /// <summary>Folder listing. folder: validation | fai | repair | production | open | completed | on-hold | rejected | all.</summary>
     [HttpGet]
@@ -56,6 +57,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 x.VarianceReason, x.Result, x.EngineeringConclusion,
                 x.EvidenceReferences, x.TechnicianComments, x.QualityComments, x.EngineeringComments, x.Deviations, x.NonconformanceReferences, x.PauseReason, x.HoldReason, x.CancelReason,
                 x.FailureReason, x.ReportedCondition, x.ObservedCondition, x.RepairDescription, x.FinalDisposition, x.FaiType, x.CreatedAt, x.UpdatedAt,
+                x.QuantityTarget, x.InspectionSubType, x.InspectionDescription, x.QtyGood, x.QtyBad, x.FurtherInspection, x.Quarantine, x.QuarantineReason,
                 Details = JsonNode.Parse(x.Details), Steps = JsonNode.Parse(x.Steps), Characteristics = JsonNode.Parse(x.Characteristics), PartsRows = JsonNode.Parse(x.PartsRows),
                 ElapsedSeconds = active, PausedSeconds = paused, HoldSeconds = hold,
                 Owner = Name(x.OwnerId), AssignedUser = Name(x.AssignedUserId),
@@ -79,7 +81,33 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     }
 
     [HttpPost]
-    public async Task<object> Create(TrackingCreateInput r, CancellationToken ct) { var x = await tracking.CreateAsync(r, ct); return new { x.Id, x.Number }; }
+    public async Task<object> Create(TrackingCreateInput r, CancellationToken ct)
+    {
+        var x = await tracking.CreateAsync(r, ct);
+        object? form = null;
+        if (x.Type == TrackingType.Validation && r.FamilyId is { } fam)
+        {
+            // only a form the administrator confirmed for the family is attached; nothing is guessed here
+            var family = await db.SequflohReferenceValues.AsNoTracking().FirstOrDefaultAsync(v => v.Id == fam && v.ListKey == SequflohCatalog.ProductFamilies, ct);
+            var info = new JsonObject { ["familyId"] = fam.ToString(), ["family"] = family?.Label };
+            if (family?.ValidationFormId is { } blankId && await db.ImportedFiles.AnyAsync(b => b.Id == blankId && b.IsBlankForm && !b.IsArchived, ct))
+            {
+                try
+                {
+                    var copy = JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(await files.FillOutAsync(blankId, $"{family.Label} validation {x.Number}", ct, x.PartNumber, fam)))!.AsObject();
+                    info["fileId"] = copy["Id"]?.ToString(); info["fileNumber"] = copy["Number"]?.ToString(); info["fileTitle"] = copy["Title"]?.ToString();
+                }
+                catch (Exception e) when (e is AppException) { info["message"] = $"The validation form for {family.Label} could not be started: {e.Message}"; }
+            }
+            else info["message"] = $"No validation form is confirmed for {family?.Label ?? "this product family"}. An administrator can set one in Settings > Validation forms by product.";
+            await tracking.SetValidationFormAsync(x.Id, info, ct);
+            form = info;
+        }
+        return new { x.Id, x.Number, ValidationForm = form };
+    }
+    /// <summary>Records qty good and bad, further inspection and the quarantine flag of an inspection or warranty work order.</summary>
+    [HttpPut("{id:guid}/inspection-results")]
+    public async Task<object> InspectionResults(Guid id, InspectionResultsInput r, CancellationToken ct) { var x = await tracking.SetInspectionResultsAsync(id, r, ct); return new { x.Id, x.QtyGood, x.QtyBad, x.FurtherInspection, x.Quarantine, x.QuarantineReason }; }
     public sealed record InstructionRefInput(Guid? WorkInstructionId);
     /// <summary>Attaches, replaces or removes the optional work instruction of a work order before work starts.</summary>
     [HttpPut("{id:guid}/instruction")]

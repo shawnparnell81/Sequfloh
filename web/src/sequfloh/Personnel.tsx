@@ -10,7 +10,7 @@ import { fmtDate, fmtDateTime } from '../components/Status';
 import { ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, nul, qs } from './common';
 import { InstructionsFolderPage } from './Instructions';
 
-const typeLabel: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection', ValidationFai: 'Validation / FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction' };
+const typeLabel: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection', ValidationFai: 'Validation / FAI', RepairTest: 'Repair Work Instruction', RepairWork: 'Repair Work Instruction' };
 const qCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Quality Personnel', to: '/sequfloh/quality' }, { label }];
 const eCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Engineering Personnel', to: '/sequfloh/engineering' }, { label }];
 
@@ -29,7 +29,7 @@ export function MiniList({ title, rows, empty, kind }: { title: string; rows?: M
       <PanelHead title={title} />
       {(rows ?? []).length === 0 ? <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.75 }}>{empty}</Typography> :
         <List dense disablePadding>{rows!.map((r) => <ListItemButton key={r.id} component={RouterLink} to={kind === 'instruction' ? `/sequfloh/instruction/${r.id}` : `/sequfloh/record/${r.id}`}>
-          <ListItemText primary={<Stack direction="row" gap={1} alignItems="center"><Mono>{r.number}{r.revision ? ` rev ${r.revision}` : ''}</Mono><SqfStatus status={r.result === 'Fail' ? 'Fail' : r.status} /></Stack>}
+          <ListItemText primary={<Stack direction="row" gap={1} alignItems="center"><Mono>{r.number}{r.revision ? ` rev ${r.revision}` : ''}</Mono><SqfStatus status={r.status} /></Stack>}
             secondary={[typeLabel[r.type] ?? r.type, r.title ?? (r.workInstructionNumber ? `${r.workInstructionNumber} rev ${r.workInstructionRevision}` : ''), r.partNumber, fmtDateTime(r.releasedAt ?? r.updatedAt)].filter(Boolean).join(' · ')} />
         </ListItemButton>)}</List>}
     </Paper>
@@ -52,12 +52,8 @@ export function QualityDashboardPage() {
           <Stat label="Draft repair instructions" value={d?.repairDrafts} to="/sequfloh/instructions/draft" />
           <Stat label="Completed this week" value={d?.completedThisWeek} to="/sequfloh/execution/completed" />
           <Stat label="Overdue records" value={d?.overdueRecords} to="/sequfloh/execution/overdue" />
-          <Stat label="Failed validations" value={d?.failedValidations} to="/sequfloh/tracking/validation?result=Fail" />
-          <Stat label="Failed FAI records" value={d?.failedFai} to="/sequfloh/tracking/fai?result=Fail" />
-          <Stat label="Failed repair tests" value={d?.failedRepairTests} to="/sequfloh/tracking/repair?result=Fail" />
         </Stats>
         <Two>
-          <MiniList title="Failed records" rows={d?.failedRecords} empty="No failed records." kind="record" />
           <MiniList title="Overdue records" rows={d?.overdueRows} empty="Nothing is overdue." kind="record" />
           <MiniList title="Recently released instructions" rows={d?.recentlyReleased} empty="No instructions released yet." kind="instruction" />
           <MiniList title="Recently revised instructions" rows={d?.recentlyRevised} empty="No revised instructions released yet." kind="instruction" />
@@ -84,7 +80,6 @@ export function EngineeringDashboardPage() {
           <Stat label="Draft validation instructions" value={d?.draftValidation} to="/sequfloh/engineering/development" />
           <Stat label="Draft repair instructions" value={d?.draftRepair} to="/sequfloh/engineering/development" />
           <Stat label="Open validation activities" value={d?.openValidationActivities} to="/sequfloh/engineering/validation?tab=open" />
-          <Stat label="Failed validation records" value={d?.failedValidations} to="/sequfloh/engineering/validation?tab=failed" />
           <Stat label="Released validation instructions" value={d?.releasedValidationInstructions} to="/sequfloh/instructions/released" />
         </Stats>
         <Two>
@@ -120,7 +115,7 @@ export function EngineeringValidationPage() {
   if (tab === 'revisions') return <Navigate to="/sequfloh/revision-history" replace />;
   return (
     <SqfPage title="Validation" crumbs={eCrumbs('Validation')} permission="sequfloh.view_engineering_folder" tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
-      description="Validation activity and results from the validation tracking records you can see.">
+      description="Validation activity and results from the validation work orders you can see.">
       <PagedTable q={tr} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} empty="No validation records here." cols={[
         { key: 'number', label: 'Tracking number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'wi', label: 'Instruction / revision', render: (r) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
         { key: 'partNumber', label: 'Part', render: (r) => r.partNumber ?? '—' }, { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
@@ -146,7 +141,7 @@ export function DevelopmentPage() {
       description="Draft work instructions in development, with the assigned engineer, target date, project and development status."
       actions={can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to="/sequfloh/instructions/new">New work instruction</Button>}>
       <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ type: v('type') }} onChange={set} onClear={() => { setSp({}); setPage(1); }}
-        filters={[{ key: 'type', label: 'Type', options: Object.entries({ Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection', Procedure: 'Procedure Instructions' }) }]}
+        filters={[{ key: 'type', label: 'Type', options: Object.entries({ Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection', Procedure: 'Procedure Instructions' }) }]}
         extra={<TextField size="small" label="Part number" defaultValue={v('part')} key={'p' + v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 150 }} />} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/instruction/${r.id}?tab=development`)}
         empty={sp.toString() ? 'No instructions match these filters.' : 'No instructions are in development.'} cols={[

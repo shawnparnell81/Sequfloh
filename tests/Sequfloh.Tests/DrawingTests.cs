@@ -168,7 +168,7 @@ public sealed class DrawingTests(TestApp app)
         var one = Assert.Single(att.EnumerateArray());
         Assert.Equal("A", one.Str("attachedRevision"));
         Assert.Equal("B", one.Str("currentRevision"));
-        Assert.Equal(0, (await planner.GetElAsync($"{D}/for-record/{fai}")).GetArrayLength());
+        Assert.Single((await planner.GetElAsync($"{D}/for-record/{fai}")).EnumerateArray()); // every work order type gets the exact part's drawing
     }
 
     [Fact]
