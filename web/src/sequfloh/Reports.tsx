@@ -1,7 +1,8 @@
 import { setupOptions } from '../components/SetupLink';
+import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState } from 'react';
-import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Link, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Box, Button, Dialog, DialogActions, DialogContent, Link, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../api';
 import { useUsers } from '../components/Kit';
@@ -118,33 +119,47 @@ const auditViews: Record<string, string> = { system: 'System Audit Events', inst
 interface AuditRow { id: number; occurredAt: string; userName: string; action: string; entityType: string; entityId: string; description: string; reason?: string }
 interface AuditDetail extends AuditRow { changes?: string; correlationId?: string; site?: string; path?: string }
 
-/** SEQUFLOH audit trail views over the shared, append-only audit trail: who, what, when and description. */
+/** Old SEQUFLOH audit links now open the Audit Trail section of the user's own Settings page (the full trail is on the Administration page). */
 export function AuditPage() {
   const { view = 'system' } = useParams();
-  const nav = useNavigate();
+  const [sp] = useSearchParams();
+  const n = new URLSearchParams(sp); n.set('audit', view);
+  return <Navigate to={`/account/preferences?${n}#audit-trail`} replace />;
+}
+
+/**
+ * The Audit Trail section of a user's own Settings page, for people given the SEQUFLOH audit trail permission (scoped to the sites that permission
+ * covers). Audit events are written automatically and cannot be edited or deleted. Record pages do not show history.
+ */
+export function AuditTrailSection() {
   const [sp, setSp] = useSearchParams();
+  const view = auditViews[sp.get('audit') ?? ''] ? sp.get('audit')! : 'system';
   const v = (k: string) => sp.get(k) ?? '';
-  const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); };
+  const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n, { replace: true }); };
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('occurredAt:desc');
   useEffect(() => setPage(1), [sp, view]);
   const params = { q: v('q'), user: v('user'), action: v('action'), from: v('from'), to: v('to') };
   const q = useQuery({ queryKey: ['sqf-audit', view, sp.toString(), page, size, sort], queryFn: () => get<{ title: string; items: AuditRow[]; total: number; actions: string[] }>(`${S}/audit/${view}?${qs({ ...params, sort, page, pageSize: size })}`) });
   const [open, setOpen] = useState<number | null>(null);
-  const title = auditViews[view] ?? 'Audit Trail';
   const rows = { data: q.data ? { items: q.data.items.map((r) => ({ ...r, id: String(r.id) })), total: q.data.total } : undefined, isLoading: q.isLoading, error: q.error, refetch: q.refetch };
   return (
-    <SqfPage title={title} crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Audit Trail', to: '/sequfloh/audit/system' }, { label: title }]} permission="sequfloh.view_audit_trail"
-      tabs={Object.entries(auditViews).map(([value, label]) => ({ value, label }))} tab={view} onTab={(t) => nav(`/sequfloh/audit/${t}`)}
-      description="Audit events are written automatically when work happens and cannot be edited or deleted. Open an event for its full detail."
-      actions={<><Button variant="outlined" href={`${S}/audit/${view}/csv?${qs(params)}`}>Export CSV</Button><Button variant="outlined" href={`${S}/audit/${view}/print?${qs(params)}`} target="_blank" rel="noopener">Print summary</Button></>}>
-      <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ action: v('action') }} onChange={set} onClear={() => setSp({})}
+    <Paper variant="outlined" sx={{ p: 2.5 }} component="section" aria-label="Audit Trail" id="audit-trail" data-testid="settings-audit-trail">
+      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} sx={{ mb: 1 }}>
+        <Typography variant="h2">Audit Trail</Typography>
+        <Stack direction="row" gap={1}><Button variant="outlined" href={`${S}/audit/${view}/csv?${qs(params)}`}>Export CSV</Button>
+          <Button variant="outlined" href={`${S}/audit/${view}/print?${qs(params)}`} target="_blank" rel="noopener">Print summary</Button></Stack>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>SEQUFLOH audit events for the sites your audit permission covers. They are written automatically and cannot be edited or deleted. Open an event for its full detail.</Typography>
+      <Tabs value={view} onChange={(_, t) => set('audit', t)} variant="scrollable" sx={{ mb: 2 }}>
+        {Object.entries(auditViews).map(([value, label]) => <Tab key={value} value={value} label={label} />)}</Tabs>
+      <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ action: v('action') }} onChange={set} onClear={() => setSp(new URLSearchParams({ audit: view }), { replace: true })}
         filters={[{ key: 'action', label: 'Action', options: (q.data?.actions ?? []).map((a) => [a, words(a)]) }]} extra={<DateUserFilters v={v} set={set} />} />
       <PagedTable q={rows} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => setOpen(Number(r.id))}
-        empty={sp.toString() ? 'No audit events match these filters.' : 'No audit events yet.'} cols={[
+        empty={'No audit events match these filters.'} cols={[
           { key: 'occurredAt', label: 'When', sort: true, render: (r) => fmtDateTime(r.occurredAt) }, { key: 'user', label: 'Who', sort: true, render: (r) => r.userName },
           { key: 'action', label: 'What', sort: true, render: (r) => words(r.action) }, { key: 'description', label: 'Description' }, { key: 'reason', label: 'Reason', render: (r) => r.reason ?? '—' }]} />
       {open !== null && <AuditDetailDialog id={open} onClose={() => setOpen(null)} />}
-    </SqfPage>
+    </Paper>
   );
 }
 
@@ -155,7 +170,7 @@ function AuditDetailDialog({ id, onClose }: { id: number; onClose: () => void })
   try { if (changes) changes = JSON.stringify(JSON.parse(changes), null, 2); } catch { /* shown as stored */ }
   return (
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Audit event</DialogTitle>
+      <FormDialogTitle>Audit event</FormDialogTitle>
       <DialogContent>
         {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
           <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '160px minmax(0, 1fr)' }, gap: 1, m: 0 }}>

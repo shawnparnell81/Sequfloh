@@ -24,7 +24,7 @@ test('a draft instruction is released with one button and the release shows in t
   await dlg.getByRole('button', { name: 'Release' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(view(page).getByText('Released').first()).toBeVisible();
-  await section(page, 'Audit Trail');
+  await page.goto('/account/preferences?audit=instructions');
   const number = (await (await page.request.get(url)).json()).instruction.number;
   await expect(view(page)).toContainText(`${number} rev A: draft -> released`);
   await expect(view(page)).toContainText('Status: Draft → Released');

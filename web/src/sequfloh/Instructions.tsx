@@ -1,7 +1,8 @@
 import { SetupHint, setupOptions, useSetupListbox } from '../components/SetupLink';
+import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Card, CardActions, CardContent, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, List,
+import { Alert, Autocomplete, Box, Button, Card, CardActions, CardContent, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Link, List,
   ListItem, ListItemText, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import MoreVert from '@mui/icons-material/MoreVert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,13 +11,14 @@ import { otherNumbers, usePartSearch } from './partSearch';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
-import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, qs, useOptions, useUnsaved, words } from './common';
+import { Confirm, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, qs, useOptions, useUnsaved, words } from './common';
 import { NewInspectionRequestButton } from './InspectionRequests';
 import { ImportButtons } from '../components/ImportButtons';
+import { RecordActions } from '../components/RecordActions';
 import { ATTACHMENT_TYPES } from '../components/Files';
 import { api } from '../api';
 import { StatusBadge, StatusEditor, useStatusFilter } from './Job';
-import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
+import { SimpleTable } from './Parts';
 import { DevelopmentPanel } from './Personnel';
 import { type Block, BlocksEditor, LayoutTemplates, TemplateActions, TemplatePicker } from './Blocks';
 import { partNo } from './partLabel';
@@ -288,7 +290,6 @@ export function InstructionPage() {
   const nav = useNavigate();
   const schemas = useSchemas();
   const q = useQuery({ queryKey: ['sqf-wi-one', id], queryFn: () => get<WiResponse>(`${S}/instructions/${id}`) });
-  const history = useQuery({ queryKey: ['sqf-wi-history', id], queryFn: () => get<AuditRow[]>(`${S}/instructions/${id}/history`), enabled: tab === 'history' });
   const [doc, setDoc] = useState<WiDoc | null>(null);
   const [saved, setSaved] = useState('');
   const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
@@ -304,7 +305,7 @@ export function InstructionPage() {
   const ro = !q.data.canEdit || busy;
   const upd = (patch: Partial<WiDoc>) => setDoc({ ...doc, ...patch });
   const setContent = (section: string, key: string, v: Val) => setDoc({ ...doc, content: { ...doc.content, [section]: { ...(doc.content[section] ?? {}), [key]: v } } });
-  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['sqf-wi-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-wi-history', id] }); qc.invalidateQueries({ queryKey: ['sqf-wi'] }); };
+  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['sqf-wi-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-wi'] }); };
   const body = (d: WiDoc) => ({
     title: d.title, siteId: d.siteId, departmentId: d.departmentId ?? null, ownerId: d.ownerId ?? null, partId: d.partId ?? null,
     productFamily: nul(d.productFamily), assembly: nul(d.assembly), model: nul(d.model), variant: nul(d.variant), process: nul(d.process), operation: nul(d.operation), workstation: nul(d.workstation),
@@ -334,20 +335,20 @@ export function InstructionPage() {
   const tabs = [{ label: 'Document control', value: 'control' }, { label: 'Content', value: 'content' }, { label: 'Layout', value: 'layout' }, { label: schema.stepsTitle, value: 'steps' },
     ...(schema.hasCharacteristics ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(schema.hasPartsRows ? [{ label: 'Repair parts', value: 'parts' }] : []),
     ...(q.data.canDevelop || doc.developmentStatus || doc.engineeringNotes ? [{ label: 'Development', value: 'development' }] : []),
-    { label: 'History', value: 'history' }];
+    { label: 'Revisions', value: 'history' }];
   const folder = schema.type === 'RepairWork' || schema.type === 'RepairTest' ? { label: 'Repair Work Instructions', to: '/sequfloh/instructions/repair' } : schema.type === 'Inspection' ? { label: 'Inspection Work Instructions', to: '/sequfloh/instructions/inspection' } : { label: 'Validation Work Instructions', to: '/sequfloh/instructions/validation' };
   return (
     <SqfPage title={<>{doc.number} rev {doc.revision} — {doc.title}</>} crumbs={wiCrumbs(`${doc.number} rev ${doc.revision}`, folder)} recent={{ label: `${doc.number} rev ${doc.revision} ${doc.title}`, itemType: 'Work instruction', recordId: doc.id }}
       tabs={tabs} tab={tab} onTab={setTab}
-      actions={<Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
+      actions={<RecordActions surface="work-instruction" dirty={dirty} busy={busy}
+        save={q.data.canEdit && { onClick: () => void save() }} cancel={q.data.canEdit && { onClick: () => setDoc(JSON.parse(saved)) }}
+        print={{ href: `${S}/instructions/${id}/print` }}
+        del={{ what: `${doc.number} ${doc.title}`, url: `${S}/instructions/${id}`, to: folder.to,
+          extra: `Every revision of ${doc.number} is removed, with its files. Work instructions that already have work orders can't be deleted; mark them obsolete instead.` }}>
         <SqfStatus status={doc.status} />
-        {q.data.canEdit && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save draft</Button>}
         {q.data.actions.map((a) => <Button key={a.action} variant={a.action === 'release' ? 'contained' : 'outlined'} disabled={busy} color={a.action === 'release' ? 'success' : a.action === 'obsolete' ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
-        <Button variant="outlined" href={`${S}/instructions/${id}/print`} target="_blank" rel="noopener" disabled={dirty}>Print</Button>
         {q.data.canDuplicate && <Button disabled={busy} onClick={() => guard(() => withSave(async () => { const r = await post<{ id: string }>(`${S}/instructions/${id}/duplicate`); nav(`/sequfloh/instruction/${r.id}`); }, 'Duplicated.'))}>Duplicate</Button>}
-        <DeleteButton what={`${doc.number} ${doc.title}`} url={`${S}/instructions/${id}`} to={folder.to}
-          extra={`Every revision of ${doc.number} is removed, with its files and history. Work instructions that already have work orders can't be deleted; mark them obsolete instead.`} />
-      </Stack>}>
+      </RecordActions>}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{typeLabels[doc.type]} designer · {doc.site ?? ''}{doc.department ? ` · ${doc.department}` : ''}
         {!q.data.canEdit && doc.status === 'Released' && ' · Released revisions are read-only. Use Create revision to change this instruction.'}
         {!q.data.canEdit && doc.status !== 'Released' && ` · Read-only while ${words(doc.status).toLowerCase()}.`}</Typography>
@@ -420,8 +421,6 @@ export function InstructionPage() {
         <Typography variant="h3">Revisions</Typography>
         <SimpleTable head={['Revision', 'Status', 'Effective', 'Released', 'Superseded', 'Reason', '']} rows={q.data.revisions.map((r) => [r.revision, <SqfStatus status={r.status} />, fmtDate(r.effectiveDate),
           fmtDateTime(r.releasedAt), fmtDateTime(r.supersededAt), r.revisionReason ?? '—', r.id === doc.id ? 'This revision' : <Link component={RouterLink} to={`/sequfloh/instruction/${r.id}`}>Open</Link>])} />
-        <Typography variant="h3">Audit history</Typography>
-        <HistoryTable q={history} />
       </Stack>}
 
       <ActionDialog action={act} number={`${doc.number} rev ${doc.revision}`} effectiveDate={doc.effectiveDate ?? ''} onClose={() => setAct(null)} onRun={runAction} />
@@ -490,7 +489,7 @@ function CopyStepsButton({ onCopy }: { onCopy: (ids: string[]) => Promise<void> 
   return <>
     <Button size="small" variant="outlined" onClick={() => { setSel([]); setOpen(true); }}>Copy operation steps</Button>
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-      <DialogTitle>Copy reusable operation steps</DialogTitle>
+      <FormDialogTitle>Copy reusable operation steps</FormDialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Selected steps are copied into this instruction in the order chosen. The copies belong to this instruction; the library templates do not change.</Typography>
         <TextField size="small" fullWidth label="Search operation steps" value={text} onChange={(e) => setText(e.target.value)} sx={{ my: 1 }} />
@@ -524,7 +523,7 @@ function CopyPartsButton({ withSave, id }: { withSave: (fn: () => Promise<unknow
   return <>
     <Button size="small" variant="outlined" onClick={() => { setListId(''); setParts([]); setOpen(true); }}>Copy parts</Button>
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-      <DialogTitle>Copy parts into this instruction</DialogTitle>
+      <FormDialogTitle>Copy parts into this instruction</FormDialogTitle>
       <DialogContent>
         <TextField select fullWidth size="small" label="Source" value={src} onChange={(e) => { setSrc(e.target.value); setListId(''); }} sx={{ mt: 1, mb: 2 }}>
           {sources.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
@@ -560,7 +559,7 @@ function CharacteristicSources({ id, familyId, withSave }: { id: string; familyI
     <Button size="small" onClick={() => { setSel(''); setOpen('copy'); }}>Copy from another revision</Button>
     <Button size="small" onClick={() => { setSel(''); setOpen('import'); }}>Import from inspection plan</Button>
     <Dialog open={!!open} onClose={() => setOpen(null)} fullWidth maxWidth="sm">
-      <DialogTitle>{open === 'copy' ? 'Copy characteristics from another instruction or revision' : 'Import characteristics from an inspection plan'}</DialogTitle>
+      <FormDialogTitle>{open === 'copy' ? 'Copy characteristics from another instruction or revision' : 'Import characteristics from an inspection plan'}</FormDialogTitle>
       <DialogContent>
         {open === 'copy' && (others.isLoading ? <Loading /> : copyRows.length === 0 ? <Empty text="No other FAI instructions to copy from." /> :
           <TextField select fullWidth size="small" sx={{ mt: 1 }} label="Instruction and revision" value={sel} onChange={(e) => setSel(e.target.value)}>
@@ -597,7 +596,7 @@ function ActionDialog({ action, number, effectiveDate, onClose, onRun }: { actio
   };
   return (
     <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setComment(''); setErr(null); setEff(effectiveDate); } }}>
-      <DialogTitle>{action.label} — {number}</DialogTitle>
+      <FormDialogTitle>{action.label} — {number}</FormDialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ mb: 2 }}>{texts[action.action] ?? ''}</Typography>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}

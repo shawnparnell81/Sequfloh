@@ -93,7 +93,7 @@ public sealed class JobReportTests(TestApp app)
         var pdf = await plain.GetAsync($"{U}/{id}/job/report/pdf?rate=50&supplier=Made-up%20supplier");
         Assert.Equal("application/pdf", pdf.Content.Headers.ContentType?.MediaType);
         Assert.StartsWith("%PDF", Encoding.ASCII.GetString(await pdf.Content.ReadAsByteArrayAsync())[..4]);
-        var history = (await plain.GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString()).ToList();
+        var history = (await (await app.AdminAsync()).GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString()).ToList();
         Assert.Contains(history, h => h!.Contains("completed +120") && h.Contains("first batch"));
         Assert.Contains(history, h => h!.Contains("Parts replaced on") && h.Contains("123abc"));
         Assert.Contains(history, h => h!.Contains("Printed the job report"));
@@ -143,7 +143,7 @@ public sealed class JobReportTests(TestApp app)
         Assert.False((await plain.GetElAsync($"{U}/{id}/job/report")).TryGetProperty("statusTag", out _)); // not on the chargeback report
         var list = await plain.GetElAsync($"{U}?folder=all&tag=none&pageSize=200");
         Assert.DoesNotContain(list.GetProperty("items").EnumerateArray(), x => x.Id() == id);
-        var history = (await plain.GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString() ?? "").ToList();
+        var history = (await (await app.AdminAsync()).GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString() ?? "").ToList();
         Assert.Contains(history, h => h.Contains("Repair hold"));
     }
 

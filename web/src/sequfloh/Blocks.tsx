@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Link, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
@@ -188,7 +189,7 @@ export function TemplateActions({ id, type, canApply, canSave, beforeRun, onAppl
       {canSave && <Button size="small" variant="outlined" onClick={() => { setName(''); setDescription(''); setOpen('save'); }}>Save as template</Button>}
     </Stack>
     <Dialog open={!!open} onClose={close} fullWidth maxWidth="sm">
-      <DialogTitle>{open === 'apply' ? 'Use a template' : 'Save the layout as a template'}</DialogTitle>
+      <FormDialogTitle>{open === 'apply' ? 'Use a template' : 'Save the layout as a template'}</FormDialogTitle>
       <DialogContent>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         {open === 'apply' ? <Stack gap={2} sx={{ pt: 1 }}>
@@ -249,7 +250,7 @@ export function LayoutTemplates({ typeLabels }: { typeLabels: Record<string, str
             </Stack>}
           </Stack>))}</Stack>}
       <Dialog open={!!edit} onClose={() => setEdit(null)} fullWidth maxWidth="lg">
-        <DialogTitle>{edit?.id ? `Edit ${edit.name}` : 'New layout template'}</DialogTitle>
+        <FormDialogTitle>{edit?.id ? `Edit ${edit.name}` : 'New layout template'}</FormDialogTitle>
         <DialogContent>
           {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
           {edit && <Stack gap={2} sx={{ pt: 1 }}>

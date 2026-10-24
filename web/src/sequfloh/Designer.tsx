@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
@@ -110,7 +111,7 @@ export function RowsEditor({ title, noun, cols, rows, onChange, disabled, summar
             </TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
       <Dialog open={!!edit} onClose={() => setEdit(null)} fullWidth maxWidth="md">
-        <DialogTitle>{edit?.index === -1 ? `Add ${noun}` : `${disabled ? '' : 'Edit '}${n} ${edit ? edit.index + 1 : ''}`}</DialogTitle>
+        <FormDialogTitle>{edit?.index === -1 ? `Add ${noun}` : `${disabled ? '' : 'Edit '}${n} ${edit ? edit.index + 1 : ''}`}</FormDialogTitle>
         <DialogContent>
           {edit && <Box sx={{ pt: 1 }}><Grid cols={3}>
             <TextField size="small" type="number" label="Sequence number" value={edit.row.sequence ?? ''} disabled={disabled} onChange={(e) => setEdit({ ...edit, row: { ...edit.row, sequence: e.target.value === '' ? undefined : Number(e.target.value) } })} />

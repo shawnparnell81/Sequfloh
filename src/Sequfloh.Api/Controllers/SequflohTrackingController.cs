@@ -84,7 +84,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     public async Task<object> Save(Guid id, TrackingSaveInput r, CancellationToken ct) { var x = await tracking.SaveAsync(id, r, ct); return new { x.Id, x.StateVersion, x.Result }; }
     [HttpPost("{id:guid}/actions/{name}")]
     public async Task<object> Act(Guid id, string name, TaskActionInput r, CancellationToken ct) { var x = await tracking.ActAsync(id, name, r, ct); return new { x.Id, x.Status, x.StateVersion }; }
-    [HttpGet("{id:guid}/history")]
+    [HttpGet("{id:guid}/history")] [RequirePermission(Permissions.SequflohViewAuditTrail)]
     public async Task<object> History(Guid id, CancellationToken ct)
     {
         await tracking.LoadAsync(id, false, ct);

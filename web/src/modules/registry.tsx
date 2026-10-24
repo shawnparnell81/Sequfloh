@@ -9,7 +9,6 @@ import CategoryOutlined from '@mui/icons-material/CategoryOutlined';
 import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined';
 import EngineeringOutlined from '@mui/icons-material/EngineeringOutlined';
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined';
-import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
 import AdminPanelSettingsOutlined from '@mui/icons-material/AdminPanelSettingsOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import GroupOutlined from '@mui/icons-material/GroupOutlined';
@@ -101,13 +100,6 @@ export const sequfloh: ModuleDef = {
         { label: 'User Activity', path: '/sequfloh/reports/user-activity' },
         { label: 'Time Variance', path: '/sequfloh/reports/time-variance' },
         { label: 'Export Center', path: '/sequfloh/reports/export-center' },
-      ] },
-      { label: 'Audit Trail', path: '/sequfloh/audit/system', permission: 'sequfloh.view_audit_trail', icon: <HistoryOutlined fontSize="small" />, match: ['/sequfloh/audit'], children: [
-        { label: 'System Audit Events', path: '/sequfloh/audit/system' },
-        { label: 'Work Instruction History', path: '/sequfloh/audit/instructions' },
-        { label: 'User Access History', path: '/sequfloh/audit/access' },
-        { label: 'Record Change History', path: '/sequfloh/audit/changes' },
-        { label: 'Export History', path: '/sequfloh/audit/exports' },
       ] },
       { label: 'SEQUFLOH Administration', path: '/sequfloh/admin/module-access', icon: <AdminPanelSettingsOutlined fontSize="small" />, match: ['/sequfloh/admin'], children: [
         { label: 'Module Access', path: '/sequfloh/admin/module-access', permission: 'sequfloh.manage_module_access' },

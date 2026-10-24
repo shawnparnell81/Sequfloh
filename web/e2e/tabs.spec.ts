@@ -15,7 +15,7 @@ test.describe('workspace tabs', () => {
     await strip(page).locator('[data-tab-url="/sequfloh/parts"]').click();
     const box = view(page).getByRole('textbox').first();
     await box.fill('housing');
-    await strip(page).locator('[data-tab-url^="/sequfloh/reports"]').click();
+    await strip(page).locator('[data-tab-url^="/sequfloh/chargebacks"]').click();
     await strip(page).locator('[data-tab-url="/sequfloh/parts"]').click();
     await expect(view(page).getByRole('textbox').first()).toHaveValue('housing');
 

@@ -1,7 +1,8 @@
 import { setupOptions } from '../components/SetupLink';
+import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
@@ -10,9 +11,10 @@ import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { AssigneesPanel, TimePanel, type Person } from './TimePanel';
 import { CrewPanel } from './CrewPanel';
-import { DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
+import { Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 import { NewInspectionRequestButton } from './InspectionRequests';
-import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
+import { SimpleTable } from './Parts';
+import { RecordActions } from '../components/RecordActions';
 import { ProblemList } from './Designer';
 import { FindingsPanel } from './Findings';
 import { JobPanel, StatusBadge, StatusEditor, useStatusFilter } from './Job';
@@ -207,7 +209,6 @@ export function TrackingRecordPage() {
   const [sp, setSp] = useSearchParams();
   const tab = sp.get('tab') ?? 'record';
   const q = useQuery({ queryKey: ['sqf-tr-one', id], queryFn: () => get<TrResponse>(`${S}/tracking/${id}`) });
-  const history = useQuery({ queryKey: ['sqf-tr-history', id], queryFn: () => get<AuditRow[]>(`${S}/tracking/${id}/history`), enabled: tab === 'history' });
   const [doc, setDoc] = useState<TrRecord | null>(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -220,7 +221,7 @@ export function TrackingRecordPage() {
   if (!doc || !q.data) return null;
   const rec = q.data.record;
   const upd = (patch: Partial<TrRecord>) => { setDoc({ ...doc, ...patch }); setDirty(true); };
-  const refresh = async () => { setDirty(false); await qc.invalidateQueries({ queryKey: ['sqf-tr-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-tr'] }); qc.invalidateQueries({ queryKey: ['sqf-tr-history', id] }); };
+  const refresh = async () => { setDirty(false); await qc.invalidateQueries({ queryKey: ['sqf-tr-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-tr'] }); };
   const save = async (quiet = false) => {
     setBusy(true); setMsg(null);
     try {
@@ -243,7 +244,7 @@ export function TrackingRecordPage() {
   const title = `${rec.number} — ${trackingTypes[rec.type]} record`;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
-    { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }, { label: 'History', value: 'history' }];
+    { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
   const setRow = (list: 'steps' | 'characteristics' | 'partsRows', i: number, patch: J) => upd({ [list]: doc[list].map((r, j) => (j === i ? { ...r, ...patch } : r)) } as Partial<TrRecord>);
   const det = (k: string, label: string, multiline = true) => <TextField size="small" label={label} value={doc.details[k] ?? ''} disabled={!enter} multiline={multiline} minRows={multiline ? 2 : undefined}
     onChange={(e) => upd({ details: { ...doc.details, [k]: e.target.value } })} />;
@@ -253,16 +254,17 @@ export function TrackingRecordPage() {
   return (
     <SqfPage title={title} crumbs={trCrumbs(rec.number, { label: folders[folder].title, to: `/sequfloh/tracking/${folder}` })} recent={{ label: `${rec.number} ${rec.workInstructionTitle}`, itemType: 'Tracking record', recordId: rec.id }}
       tabs={tabs} tab={tab} onTab={(t) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); }}
-      actions={<Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
+      actions={<RecordActions surface="work-order" dirty={dirty} busy={busy}
+        save={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => void save() }}
+        cancel={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => { setDoc(structuredClone(q.data!.record)); setDirty(false); } }}
+        print={{ href: `${S}/tracking/${rec.id}/print` }}
+        del={{ what: `work order ${rec.number}`, url: `${S}/tracking/${rec.id}`, show: !!q.data.canDelete, to: `/sequfloh/tracking/${folder}`,
+          extra: 'Use this for work orders made by mistake. Work orders with logged time are kept for chargebacks and can only be cancelled.' }}>
         <SqfStatus status={rec.status} />
-        {(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && <Button variant="contained" disabled={!dirty || busy} onClick={() => save()}>Save</Button>}
         {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`}>Job report</Button>
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?wo=${rec.id}`} data-testid="wo-create-chargeback">Create chargeback report</Button>
-        <Button variant="outlined" href={`${S}/tracking/${rec.id}/print`} target="_blank" rel="noopener" disabled={dirty}>Print</Button>
-        <DeleteButton what={`work order ${rec.number}`} url={`${S}/tracking/${rec.id}`} show={!!q.data.canDelete} to={`/sequfloh/tracking/${folder}`}
-          extra="Use this for work orders made by mistake. Work orders with logged time are kept for chargebacks and can only be cancelled." />
-      </Stack>}>
+      </RecordActions>}>
       <StatusEditor kind="work-order" id={rec.id} tag={rec.statusTag as string | null} note={rec.statusNote as string | null} canEdit={!dirty} onSaved={refresh} />
       {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {dirty && <Alert severity="info" sx={{ mb: 2 }}>You have unsaved changes.</Alert>}
@@ -371,7 +373,6 @@ export function TrackingRecordPage() {
       {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} /><CrewPanel recordId={rec.id} /></Stack>}
       {tab === 'findings' && <FindingsPanel id={rec.id} canWork={rec.status !== 'Canceled'} wi={`${rec.workInstructionNumber} rev ${rec.workInstructionRevision}`} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
-      {tab === 'history' && <HistoryTable q={history} name={`${rec.number}-history`} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />
     </SqfPage>
   );
@@ -441,7 +442,7 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
   const danger = ['fail', 'cancel'].includes(action.action);
   return (
     <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setReason(''); setComment(''); setVariance(''); setUser(action.action === 'dispatch' ? record.assignedUserId ?? '' : ''); setErr(null); setOp(newOpId()); } }}>
-      <DialogTitle>{action.label} — {record.number}</DialogTitle>
+      <FormDialogTitle>{action.label} — {record.number}</FormDialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ mb: 2 }}>{actionText[action.action] ?? ''}</Typography>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}

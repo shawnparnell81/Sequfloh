@@ -158,7 +158,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     public async Task<IActionResult> DeactivatePart(Guid id, CancellationToken ct) { await parts.SetPartActiveAsync(id, false, ct); return NoContent(); }
     [HttpPost("parts/{id:guid}/reactivate")] [RequirePermission(Permissions.SequflohEditParts)]
     public async Task<IActionResult> ReactivatePart(Guid id, CancellationToken ct) { await parts.SetPartActiveAsync(id, true, ct); return NoContent(); }
-    [HttpGet("parts/{id:guid}/history")] public async Task<object> PartHistory(Guid id, CancellationToken ct) { await Part(id, ct); return await parts.HistoryAsync(nameof(Domain.MasterData.Part), id, ct); }
+    [HttpGet("parts/{id:guid}/history")] [RequirePermission(Permissions.SequflohViewAuditTrail)] public async Task<object> PartHistory(Guid id, CancellationToken ct) { await Part(id, ct); return await parts.HistoryAsync(nameof(Domain.MasterData.Part), id, ct); }
 
     // ---------------- parts lists
     [HttpGet("parts-lists")]
@@ -225,7 +225,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     public async Task<IActionResult> ReorderItems(Guid id, ReorderInput r, CancellationToken ct) { await parts.ReorderItemsAsync(id, r, ct); return NoContent(); }
     [HttpPost("parts-lists/{id:guid}/copy-items")] [RequirePermission(Permissions.SequflohManagePartsLists)]
     public async Task<object> CopyItems(Guid id, CopyItemsInput r, CancellationToken ct) => new { Copied = await parts.CopyItemsAsync(id, r, ct) };
-    [HttpGet("parts-lists/{id:guid}/history")] public Task<object> ListHistory(Guid id, CancellationToken ct) => parts.HistoryAsync(nameof(SequflohPartsList), id, ct);
+    [HttpGet("parts-lists/{id:guid}/history")] [RequirePermission(Permissions.SequflohViewAuditTrail)] public Task<object> ListHistory(Guid id, CancellationToken ct) => parts.HistoryAsync(nameof(SequflohPartsList), id, ct);
 
     // ---------------- operation steps
     [HttpGet("operation-steps")]
@@ -251,7 +251,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     public async Task<IActionResult> DeactivateStep(Guid id, CancellationToken ct) { await parts.SetStepActiveAsync(id, false, ct); return NoContent(); }
     [HttpPost("operation-steps/reorder")] [RequirePermission(Permissions.SequflohManageOperationSteps)]
     public async Task<IActionResult> ReorderSteps(ReorderInput r, CancellationToken ct) { await parts.ReorderStepsAsync(r, ct); return NoContent(); }
-    [HttpGet("operation-steps/{id:guid}/history")] public Task<object> StepHistory(Guid id, CancellationToken ct) => parts.HistoryAsync(nameof(SequflohOperationStep), id, ct);
+    [HttpGet("operation-steps/{id:guid}/history")] [RequirePermission(Permissions.SequflohViewAuditTrail)] public Task<object> StepHistory(Guid id, CancellationToken ct) => parts.HistoryAsync(nameof(SequflohOperationStep), id, ct);
 
     // ---------------- revision history across parts, parts lists and (later) work instructions
     [HttpGet("revision-history")]

@@ -61,8 +61,9 @@ test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ p
   await expect(v.getByText(`NR-${k}-2X`).first()).toBeVisible();
   await expect(v.getByText('Revision', { exact: true })).toHaveCount(0);
   await shot('02-part-details-notes');
-  await v.getByRole('tab', { name: 'History' }).click();
-  await expect(v.getByText(/NR-.*-2X/).first()).toBeVisible();
+  await expect(v.getByRole('tab', { name: 'History' })).toHaveCount(0);
+  await page.goto(`/admin/audit-trail?q=NR-${k}-2X`);
+  await expect(view(page).getByText(/NR-.*-2X/).first()).toBeVisible();
 
   // a new part form has no Revision and shows the Fuel Pump fields
   await page.goto('/sequfloh/parts');

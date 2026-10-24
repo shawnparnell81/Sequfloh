@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Stack, TextField, Typography } from '@mui/material';
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, LinearProgress, Stack, TextField, Typography } from '@mui/material';
 import { post } from '../api';
 import { Mono } from './common';
 import { SimpleTable } from './Parts';
@@ -137,7 +138,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
   const finished = prog && busy === '';
 
   return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="md" TransitionProps={{ onEnter: () => { if (!initial) reset(); } }}>
-    <DialogTitle>Import drawings into {folderName}</DialogTitle>
+    <FormDialogTitle>Import drawings into {folderName}</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }} data-testid="import-drawings">
       {err && <Alert severity="error">{err}</Alert>}
       {!prog && <>

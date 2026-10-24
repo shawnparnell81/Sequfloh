@@ -50,7 +50,7 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     [HttpPost("folders/{id:guid}/archive"), RequirePermission(Permissions.SequflohManageDrawings)]
     public async Task<IActionResult> ArchiveFolder(Guid id, ArchiveRequest r, CancellationToken ct) { await drawings.ArchiveFolderAsync(id, r.Archived, ct); return NoContent(); }
 
-    [HttpGet("folders/{id:guid}/history"), RequirePermission(Permissions.SequflohViewDrawings)]
+    [HttpGet("folders/{id:guid}/history"), RequirePermission(Permissions.SequflohViewDrawings)] [RequirePermission(Permissions.SequflohViewAuditTrail)]
     public Task<object> FolderHistory(Guid id, CancellationToken ct) => drawings.HistoryAsync(id, true, ct);
 
     [HttpPost("folders/{id:guid}/drawings"), RequirePermission(Permissions.SequflohManageDrawings), RequestSizeLimit(Limit), RequestFormLimits(MultipartBodyLengthLimit = Limit)]
@@ -106,7 +106,7 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
         return File(content, viewable || DrawingService.IsWordType(type) ? type : "application/octet-stream", name);
     }
 
-    [HttpGet("{id:guid}/history"), RequirePermission(Permissions.SequflohViewDrawings)]
+    [HttpGet("{id:guid}/history"), RequirePermission(Permissions.SequflohViewDrawings)] [RequirePermission(Permissions.SequflohViewAuditTrail)]
     public Task<object> History(Guid id, CancellationToken ct) => drawings.HistoryAsync(id, false, ct);
 
     /// <summary>Current drawings for a part, by id or by part number as typed. Anyone in job tracking may ask; without drawing access the list is empty.</summary>

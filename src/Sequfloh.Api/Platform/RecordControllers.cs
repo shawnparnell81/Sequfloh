@@ -16,12 +16,14 @@ public sealed class AuditTrailController(AppDbContext db) : ControllerBase
 {
     /// <summary>Who did what, when, with a plain description, newest first.</summary>
     [HttpGet, RequirePermission(Permissions.AuditTrailView)]
-    public async Task<object> List(string? q, string? action, Guid? userId, DateOnly? from, DateOnly? to, int page = 1, int pageSize = 50, CancellationToken ct = default)
+    public async Task<object> List(string? q, string? action, Guid? userId, DateOnly? from, DateOnly? to, string? entityType = null, Guid? entityId = null, int page = 1, int pageSize = 50, CancellationToken ct = default)
     {
         var query = db.AuditEntries.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(q)) { var t = q.Trim(); query = query.Where(a => EF.Functions.ILike(a.Description, "%" + t + "%") || EF.Functions.ILike(a.UserName, "%" + t + "%")); }
         if (!string.IsNullOrWhiteSpace(action)) query = query.Where(a => a.Action == action);
         if (userId is { } u) query = query.Where(a => a.UserId == u);
+        if (!string.IsNullOrWhiteSpace(entityType)) query = query.Where(a => a.EntityType == entityType);
+        if (entityId is { } rec) query = query.Where(a => a.EntityId == rec);
         if (from is { } f) { var s = new DateTimeOffset(f.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero); query = query.Where(a => a.OccurredAt >= s); }
         if (to is { } tt) { var e = new DateTimeOffset(tt.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero); query = query.Where(a => a.OccurredAt < e); }
         pageSize = Math.Clamp(pageSize, 1, 200); page = Math.Max(1, page);
@@ -30,6 +32,14 @@ public sealed class AuditTrailController(AppDbContext db) : ControllerBase
             .Select(a => new { a.Id, Who = a.UserName, What = a.Action, When = a.OccurredAt, a.Description, a.EntityType, a.EntityId }).ToListAsync(ct);
         return new { total, items };
     }
+
+    /// <summary>The record types and actions in the audit trail, for the filters.</summary>
+    [HttpGet("filters"), RequirePermission(Permissions.AuditTrailView)]
+    public async Task<object> Filters(CancellationToken ct) => new
+    {
+        Types = await db.AuditEntries.AsNoTracking().Select(a => a.EntityType).Distinct().OrderBy(t => t).Take(500).ToListAsync(ct),
+        Actions = await db.AuditEntries.AsNoTracking().Select(a => a.Action).Distinct().OrderBy(t => t).Take(500).ToListAsync(ct),
+    };
 }
 
 [ApiController, Route("api/notifications")]

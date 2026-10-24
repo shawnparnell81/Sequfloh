@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
+import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
 import AddTaskOutlined from '@mui/icons-material/AddTaskOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,9 +11,9 @@ import { useAuth } from '../auth';
 import { Facts, useSites } from '../components/Kit';
 import { FilesPanel } from '../components/Files';
 import { fmtDateTime } from '../components/Status';
-import { DeleteButton, Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, words } from './common';
+import { RecordActions } from '../components/RecordActions';
+import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, words } from './common';
 import { partNo } from './partLabel';
-import { type AuditRow, HistoryTable } from './Parts';
 
 const A = `${S}/inspection-requests`;
 export interface InspectionRequest {
@@ -88,7 +89,7 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
   };
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="ir-title">
-      <DialogTitle id="ir-title">{id ? 'Edit inspection request' : 'New inspection request'}</DialogTitle>
+      <FormDialogTitle>{id ? 'Edit inspection request' : 'New inspection request'}</FormDialogTitle>
       <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}<RequestForm value={f} onChange={setF} /></DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={busy}>{id ? 'Save' : 'Submit request'}</Button></DialogActions>
     </Dialog>
@@ -169,7 +170,7 @@ function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boole
   };
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Convert to work order</DialogTitle>
+      <FormDialogTitle>Convert to work order</FormDialogTitle>
       <DialogContent>
         <Stack gap={2} sx={{ pt: 1 }}>
           {err && <Alert severity="error">{err}</Alert>}
@@ -189,7 +190,6 @@ function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boole
 export function InspectionRequestPage() {
   const { id = '' } = useParams(); const { can } = useAuth(); const qc = useQueryClient();
   const q = useQuery({ queryKey: ['sqf-ir', 'one', id], queryFn: () => get<InspectionRequest>(`${A}/${id}`) });
-  const history = useQuery({ queryKey: ['sqf-ir', 'history', id], queryFn: () => get<AuditRow[]>(`${A}/${id}/history`) });
   const [edit, setEdit] = useState(false); const [convert, setConvert] = useState(false); const [err, setErr] = useState<string | null>(null);
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorState error={q.error} />;
@@ -200,16 +200,14 @@ export function InspectionRequestPage() {
   return (
     <SqfPage title={<>{r.number} <PriorityChip p={r.priority} /></>} crumbs={[crumbs[0], { label: 'Inspection Requests', to: '/sequfloh/inspection-requests' }, { label: r.number }]}
       permission="sequfloh.access" recent={{ label: `${r.number} ${r.partNumber}`, itemType: 'Inspection request', recordId: r.id }}
-      actions={<Stack direction="row" gap={1} flexWrap="wrap">
+      actions={<RecordActions surface="inspection-request" edit={!closed && { onClick: () => setEdit(true) }}
+        del={{ what: `inspection request ${r.number}`, url: `${A}/${r.id}`, to: '/sequfloh/inspection-requests', extra: r.workOrderNumber ? `Work order ${r.workOrderNumber} is kept.` : undefined }}>
         {!r.workOrderId && !closed && <Button variant="contained" onClick={() => setConvert(true)}>Convert to work order</Button>}
-        {!closed && <Button variant="outlined" onClick={() => setEdit(true)}>Edit</Button>}
         {r.status === 'Open' && <Button onClick={() => status('InProgress')}>Start</Button>}
         {!closed && <Button onClick={() => status('Done')}>Mark done</Button>}
         {!closed && <Button color="inherit" onClick={() => status('Cancelled')}>Cancel request</Button>}
         {closed && <Button onClick={() => status('Open')}>Reopen</Button>}
-        <DeleteButton what={`inspection request ${r.number}`} url={`${A}/${r.id}`} to="/sequfloh/inspection-requests"
-          extra={r.workOrderNumber ? `Work order ${r.workOrderNumber} is kept.` : undefined} />
-      </Stack>}>
+      </RecordActions>}>
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
       {r.overdue && <Alert severity="error" sx={{ mb: 2 }}>Overdue: the requested completion date was {fmtDate(r.requestedDate)}.</Alert>}
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0,1fr)', md: '1fr 1fr' } }}>
@@ -222,7 +220,6 @@ export function InspectionRequestPage() {
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{r.requirement || '—'}</Typography></Paper>
       </Box>
       <Box sx={{ mt: 3 }}><Typography variant="h6" gutterBottom>Attachments</Typography><FilesPanel surface="inspection-request-files" type="SequflohInspectionRequest" id={r.id} canEdit={!closed && can('sequfloh.access')} /></Box>
-      <Box sx={{ mt: 3 }}><Typography variant="h6" gutterBottom>History</Typography><HistoryTable q={history} /></Box>
       <InspectionRequestDialog open={edit} onClose={() => setEdit(false)} initial={initial} id={r.id} />
       <ConvertDialog r={r} open={convert} onClose={() => setConvert(false)} />
     </SqfPage>

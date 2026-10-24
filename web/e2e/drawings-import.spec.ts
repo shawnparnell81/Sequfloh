@@ -88,8 +88,9 @@ test('drawings import: a folder tree with preview, part links, progress and a se
   await shot('04-second-run-skips');
   await dlg.getByRole('button', { name: 'Cancel' }).click();
 
-  // one summary entry in the folder history
-  await v.getByRole('button', { name: 'History' }).click();
-  await expect(page.getByRole('dialog').getByText(/Imported into drawing folder Imports .*: 4 drawings/)).toBeVisible();
+  // one summary entry in the audit trail (kept on the Administration page, not on the folder)
+  await expect(v.getByRole('button', { name: 'History' })).toHaveCount(0);
+  await page.goto('/admin/audit-trail?q=Imported%20into%20drawing%20folder%20Imports');
+  await expect(view(page).getByText(/Imported into drawing folder Imports .*: 4 drawings/).first()).toBeVisible();
   fs.rmSync(root, { recursive: true, force: true });
 });

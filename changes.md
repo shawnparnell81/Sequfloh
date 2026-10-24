@@ -1,5 +1,23 @@
 # Changes
 
+## Standard record actions, full screen, audit trail on Admin and Settings only
+
+Standard record actions
+- Work instructions, work orders, chargeback reports, drawings, drawing folders, imported files, inspection requests, parts and parts lists share one action bar. Edit, Save, Cancel, Print, Import, Delete and Full screen always come in the same order with the same labels, wherever they apply.
+- Save is only active when there are unsaved changes. Cancel asks before throwing them away, and following a link away from a page with unsaved changes asks first.
+- Delete names the item in its confirmation, needs the delete permission an administrator assigned, and is recorded in the audit trail. Chargeback reports now use the same Delete confirmation.
+- A test opens every record page and fails if a standard action goes missing.
+
+Full screen
+- Every record page, every form dialog and the drawing viewer have a Full screen button. It fills the screen (browser full screen where allowed, otherwise the whole window) and keeps the toolbar with Save, Print and the rest visible.
+- Exit full screen or Esc puts the layout and scroll position back exactly; anything typed and not yet saved stays.
+
+Audit trail
+- History tabs and buttons are gone from record pages (parts, parts lists, drawings and folders, imported files, inspection requests, work orders). On work instructions the tab is now "Revisions" and shows only lifecycle steps and revisions.
+- The Admin audit trail can be filtered by record type, record, user, action and dates. Clicking a record type shows all entries for that record.
+- People who are not administrators but have "View audit trail" find an Audit Trail section in their own Settings page (the user menu item is now "Settings"), limited to what that permission covers. Without the permission, the section is hidden and the server refuses the request.
+- What gets recorded in the audit trail is unchanged.
+
 ## Import file and Import folder on every upload page
 
 - Every page that takes uploads now has the same "Import file" and "Import folder" buttons: All Imported Files (blank templates too), Drawings, the work instruction lists, work instruction files, inspection request attachments, and work order tester files, photos and attachments. Import folder reads subfolders too, skips hidden and unsupported files, and ends with a summary of what was imported, skipped or failed.

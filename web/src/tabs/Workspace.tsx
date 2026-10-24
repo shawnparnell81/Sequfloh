@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { FormDialogTitle } from '../components/FullScreen';
 import { useLocation, useNavigate, type Location } from 'react-router-dom';
 import { useTheme } from '@mui/material/styles';
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography, useMediaQuery } from '@mui/material';
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import Close from '@mui/icons-material/Close';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
 import ArrowBack from '@mui/icons-material/ArrowBack';
@@ -252,7 +253,7 @@ function Tabbed({ render, org }: { render: (location: Location) => ReactNode; or
         </MenuItem>
       </Menu>
       <Dialog open={!!confirm} onClose={() => setConfirm(null)} data-testid="unsaved-dialog">
-        <DialogTitle>Close {confirm ? labelFor(confirm) : ''}?</DialogTitle>
+        <FormDialogTitle>Close {confirm ? labelFor(confirm) : ''}?</FormDialogTitle>
         <DialogContent><DialogContentText>You have changes in this tab that haven't been saved. Closing the tab throws them away.</DialogContentText></DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirm(null)} variant="contained" autoFocus>Keep it open</Button>

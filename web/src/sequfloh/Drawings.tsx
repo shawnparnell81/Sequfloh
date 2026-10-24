@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
 import OpenInNew from '@mui/icons-material/OpenInNew';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import Article from '@mui/icons-material/Article';
@@ -10,8 +11,11 @@ import { otherNumbers, usePartSearch } from './partSearch';
 import { fmtDateTime } from '../components/Status';
 import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, SqfPage, qs } from './common';
 import { partNo } from './partLabel';
-import { HistoryTable, SimpleTable, type AuditRow } from './Parts';
+import { SimpleTable } from './Parts';
 import { ImportButtons } from '../components/ImportButtons';
+import { RecordActions } from '../components/RecordActions';
+import { FullScreenButton } from '../components/FullScreen';
+import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import { ImportDrawingsDialog } from './DrawingsImport';
 
 const D = '/api/drawings';
@@ -138,7 +142,7 @@ export function DrawingsPage() {
   const q = useQuery({ queryKey: ['drawing-folders', folder, archived], queryFn: () => get<FolderView>(`${D}/folders?${qs({ parentId: folder || undefined, archived: archived || undefined })}`) });
   const found = useQuery({ queryKey: ['drawing-search', search], enabled: !!search, queryFn: () => get<SearchRow[]>(`${D}/search?${qs({ q: search })}`) });
   const [text, setText] = useState(search);
-  const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'history' | 'import' | 'relink'>(null);
+  const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'import' | 'relink'>(null);
   const [confirm, setConfirm] = useState(false);
   const [picked, setPicked] = useState<{ files: File[]; folder: boolean } | null>(null);
   const v = q.data; const here = v?.parent;
@@ -152,7 +156,7 @@ export function DrawingsPage() {
         <ImportButtons surface="parts-drawings" accept={ACCEPT.split(',')} what="drawing" onFiles={(files, folder) => { setPicked({ files, folder }); setDlg('import'); }} />
         <Button variant="outlined" onClick={() => { setPicked(null); setDlg('import'); }}>Import drawings</Button>
         {!here && <Button variant="outlined" onClick={() => setDlg('relink')}>Relink drawings</Button>}
-        {here && <Button variant="contained" onClick={() => setDlg('upload')}>Upload drawing</Button>}</>}>
+      </>}>
       <Stack direction="row" gap={1} sx={{ mb: 2 }} component="form" onSubmit={(e) => { e.preventDefault(); set('q', text.trim()); }}>
         <TextField size="small" label="Search drawings" placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 360 }} />
         <Button type="submit" variant="outlined">Search</Button>{search && <Button onClick={() => { setText(''); set('q', ''); }}>Clear</Button>}
@@ -170,10 +174,11 @@ export function DrawingsPage() {
           {here.part ? <Chip label={`Part ${here.part.partNumber} — ${here.part.name}`} component={RouterLink} to={`/sequfloh/parts/${here.part.id}`} clickable /> : <Typography variant="body2" color="text.secondary">Not linked to a part</Typography>}
           {here.isArchived && <Chip color="warning" label="Archived" />}
           <Box sx={{ flex: 1 }} />
-          {here.canManage && !here.isArchived && <Button size="small" onClick={() => setDlg('edit')}>Rename or link part</Button>}
-          {here.canManage && <Button size="small" color={here.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{here.isArchived ? 'Restore folder' : 'Archive folder'}</Button>}
-          <DeleteButton size="small" what={`folder ${here.name}`} url={`${D}/folders/${here.id}`} label="Delete folder" extra="Only empty folders can be deleted." onDone={() => setSp(here.parentId ? { folder: here.parentId } : {})} />
-          <Button size="small" onClick={() => setDlg('history')}>History</Button>
+          <RecordActions surface="drawing-folder" edit={here.canManage && !here.isArchived && { onClick: () => setDlg('edit') }}
+            importNode={here.canManage && !here.isArchived && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setDlg('upload')}>Upload drawing</Button>}
+            del={{ what: `folder ${here.name}`, url: `${D}/folders/${here.id}`, label: 'Delete folder', extra: 'Only empty folders can be deleted.', onDone: () => setSp(here.parentId ? { folder: here.parentId } : {}) }}>
+            {here.canManage && <Button color={here.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{here.isArchived ? 'Restore folder' : 'Archive folder'}</Button>}
+          </RecordActions>
         </Stack>}
         {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : <>
           {v!.folders.length > 0 && <SimpleTable head={['Folder', 'Part', 'Contents', 'Updated']} rows={v!.folders.map((f) => [
@@ -189,7 +194,6 @@ export function DrawingsPage() {
         onSaved={(id) => { refresh(); nav(`/sequfloh/engineering/drawings/d/${id}`); }} />}
       <RelinkDialog open={dlg === 'relink'} onClose={() => setDlg(null)} />
       {<ImportDrawingsDialog open={dlg === 'import'} folderId={here?.id ?? null} folderName={here?.name ?? 'All folders'} initial={picked} onClose={() => { setDlg(null); setPicked(null); }} onDone={refresh} />}
-      {here && <HistoryDialog open={dlg === 'history'} url={`${D}/folders/${here.id}/history`} onClose={() => setDlg(null)} />}
       {here && <Confirm open={confirm} title={here.isArchived ? 'Restore folder' : 'Archive folder'} confirm={here.isArchived ? 'Restore' : 'Archive'} danger={!here.isArchived}
         text={here.isArchived ? 'The folder and what is in it show again.' : 'The folder and what is in it are hidden from the list and from search. Nothing is deleted; you can restore it.'}
         onClose={() => setConfirm(false)} onConfirm={async () => { await post(`${D}/folders/${here.id}/archive`, { archived: !here.isArchived }); refresh(); }} />}
@@ -215,7 +219,7 @@ function FolderDialog({ open, edit, parentId, onClose, onSaved }: { open: boolea
     } catch (e) { setErr((e as Error).message); }
   };
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: init }}>
-    <DialogTitle>{edit ? 'Rename folder' : 'New drawing folder'}</DialogTitle>
+    <FormDialogTitle>{edit ? 'Rename folder' : 'New drawing folder'}</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
       {err && <Alert severity="error">{err}</Alert>}
       <TextField label="Folder name" required autoFocus value={name} onChange={(e) => setName(e.target.value)} helperText="For example the part number." />
@@ -233,7 +237,7 @@ function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setF(blankDrawing()); setParts(defaultParts); setErr(null); } }}>
-    <DialogTitle>Upload drawing</DialogTitle>
+    <FormDialogTitle>Upload drawing</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
       {err && <Alert severity="error">{err}</Alert>}
       <DrawingFileFields f={f} set={setF} />
@@ -243,11 +247,6 @@ function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open
   </Dialog>;
 }
 
-function HistoryDialog({ open, url, onClose }: { open: boolean; url: string; onClose: () => void }) {
-  const q = useQuery({ queryKey: ['drawing-history', url], enabled: open, queryFn: () => get<AuditRow[]>(url) });
-  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="md"><DialogTitle>History</DialogTitle><DialogContent><HistoryTable q={q} /></DialogContent>
-    <DialogActions><Button onClick={onClose}>Close</Button></DialogActions></Dialog>;
-}
 
 interface DrawingDetail { id: string; title: string; drawingNumber?: string; notes?: string; currentRevision: string; isArchived: boolean; createdAt: string; updatedAt: string; canManage: boolean;
   folder: { id: string; name: string; isArchived: boolean; part?: FolderRow['part'] }; parts: { id: string; partNumber: string; name: string; numbers?: string }[];
@@ -257,22 +256,23 @@ export function DrawingPage() {
   const { id } = useParams();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['drawing', id], queryFn: () => get<DrawingDetail>(`${D}/${id}`) });
-  const history = useQuery({ queryKey: ['drawing-history', `${D}/${id}/history`], queryFn: () => get<AuditRow[]>(`${D}/${id}/history`) });
   const [tab, setTab] = useState('revisions');
   const [dlg, setDlg] = useState<null | 'rev' | 'edit' | 'parts'>(null);
   const [confirm, setConfirm] = useState(false);
   const d = q.data;
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['drawing', id] }); qc.invalidateQueries({ queryKey: ['drawing-history'] }); qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['drawing', id] }); qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); };
   return (
     <SqfPage title={d ? label(d) : 'Drawing'} crumbs={crumbs(d?.drawingNumber || d?.title || '…')} permission="sequfloh.view_drawings"
-      tabs={[{ label: 'Revisions', value: 'revisions' }, { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
-      actions={d && <>
+      tabs={[{ label: 'Revisions', value: 'revisions' }]} tab={tab} onTab={setTab}
+      actions={d && <RecordActions surface="drawing" edit={d.canManage && !d.isArchived && { onClick: () => setDlg('edit') }}
+        print={{ href: fileUrl(d.id, undefined, true) }}
+        importNode={d.canManage && !d.isArchived && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setDlg('rev')}>New revision</Button>}
+        del={{ what: `drawing ${d.drawingNumber || d.title}`, url: `${D}/${d.id}`, to: `/sequfloh/engineering/drawings?folder=${d.folder.id}`,
+          extra: 'Every revision and its file is removed, and it is unlinked from parts and work orders.' }}>
         <OpenDrawingButton d={{ ...d, viewable: !!d.revisions.find((r) => r.current)?.viewable }} size="medium" />
-        {d.canManage && !d.isArchived && <><Button variant="contained" onClick={() => setDlg('rev')}>New revision</Button><Button variant="outlined" onClick={() => setDlg('edit')}>Edit</Button>
-          <Button variant="outlined" onClick={() => setDlg('parts')}>Link to parts</Button></>}
+        {d.canManage && !d.isArchived && <Button variant="outlined" onClick={() => setDlg('parts')}>Link to parts</Button>}
         {d.canManage && <Button color={d.isArchived ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{d.isArchived ? 'Restore' : 'Archive'}</Button>}
-        <DeleteButton what={`drawing ${d.drawingNumber || d.title}`} url={`${D}/${d.id}`} to={`/sequfloh/engineering/drawings?folder=${d.folder.id}`}
-          extra="Every revision and its file is removed, and it is unlinked from parts and work orders." /></>}>
+      </RecordActions>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Stack direction="row" gap={4} flexWrap="wrap">
@@ -293,7 +293,6 @@ export function DrawingPage() {
           <Stack key="a" direction="row" gap={1}>{r.viewable && <Button size="small" component="a" href={viewerUrl(d.id, r.revision)} target="_blank" rel="noopener">View</Button>}
             <Button size="small" component="a" href={fileUrl(d.id, r.revision)}>Download</Button>
             <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file for this revision is removed." /></Stack>])} />}
-        {tab === 'history' && <HistoryTable q={history} />}
         <RevisionDialog open={dlg === 'rev'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <EditDialog open={dlg === 'edit'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <LinkPartsDialog open={dlg === 'parts'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
@@ -314,7 +313,7 @@ function RevisionDialog({ open, d, onClose, onSaved }: { open: boolean; d: Drawi
     try { await post(`${D}/${d.id}/revisions`, fd); onSaved(); onClose(); } catch (e) { setErr((e as Error).message); }
   };
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setFile(null); setRev(nextRev(d.currentRevision)); setNotes(''); setErr(null); } }}>
-    <DialogTitle>New revision of {label(d)}</DialogTitle>
+    <FormDialogTitle>New revision of {label(d)}</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
       {err && <Alert severity="error">{err}</Alert>}
       <Typography variant="body2" color="text.secondary">Revision {d.currentRevision} and earlier stay in the history.</Typography>
@@ -330,7 +329,7 @@ function EditDialog({ open, d, onClose, onSaved }: { open: boolean; d: DrawingDe
   const [f, setF] = useState({ title: '', drawingNumber: '', notes: '' }); const [err, setErr] = useState<string | null>(null);
   const save = async () => { setErr(null); try { await put(`${D}/${d.id}`, { ...f, revision: null }); onSaved(); onClose(); } catch (e) { setErr((e as Error).message); } };
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setF({ title: d.title, drawingNumber: d.drawingNumber ?? '', notes: d.notes ?? '' }); setErr(null); } }}>
-    <DialogTitle>Edit drawing</DialogTitle>
+    <FormDialogTitle>Edit drawing</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
       {err && <Alert severity="error">{err}</Alert>}
       <TextField label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
@@ -345,7 +344,7 @@ function LinkPartsDialog({ open, d, onClose, onSaved }: { open: boolean; d: Draw
   const [parts, setParts] = useState<Opt[]>([]); const [err, setErr] = useState<string | null>(null);
   const save = async () => { setErr(null); try { await put(`${D}/${d.id}/parts`, { ids: parts.map((p) => p.id) }); onSaved(); onClose(); } catch (e) { setErr((e as Error).message); } };
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setParts(d.parts.map((p) => ({ id: p.id, label: `${p.partNumber} — ${p.name}` }))); setErr(null); } }}>
-    <DialogTitle>Link {label(d)} to parts</DialogTitle>
+    <FormDialogTitle>Link {label(d)} to parts</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>{err && <Alert severity="error">{err}</Alert>}<PartsPicker value={parts} onChange={setParts} />
       {d.folder.part && <Typography variant="caption" color="text.secondary">Its folder is linked to part {d.folder.part.partNumber}, so it shows for that part too.</Typography>}</Stack></DialogContent>
     <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Save</Button></DialogActions>
@@ -362,6 +361,7 @@ export function DrawingViewer() {
   if (d) document.title = `${label(d)} rev ${r?.revision ?? ''}`;
   return <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
     <Stack direction="row" alignItems="center" gap={2} sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }}>
+      <span data-fullscreen-viewer="drawing-viewer" style={{ display: 'contents' }}><FullScreenButton size="small" /></span>
       <Typography sx={{ fontWeight: 700 }} data-testid="viewer-title">{d ? `${label(d)} · rev ${r?.revision ?? '?'}` : 'Drawing'}</Typography>
       {r && !r.current && <Chip size="small" color="warning" label={`Not current · current is rev ${d!.currentRevision}`} />}
       {r?.current && <Chip size="small" color="primary" label="Current revision" />}
@@ -385,7 +385,7 @@ function RelinkDialog({ open, onClose }: { open: boolean; onClose: () => void })
     try { setRes(await post(`${D}/relink`, {})); qc.invalidateQueries(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setRes(null); setErr(null); } }}>
-    <DialogTitle>Relink drawings</DialogTitle>
+    <FormDialogTitle>Relink drawings</FormDialogTitle>
     <DialogContent><Stack gap={2}>
       <Typography variant="body2">Checks every drawing against the parts and links each drawing to every part whose OR #, SENSEN # or drawing number field matches the drawing title or its folder name
         (for fuel pumps the JH PN, so one drawing links to all the OR PNs that share it). Case, spaces, dashes and underscores are ignored. Links that are already there, including ones made by hand, are kept.</Typography>

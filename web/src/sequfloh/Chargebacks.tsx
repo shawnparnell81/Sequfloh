@@ -3,9 +3,10 @@ import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'rea
 import { Alert, Autocomplete, Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { del, get, post, put } from '../api';
+import { get, post, put } from '../api';
 import { fmtDateTime } from '../components/Status';
-import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, useSqf } from './common';
+import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, useSqf, useUnsaved } from './common';
+import { RecordActions } from '../components/RecordActions';
 import { otherNumbers, usePartSearch } from './partSearch';
 import { partNo } from './partLabel';
 
@@ -80,6 +81,7 @@ export function ChargebackEditPage() {
   const [partText, setPartText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const [sections, setSections] = useState<string[] | null>(null);
   const sectionOpts = useSectionOptions();
   const picked = sections ?? (sectionOpts.data ?? []).filter((o) => o.default).map((o) => o.key);
@@ -107,8 +109,13 @@ export function ChargebackEditPage() {
     setParts(r.parts.map((p) => ({ partNumber: p.partNumber, description: p.description ?? '', quantity: String(p.quantity), unitCost: p.unitCost === null || p.unitCost === undefined ? '' : String(p.unitCost) })));
     setLines(r.costLines.map((l) => ({ description: l.description, amount: String(l.amount) })));
     if (r.trackingRecordId) setWo({ id: r.trackingRecordId, number: r.trackingNumber ?? '' });
-    setSections(r.sections);
+    setSections(r.sections); setBase(null); setHydrated(true);
   }, [existing.data]);
+  const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections]);
+  const [base, setBase] = useState<string | null>(null);
+  useEffect(() => { if (base === null && (isNew || hydrated)) setBase(snap); }, [snap, base, isNew, hydrated]);
+  const dirty = base !== null && snap !== base;
+  useUnsaved(dirty);
   const labor = n(f.totalHours) !== null && n(f.hourlyRate) !== null ? Math.round(n(f.totalHours)! * n(f.hourlyRate)! * 100) / 100 : null;
   const save = async () => {
     setBusy(true); setErr(null);
@@ -130,7 +137,9 @@ export function ChargebackEditPage() {
   const fld = (k: string, label: string, extra: Record<string, unknown> = {}) =>
     <TextField label={label} value={f[k] ?? ''} onChange={(e) => set({ [k]: e.target.value })} fullWidth {...extra} />;
   return <SqfPage title={isNew ? 'Create chargeback report' : `Edit chargeback report ${f.workOrderNumber ?? ''}`} crumbs={crumbs(isNew ? 'Create' : 'Edit')} permission="sequfloh.manage_chargebacks"
-    actions={<Stack direction="row" gap={1}><Button onClick={() => nav(-1)}>Cancel</Button><Button variant="contained" disabled={busy} onClick={save} data-testid="save-chargeback">Save report</Button></Stack>}>
+    actions={<RecordActions surface="chargeback-report-edit" dirty={dirty} busy={busy} cancel={{ onClick: () => nav(-1), always: true }}>
+      <Button variant="contained" disabled={busy || !dirty} onClick={() => void save()} data-action="save" data-testid="save-chargeback">Save</Button>
+    </RecordActions>}>
     <Stack gap={2} sx={{ maxWidth: 1100 }} data-testid="chargeback-form">
       {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
       <Section title="Job">
@@ -219,12 +228,11 @@ export function ChargebackViewPage() {
   if (q.error || !q.data) return <ErrorState error={q.error} />;
   const r = q.data;
   return <SqfPage title={`Chargeback report ${r.workOrderNumber}`} crumbs={crumbs(r.workOrderNumber)} permission="sequfloh.view_reports"
-    actions={<Stack direction="row" gap={1}>
-      <Button variant="contained" href={`${S}/chargebacks/${r.id}/pdf`} target="_blank" rel="noopener" data-testid="cb-pdf">Print / PDF</Button>
+    actions={<RecordActions surface="chargeback-report" edit={canEdit && { onClick: () => nav(`/sequfloh/chargebacks/${r.id}`) }}
+      print={{ href: `${S}/chargebacks/${r.id}/pdf`, testid: 'cb-pdf' }}
+      del={{ what: `chargeback report for work order ${r.workOrderNumber}`, url: `${S}/chargebacks/${r.id}`, to: '/sequfloh/chargebacks', perm: 'sequfloh.manage_chargebacks', show: canEdit }}>
       <Button variant="outlined" href={`${S}/chargebacks/${r.id}/xlsx`} data-testid="cb-xlsx">Export Excel</Button>
-      {canEdit && <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/${r.id}`}>Edit</Button>}
-      {canEdit && <Button color="error" onClick={async () => { if (confirm('Delete this chargeback report?')) { await del(`${S}/chargebacks/${r.id}`); nav('/sequfloh/chargebacks'); } }}>Delete</Button>}
-    </Stack>}>
+    </RecordActions>}>
     <ReportBlocks id={r.id} title={`Chargeback Report: ${r.partNumber ?? r.workOrderNumber}`} supplier={r.supplier} />
   </SqfPage>;
 }

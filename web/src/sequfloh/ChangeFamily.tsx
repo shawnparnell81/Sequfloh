@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, getBlob, post } from '../api';
 import { ErrorState, Mono, S } from './common';
@@ -92,7 +93,7 @@ export function ChangeFamilyDialog({ open, onClose, families, defs, ticked, filt
     </TextField>;
 
   return <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="lg" fullWidth>
-    <DialogTitle>Change product family</DialogTitle>
+    <FormDialogTitle>Change product family</FormDialogTitle>
     <DialogContent>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
         Only the product family changes. Numbers kept for another family stay stored, so moving parts back loses nothing. Every change is recorded in the Audit Trail.</Typography>

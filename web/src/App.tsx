@@ -89,7 +89,7 @@ function TopBar() {
         <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
           <MenuItem disabled><Typography variant="body2">{me?.email}</Typography></MenuItem>
           <Divider />
-          <MenuItem onClick={() => { setAnchor(null); nav('/account/preferences'); }}><ListItemIcon><TuneOutlined fontSize="small" /></ListItemIcon>Preferences</MenuItem>
+          <MenuItem onClick={() => { setAnchor(null); nav('/account/preferences'); }}><ListItemIcon><TuneOutlined fontSize="small" /></ListItemIcon>Settings</MenuItem>
           <MenuItem onClick={() => { setAnchor(null); nav('/account/password'); }}><ListItemIcon><KeyOutlined fontSize="small" /></ListItemIcon>Change password</MenuItem>
           <MenuItem onClick={async () => { setAnchor(null); await logout(); nav('/'); }}><ListItemIcon><LogoutOutlined fontSize="small" /></ListItemIcon>Sign out</MenuItem>
         </Menu>

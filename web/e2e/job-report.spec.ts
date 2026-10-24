@@ -97,14 +97,9 @@ test('job quantity, parts, tester files, chargeback report and official status',
   expect(pdf.ok()).toBeTruthy();
   expect(pdf.headers()['content-type']).toContain('application/pdf');
 
-  // history: filter and CSV export
+  // record pages no longer carry a history tab; the trail lives on Admin and Settings
   await page.goto(`/sequfloh/record/${wo}?tab=history`);
-  await view(page).getByLabel('Filter history').fill('quantity');
-  await expect(view(page).locator('tbody tr').first()).toContainText(/quantity/i);
-  const dl = page.waitForEvent('download');
-  await view(page).getByRole('button', { name: 'Export CSV' }).click();
-  expect((await dl).suggestedFilename()).toMatch(/history\.csv$/);
-  await shot('history-filter');
+  await expect(view(page).getByLabel('Filter history')).toHaveCount(0);
 
   // work order list filtered by official status
   await page.goto('/sequfloh/tracking/open?tag=Repair%20hold');

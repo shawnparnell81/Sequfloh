@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, Chip, Link, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Menu, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, Chip, Link, Dialog, DialogActions, DialogContent, FormControlLabel, Menu, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,10 +9,10 @@ import { ApiError, api, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
-import { DeleteButton, Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
-import { HistoryTable, type AuditRow } from './Parts';
+import { Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
 import { PartDrawingLinks } from './Drawings';
 import { ImportButtons } from '../components/ImportButtons';
+import { RecordActions } from '../components/RecordActions';
 
 /** The file types Imported Files takes, the same for one file or a folder. */
 const IMPORT_TYPES = ['.xlsx', '.xlsm', '.xls', '.csv', '.docx', '.doc'];
@@ -41,7 +42,7 @@ function CopyDialog({ open, heading, initial, action, busy, error, onClose, onCo
   useEffect(() => { const t = setTimeout(() => setTyped(pn), 400); return () => clearTimeout(t); }, [pn]);
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setTitle(initial); setPn(''); setTyped(''); } }}>
-      <DialogTitle>{heading}</DialogTitle>
+      <FormDialogTitle>{heading}</FormDialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         <TextField autoFocus fullWidth label="Title" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ mt: 1 }} inputProps={{ 'data-testid': 'copy-title' }} />
@@ -133,11 +134,10 @@ export function ImportedFilesPage() {
   );
 }
 
-/** One imported file: the sheet or document editor, versions and history. */
+/** One imported file: the sheet or document editor, versions and filled copies. */
 export function ImportedFilePage() {
   const { id } = useParams();
   const q = useQuery({ queryKey: ['imported-file', id], queryFn: () => get<Detail>(`${A}/${id}`) });
-  const history = useQuery({ queryKey: ['imported-file-history', id], queryFn: () => get<AuditRow[]>(`${A}/${id}/history`) });
   const [tab, setTab] = useState('file');
   const [version, setVersion] = useState<number | null>(null);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
@@ -152,7 +152,7 @@ export function ImportedFilePage() {
   const d = q.data;
   const shown = version ?? d?.currentVersion ?? 1;
   const latest = !d || shown === d.currentVersion;
-  const refresh = () => { q.refetch(); history.refetch(); };
+  const refresh = () => { q.refetch(); };
   const qc = useQueryClient();
   const fillOut = async (title: string, partNumber?: string) => {
     setFillBusy(true); setFillError(null);
@@ -175,19 +175,19 @@ export function ImportedFilePage() {
     <SqfPage title={d ? `${d.number} · ${d.title}` : 'Imported file'} crumbs={crumbs(d?.number ?? 'File')} permission="sequfloh.view_imported_files"
       recent={d ? { label: `${d.number} ${d.title}`, itemType: 'ImportedFile', recordId: d.id } : null}
       tabs={[{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' },
-        ...(d?.isBlankForm ? [{ label: `Filled copies (${d.copies?.length ?? 0})`, value: 'copies' }] : []), { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
-      actions={d && <>
-        {d.isBlankForm && d.canEdit && <Button variant="contained" onClick={() => { setFillError(null); setFillOpen(true); }} data-testid="fill-out">Fill out a copy</Button>}
-        {d.canEdit && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
+        ...(d?.isBlankForm ? [{ label: `Filled copies (${d.copies?.length ?? 0})`, value: 'copies' }] : [])]} tab={tab} onTab={setTab}
+      actions={d && <RecordActions surface="imported-file" print={{ onClick: () => window.print() }}
+        importNode={d.canEdit && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
           <input hidden type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc" data-testid="upload-version-input" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadVersion(f); }} /></Button>}
+        del={{ what: `${d.number} ${d.title}`, url: `${A}/${d.id}`, to: '/sequfloh/imported-files',
+          extra: d.isBlankForm ? "Blank forms with filled copies can't be deleted; delete the copies first or archive the form." : 'All versions and stored files are removed.' }}>
+        {d.isBlankForm && d.canEdit && <Button variant="contained" onClick={() => { setFillError(null); setFillOpen(true); }} data-testid="fill-out">Fill out a copy</Button>}
         <Button startIcon={<DownloadOutlined />} onClick={(e) => setMenu(e.currentTarget)}>Download</Button>
-        <DeleteButton what={`${d.number} ${d.title}`} url={`${A}/${d.id}`} to="/sequfloh/imported-files"
-          extra={d.isBlankForm ? "Blank forms with filled copies can't be deleted; delete the copies first or archive the form." : 'All versions and stored files are removed.'} />
         <Menu open={!!menu} anchorEl={menu} onClose={() => setMenu(null)}>
           <MenuItem component="a" href={`${A}/${d.id}/download${latest ? '' : `?version=${shown}`}`} onClick={() => setMenu(null)}>{latest ? 'Current version' : `Version ${shown}`} ({d.kind === 'spreadsheet' ? 'Excel' : 'Word'})</MenuItem>
           <MenuItem component="a" href={`${A}/${d.id}/download?original=true`} onClick={() => setMenu(null)}>As uploaded ({d.originalFileName})</MenuItem>
         </Menu>
-      </>}>
+      </RecordActions>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
         <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 1.5 }} alignItems="center">
           <Chip size="small" label={kindLabel(d.kind)} />
@@ -227,7 +227,6 @@ export function ImportedFilePage() {
             <Button size="small" component="a" href={`${A}/${d.id}/download?version=${v.version}`}>Download</Button>
           </Stack>)}
         </Paper>}
-        {tab === 'history' && <HistoryTable q={history} />}
       </>}
       {d && <CopyDialog open={fillOpen} heading="Fill out a copy" initial={`${d.title} – ${today()}`} action="Create and open" busy={fillBusy} error={fillError} onClose={() => setFillOpen(false)} onConfirm={fillOut} partNumber />}
     </SqfPage>
