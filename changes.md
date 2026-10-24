@@ -1,5 +1,12 @@
 # Changes
 
+## Import file and Import folder on every upload page
+
+- Every page that takes uploads now has the same "Import file" and "Import folder" buttons: All Imported Files (blank templates too), Drawings, the work instruction lists, work instruction files, inspection request attachments, and work order tester files, photos and attachments. Import folder reads subfolders too, skips hidden and unsupported files, and ends with a summary of what was imported, skipped or failed.
+- Importing on a work instruction list creates one draft work instruction per file, with the file attached. You pick the type and site first. Files imported on a work order stay on that work order; work instructions and work orders are never created from each other's imports.
+- On Drawings, the chosen files go straight into the Import drawings dialog for review.
+- A test fails if a page gets a file upload that doesn't use the shared buttons.
+
 ## Change product family of many parts
 
 - The Part Master has a "Change product family" button for people who may edit parts (SEQUFLOH edit parts and Master Data edit). It moves many parts to another product family in one go.
