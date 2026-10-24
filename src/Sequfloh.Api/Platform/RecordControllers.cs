@@ -53,7 +53,35 @@ public sealed class NotificationsController(AppDbContext db, ICurrentUser me) : 
 public sealed class FilesController(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me) : ControllerBase
 {
     public const long MaxBytes = 10 * 1024 * 1024;
-    static readonly HashSet<string> Allowed = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".csv", ".xlsx", ".docx"];
+    public static readonly HashSet<string> Allowed = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".csv", ".xlsx", ".docx"];
+
+    /// <summary>Checks the file (type and size) and throws with the reason when it cannot be attached.</summary>
+    public static void Check(IFormFile? file)
+    {
+        if (file is null || file.Length == 0) throw new AppException("Choose a file.");
+        if (file.Length > MaxBytes) throw new AppException("Files are limited to 10 MB.");
+        if (!Allowed.Contains(Path.GetExtension(Path.GetFileName(file.FileName)).ToLowerInvariant()))
+            throw new AppException("This file type is not accepted. Use a picture, PDF, text, CSV, Excel or Word file.");
+    }
+
+    /// <summary>Stores the file and attaches it to the record. The attachment is audited like any other change.</summary>
+    public static async Task<Attachment> AttachAsync(AppDbContext db, IFileStorage storage, string type, Guid id, Guid site, IFormFile file, CancellationToken ct)
+    {
+        Check(file);
+        var name = Path.GetFileName(file.FileName);
+        var ext = Path.GetExtension(name).ToLowerInvariant();
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, ct);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(ms.ToArray()));
+        var a = new Attachment { OwnerType = type, OwnerId = id, SiteId = site, FileName = name, ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+            SizeBytes = file.Length, Sha256 = hash };
+        a.StorageKey = $"{type}/{id:N}/{a.Id:N}{ext}";
+        ms.Position = 0;
+        await storage.PutAsync(a.StorageKey, ms, a.ContentType, ct);
+        db.Attachments.Add(a);
+        await db.SaveChangesAsync(ct);
+        return a;
+    }
 
     async Task<(Guid SiteId, Guid? DepartmentId, bool Editable)> OwnerAsync(string type, Guid id, CancellationToken ct)
     {
@@ -97,21 +125,7 @@ public sealed class FilesController(AppDbContext db, IFileStorage storage, IAcce
     {
         var (site, _, editable) = await OwnerAsync(type, id, ct);
         if (!editable) throw new ForbiddenException();
-        if (file is null || file.Length == 0) throw new AppException("Choose a file.");
-        if (file.Length > MaxBytes) throw new AppException("Files are limited to 10 MB.");
-        var name = Path.GetFileName(file.FileName);
-        var ext = Path.GetExtension(name).ToLowerInvariant();
-        if (!Allowed.Contains(ext)) throw new AppException("This file type is not accepted. Use a picture, PDF, text, CSV, Excel or Word file.");
-        using var ms = new MemoryStream();
-        await file.CopyToAsync(ms, ct);
-        var hash = Convert.ToHexStringLower(SHA256.HashData(ms.ToArray()));
-        var a = new Attachment { OwnerType = type, OwnerId = id, SiteId = site, FileName = name, ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
-            SizeBytes = file.Length, Sha256 = hash };
-        a.StorageKey = $"{type}/{id:N}/{a.Id:N}{ext}";
-        ms.Position = 0;
-        await storage.PutAsync(a.StorageKey, ms, a.ContentType, ct);
-        db.Attachments.Add(a);
-        await db.SaveChangesAsync(ct);
+        var a = await AttachAsync(db, storage, type, id, site, file, ct);
         return new { a.Id, a.FileName };
     }
 

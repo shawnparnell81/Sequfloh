@@ -68,7 +68,10 @@ test('job quantity, parts, tester files, chargeback report and official status',
   await expect(view(page)).toContainText('123abc');
   await view(page).getByLabel('Batch (optional)').fill('B1');
   const csv = 'Unit,Outcome,Leak rate\n1,PASS,0.2\n2,PASS,0.3\n3,FAIL,1.9\n4,ok,0.25\n';
-  await view(page).getByTestId('test-file-input').setInputFiles({ name: 'tester-example.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await view(page).getByTestId('work-order-tester-files-files-input').setInputFiles({ name: 'tester-example.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await page.getByTestId('bulk-import-start').click();
+  await expect(page.getByTestId('bulk-done')).toContainText('1 tester file imported');
+  await page.getByTestId('bulk-import').getByRole('button', { name: 'Close' }).click();
   await expect(view(page)).toContainText('tester-example.csv');
   await expect(view(page)).toContainText('Tested 4');
   await shot('job-tab');

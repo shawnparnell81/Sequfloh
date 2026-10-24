@@ -5,6 +5,7 @@ import { Alert, Box, Button, Checkbox, Chip, FormControl, FormControlLabel, Form
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
+import { ImportButtons } from '../components/ImportButtons';
 import { fmtDateTime } from '../components/Status';
 import type { CostLine, Findings } from './Findings';
 import { ErrorState, Loading, Mono, S, SqfPage, useOptions } from './common';
@@ -138,12 +139,8 @@ export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
       {canWork && <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" sx={{ mb: 1 }}>
         <TextField size="small" label="Batch (optional)" value={batch} onChange={(e) => setBatch(e.target.value)} />
         <TextField size="small" type="date" label="Test date (optional)" InputLabelProps={{ shrink: true }} value={testDate} onChange={(e) => setTestDate(e.target.value)} />
-        <Button variant="outlined" component="label">Upload tester files<input hidden type="file" multiple accept=".csv,.xlsx,.pdf,.txt" data-testid="test-file-input" onChange={(e) => {
-          const fl = e.target.files; if (!fl?.length) return;
-          const fd = new FormData(); Array.from(fl).forEach((f) => fd.append('files', f)); if (batch) fd.append('batch', batch); if (testDate) fd.append('testDate', testDate);
-          e.target.value = '';
-          void run(() => post(`${S}/tracking/${id}/job/test-files`, fd));
-        }} /></Button>
+        <ImportButtons surface="work-order-tester-files" accept={['.csv', '.xlsx', '.pdf', '.txt']} what="tester file" onDone={refresh}
+          upload={(f) => { const fd = new FormData(); fd.append('files', f); if (batch) fd.append('batch', batch); if (testDate) fd.append('testDate', testDate); return post(`${S}/tracking/${id}/job/test-files`, fd); }} />
       </Stack>}
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>CSV or Excel exports are read for pass/fail counts; PDF and text files are attached as they are. The column choice is remembered for this job.</Typography>
       {tests.length > 0 && <Table size="small"><TableHead><TableRow><TableCell>File</TableCell><TableCell>Batch</TableCell><TableCell>Test date</TableCell><TableCell>Tested</TableCell><TableCell>Passed</TableCell><TableCell>Failed</TableCell><TableCell>Uploaded</TableCell><TableCell /></TableRow></TableHead>

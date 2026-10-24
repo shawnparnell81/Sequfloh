@@ -8,10 +8,9 @@ test('pass and fail colours change as soon as a reading is edited', async ({ pag
   const shots = process.env.E2E_SHOTS;
   await signIn(page);
   await section(page, 'Imported Files');
-  await view(page).getByTestId('import-file').click();
-  await page.getByTestId('import-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
+  await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
   await page.getByTestId('import-blank').uncheck();
-  await page.getByTestId('import-upload').click();
+  await page.getByTestId('bulk-import-start').click();
   await expect(page).toHaveURL(/\/sequfloh\/imported-files\/[0-9a-f-]{36}$/);
   const g6 = view(page).locator('td[data-cell="G6"]');
   await expect(g6).toHaveText('FAIL');

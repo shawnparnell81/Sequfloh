@@ -11,6 +11,7 @@ import { fmtDateTime } from '../components/Status';
 import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, SqfPage, qs } from './common';
 import { partNo } from './partLabel';
 import { HistoryTable, SimpleTable, type AuditRow } from './Parts';
+import { ImportButtons } from '../components/ImportButtons';
 import { ImportDrawingsDialog } from './DrawingsImport';
 
 const D = '/api/drawings';
@@ -139,6 +140,7 @@ export function DrawingsPage() {
   const [text, setText] = useState(search);
   const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'history' | 'import' | 'relink'>(null);
   const [confirm, setConfirm] = useState(false);
+  const [picked, setPicked] = useState<{ files: File[]; folder: boolean } | null>(null);
   const v = q.data; const here = v?.parent;
   const canManage = here ? here.canManage : !!v?.canCreate;
   const refresh = () => qc.invalidateQueries({ queryKey: ['drawing-folders'] });
@@ -147,7 +149,8 @@ export function DrawingsPage() {
     <SqfPage title="Drawings" crumbs={crumbs()} permission="sequfloh.view_drawings" description="Engineering drawings kept in folders, for example one per part number. Every revision is kept."
       actions={canManage && !here?.isArchived && <>
         <Button variant="outlined" onClick={() => setDlg('new')}>New folder</Button>
-        <Button variant="outlined" onClick={() => setDlg('import')}>Import drawings</Button>
+        <ImportButtons surface="parts-drawings" accept={ACCEPT.split(',')} what="drawing" onFiles={(files, folder) => { setPicked({ files, folder }); setDlg('import'); }} />
+        <Button variant="outlined" onClick={() => { setPicked(null); setDlg('import'); }}>Import drawings</Button>
         {!here && <Button variant="outlined" onClick={() => setDlg('relink')}>Relink drawings</Button>}
         {here && <Button variant="contained" onClick={() => setDlg('upload')}>Upload drawing</Button>}</>}>
       <Stack direction="row" gap={1} sx={{ mb: 2 }} component="form" onSubmit={(e) => { e.preventDefault(); set('q', text.trim()); }}>
@@ -185,7 +188,7 @@ export function DrawingsPage() {
       {here && <UploadDialog open={dlg === 'upload'} folderId={here.id} defaultParts={here.part ? [{ id: here.part.id, label: `${here.part.partNumber} — ${here.part.name}` }] : []} onClose={() => setDlg(null)}
         onSaved={(id) => { refresh(); nav(`/sequfloh/engineering/drawings/d/${id}`); }} />}
       <RelinkDialog open={dlg === 'relink'} onClose={() => setDlg(null)} />
-      {<ImportDrawingsDialog open={dlg === 'import'} folderId={here?.id ?? null} folderName={here?.name ?? 'All folders'} onClose={() => setDlg(null)} onDone={refresh} />}
+      {<ImportDrawingsDialog open={dlg === 'import'} folderId={here?.id ?? null} folderName={here?.name ?? 'All folders'} initial={picked} onClose={() => { setDlg(null); setPicked(null); }} onDone={refresh} />}
       {here && <HistoryDialog open={dlg === 'history'} url={`${D}/folders/${here.id}/history`} onClose={() => setDlg(null)} />}
       {here && <Confirm open={confirm} title={here.isArchived ? 'Restore folder' : 'Archive folder'} confirm={here.isArchived ? 'Restore' : 'Archive'} danger={!here.isArchived}
         text={here.isArchived ? 'The folder and what is in it show again.' : 'The folder and what is in it are hidden from the list and from search. Nothing is deleted; you can restore it.'}

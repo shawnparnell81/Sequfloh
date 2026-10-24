@@ -47,7 +47,10 @@ test('time detail, findings and report options', async ({ page }) => {
   await view(page).getByLabel(/Repair method/).fill('Replace top mount and leak test');
   await view(page).getByTestId('save-findings').click();
   await expect(view(page)).toContainText('Saved');
-  await view(page).getByTestId('evidence-input').setInputFiles(new URL('./example-evidence.jpg', import.meta.url).pathname);
+  await view(page).getByTestId('work-order-evidence-files-input').setInputFiles(new URL('./example-evidence.jpg', import.meta.url).pathname);
+  await page.getByTestId('bulk-import-start').click();
+  await expect(page.getByTestId('bulk-done')).toContainText('1 photo imported');
+  await page.getByTestId('bulk-import').getByRole('button', { name: 'Close' }).click();
   await expect(view(page)).toContainText('example-evidence.jpg');
   await view(page).getByRole('button', { name: 'Edit cost lines' }).click();
   await view(page).getByRole('button', { name: 'Add line' }).click();
