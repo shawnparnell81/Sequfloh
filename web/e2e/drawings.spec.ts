@@ -96,10 +96,9 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
 
   // no work order: fill out a blank form for the part and tick Open drawing
   await section(page, 'Imported Files');
-  await view(page).getByTestId('import-file').click();
-  await page.getByTestId('import-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
+  await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
   await page.getByLabel('Title').fill(`Drawing check blank ${stamp}`);
-  await page.getByTestId('import-upload').click();
+  await page.getByTestId('bulk-import-start').click();
   await view(page).getByTestId('fill-out').click();
   await page.getByTestId('copy-part-number').fill('NOPE-0000');
   await expect(page.getByTestId('no-drawing')).toBeVisible();

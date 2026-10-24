@@ -8,10 +8,9 @@ test.describe('imported files', () => {
     test.skip(!process.env.E2E_XLSX, 'set E2E_XLSX');
     await signIn(page);
     await section(page, 'Imported Files');
-    await view(page).getByTestId('import-file').click();
-    await page.getByTestId('import-input').setInputFiles(path.resolve(process.env.E2E_XLSX!));
+    await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_XLSX!));
     await page.getByTestId('import-blank').uncheck();
-    await page.getByTestId('import-upload').click();
+    await page.getByTestId('bulk-import-start').click();
     await expect(page).toHaveURL(/\/sequfloh\/imported-files\/[0-9a-f-]{36}$/);
     const g8 = view(page).locator('td[data-cell="G8"]');
     await expect(g8).toHaveText('FAIL');
@@ -28,10 +27,9 @@ test.describe('imported files', () => {
     test.skip(!process.env.E2E_DOCX, 'set E2E_DOCX');
     await signIn(page);
     await section(page, 'Imported Files');
-    await view(page).getByTestId('import-file').click();
-    await page.getByTestId('import-input').setInputFiles(path.resolve(process.env.E2E_DOCX!));
+    await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_DOCX!));
     await page.getByTestId('import-blank').uncheck();
-    await page.getByTestId('import-upload').click();
+    await page.getByTestId('bulk-import-start').click();
     const para = view(page).locator('p[data-editable]').last();
     await para.click();
     await page.keyboard.press('Control+A'); await page.keyboard.type('Changed in the app.');

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Stack, TextField, Typography } from '@mui/material';
 import { post } from '../api';
 import { Mono } from './common';
@@ -39,7 +39,8 @@ function putBlob(url: string, body: Blob, contentType: string | null, onBytes: (
  * Import a whole folder of drawings (or several files) into the current folder: the folder tree is recreated, every file becomes a drawing titled
  * with its file name, and the files go straight to file storage. Picking the same folder again skips what is already here.
  */
-export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDone }: { open: boolean; folderId: string | null; folderName: string; onClose: () => void; onDone: () => void }) {
+export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDone, initial }: { open: boolean; folderId: string | null; folderName: string; onClose: () => void; onDone: () => void;
+  /** Files already picked with Import file or Import folder on the page. */ initial?: { files: File[]; folder: boolean } | null }) {
   const [items, setItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Plan['folders']>([]);
   const [revision, setRevision] = useState('A');
@@ -54,7 +55,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
   const top = folderId === null;
   const reset = () => { setItems([]); setFolders([]); setRevision('A'); setLinkParts(true); setOthers(false); setErr(null); setProg(null); setBusy(''); };
 
-  const pick = async (list: FileList | null, folderPick: boolean) => {
+  const pick = async (list: FileList | File[] | null, folderPick: boolean) => {
     if (!list?.length) return;
     setErr(null); setProg(null); setBusy('reading');
     try {
@@ -68,6 +69,8 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       await plan(all, linkParts);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(''); }
   };
+  useEffect(() => { if (open && initial) { reset(); void pick(initial.files, initial.folder); } }, [open, initial]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const plan = async (all: Item[], link: boolean) => {
     const dirs = [...new Set(all.filter((i) => i.kind !== 'unsupported').flatMap((i) => { const p = dirOf(i.path).split('/').filter(Boolean); return p.map((_, n) => p.slice(0, n + 1).join('/')); }))];
@@ -133,7 +136,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
   const pct = prog && prog.totalBytes ? Math.min(100, (prog.bytes / prog.totalBytes) * 100) : 0;
   const finished = prog && busy === '';
 
-  return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="md" TransitionProps={{ onEnter: reset }}>
+  return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="md" TransitionProps={{ onEnter: () => { if (!initial) reset(); } }}>
     <DialogTitle>Import drawings into {folderName}</DialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }} data-testid="import-drawings">
       {err && <Alert severity="error">{err}</Alert>}

@@ -14,7 +14,7 @@ namespace Sequfloh.Api.Controllers.Sequfloh;
 
 /// <summary>SEQUFLOH work instructions: designer schema, folders, designer load/save, lifecycle actions, revisions, library copies.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh/instructions")]
-public sealed class SequflohInstructionsController(AppDbContext db, ModuleSupport m, SequflohInstructionService wi, SequflohPartsService parts, SequflohPrintService print) : ControllerBase
+public sealed class SequflohInstructionsController(AppDbContext db, ModuleSupport m, SequflohInstructionService wi, SequflohPartsService parts, SequflohPrintService print, global::Sequfloh.Platform.IFileStorage storage) : ControllerBase
 {
     [HttpGet("schema")] public object Schema() => SequflohDesigner.Schemas.Values;
 
@@ -109,6 +109,26 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
 
     [HttpPost] [RequirePermission(Permissions.SequflohCreateWorkInstruction)]
     public async Task<object> Create(InstructionCreateInput r, CancellationToken ct) { var x = await wi.CreateAsync(r, ct); return new { x.Id, x.Number }; }
+
+    /// <summary>Imports one file as a new draft work instruction: the title is the file name and the file is attached to the draft (same file rules as attachments).</summary>
+    [HttpPost("import"), RequirePermission(Permissions.SequflohCreateWorkInstruction), RequestSizeLimit(global::Sequfloh.Platform.FilesController.MaxBytes + 64 * 1024)]
+    public async Task<object> Import(IFormFile file, [FromForm] WorkInstructionType type, [FromForm] Guid siteId, [FromForm] Guid? departmentId, CancellationToken ct)
+    {
+        global::Sequfloh.Platform.FilesController.Check(file);
+        var title = Path.GetFileNameWithoutExtension(Path.GetFileName(file.FileName)).Trim();
+        if (title.Length > 200) title = title[..200];
+        // the file was checked above; creating the draft runs in its own transaction, so a failed attach takes the new draft away again
+        var x = await wi.CreateAsync(new InstructionCreateInput(type, title, siteId, departmentId, null), ct);
+        try { await global::Sequfloh.Platform.FilesController.AttachAsync(db, storage, "SequflohWorkInstruction", x.Id, x.SiteId, file, ct); }
+        catch
+        {
+            db.ChangeTracker.Clear();
+            var made = await db.SequflohWorkInstructions.FindAsync([x.Id], CancellationToken.None);
+            if (made is not null) { db.SequflohWorkInstructions.Remove(made); await db.SaveChangesAsync(CancellationToken.None); }
+            throw;
+        }
+        return new { x.Id, x.Number, Title = title };
+    }
     [HttpPut("{id:guid}")] [RequirePermission(Permissions.SequflohEditDraftWorkInstruction)]
     public async Task<IActionResult> Save(Guid id, InstructionSaveInput r, CancellationToken ct) { await wi.SaveAsync(id, r, ct); return NoContent(); }
     [HttpPut("{id:guid}/development")] [RequirePermission(Permissions.SequflohEditEngineeringFolder)]

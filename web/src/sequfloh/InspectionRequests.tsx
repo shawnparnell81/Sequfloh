@@ -221,7 +221,7 @@ export function InspectionRequestPage() {
         <Paper sx={{ p: 2 }}><Typography variant="subtitle2" gutterBottom>Inspection requirement</Typography>
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{r.requirement || '—'}</Typography></Paper>
       </Box>
-      <Box sx={{ mt: 3 }}><Typography variant="h6" gutterBottom>Attachments</Typography><FilesPanel type="SequflohInspectionRequest" id={r.id} canEdit={!closed && can('sequfloh.access')} /></Box>
+      <Box sx={{ mt: 3 }}><Typography variant="h6" gutterBottom>Attachments</Typography><FilesPanel surface="inspection-request-files" type="SequflohInspectionRequest" id={r.id} canEdit={!closed && can('sequfloh.access')} /></Box>
       <Box sx={{ mt: 3 }}><Typography variant="h6" gutterBottom>History</Typography><HistoryTable q={history} /></Box>
       <InspectionRequestDialog open={edit} onClose={() => setEdit(false)} initial={initial} id={r.id} />
       <ConvertDialog r={r} open={convert} onClose={() => setConvert(false)} />

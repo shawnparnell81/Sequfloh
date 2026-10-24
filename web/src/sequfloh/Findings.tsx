@@ -3,6 +3,7 @@ import { Alert, Box, Button, IconButton, MenuItem, Paper, Stack, Table, TableBod
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
+import { ImportButtons } from '../components/ImportButtons';
 import { fmtDateTime } from '../components/Status';
 import { ErrorState, Loading, S, useOptions } from './common';
 
@@ -36,12 +37,9 @@ export function FindingsPanel({ id, canWork, wi }: { id: string; canWork: boolea
   const cl = lines ?? d.costLines;
   const set = (k: Key, val: string | number | null) => setF({ ...v, [k]: val === '' ? null : val });
   const tf = (k: Key, label: string, extra?: object) => <TextField key={k} size="small" label={label} value={v[k] ?? ''} disabled={!canWork} onChange={(e) => set(k, e.target.value)} {...extra} />;
-  const upload = (kind: 'evidence' | 'attachment', accept: string, label: string) => canWork && <Button variant="outlined" component="label" size="small">{label}
-    <input hidden type="file" multiple accept={accept} data-testid={`${kind}-input`} onChange={(e) => {
-      const fl = e.target.files; if (!fl?.length) return;
-      const fd = new FormData(); Array.from(fl).forEach((x) => fd.append('files', x)); fd.append('kind', kind); e.target.value = '';
-      void run(() => post(`${S}/tracking/${id}/job/test-files`, fd));
-    }} /></Button>;
+  const upload = (kind: 'evidence' | 'attachment', accept: string) => canWork && <ImportButtons surface={kind === 'evidence' ? 'work-order-evidence' : 'work-order-attachments'} size="small"
+    accept={accept.split(',')} what={kind === 'evidence' ? 'photo' : 'file'} upload={(x) => { const fd = new FormData(); fd.append('files', x); fd.append('kind', kind); return post(`${S}/tracking/${id}/job/test-files`, fd); }}
+    onDone={() => void refresh()} />;
   const list = (kind: string) => d.files.filter((x) => x.kind === kind);
   const files = (kind: string, empty: string) => list(kind).length === 0 ? <Typography variant="body2" color="text.secondary">{empty}</Typography>
     : <Stack gap={0.5}>{list(kind).map((x) => <Stack key={x.id} direction="row" alignItems="center" gap={1}>
@@ -70,9 +68,9 @@ export function FindingsPanel({ id, canWork, wi }: { id: string; canWork: boolea
       </Stack>}
     </Paper>
     <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}><Typography variant="subtitle1">Photos and evidence</Typography>{upload('evidence', '.jpg,.jpeg,.png', 'Add photos')}</Stack>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}><Typography variant="subtitle1">Photos and evidence</Typography>{upload('evidence', '.jpg,.jpeg,.png')}</Stack>
       {files('evidence', 'No photos yet.')}
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2, mb: 1 }}><Typography variant="subtitle1">Attachments</Typography>{upload('attachment', '.pdf,.txt,.csv,.xlsx,.docx,.jpg,.jpeg,.png', 'Add attachments')}</Stack>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2, mb: 1 }}><Typography variant="subtitle1">Attachments</Typography>{upload('attachment', '.pdf,.txt,.csv,.xlsx,.docx,.jpg,.jpeg,.png')}</Stack>
       {files('attachment', 'No attachments yet. Claim forms, alerts or supplier letters can go here.')}
     </Paper>
     <Paper variant="outlined" sx={{ p: 2 }}>

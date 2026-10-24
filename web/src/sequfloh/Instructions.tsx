@@ -12,6 +12,9 @@ import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
 import { Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, S, SqfPage, SqfStatus, nul, qs, useOptions, useUnsaved, words } from './common';
 import { NewInspectionRequestButton } from './InspectionRequests';
+import { ImportButtons } from '../components/ImportButtons';
+import { ATTACHMENT_TYPES } from '../components/Files';
+import { api } from '../api';
 import { StatusBadge, StatusEditor, useStatusFilter } from './Job';
 import { type AuditRow, HistoryTable, SimpleTable } from './Parts';
 import { DevelopmentPanel } from './Personnel';
@@ -40,6 +43,29 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
   released: { api: 'released', title: 'Released Instructions', kind: 'generic', description: 'Current released revisions. Released revisions are read-only; changes go through a new revision.' },
   obsolete: { api: 'obsolete', title: 'Obsolete Instructions', kind: 'generic', description: 'Instructions marked obsolete. They stay on file and cannot be used for new work.' },
 };
+
+/**
+ * Import file / Import folder on the work instruction lists: each file becomes its own new draft work instruction of the chosen type, titled with the
+ * file name, with the file attached to it. Work instructions only: nothing is created on work orders.
+ */
+function ImportInstructionsButtons({ newType }: { newType?: string }) {
+  const qc = useQueryClient();
+  const sites = useSites();
+  const [type, setType] = useState(newType ?? '');
+  const [siteId, setSiteId] = useState('');
+  useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
+  return <ImportButtons surface="work-instructions" accept={ATTACHMENT_TYPES} maxBytes={10 * 1024 * 1024} what="file" ready={!!type && !!siteId}
+    settings={<Stack gap={2}>
+      <Typography variant="body2">Each file becomes a new draft work instruction titled with its file name, with the file attached. Open each draft to fill in its steps.</Typography>
+      <Stack direction="row" gap={2} flexWrap="wrap">
+        <TextField select size="small" label="Work instruction type" value={type} onChange={(e) => setType(e.target.value)} sx={{ minWidth: 240 }} inputProps={{ 'data-testid': 'wi-import-type' }}>
+          {types.map((t) => <MenuItem key={t} value={t}>{typeLabels[t]}</MenuItem>)}</TextField>
+        {(sites.data?.length ?? 0) > 1 && <TextField select size="small" label="Site" value={siteId} onChange={(e) => setSiteId(e.target.value)} sx={{ minWidth: 200 }}>
+          {sites.data!.map((x) => <MenuItem key={x.id} value={x.id}>{x.name}</MenuItem>)}</TextField>}
+      </Stack></Stack>}
+    upload={(f) => { const fd = new FormData(); fd.append('file', f); fd.append('type', type); fd.append('siteId', siteId); return api('POST', `${S}/instructions/import`, fd); }}
+    onDone={() => qc.invalidateQueries({ queryKey: ['sqf-wi'] })} />;
+}
 
 export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverride, descriptionOverride, permission, tabs, tab, onTab }: {
   fixedFolder?: string; crumbsOverride?: { label: string; to?: string }[]; titleOverride?: string; descriptionOverride?: string; permission?: string;
@@ -90,7 +116,7 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
         { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, people[0], ...tail, tagCol, actions];
   return (
     <SqfPage title={title} crumbs={crumbsOverride ?? wiCrumbs(title)} description={descriptionOverride ?? cfg.description} permission={permission} tabs={tabs} tab={tab} onTab={onTab}
-      actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" />{can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to={`/sequfloh/instructions/new${cfg.newType ? `?type=${cfg.newType}` : ''}`}>New instruction</Button>}</Stack>}>
+      actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" />{can('sequfloh.create_work_instruction') && <ImportInstructionsButtons newType={cfg.newType} />}{can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to={`/sequfloh/instructions/new${cfg.newType ? `?type=${cfg.newType}` : ''}`}>New instruction</Button>}</Stack>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} values={Object.fromEntries(filters.map((f) => [f.key, v(f.key)]))} onChange={set} onClear={() => { setSp({}); setPage(1); }} filters={filters}
         extra={cfg.kind === 'repair' && <TextField size="small" label="Part number" defaultValue={v('part')} key={v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 160 }} />} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/instruction/${r.id}`)}

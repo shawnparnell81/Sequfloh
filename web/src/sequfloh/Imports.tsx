@@ -11,7 +11,10 @@ import { fmtDateTime } from '../components/Status';
 import { DeleteButton, Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, SqfPage, qs, useUnsaved } from './common';
 import { HistoryTable, type AuditRow } from './Parts';
 import { PartDrawingLinks } from './Drawings';
+import { ImportButtons } from '../components/ImportButtons';
 
+/** The file types Imported Files takes, the same for one file or a folder. */
+const IMPORT_TYPES = ['.xlsx', '.xlsm', '.xls', '.csv', '.docx', '.doc'];
 const A = '/api/imported-files';
 const GREEN = '#0E8550';
 const crumbs = (label: string, extra?: { label: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Imported Files', to: '/sequfloh/imported-files' }, { label }, ...(extra ? [extra] : [])];
@@ -94,62 +97,39 @@ export function ImportedFilesPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1); const [size, setSize] = useState(25);
   const q = useQuery({ queryKey: ['imported-files', kind, search, page, size], queryFn: () => get<Paged<FileRow>>(`${A}?${qs({ q: search, kind, page, pageSize: size })}`) });
-  const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+  const sites = useSites();
+  const [upTitle, setUpTitle] = useState(''); const [upSite, setUpSite] = useState(''); const [blank, setBlank] = useState(true);
+  const one = useRef(false); const ids = useRef<string[]>([]);
   const title = listTitles[kind] ?? 'All Imported Files';
   return (
     <SqfPage title={title} crumbs={crumbs(title)} permission="sequfloh.view_imported_files"
       description="Excel, CSV and Word files brought into the app exactly as they are, with formulas, merged cells and formatting. Open one to view and edit it; every save keeps a new version."
-      actions={can('sequfloh.import_files') && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setOpen(true)} data-testid="import-file">Import a file</Button>}>
+      actions={can('sequfloh.import_files') && <ImportButtons surface="imported-files" accept={IMPORT_TYPES} maxBytes={20 * 1024 * 1024} what="file" variant="contained"
+        settings={(files) => <Stack gap={2}>
+          {files.length === 1 && <TextField label="Title" value={upTitle} onChange={(e) => setUpTitle(e.target.value)} placeholder={files[0].name.replace(/\.[^.]+$/, '')} helperText="Leave empty to use the file name" />}
+          {(sites.data?.length ?? 0) > 1 && <TextField select label="Site" value={upSite} onChange={(e) => setUpSite(e.target.value)}>
+            <MenuItem value="">My default site</MenuItem>{sites.data!.filter((x) => !x.isArchived).map((x) => <MenuItem key={x.id} value={x.id}>{x.code} · {x.name}</MenuItem>)}</TextField>}
+          <Box>
+            <FormControlLabel control={<Checkbox checked={blank} onChange={(e) => setBlank(e.target.checked)} inputProps={{ 'data-testid': 'import-blank' } as object} />} label="Keep as blank forms" />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4 }}>Each file stays empty and protected. People use Fill out a copy to fill it in; the blank never changes. Each file is titled with its file name.</Typography>
+          </Box></Stack>}
+        upload={async (file) => {
+          const fd = new FormData(); fd.append('file', file);
+          fd.append('title', (upTitle.trim() && one.current ? upTitle.trim() : file.name.replace(/\.[^.]+$/, '')));
+          if (upSite) fd.append('siteId', upSite);
+          fd.append('blankForm', blank ? 'true' : 'false');
+          const r = await api<{ id: string }>('POST', A, fd); ids.current.push(r.id);
+        }}
+        onStart={(n) => { one.current = n === 1; ids.current = []; }}
+        onDone={() => { qc.invalidateQueries({ queryKey: ['imported-files'] }); if (one.current && ids.current.length === 1) nav(`/sequfloh/imported-files/${ids.current[0]}`); setUpTitle(''); }} />}>
       <Filters search={search} onSearch={(s) => { setSearch(s); setPage(1); }} values={{}} onChange={() => undefined} onClear={() => setSearch('')} filters={[]} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty="No files imported yet."
         cols={[{ key: 'number', label: 'Number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title', render: (r) => <Stack gap={0.5} alignItems="flex-start"><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><span>{r.title}</span>
             {r.isBlankForm && <Chip size="small" color="primary" variant="outlined" label="Blank form" />}</Stack>{r.blankForm && <Chip size="small" variant="outlined" label={`Filled from ${r.blankForm}`} />}</Stack> }, { key: 'kind', label: 'Type', render: (r) => kindLabel(r.kind) },
           { key: 'sourceFormat', label: 'Imported from', render: (r) => <Chip size="small" variant="outlined" label={formatLabel(r.sourceFormat)} /> }, { key: 'currentVersion', label: 'Version' },
           { key: 'updatedAt', label: 'Last saved', render: (r) => fmtDateTime(r.updatedAt) }]} />
-      <UploadDialog open={open} onClose={() => setOpen(false)} onDone={(id) => nav(`/sequfloh/imported-files/${id}`)} />
     </SqfPage>
-  );
-}
-
-function UploadDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (id: string) => void }) {
-  const sites = useSites();
-  const [file, setFile] = useState<File | null>(null);
-  const [title, setTitle] = useState('');
-  const [site, setSite] = useState('');
-  const [blank, setBlank] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const upload = async () => {
-    if (!file) return;
-    setBusy(true); setError(null);
-    const fd = new FormData();
-    fd.append('file', file);
-    if (title.trim()) fd.append('title', title.trim());
-    if (site) fd.append('siteId', site);
-    fd.append('blankForm', blank ? 'true' : 'false');
-    try { const r = await api<{ id: string }>('POST', A, fd); onClose(); onDone(r.id); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
-  };
-  return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setFile(null); setTitle(''); setError(null); setBlank(true); } }}>
-      <DialogTitle>Import a file</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Excel (.xlsx, .xlsm, .xls), CSV or Word (.docx, .doc), up to 20 MB. The file is kept exactly as uploaded; macros are never run.</Typography>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        <Stack gap={2}>
-          <Button variant="outlined" component="label" startIcon={<UploadFileOutlined />}>{file ? file.name : 'Choose a file'}
-            <input hidden type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc" data-testid="import-input" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFile(f); if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, '')); }} />
-          </Button>
-          <TextField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          {(sites.data?.length ?? 0) > 1 && <TextField select label="Site" value={site} onChange={(e) => setSite(e.target.value)}>
-            <MenuItem value="">My default site</MenuItem>{sites.data!.filter((s) => !s.isArchived).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}</TextField>}
-          <Box>
-            <FormControlLabel control={<Checkbox checked={blank} onChange={(e) => setBlank(e.target.checked)} inputProps={{ 'data-testid': 'import-blank' } as object} />} label="Keep as a blank form" />
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4 }}>The file stays empty and protected. People use Fill out a copy to fill it in; the blank never changes.</Typography>
-          </Box>
-        </Stack>
-      </DialogContent>
-      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" disabled={!file || busy} onClick={upload} data-testid="import-upload">{busy ? 'Importing…' : 'Import'}</Button></DialogActions>
-    </Dialog>
   );
 }
 

@@ -142,7 +142,7 @@ export function BlocksEditor({ blocks, onChange, disabled, ownerType, ownerId }:
         text={`Remove block ${remove !== null ? remove + 1 : ''} (${remove !== null && blocks[remove] ? kindLabel(blocks[remove].kind).toLowerCase() : ''})? The change is kept only when you save.`}
         onConfirm={async () => { if (remove !== null) onChange(blocks.filter((_, j) => j !== remove)); }} />
       {ownerType && ownerId && <Box sx={{ mt: 2 }}><Typography variant="subtitle2" sx={{ mb: 1 }}>Files (pictures for image blocks)</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-testid="imported-files-hint">For Excel, Word or CSV forms, use <Link component={RouterLink} to="/sequfloh/imported-files">Imported Files</Link>.</Typography><FilesPanel type={ownerType} id={ownerId} canEdit={!disabled} /></Box>}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-testid="imported-files-hint">For Excel, Word or CSV forms, use <Link component={RouterLink} to="/sequfloh/imported-files">Imported Files</Link>.</Typography><FilesPanel surface="work-instruction-files" type={ownerType} id={ownerId} canEdit={!disabled} /></Box>}
     </Paper>
   );
 }
