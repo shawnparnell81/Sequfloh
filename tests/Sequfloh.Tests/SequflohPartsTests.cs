@@ -2,7 +2,10 @@ using System.Net.Http.Json;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
+using Sequfloh.Domain.MasterData;
 using Sequfloh.Domain.Security;
+using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Tests;
@@ -130,5 +133,32 @@ public sealed class SequflohPartsTests(TestApp app)
         var one = (await eng.GetElAsync($"/api/sequfloh/parts/{screwId}")).GetProperty("part");
         Assert.True(one.GetProperty("isRepairPart").GetBoolean());
         Assert.False(one.GetProperty("isRepairable").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Part_search_finds_any_part_across_families_by_any_part_number()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohEditParts], site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            for (var n = 0; n < 130; n++)
+            {
+                var p = new Part { PartNumber = $"SR{tag}-{n:D3}", Name = "Made-up part " + n, SiteId = site, Status = MasterStatus.Active, ProductFamily = n % 2 == 0 ? "Fuel Pumps" : "Struts", DrawingNumber = $"SN{tag}{n:D3}" };
+                PartAttributes.Merge(p, n % 2 == 0 ? new Dictionary<string, string> { ["napaPn"] = $"NP{tag}{n:D3}", ["dmaPn"] = $"DM{tag}{n:D3}", ["jhPn"] = $"JH{tag}{n:D3}" } : new Dictionary<string, string> { ["napaUs"] = $"NU{tag}{n:D3}" });
+                db.Parts.Add(p);
+            }
+            await db.SaveChangesAsync();
+        }
+        async Task<JsonElement> Search(string q) => await c.GetElAsync($"/api/sequfloh/parts?q={q}&pageSize=25&sort=partNumber:asc");
+        Assert.Equal(130, (await Search($"SR{tag}")).Int("total"));
+        // parts far past the first page are found by each kind of number
+        foreach (var (q, pn) in new[] { ($"NP{tag}128", 128), ($"DM{tag}120", 120), ($"JH{tag}102", 102), ($"NU{tag}127", 127), ($"SN{tag}111", 111), ($"SR{tag}-125", 125) })
+        {
+            var r = await Search(q);
+            Assert.Equal($"SR{tag}-{pn:D3}", r.GetProperty("items").EnumerateArray().Single().Str("partNumber"));
+        }
     }
 }

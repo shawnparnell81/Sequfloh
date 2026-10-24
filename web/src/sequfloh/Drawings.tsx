@@ -5,8 +5,9 @@ import OpenInNew from '@mui/icons-material/OpenInNew';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
+import { otherNumbers, usePartSearch } from './partSearch';
 import { fmtDateTime } from '../components/Status';
-import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, Paged, S, SqfPage, qs } from './common';
+import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, SqfPage, qs } from './common';
 import { partNo } from './partLabel';
 import { HistoryTable, SimpleTable, type AuditRow } from './Parts';
 import { ImportDrawingsDialog } from './DrawingsImport';
@@ -67,7 +68,7 @@ export function RecordDrawings({ recordId }: { recordId: string }) {
   </Paper>;
 }
 
-interface Opt { id: string; label: string }
+interface Opt { id: string; label: string; extra?: string }
 interface SearchRow { id: string; title: string; drawingNumber?: string; currentRevision: string; folder?: string; partNumber?: string; isArchived?: boolean; updatedAt?: string;
   file?: { fileName: string; sizeBytes: number; createdByName?: string; createdAt: string } }
 
@@ -84,10 +85,12 @@ export function DrawingPicker({ value, onChange, label: l = 'Link drawing(s)' }:
 /** Picks parts from Parts and Items. */
 export function PartsPicker({ value, onChange, label: l = 'Link to part number(s)' }: { value: Opt[]; onChange: (v: Opt[]) => void; label?: string }) {
   const [text, setText] = useState('');
-  const q = useQuery({ queryKey: ['drawing-part-pick', text], queryFn: () => get<Paged<{ id: string; partNumber: string; name: string; attributes?: string | null }>>(`${S}/parts?${qs({ q: text, pageSize: 20 })}`) });
-  const opts = (q.data?.items ?? []).map((p) => ({ id: p.id, label: `${partNo(p)} — ${p.name}` }));
-  return <Autocomplete multiple options={opts} value={value} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => o.label}
-    onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label={l} placeholder="Search parts" />} />;
+  const q = usePartSearch<{ id: string; partNumber: string; name: string; drawingNumber?: string | null; attributes?: string | null }>(text);
+  const opts = q.items.map((p) => ({ id: p.id, label: `${partNo(p)} — ${p.name}`, extra: otherNumbers(p) }));
+  return <Autocomplete multiple options={opts} value={value} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => o.label} loading={q.loading}
+    renderOption={(props, o) => <li {...props} key={o.id}><Box><Typography variant="body2">{o.label}</Typography>{o.extra && <Typography variant="caption" color="text.secondary">{o.extra}</Typography>}</Box></li>}
+    noOptionsText={text ? 'No part matches' : 'Type a part number'}
+    onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label={l} placeholder="Search by OR #, SENSEN #, NAPA, DMA or JH PN" helperText={q.hint} />} />;
 }
 
 /** The file, title, number, revision and notes of a new drawing (also used inline from a part). */
@@ -135,7 +138,7 @@ export function DrawingsPage() {
     <SqfPage title="Drawings" crumbs={crumbs()} permission="sequfloh.view_drawings" description="Engineering drawings kept in folders, for example one per part number. Every revision is kept."
       actions={canManage && !here?.isArchived && <>
         <Button variant="outlined" onClick={() => setDlg('new')}>New folder</Button>
-        {here && <Button variant="outlined" onClick={() => setDlg('import')}>Import drawings</Button>}
+        <Button variant="outlined" onClick={() => setDlg('import')}>Import drawings</Button>
         {here && <Button variant="contained" onClick={() => setDlg('upload')}>Upload drawing</Button>}</>}>
       <Stack direction="row" gap={1} sx={{ mb: 2 }} component="form" onSubmit={(e) => { e.preventDefault(); set('q', text.trim()); }}>
         <TextField size="small" label="Search drawings" placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 360 }} />
@@ -171,7 +174,7 @@ export function DrawingsPage() {
         onClose={() => setDlg(null)} onSaved={(id) => { refresh(); if (dlg === 'new') open(id); }} />
       {here && <UploadDialog open={dlg === 'upload'} folderId={here.id} defaultParts={here.part ? [{ id: here.part.id, label: `${here.part.partNumber} — ${here.part.name}` }] : []} onClose={() => setDlg(null)}
         onSaved={(id) => { refresh(); nav(`/sequfloh/engineering/drawings/d/${id}`); }} />}
-      {here && <ImportDrawingsDialog open={dlg === 'import'} folderId={here.id} folderName={here.name} onClose={() => setDlg(null)} onDone={refresh} />}
+      {<ImportDrawingsDialog open={dlg === 'import'} folderId={here?.id ?? null} folderName={here?.name ?? 'All folders'} onClose={() => setDlg(null)} onDone={refresh} />}
       {here && <HistoryDialog open={dlg === 'history'} url={`${D}/folders/${here.id}/history`} onClose={() => setDlg(null)} />}
       {here && <Confirm open={confirm} title={here.isArchived ? 'Restore folder' : 'Archive folder'} confirm={here.isArchived ? 'Restore' : 'Archive'} danger={!here.isArchived}
         text={here.isArchived ? 'The folder and what is in it show again.' : 'The folder and what is in it are hidden from the list and from search. Nothing is deleted; you can restore it.'}

@@ -1,5 +1,10 @@
 # Changes
 
+## Drawings: import at the top level, and part pickers that find every part
+
+- The Drawings page itself (All folders) now has "Import drawings" too. Choose a folder: its subfolders become drawing folders at the top level, with the same names and nesting, and each PDF goes into its matching folder. PDFs sitting loose in the chosen folder go into a folder named after it. Only PDF files are imported there; the preview shows how many other files are skipped. Preview, part links by OR # or SENSEN #, and carrying on after a stop work as inside a folder. Import inside a folder is unchanged.
+- Every part picker now searches all parts in all families on the server as you type, by OR #, SENSEN #, name, NAPA, DMA, JH, Nissan and the other part numbers. Before, some pickers only offered the first parts in the list. This covers "Linked part" and "Link to part number(s)" in Drawings, the part fields of work instructions, tracking and inspection requests, and the part pickers on the Parts pages. Each match shows its other numbers, and when there are more matches than shown the picker says so.
+
 ## Inspection work instruction type and Remember me
 
 - Work instructions have a new type, Inspection. It is in the work instruction type dropdown, the type filters, the Work Instructions report filter, printed labels and a new "Inspection Work Instructions" folder. Inspection instructions are numbered IWI-.

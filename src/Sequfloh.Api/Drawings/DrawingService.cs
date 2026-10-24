@@ -91,6 +91,21 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
 
     public sealed record FolderRequest(string Name, Guid? ParentId, Guid? PartId, Guid? SiteId = null);
 
+    /// <summary>Site for a new top-level folder: the chosen site, else the user's default site, else the first site where they may manage drawings.</summary>
+    public async Task<Guid> TopLevelSiteAsync(Guid? chosen, CancellationToken ct)
+    {
+        var candidates = new List<Guid>();
+        if (chosen is { } c0) candidates.Add(c0);
+        else
+        {
+            if (await db.Users.Where(u => u.Id == UserId).Select(u => u.DefaultSiteId).FirstOrDefaultAsync(ct) is { } d) candidates.Add(d);
+            candidates.AddRange(await db.Sites.OrderBy(s => s.Code).Select(s => s.Id).ToListAsync(ct));
+        }
+        if (candidates.Count == 0) throw new AppException("Set up a site first.");
+        foreach (var c in candidates) if (await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, c, null, ct)) return c;
+        throw new ForbiddenException();
+    }
+
     public async Task<object> CreateFolderAsync(FolderRequest r, CancellationToken ct)
     {
         var name = Clean(r.Name, 200, "a folder name");
@@ -103,18 +118,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         }
         else
         {
-            // The chosen site, else the user's default site, else the first site where they may manage drawings.
-            var candidates = new List<Guid>();
-            if (r.SiteId is { } chosen) candidates.Add(chosen);
-            else
-            {
-                if (await db.Users.Where(u => u.Id == UserId).Select(u => u.DefaultSiteId).FirstOrDefaultAsync(ct) is { } d) candidates.Add(d);
-                candidates.AddRange(await db.Sites.OrderBy(s => s.Code).Select(s => s.Id).ToListAsync(ct));
-            }
-            if (candidates.Count == 0) throw new AppException("Set up a site first.");
-            Guid? found = null;
-            foreach (var c in candidates) if (await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, c, null, ct)) { found = c; break; }
-            site = found ?? throw new ForbiddenException();
+            site = await TopLevelSiteAsync(r.SiteId, ct);
         }
         await CheckPartAsync(r.PartId, ct);
         if (await db.DrawingFolders.AnyAsync(f => f.ParentId == r.ParentId && f.Name == name && !f.IsArchived && f.SiteId == site, ct)) throw new ConflictException("A folder with this name is already here.");
