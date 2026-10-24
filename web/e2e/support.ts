@@ -36,3 +36,6 @@ export async function choosePartName(page: Page, name?: string) {
   await page.getByRole('dialog').getByRole('combobox', { name: /^Name/ }).click();
   await (name ? page.getByRole('option', { name, exact: true }) : page.getByRole('option').first()).click();
 }
+
+/** Opens the More menu of the record action bar (Archive, Delete and other rare actions live there). */
+export const more = async (p: Page, scope = view(p)) => { await scope.getByTestId('more-actions').first().click(); return p.getByRole('menu'); };

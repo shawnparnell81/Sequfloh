@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { FULLSCREEN_VIEWERS, RECORD_SURFACES, type RecordSurface } from '../src/components/recordSurfaces';
+import { FULLSCREEN_VIEWERS, MENU_ACTIONS, RECORD_SURFACES, type RecordSurface } from '../src/components/recordSurfaces';
 import { settledShot, signIn, view } from './support';
 
 /**
@@ -56,13 +56,26 @@ test('standard record actions on every record page', async ({ page }) => {
     await page.goto(url);
     const bar = view(page).locator(`[data-record-actions="${s}"]`);
     await expect(bar, s).toBeVisible();
-    for (const a of RECORD_SURFACES[s].actions) await expect(bar.locator(`[data-action="${a}"]`).first(), `${s} ${a}`).toBeVisible();
+    // the bar sits in the page header or the record header, never in an ad-hoc row
+    await expect(view(page).locator(`[data-page-actions] [data-record-actions="${s}"]`), `${s} in a header`).toHaveCount(1);
+    // destructive actions are never loose buttons in the bar
+    await expect(bar.getByRole('button', { name: /^(Delete|Archive|Restore)\b/ }), `${s} destructive in More`).toHaveCount(0);
+    for (const a of RECORD_SURFACES[s].actions.filter((x) => !MENU_ACTIONS.includes(x))) await expect(bar.locator(`[data-action="${a}"]`).first(), `${s} ${a}`).toBeVisible();
+    const inMenu = RECORD_SURFACES[s].actions.filter((x) => MENU_ACTIONS.includes(x));
+    if (inMenu.length) {
+      await bar.getByTestId('more-actions').click();
+      for (const a of inMenu) await expect(page.getByRole('menu').locator(`[data-action="${a}"]`), `${s} ${a} in More`).toBeVisible();
+      await shot(`${s}-more`);
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menu')).toHaveCount(0);
+    }
     await shot(s);
   }
 
   // Delete names the item
   await page.goto(`/sequfloh/parts/${part}`);
-  await view(page).locator('[data-record-actions="part"] [data-action="delete"] button').click();
+  await view(page).locator('[data-record-actions="part"]').getByTestId('more-actions').click();
+  await page.getByRole('menu').locator('[data-action="delete"]').click();
   await expect(page.getByRole('dialog')).toContainText(`RA-${stamp}`);
   await shot('delete-names-item');
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();

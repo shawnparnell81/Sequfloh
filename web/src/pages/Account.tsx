@@ -1,5 +1,6 @@
+import { ModuleWorkspace } from '../layout/ModuleWorkspace';
 import { Box, FormControlLabel, Paper, Switch, Typography } from '@mui/material';
-import { PageNav, useTabsSetting, useTabTitle } from '../tabs/Workspace';
+import { useTabsSetting } from '../tabs/Workspace';
 import { MAX_TABS } from '../tabs/model';
 import { Suspense, lazy } from 'react';
 import { useAuth } from '../auth';
@@ -9,12 +10,9 @@ const AuditTrailSection = lazy(() => import('../sequfloh/Reports').then((m) => (
 /** Your account › Settings: settings that belong to the signed-in person, and the Audit Trail for people given the audit trail permission. */
 export function PreferencesPage() {
   const [on, setOn] = useTabsSetting();
-  useTabTitle('Settings');
   const { can } = useAuth();
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
-      <Box sx={{ mb: 1 }}><PageNav /></Box>
-      <Typography variant="h1" sx={{ mb: 3 }}>Settings</Typography>
+    <ModuleWorkspace crumbs={[{ label: 'Your account' }, { label: 'Settings' }]} title="Settings" subtitle="Settings that belong to you, and the audit trail if you were given access to it.">
       <Paper variant="outlined" sx={{ p: 2.5, maxWidth: 760, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
         <FormControlLabel control={<Switch checked={on} onChange={(e) => setOn(e.target.checked)} inputProps={{ 'aria-label': 'Use tabs' }} />} label={<Typography fontWeight={600}>Use tabs</Typography>} />
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 260 }}>
@@ -23,6 +21,6 @@ export function PreferencesPage() {
         </Typography>
       </Paper>
       {can('sequfloh.view_audit_trail') && <Box sx={{ mt: 3 }}><Suspense fallback={null}><AuditTrailSection /></Suspense></Box>}
-    </Box>
+    </ModuleWorkspace>
   );
 }

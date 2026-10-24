@@ -1,4 +1,5 @@
 import { setupOptions } from '../components/SetupLink';
+import { ListToolbar } from '../layout/PageHeader';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -200,10 +201,10 @@ export function SearchPage() {
   const groups = q.data?.groups.filter((g) => g.items.length > 0) ?? [];
   return (
     <SqfPage title="Search SEQUFLOH" crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Search' }]} description="Find work instructions, parts, parts lists, tracking records and tasks you have access to.">
-      <Stack direction="row" gap={1} component="form" sx={{ mb: 2 }} onSubmit={(e) => { e.preventDefault(); setSp(text.trim() ? { q: text.trim() } : {}); }}>
+      <ListToolbar onSubmit={() => setSp(text.trim() ? { q: text.trim() } : {})}>
         <TextField size="small" label="Search" value={text} onChange={(e) => setText(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} autoFocus />
-        <Button type="submit" variant="contained">Search</Button>
-      </Stack>
+        <Button type="submit" variant="outlined">Search</Button>
+      </ListToolbar>
       {term.trim().length < 2 ? <Empty text="Enter at least two characters." /> : q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} />
         : groups.length === 0 ? <Empty text={`Nothing found for “${term}”.`} /> :
         <Grid cols={2}>{groups.map((g) => <Paper key={g.key} variant="outlined" sx={{ p: 2 }} component="section" aria-label={g.label}>

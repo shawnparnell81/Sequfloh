@@ -18,4 +18,7 @@ export const RECORD_SURFACES = {
 } satisfies Record<string, { label: string; actions: RecordAction[] }>;
 export type RecordSurface = keyof typeof RECORD_SURFACES;
 
+/** Actions that live in the More menu rather than in the row. */
+export const MENU_ACTIONS: readonly RecordAction[] = ['delete'];
+
 export const FULLSCREEN_VIEWERS = ['drawing-viewer'] as const;
