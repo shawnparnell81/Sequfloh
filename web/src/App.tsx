@@ -119,6 +119,12 @@ export function App() {
 }
 
 /** Every page of the application; each open tab renders these at its own address. */
+/** Old Engineering > Drawings links keep working: same drawing or folder, same query. */
+function OldDrawingsUrl() {
+  const loc = useLocation();
+  return <Navigate to={loc.pathname.replace('/sequfloh/engineering/drawings', '/sequfloh/drawings') + loc.search + loc.hash} replace />;
+}
+
 function AppRoutes({ location }: { location?: Location }) {
   return (
     <Suspense fallback={<Spinner />}>
@@ -169,8 +175,9 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/sequfloh/engineering" element={<SqfEDash />} />
         <Route path="/sequfloh/engineering/validation" element={<SqfEVal />} />
         <Route path="/sequfloh/engineering/development" element={<SqfEDev />} />
-        <Route path="/sequfloh/engineering/drawings" element={<SqfDrawings />} />
-        <Route path="/sequfloh/engineering/drawings/d/:id" element={<SqfDrawing />} />
+        <Route path="/sequfloh/drawings" element={<SqfDrawings />} />
+        <Route path="/sequfloh/drawings/d/:id" element={<SqfDrawing />} />
+        <Route path="/sequfloh/engineering/drawings/*" element={<OldDrawingsUrl />} />
         <Route path="/sequfloh/execution/history" element={<SqfExHistory />} />
         <Route path="/sequfloh/execution/:view" element={<SqfExQueue />} />
         <Route path="*" element={<Navigate to="/sequfloh" replace />} />

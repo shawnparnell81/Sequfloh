@@ -43,8 +43,7 @@ test('drawings: a JH PN drawing links to every fuel pump that shares it, on impo
   fs.writeFileSync(path.join(top, `JH A${k}.pdf`), await pdf(browser, `JH-A${k}`));
   fs.writeFileSync(path.join(top, `JH-B${k}.pdf`), await pdf(browser, `JH-B${k}`));
 
-  await section(page, 'Engineering');
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  await section(page, 'Parts Drawings');
   await v.getByRole('button', { name: 'Import drawings' }).click();
   const dlg = page.getByRole('dialog');
   await dlg.getByTestId('import-folder-input').setInputFiles(top);
@@ -59,8 +58,7 @@ test('drawings: a JH PN drawing links to every fuel pump that shares it, on impo
   // the parts for JH-B arrive afterwards: the parts import links them to the drawing already here
   await importParts(page, `OR PN,NAPA PN,DMA PN,Cross,JH PN\n${or(50)},/,DM${k}50,CR${k}50,JH-B${k}\n${or(51)},/,DM${k}51,CR${k}51,JH-B${k}\n`, 2);
 
-  await section(page, 'Engineering');
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  await section(page, 'Parts Drawings');
   // searching by a DMA PN or by a Cross number reaches the drawing; its page lists every number of each linked part
   const search = v.getByRole('textbox', { name: 'Search drawings' });
   await search.fill(`DM${k}51`); await v.getByRole('button', { name: 'Search', exact: true }).click();
@@ -80,7 +78,7 @@ test('drawings: a JH PN drawing links to every fuel pump that shares it, on impo
   await shot('03-part-page-drawing');
 
   // Relink checks every drawing; nothing is missing now, so a run adds no links and removes none
-  await page.goto('/sequfloh/engineering/drawings');
+  await page.goto('/sequfloh/drawings');
   await v.getByRole('button', { name: 'Relink drawings' }).click();
   const rl = page.getByRole('dialog');
   await rl.getByRole('button', { name: 'Relink' }).click();

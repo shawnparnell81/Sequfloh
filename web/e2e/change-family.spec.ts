@@ -48,8 +48,7 @@ test('parts: move the parts linked to a drawing folder to another product family
   fs.mkdirSync(pump);
   fs.writeFileSync(path.join(pump, `PMP${k}.pdf`), await pdf(browser, `PMP${k}`));
   for (const [dir, n] of [[injRoot, 2], [pumpRoot, 1]] as const) {
-    await section(page, 'Engineering');
-    await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+    await section(page, 'Parts Drawings');
     await v.getByRole('button', { name: 'Import drawings' }).click();
     const dlg = page.getByRole('dialog');
     await dlg.getByTestId('import-folder-input').setInputFiles(dir);

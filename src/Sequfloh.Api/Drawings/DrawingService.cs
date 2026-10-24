@@ -169,8 +169,8 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new { r.Id, r.Title, r.DrawingNumber, r.CurrentRevision, r.FolderId, r.Folder, r.PartNumber, r.IsArchived, r.UpdatedAt, r.File }).ToList();
     }
 
-    /// <summary>Finds drawings by any number of a part (OR #, SENSEN # and every cross-reference number such as NAPA, DMA, Cross or JH; a linked part, the folder's part or the folder name), drawing number or title. Archived drawings and folders are left out.</summary>
-    public async Task<object> SearchAsync(string? q, CancellationToken ct)
+    /// <summary>Finds drawings by any number of a part (OR #, SENSEN # and every cross-reference number such as NAPA, DMA, Cross or JH; a linked part, the folder's part or the folder name), drawing number or title. Archived drawings and folders are left out. With a family (a top-level folder) only that folder and the folders under it are searched.</summary>
+    public async Task<object> SearchAsync(string? q, CancellationToken ct, Guid? family = null)
     {
         var scope = await ScopeAsync(ct);
         if (scope.IsEmpty || string.IsNullOrWhiteSpace(q)) return Array.Empty<object>();
@@ -179,6 +179,13 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var query = db.Drawings.Where(d => !d.IsArchived && live.Any(f => f.Id == d.FolderId) && (EF.Functions.ILike(d.Title, t) || EF.Functions.ILike(d.DrawingNumber ?? "", t)
             || db.DrawingFolders.Any(f => f.Id == d.FolderId && (EF.Functions.ILike(f.Name, t) || db.Parts.Any(p => p.Id == f.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t)))))
             || db.DrawingPartLinks.Any(l => l.DrawingId == d.Id && db.Parts.Any(p => p.Id == l.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t))))));
+        if (family is Guid root)
+        {
+            var all = await db.DrawingFolders.AsNoTracking().Select(f => new { f.Id, f.ParentId }).ToListAsync(ct);
+            var ids = new HashSet<Guid> { root };
+            for (var added = true; added;) { added = false; foreach (var f in all) if (f.ParentId is Guid pid && ids.Contains(pid) && ids.Add(f.Id)) added = true; }
+            query = query.Where(d => ids.Contains(d.FolderId));
+        }
         return await DrawingRowsAsync(query, scope, ct, 200);
     }
 

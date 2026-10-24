@@ -44,8 +44,8 @@ test('standard record actions on every record page', async ({ page }) => {
     'work-order': `/sequfloh/record/${wo}`,
     'chargeback-report': `/sequfloh/chargebacks/${cb}/view`,
     'chargeback-report-edit': `/sequfloh/chargebacks/${cb}`,
-    'drawing': `/sequfloh/engineering/drawings/d/${drawing}`,
-    'drawing-folder': `/sequfloh/engineering/drawings?folder=${folder}`,
+    'drawing': `/sequfloh/drawings/d/${drawing}`,
+    'drawing-folder': `/sequfloh/drawings?folder=${folder}`,
     'imported-file': `/sequfloh/imported-files/${file}`,
     'inspection-request': `/sequfloh/inspection-request/${ir}`,
     'part': `/sequfloh/parts/${part}`,
@@ -156,7 +156,7 @@ test('full screen on a record page, a form dialog and the drawing viewer', async
   await expect(page).not.toHaveURL(new RegExp(`/chargebacks/${cb}$`));
 
   // a form dialog
-  await page.goto(`/sequfloh/engineering/drawings/d/${drawing}`);
+  await page.goto(`/sequfloh/drawings/d/${drawing}`);
   await view(page).locator('[data-record-actions="drawing"] [data-action="edit"]').click();
   const dlg = page.getByRole('dialog');
   await dlg.getByTestId('fullscreen-toggle').click();

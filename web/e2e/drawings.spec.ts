@@ -29,9 +29,8 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
   const dwg = `DWG-${stamp}`;
   await signIn(page);
 
-  // Engineering > Drawings
-  await section(page, 'Engineering');
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  // Parts Drawings in the sidebar
+  await section(page, 'Parts Drawings');
   await expect(view(page).getByRole('heading', { name: 'Drawings' }).first()).toBeVisible();
   await shot('engineering-drawings-page');
 
@@ -88,7 +87,7 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
   await expect(view(page).getByTestId('linked-parts')).toContainText(part);
 
   // search by part number
-  await page.goto('/sequfloh/engineering/drawings');
+  await page.goto('/sequfloh/drawings');
   await view(page).getByLabel('Search drawings').fill(part);
   await view(page).getByRole('button', { name: 'Search' }).click();
   await expect(view(page).getByText('Test bracket section')).toBeVisible();
