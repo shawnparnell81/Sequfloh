@@ -58,12 +58,15 @@ public sealed class FaiSettings
 
 public sealed class RepairSettings
 {
-    public bool RepairTestRequired { get; set; } = true;
+    /// <summary>No longer used; kept so stored settings still read.</summary>
+    public bool RepairTestRequired { get; set; }
 }
 
 public sealed class DisplaySettings
 {
     public bool CompactTables { get; set; }
+    /// <summary>Fill out a copy opens the new form in its own browser window.</summary>
+    public bool OpenFormsInNewWindow { get; set; }
     public List<string> DashboardCards { get; set; } = ["awaitingDispatch", "active", "paused", "overdue", "validation", "fai", "repair", "production", "failed", "released", "revised", "assigned"];
     public string DefaultTrackingFilter { get; set; } = "open";
     public string DefaultFolderView { get; set; } = "current";

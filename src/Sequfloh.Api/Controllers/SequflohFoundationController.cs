@@ -56,6 +56,11 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     public async Task<object> CreateValue(string key, ReferenceValueInput r, CancellationToken ct) { var v = await f.CreateValueAsync(key, r, ct); return new { v.Id, v.Code }; }
     [HttpPut("reference/values/{id:guid}")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> UpdateValue(Guid id, ReferenceValueInput r, CancellationToken ct) { await f.UpdateValueAsync(id, r, ct); return NoContent(); }
+    public sealed record ValidationFormInput(Guid? BlankFormId);
+    /// <summary>Validation forms by product: one row per product family with its confirmed blank form and a suggestion that is never saved on its own.</summary>
+    [HttpGet("validation-forms")] public Task<object> ValidationForms(CancellationToken ct) => f.ValidationFormsAsync(ct);
+    [HttpPut("validation-forms/{familyId:guid}")] [RequirePermission(Permissions.SequflohManageSettings)]
+    public async Task<IActionResult> SetValidationForm(Guid familyId, ValidationFormInput r, CancellationToken ct) { await f.SetValidationFormAsync(familyId, r.BlankFormId, ct); return NoContent(); }
     public sealed record HiddenFieldsInput(List<string>? Fields);
     [HttpPut("reference/values/{id:guid}/hidden-fields")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> FamilyHiddenFields(Guid id, HiddenFieldsInput r, CancellationToken ct) { await f.SetFamilyHiddenFieldsAsync(id, r.Fields, ct); return NoContent(); }

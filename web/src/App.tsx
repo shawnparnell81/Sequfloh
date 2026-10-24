@@ -15,6 +15,7 @@ const Preferences = lazy(() => import('./pages/Account').then((m) => ({ default:
 
 const SqfDrawings = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingsPage })));
 const SqfDrawing = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingPage })));
+const FormFillWindow = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.FormFillWindow })));
 const DrawingViewer = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingViewer })));
 const SqfHome = lazy(() => import('./sequfloh/Home').then((m) => ({ default: m.SequflohHome })));
 const SqfSettings = lazy(() => import('./sequfloh/Admin').then((m) => ({ default: m.SettingsPage })));
@@ -112,6 +113,8 @@ export function App() {
   if (me.mustChangePassword) return <ChangePasswordPage forced />;
   // a drawing opened in its own browser tab: just the drawing, no workspace around it
   if (loc.pathname.startsWith('/drawings/view/')) return <Suspense fallback={<Spinner />}><DrawingViewer /></Suspense>;
+  // a form opened in its own window: only the form editor
+  if (loc.pathname.startsWith('/forms/fill/')) return <Suspense fallback={<Spinner />}><FormFillWindow /></Suspense>;
   return (
     <Signed>
       <TabbedWorkspace render={(location) => <AppRoutes location={location} />} />

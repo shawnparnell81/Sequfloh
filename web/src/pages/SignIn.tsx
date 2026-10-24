@@ -17,10 +17,10 @@ function Frame({ title, subtitle, children }: { title: string; subtitle: string;
         </Stack>
         <Box sx={{ maxWidth: 480 }}>
           <Typography sx={{ fontSize: 34, fontWeight: 800, lineHeight: 1.15, letterSpacing: '-0.02em', mb: 2 }}>Every job, every step, tracked from release to sign-off.</Typography>
-          <Typography sx={{ fontSize: 15.5, opacity: 0.92, lineHeight: 1.6 }}>Controlled work instructions, live task execution with timing, and validation, FAI, repair and production tracking records in one place.</Typography>
+          <Typography sx={{ fontSize: 15.5, opacity: 0.92, lineHeight: 1.6 }}>Controlled work instructions, live task execution with timing, and validation, FAI, repair and production work orders in one place.</Typography>
         </Box>
         <Stack direction="row" gap={4} sx={{ opacity: 0.9, fontSize: 13 }}>
-          <span>Work instructions</span><span>Live execution</span><span>Tracking records</span><span>Reports</span>
+          <span>Work instructions</span><span>Live execution</span><span>Work orders</span><span>Reports</span>
         </Stack>
       </Box>
       <Stack alignItems="center" justifyContent="center" sx={{ p: 3 }}>

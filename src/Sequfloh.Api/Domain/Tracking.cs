@@ -4,7 +4,7 @@ using Sequfloh.Domain.Common;
 namespace Sequfloh.Domain.Execution;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TrackingType { Validation = 0, Fai = 1, Repair = 2, Production = 3, Inspection = 4 }
+public enum TrackingType { Validation = 0, Fai = 1, Repair = 2, Production = 3, Inspection = 4, Warranty = 5 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TrackingStatus { NotStarted = 0, Assigned = 1, InProgress = 2, Paused = 3, OnHold = 4, Completed = 7, Failed = 8, Canceled = 10 }
@@ -82,7 +82,22 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public decimal? VarianceMinutes { get; set; }
     public string? VarianceReason { get; set; }
 
+    /// <summary>Kept for existing data; no longer shown or set (one work order can cover many non-serialized parts).</summary>
     public string Result { get; set; } = "Pending";
+    /// <summary>Inspection and warranty work orders: the sub-type from the admin list (for example AQL or Warranty claim).</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(100)]
+    public string? InspectionSubType { get; set; }
+    /// <summary>What the inspection is to check.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(4000)]
+    public string? InspectionDescription { get; set; }
+    public int? QtyGood { get; set; }
+    /// <summary>Parts found bad; feeds Qty bad on the chargeback report.</summary>
+    public int? QtyBad { get; set; }
+    public bool? FurtherInspection { get; set; }
+    /// <summary>A flag on the work order only; inventory and official holds are in NetSuite.</summary>
+    public bool Quarantine { get; set; }
+    [System.ComponentModel.DataAnnotations.MaxLength(1000)]
+    public string? QuarantineReason { get; set; }
     public string? EngineeringConclusion { get; set; }
     public string? EvidenceReferences { get; set; }
     public string? TechnicianComments { get; set; }

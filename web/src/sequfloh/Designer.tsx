@@ -17,8 +17,9 @@ export interface DSection { key: string; title: string; fields: DField[] }
 export interface DSchema { type: string; title: string; numberingType: string; sections: DSection[]; stepsTitle: string; stepColumns: DField[]; hasCharacteristics: boolean;
   characteristicColumns: DField[]; hasPartsRows: boolean; partsRowColumns: DField[] }
 export const useSchemas = () => useQuery({ queryKey: ['sqf-wi-schema'], queryFn: () => get<DSchema[]>(`${S}/instructions/schema`), staleTime: Infinity });
-export const typeLabels: Record<string, string> = { Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection', Procedure: 'Procedure Instructions' };
-export const types = Object.keys(typeLabels);
+export const typeLabels: Record<string, string> = { Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Work Instruction', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection', Procedure: 'Procedure Instructions' };
+/** Types that can be chosen when creating, importing or changing an instruction. Older repair test instructions show as repair work instructions. */
+export const types = Object.keys(typeLabels).filter((t) => t !== 'RepairTest');
 
 export type Row = Record<string, unknown> & { id?: string; sequence?: number };
 export type Val = string | number | boolean | null | undefined;

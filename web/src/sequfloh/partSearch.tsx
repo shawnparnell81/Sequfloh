@@ -19,13 +19,14 @@ export function useSettled(text: string, ms = 250) {
  */
 export function usePartSearch<T>(text: string, extra: Record<string, string | undefined> = {}, enabled = true) {
   const q = useSettled(text.trim());
+  // nothing is listed until the user types; then the server searches every number field as they type
   const r = useQuery({
-    queryKey: ['sqf-part-search', q, extra], enabled,
+    queryKey: ['sqf-part-search', q, extra], enabled: enabled && q.length > 0,
     queryFn: () => get<{ items: T[]; total: number }>(`${S}/parts?${qs({ ...extra, q: q || undefined, pageSize: PART_SEARCH_PAGE, sort: 'partNumber:asc' })}`),
   });
-  const total = r.data?.total ?? 0, items = r.data?.items ?? [];
+  const total = q ? r.data?.total ?? 0 : 0, items = q ? r.data?.items ?? [] : [];
   const hint = total > items.length ? `Showing ${items.length} of ${total.toLocaleString('en-US')} parts. Type an OR #, DWG #, NAPA, DMA or JH PN to find any part.` : undefined;
-  return { items, total, loading: r.isLoading, hint };
+  return { items, total, loading: q.length > 0 && r.isLoading, hint };
 }
 
 /** The other numbers of a part, shown under its OR # so a match on a NAPA or DMA PN is visible. */

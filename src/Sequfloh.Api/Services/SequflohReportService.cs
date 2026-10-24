@@ -42,7 +42,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     static ReportColumn C(string key, string label, string type = "text") => new(key, label, type);
     static string Words(object? s) => s is null ? "" : Regex.Replace(s.ToString()!, "([a-z])([A-Z])", "$1 $2");
     static double? Minutes(long seconds) => Math.Round(seconds / 60.0, 1);
-    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection" };
+    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty" };
     static readonly Dictionary<WorkInstructionType, string> WiLabel = new() { [WorkInstructionType.Validation] = "Validation", [WorkInstructionType.ValidationFai] = "Validation / FAI", [WorkInstructionType.Fai] = "FAI",
         [WorkInstructionType.RepairTest] = "Repair Test", [WorkInstructionType.RepairWork] = "Repair Work Instruction", [WorkInstructionType.Inspection] = "Inspection", [WorkInstructionType.Procedure] = "Procedure Instructions" };
 
@@ -165,7 +165,6 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                         ["deviations"] = r.Deviations, ["workOrder"] = r.WorkOrder, ["priority"] = r.Priority,
                         ["technician"] = N(names, r.CompletedById) ?? N(names, r.AssignedUserId), ["disposition"] = r.FinalDisposition, ["faiType"] = r.FaiType,
                         ["category"] = r.WorkInstructionId is { } wk && wis.TryGetValue(wk, out var w) ? w.RepairCategory : null,
-                        ["testStatus"] = r.WorkInstructionId is { } wk2 && wis.TryGetValue(wk2, out var w2) && w2.Type == WorkInstructionType.RepairTest ? Words(r.Result) : "No test",
                         ["_url"] = $"/sequfloh/record/{r.Id}",
                     };
                     if (r.Type == TrackingType.Fai)
@@ -180,17 +179,17 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                 {
                     "task-performance" => [C("number", "Task"), C("type", "Type"), C("status", "Status"), C("assigned", "Assigned"), C("part", "Part"), C("operation", "Operation"), C("plannedStart", "Planned start", "datetime"),
                         C("dueAt", "Due", "datetime"), C("actualStart", "Actual start", "datetime"), C("actualCompletion", "Actual completion", "datetime"), C("minBenchmark", "Minimum (min)", "number"),
-                        C("maxBenchmark", "Maximum (min)", "number"), C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number"), C("result", "Result")],
+                        C("maxBenchmark", "Maximum (min)", "number"), C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number")],
                     "validation" => [C("number", "Record"), C("instruction", "Instruction / revision"), C("part", "Part"), C("owner", "Owner"), C("plannedStart", "Planned", "datetime"), C("dueAt", "Due", "datetime"),
-                        C("status", "Status"), C("result", "Result"), C("deviations", "Deviations")],
+                        C("status", "Status"), C("deviations", "Deviations")],
                     "fai" => [C("number", "FAI number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("faiType", "FAI type"), C("status", "Status"),
-                        C("characteristics", "Characteristics complete"), C("result", "Result")],
+                        C("characteristics", "Characteristics complete")],
                     "repair" => [C("number", "Repair number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("category", "Category"), C("technician", "Technician"), C("status", "Status"),
-                        C("result", "Result"), C("testStatus", "Test status"), C("disposition", "Disposition")],
+                        C("disposition", "Disposition")],
                     "time-variance" => [C("number", "Task"), C("type", "Type"), C("part", "Part"), C("operation", "Operation"), C("minBenchmark", "Minimum (min)", "number"), C("maxBenchmark", "Maximum (min)", "number"),
-                        C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number"), C("varianceReason", "Reason"), C("result", "Result")],
+                        C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number"), C("varianceReason", "Reason")],
                     _ => [C("number", "Task"), C("instruction", "Instruction / revision"), C("part", "Part"), C("workOrder", "Work order"), C("operation", "Operation"), C("assigned", "Assigned"), C("status", "Status"),
-                        C("priority", "Priority"), C("dueAt", "Due", "datetime"), C("actualCompletion", "Completed", "datetime"), C("elapsedMinutes", "Elapsed (min)", "number"), C("result", "Result")],
+                        C("priority", "Priority"), C("dueAt", "Due", "datetime"), C("actualCompletion", "Completed", "datetime"), C("elapsedMinutes", "Elapsed (min)", "number")],
                 }, rows);
             }
             case "work-instructions":

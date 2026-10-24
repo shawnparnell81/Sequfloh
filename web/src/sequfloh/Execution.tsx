@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Chip, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, List, ListItemButton, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { useSites, useUsers } from '../components/Kit';
@@ -89,7 +89,6 @@ export function ExecutionQueuePage() {
     { key: 'elapsed', label: 'Active time', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> }, ...tail]
     : view === 'completed' ? [...base,
     { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
-    { key: 'result', label: 'Result', render: (r) => <SqfStatus status={r.result} /> },
     { key: 'duration', label: 'Duration (active)', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> },
     { key: 'variance', label: 'Variance', render: (r) => (r.varianceMinutes != null ? `${r.varianceMinutes} min` : '—') },
     { key: 'actualCompletion', label: 'Finished', sort: true, render: (r) => `${fmtDateTime(r.actualCompletion)}${r.completedBy ? ' · ' + r.completedBy : ''}` },
@@ -156,7 +155,6 @@ export function ActiveStationPage() {
       const body: J = { operationId: newOpId(), stateVersion: r.stateVersion };
       for (const k of [...planKeys, ...entryKeys]) body[k] = nul(s(r[k]));
       body.technicianComments = nul(form.technicianComments); body.evidenceReferences = nul(form.evidenceReferences);
-      if ((r.type === 'Production' || r.type === 'Inspection')) body.result = nul(form.result);
       body.details = { resultEntry: form.resultEntry ?? '', qualityCheckpoints: form.qualityCheckpoints ?? '' };
       await put(`${S}/tracking/${r.id}`, body);
       await refresh(); if (!quiet) setMsg({ sev: 'success', text: 'Saved.' }); return true;
@@ -232,9 +230,7 @@ export function ActiveStationPage() {
                 <Typography variant="h3" sx={{ mb: 1.5 }}>Result entry</Typography>
                 {!d.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Results are entered while the task is in progress.</Typography>}
                 <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '1fr 1fr' } }}>
-                  {(r.type === 'Production' || r.type === 'Inspection') ? <TextField select size="small" label="Result" value={form.result ?? ''} disabled={!enter} onChange={(e) => { setForm({ ...form, result: e.target.value }); setDirty(true); }}>
-                    {['Pending', 'Pass', 'Fail', 'Conditional'].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
-                    : <Typography variant="body2">Overall result: <SqfStatus status={s(r.result)} /> — step and characteristic results are entered on the <RouterLink to={`/sequfloh/record/${r.id}?tab=${r.type === 'Fai' ? 'characteristics' : 'steps'}`}>full record</RouterLink>.</Typography>}
+                  {r.type !== 'Production' && r.type !== 'Inspection' && r.type !== 'Warranty' && <Typography variant="body2">Step and characteristic results are entered on the <RouterLink to={`/sequfloh/record/${r.id}?tab=${r.type === 'Fai' ? 'characteristics' : 'steps'}`}>full work order</RouterLink>.</Typography>}
                   {f('resultEntry', 'Result entry notes', !enter)}
                   {f('evidenceReferences', 'Evidence references', !enter)}
                   {f('technicianComments', 'Technician comments', !enter)}
@@ -304,8 +300,7 @@ export function WorkHistoryPage() {
             { key: 'partNumber', label: 'Part', sort: true, render: (r) => r.partNumber ?? '—' },
             { key: 'wi', label: 'Instruction / revision', render: (r) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
             { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
-            { key: 'result', label: 'Result', render: (r) => <SqfStatus status={r.result} /> },
-            { key: 'active', label: 'Active', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> },
+                    { key: 'active', label: 'Active', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> },
             { key: 'paused', label: 'Paused', render: (r) => <Mono>{fmtSeconds(r.pausedSeconds)}</Mono> },
               { key: 'variance', label: 'Variance', render: (r) => (r.varianceMinutes != null ? `${r.varianceMinutes} min` : '—') },
             { key: 'actualCompletion', label: 'Finished', sort: true, render: (r) => `${fmtDateTime(r.actualCompletion)}${r.completedBy ? ' · ' + r.completedBy : ''}` },

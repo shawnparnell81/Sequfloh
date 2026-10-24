@@ -11,6 +11,7 @@ import { get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
+import type { ValidationForms } from './Tracking';
 import { Confirm, Empty, ErrorState, Loading, Mono, S, SqfPage, SqfStatus, useUnsaved, words } from './common';
 
 // ------------------------------------------------------------------ settings
@@ -27,7 +28,7 @@ const sections: Record<string, { title: string; description: string; fields: Fie
     { key: 'effectiveDateRequired', label: 'Effective date required for release', type: 'bool' }, { key: 'revisionReasonRequired', label: 'Reason required for a new revision', type: 'bool' },
     { key: 'trainingAcknowledgementRequired', label: 'Training acknowledgement required', type: 'bool' }, { key: 'obsoleteRetentionYears', label: 'Obsolete-document retention (years)', type: 'number' },
     { key: 'printFooter', label: 'Print footer', type: 'multiline' }] },
-  tracking: { title: 'Tracking Settings', description: 'Variance thresholds, default benchmark times, and overdue thresholds.', lists: ['activity-statuses', 'priorities', 'cancellation-reasons', 'status-tags', 'discovery-methods', 'inspection-reasons', 'inspection-priorities'], fields: [
+  tracking: { title: 'Tracking Settings', description: 'Variance thresholds, default benchmark times, and overdue thresholds.', lists: ['activity-statuses', 'priorities', 'cancellation-reasons', 'status-tags', 'discovery-methods', 'inspection-reasons', 'inspection-priorities', 'inspection-sub-types'], fields: [
     { key: 'varianceWarningPercent', label: 'Variance warning threshold (%)', type: 'number' }, { key: 'varianceCriticalPercent', label: 'Variance critical threshold (%)', type: 'number' },
     { key: 'defaultMinimumMinutes', label: 'Default minimum time (minutes)', type: 'number' }, { key: 'defaultMaximumMinutes', label: 'Default maximum time (minutes)', type: 'number' },
     { key: 'overdueThresholdHours', label: 'Overdue threshold (hours after due date)', type: 'number' }, { key: 'approachingDueHours', label: 'Approaching due date warning (hours)', type: 'number' },
@@ -36,14 +37,14 @@ const sections: Record<string, { title: string; description: string; fields: Fie
     { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' }] },
   fai: { title: 'FAI Settings', description: 'Evidence requirements for FAI records.', lists: ['fai-types', 'inspection-results', 'characteristic-results'], fields: [
     { key: 'evidenceRequiredForFailures', label: 'Evidence required for failed characteristics', type: 'bool' }] },
-  repair: { title: 'Repair Settings', description: 'Test requirements for repairs.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [
-    { key: 'repairTestRequired', label: 'Repair test required before completion', type: 'bool' }] },
+  repair: { title: 'Repair Settings', description: 'Dropdowns used on repair work orders.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [] },
   notifications: { title: 'Notification Settings', description: 'SEQUFLOH notifications sent through the in-app notification system.', fields: [
     { key: 'assignedWork', label: 'Assigned work', type: 'bool' }, { key: 'overdueWork', label: 'Overdue work', type: 'bool' }, { key: 'failedRecords', label: 'Failed records requiring attention', type: 'bool' },
     { key: 'releasedInstructions', label: 'Released instructions', type: 'bool' }, { key: 'supersededInstructions', label: 'Superseded instructions', type: 'bool' },
     { key: 'approachingDueDates', label: 'Approaching due dates', type: 'bool' }] },
   display: { title: 'Display Preferences', description: 'Compact tables, dashboard cards, default filters and folder view, status colours.', fields: [
-    { key: 'compactTables', label: 'Compact tables', type: 'bool' }, { key: 'dashboardCards', label: 'Visible dashboard cards (comma separated)', type: 'csv' },
+    { key: 'compactTables', label: 'Compact tables', type: 'bool' },
+    { key: 'openFormsInNewWindow', label: 'Fill out a copy opens the form in a new window', type: 'bool', helper: 'Techs get the form editor on its own, with nothing else on the screen.' }, { key: 'dashboardCards', label: 'Visible dashboard cards (comma separated)', type: 'csv' },
     { key: 'defaultTrackingFilter', label: 'Default tracking filter', type: 'select', options: ['open', 'all', 'completed'] },
     { key: 'defaultFolderView', label: 'Default folder view', type: 'select', options: ['current', 'all'] },
     { key: 'statusColors', label: 'Status colours (status=colour per line: default, primary, success, warning, error, info)', type: 'lines' }] },
@@ -68,6 +69,7 @@ export const useSettings = () => useQuery({ queryKey: ['sqf-settings'], queryFn:
 export function SettingsPage() {
   const { section = 'general' } = useParams();
   if (section === 'numbering') return <NumberingPage />;
+  if (section === 'validation-forms') return <ValidationFormsPage />;
   return <SettingsSection key={section} section={section} />;
 }
 
@@ -436,4 +438,41 @@ function FamilyFieldsDialog({ value, onClose, onSaved }: { value: RefValue | nul
         control={<Checkbox size="small" checked={sel.includes(d.key)} onChange={(_, c) => setSel(c ? [...sel, d.key] : sel.filter((x) => x !== d.key))} />} />)}</Stack></DialogContent>
     <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Save</Button></DialogActions>
   </Dialog>;
+}
+
+/** Validation forms by product: one row per product family. A blank whose title has the family name and "validation" is suggested; nothing is used until an administrator saves it. */
+function ValidationFormsPage() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`) });
+  const [pick, setPick] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
+  const save = async (familyId: string, label: string, blankFormId: string) => {
+    setMsg(null);
+    try { await put(`${S}/validation-forms/${familyId}`, { blankFormId: blankFormId || null }); setMsg({ sev: 'success', text: `Saved the validation form for ${label}.` }); setPick((p) => { const n = { ...p }; delete n[familyId]; return n; }); await qc.invalidateQueries({ queryKey: ['sqf-validation-forms'] }); }
+    catch (e) { setMsg({ sev: 'error', text: (e as Error).message }); }
+  };
+  const crumbs = [{ label: 'SEQUFLOH Settings' }, { label: 'Validation forms by product' }];
+  return (
+    <SqfPage title="Validation forms by product" crumbs={crumbs} permission="sequfloh.manage_settings"
+      description="Choose the blank form each product family uses for validation. A new Validation/FAI work order for the family gets a copy of the confirmed form to fill out. A suggestion is only used once you save it.">
+      {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : q.data && <Stack gap={2}>
+        {msg && <Alert severity={msg.sev} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+        {q.data.families.length === 0 ? <Alert severity="info">No product families yet. Add them under Dropdown Management, Product families.</Alert> :
+        <Paper variant="outlined"><Table size="small" data-testid="validation-forms-table">
+          <TableHead><TableRow><TableCell>Product family</TableCell><TableCell>Blank form</TableCell><TableCell>Status</TableCell><TableCell /></TableRow></TableHead>
+          <TableBody>{q.data.families.map((f) => {
+            const value = pick[f.id] ?? f.blankFormId ?? f.suggestedId ?? '';
+            const confirmed = !!f.blankFormId && value === f.blankFormId;
+            return <TableRow key={f.id} data-testid={`vf-row-${f.label}`}>
+              <TableCell>{f.label}</TableCell>
+              <TableCell sx={{ minWidth: 320 }}><TextField select size="small" fullWidth label="Blank form" value={value} onChange={(e) => setPick({ ...pick, [f.id]: e.target.value })} inputProps={{ 'data-testid': `vf-select-${f.label}` }}>
+                <MenuItem value=""><em>None</em></MenuItem>{q.data!.blanks.map((b) => <MenuItem key={b.id} value={b.id}>{b.number} {b.title}</MenuItem>)}</TextField></TableCell>
+              <TableCell>{confirmed ? <Chip size="small" color="success" label="Confirmed" /> : !f.blankFormId && value && value === f.suggestedId && pick[f.id] === undefined ? <Chip size="small" color="warning" label="Suggested, not saved" />
+                : value !== (f.blankFormId ?? '') ? <Chip size="small" label="Not saved" /> : <Chip size="small" label="No form" />}</TableCell>
+              <TableCell align="right"><Button size="small" variant="contained" disabled={confirmed || (!value && !f.blankFormId)} onClick={() => void save(f.id, f.label, value)} data-testid={`vf-save-${f.label}`}>{value ? 'Confirm and save' : 'Clear'}</Button></TableCell>
+            </TableRow>;
+          })}</TableBody></Table></Paper>}
+      </Stack>}
+    </SqfPage>
+  );
 }

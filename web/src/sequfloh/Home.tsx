@@ -7,6 +7,7 @@ import { fmtDateTime } from '../components/Status';
 import { Empty, S, SqfPage, useSqf } from './common';
 import { NewInspectionRequestButton } from './InspectionRequests';
 import { Dashboard } from './Dashboard';
+import { NewWorkOrderButton } from './Tracking';
 
 interface Item { id: string; itemType: string; path: string; label: string; lastOpenedAt: string }
 
@@ -19,8 +20,6 @@ export function SequflohHome() {
     ['New work instruction', '/sequfloh/instructions/new', 'sequfloh.create_work_instruction'],
     ['Active Station', '/sequfloh/execution/active', 'sequfloh.view_live_execution'],
     ['Dispatch Queue', '/sequfloh/execution/dispatch', 'sequfloh.view_live_execution'],
-    ['New production task', '/sequfloh/tracking/new?type=Production', 'sequfloh.create_production_task'],
-    ['New repair record', '/sequfloh/tracking/new?type=Repair', 'sequfloh.create_repair_record'],
     ['Parts Lists', '/sequfloh/parts-lists', 'sequfloh.access'],
     ['Reports', '/sequfloh/reports/task-performance', 'sequfloh.view_reports'],
     ['Search', '/sequfloh/search', 'sequfloh.access'],
@@ -36,6 +35,7 @@ export function SequflohHome() {
     <SqfPage title={ctx.data?.module.displayName ?? 'SEQUFLOH'} crumbs={[{ label: 'SEQUFLOH Home' }]} permission="sequfloh.view_dashboard"
       description={`${ctx.data?.module.subtitle ?? 'Enterprise Execution Engine'} — ${ctx.data?.module.description ?? ''}`}>
       <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 3 }} aria-label="Quick actions">
+        <NewWorkOrderButton />
         <NewInspectionRequestButton />
         {quick.filter(([, , p]) => can(p)).map(([l, to]) => <Button key={to} component={RouterLink} to={to} variant="outlined" size="small">{l}</Button>)}
       </Stack>

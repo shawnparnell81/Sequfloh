@@ -19,7 +19,7 @@ import { ImportPartsDialog } from './PartsImport';
 import { ChangeFamilyDialog } from './ChangeFamily';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, ViewDrawingButton, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { InventoryNote } from './Job';
-import { partNo } from './partLabel';
+import { partOption } from './partLabel';
 import { RecordActions } from '../components/RecordActions';
 import { LOT_CHOICES, UNITS, Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, type Col, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
@@ -397,8 +397,8 @@ function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChan
   const chosen = useQuery({ queryKey: ['sqf-part-one', value], enabled: !!value, queryFn: () => get<{ part: PartRow }>(`${S}/parts/${value}`) });
   const current = value ? (parts.items.find((p) => p.id === value) ?? chosen.data?.part ?? null) : null;
   return <Autocomplete size="small" options={parts.items} value={current} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} loading={parts.loading}
-    getOptionLabel={(p) => `${partNo(p)} · ${p.name}`} noOptionsText={text ? 'No part matches' : 'Type a part number'}
-    renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partNo(p)} · {p.name}</Typography>{otherNumbers(p) && <Typography variant="caption" color="text.secondary">{otherNumbers(p)}</Typography>}</Box></li>}
+    getOptionLabel={(p) => partOption(p)} noOptionsText={text ? 'No part matches' : 'Type a part number'}
+    renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partOption(p)}</Typography>{otherNumbers(p) && <Typography variant="caption" color="text.secondary">{otherNumbers(p)}</Typography>}</Box></li>}
     onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, p) => onChange(p?.id ?? '', p?.partNumber)}
     renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by OR #, DWG #, NAPA, DMA or JH PN" />} />;
 }
