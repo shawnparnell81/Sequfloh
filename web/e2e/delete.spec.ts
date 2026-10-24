@@ -41,7 +41,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   const folder = (await ok(rq.post('/api/drawings/folders', { data: { name: `Brackets ${stamp}`, siteId: site } }))).id as string;
   await ok(rq.post(`/api/drawings/folders/${folder}/drawings`, { multipart: {
     file: { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% made-up test drawing\n%%EOF\n') }, title: 'Test bracket', drawingNumber: `DWG-${stamp}`, revision: 'A' } }));
-  await page.goto(`/sequfloh/engineering/drawings?folder=${folder}`);
+  await page.goto(`/sequfloh/drawings?folder=${folder}`);
   await view(page).getByRole('button', { name: 'Delete folder' }).click();
   await dialog().getByRole('button', { name: 'Delete' }).click();
   await expect(dialog().getByRole('alert')).toContainText('still holds 1 drawing');

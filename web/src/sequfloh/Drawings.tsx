@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, Tab, Tabs, DialogActions, DialogContent, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
 import OpenInNew from '@mui/icons-material/OpenInNew';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import Article from '@mui/icons-material/Article';
@@ -19,7 +19,7 @@ import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import { ImportDrawingsDialog } from './DrawingsImport';
 
 const D = '/api/drawings';
-const crumbs = (extra?: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Engineering', to: '/sequfloh/engineering' }, { label: 'Drawings', to: extra ? '/sequfloh/engineering/drawings' : undefined }, ...(extra ? [{ label: extra }] : [])];
+const crumbs = (extra?: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts Drawings', to: extra ? '/sequfloh/drawings' : undefined }, ...(extra ? [{ label: extra }] : [])];
 export const ACCEPT = '.pdf,.png,.jpg,.jpeg,.tif,.tiff,.dwg,.dxf,.step,.stp,.iges,.igs,.slddrw,.sldprt,.docx,.doc';
 /** The in-app viewer for a drawing revision; always opened in a new browser tab. */
 export const viewerUrl = (id: string, rev?: string) => `/drawings/view/${id}${rev ? `?revision=${encodeURIComponent(rev)}` : ''}`;
@@ -133,6 +133,9 @@ interface FolderRow { id: string; name: string; isArchived: boolean; updatedAt: 
 interface FolderView { parent?: { id: string; name: string; parentId?: string; isArchived: boolean; part?: FolderRow['part']; canManage: boolean } | null; path: { id: string; name: string }[];
   folders: FolderRow[]; drawings: SearchRow[]; canCreate: boolean }
 
+/** A family tab label: the top-level folder name without a trailing " Drawings". */
+export const familyLabel = (name: string) => name.replace(/\s+drawings\s*$/i, '');
+
 export function DrawingsPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
@@ -140,7 +143,12 @@ export function DrawingsPage() {
   const folder = sp.get('folder') ?? ''; const archived = sp.get('archived') === '1'; const search = sp.get('q') ?? '';
   const set = (k: string, v: string) => { const n = new URLSearchParams(sp); if (v) n.set(k, v); else n.delete(k); setSp(n); };
   const q = useQuery({ queryKey: ['drawing-folders', folder, archived], queryFn: () => get<FolderView>(`${D}/folders?${qs({ parentId: folder || undefined, archived: archived || undefined })}`) });
-  const found = useQuery({ queryKey: ['drawing-search', search], enabled: !!search, queryFn: () => get<SearchRow[]>(`${D}/search?${qs({ q: search })}`) });
+  const roots = useQuery({ queryKey: ['drawing-folders', '', archived], queryFn: () => get<FolderView>(`${D}/folders?${qs({ archived: archived || undefined })}`) });
+  const family = folder ? (q.data?.path?.[0]?.id ?? (q.data?.parent && !q.data.parent.parentId ? q.data.parent.id : '')) : '';
+  const everywhere = sp.get('all') === '1';
+  const scope = family && !everywhere ? family : undefined;
+  const found = useQuery({ queryKey: ['drawing-search', search, scope], enabled: !!search, queryFn: () => get<SearchRow[]>(`${D}/search?${qs({ q: search, family: scope })}`) });
+  const familyName = roots.data?.folders.find((f) => f.id === family)?.name;
   const [text, setText] = useState(search);
   const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'import' | 'relink'>(null);
   const [confirm, setConfirm] = useState(false);
@@ -150,21 +158,27 @@ export function DrawingsPage() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['drawing-folders'] });
   const open = (id: string) => { const n = new URLSearchParams(); n.set('folder', id); setSp(n); };
   return (
-    <SqfPage title="Drawings" crumbs={crumbs()} permission="sequfloh.view_drawings" description="Engineering drawings kept in folders, for example one per part number. Every revision is kept."
+    <SqfPage title="Parts Drawings" crumbs={crumbs()} permission="sequfloh.view_drawings" description="Parts drawings kept in folders, one tab per family. Every revision is kept."
       actions={canManage && !here?.isArchived && <>
         <Button variant="outlined" onClick={() => setDlg('new')}>New folder</Button>
         <ImportButtons surface="parts-drawings" accept={ACCEPT.split(',')} what="drawing" onFiles={(files, folder) => { setPicked({ files, folder }); setDlg('import'); }} />
         <Button variant="outlined" onClick={() => { setPicked(null); setDlg('import'); }}>Import drawings</Button>
         {!here && <Button variant="outlined" onClick={() => setDlg('relink')}>Relink drawings</Button>}
       </>}>
+      <Tabs value={folder && !family && q.isLoading ? false : family} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile data-testid="family-tabs" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+        onChange={(_, id: string) => { const n = new URLSearchParams(); if (id) n.set('folder', id); if (archived) n.set('archived', '1'); if (search) n.set('q', search); if (everywhere) n.set('all', '1'); setSp(n); }}>
+        <Tab value="" label="All" data-testid="family-tab-all" />
+        {(roots.data?.folders ?? []).map((f) => <Tab key={f.id} value={f.id} label={familyLabel(f.name)} data-testid="family-tab" data-family={f.name} />)}
+      </Tabs>
       <Stack direction="row" gap={1} sx={{ mb: 2 }} component="form" onSubmit={(e) => { e.preventDefault(); set('q', text.trim()); }}>
-        <TextField size="small" label="Search drawings" placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 360 }} />
+        <TextField size="small" label={family && !everywhere ? `Search ${familyLabel(familyName ?? '')} drawings` : 'Search drawings'} placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 360 }} />
         <Button type="submit" variant="outlined">Search</Button>{search && <Button onClick={() => { setText(''); set('q', ''); }}>Clear</Button>}
+        {family && <FormControlLabel control={<Checkbox checked={everywhere} inputProps={{ 'data-testid': 'search-all-families' } as object} onChange={(_, c) => set('all', c ? '1' : '')} />} label="Search all families" />}
         <Box sx={{ flex: 1 }} />
         <FormControlLabel control={<Checkbox checked={archived} onChange={(_, c) => set('archived', c ? '1' : '')} />} label="Show archived" />
       </Stack>
       {search ? (found.isLoading ? <Loading /> : found.error ? <ErrorState error={found.error} /> : !found.data?.length ? <Empty text="No drawings match." /> :
-        <DrawingTable rows={found.data} onRow={(id) => nav(`/sequfloh/engineering/drawings/d/${id}`)} withFolder />) : <>
+        <DrawingTable rows={found.data} onRow={(id) => nav(`/sequfloh/drawings/d/${id}`)} withFolder />) : <>
         <Breadcrumbs sx={{ mb: 1.5 }}>
           <Link component="button" onClick={() => setSp(archived ? { archived: '1' } : {})}>All folders</Link>
           {(v?.path ?? []).map((p) => <Link key={p.id} component="button" onClick={() => open(p.id)}>{p.name}</Link>)}
@@ -184,14 +198,14 @@ export function DrawingsPage() {
           {v!.folders.length > 0 && <SimpleTable head={['Folder', 'Part', 'Contents', 'Updated']} rows={v!.folders.map((f) => [
             <Link key="n" component="button" onClick={() => open(f.id)} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><FolderOutlined fontSize="small" />{f.name}</Link>,
             f.part ? <Mono key="p">{f.part.partNumber}</Mono> : '—', `${f.folders} folder${f.folders === 1 ? '' : 's'} · ${f.drawings} drawing${f.drawings === 1 ? '' : 's'}`, fmtDateTime(f.updatedAt)])} />}
-          {here && v!.drawings.length > 0 && <Box sx={{ mt: 2 }}><DrawingTable rows={v!.drawings} onRow={(id) => nav(`/sequfloh/engineering/drawings/d/${id}`)} /></Box>}
+          {here && v!.drawings.length > 0 && <Box sx={{ mt: 2 }}><DrawingTable rows={v!.drawings} onRow={(id) => nav(`/sequfloh/drawings/d/${id}`)} /></Box>}
           {v!.folders.length === 0 && (!here || v!.drawings.length === 0) && <Empty text={here ? (archived ? 'Nothing archived here.' : 'This folder is empty.') : archived ? 'No archived folders.' : 'No drawing folders yet. Make one for each part number, for example.'} />}
         </>}
       </>}
       <FolderDialog open={dlg === 'new' || dlg === 'edit'} edit={dlg === 'edit' ? here ?? undefined : undefined} parentId={dlg === 'new' ? (here?.id ?? null) : here?.parentId ?? null}
         onClose={() => setDlg(null)} onSaved={(id) => { refresh(); if (dlg === 'new') open(id); }} />
       {here && <UploadDialog open={dlg === 'upload'} folderId={here.id} defaultParts={here.part ? [{ id: here.part.id, label: `${here.part.partNumber} — ${here.part.name}` }] : []} onClose={() => setDlg(null)}
-        onSaved={(id) => { refresh(); nav(`/sequfloh/engineering/drawings/d/${id}`); }} />}
+        onSaved={(id) => { refresh(); nav(`/sequfloh/drawings/d/${id}`); }} />}
       <RelinkDialog open={dlg === 'relink'} onClose={() => setDlg(null)} />
       {<ImportDrawingsDialog open={dlg === 'import'} folderId={here?.id ?? null} folderName={here?.name ?? 'All folders'} initial={picked} onClose={() => { setDlg(null); setPicked(null); }} onDone={refresh} />}
       {here && <Confirm open={confirm} title={here.isArchived ? 'Restore folder' : 'Archive folder'} confirm={here.isArchived ? 'Restore' : 'Archive'} danger={!here.isArchived}
@@ -267,7 +281,7 @@ export function DrawingPage() {
       actions={d && <RecordActions surface="drawing" edit={d.canManage && !d.isArchived && { onClick: () => setDlg('edit') }}
         print={{ href: fileUrl(d.id, undefined, true) }}
         importNode={d.canManage && !d.isArchived && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setDlg('rev')}>New revision</Button>}
-        del={{ what: `drawing ${d.drawingNumber || d.title}`, url: `${D}/${d.id}`, to: `/sequfloh/engineering/drawings?folder=${d.folder.id}`,
+        del={{ what: `drawing ${d.drawingNumber || d.title}`, url: `${D}/${d.id}`, to: `/sequfloh/drawings?folder=${d.folder.id}`,
           extra: 'Every revision and its file is removed, and it is unlinked from parts and work orders.' }}>
         <OpenDrawingButton d={{ ...d, viewable: !!d.revisions.find((r) => r.current)?.viewable }} size="medium" />
         {d.canManage && !d.isArchived && <Button variant="outlined" onClick={() => setDlg('parts')}>Link to parts</Button>}
@@ -278,7 +292,7 @@ export function DrawingPage() {
           <Stack direction="row" gap={4} flexWrap="wrap">
             <Box><Typography variant="caption" color="text.secondary">Drawing number</Typography><Typography><Mono>{d.drawingNumber || '—'}</Mono></Typography></Box>
             <Box><Typography variant="caption" color="text.secondary">Current revision</Typography><Typography data-testid="current-rev">{d.currentRevision}</Typography></Box>
-            <Box><Typography variant="caption" color="text.secondary">Folder</Typography><Typography><Link component={RouterLink} to={`/sequfloh/engineering/drawings?folder=${d.folder.id}`}>{d.folder.name}</Link></Typography></Box>
+            <Box><Typography variant="caption" color="text.secondary">Folder</Typography><Typography><Link component={RouterLink} to={`/sequfloh/drawings?folder=${d.folder.id}`}>{d.folder.name}</Link></Typography></Box>
             <Box><Typography variant="caption" color="text.secondary">Linked parts</Typography><Stack direction="row" gap={0.5} flexWrap="wrap" data-testid="linked-parts">
               {[...(d.folder.part && !d.parts.some((p) => p.id === d.folder.part!.id) ? [d.folder.part] : []), ...d.parts].map((p) =>
                 <Chip key={p.id} size="small" label={('numbers' in p && p.numbers ? p.numbers : p.partNumber) as string} component={RouterLink} to={`/sequfloh/parts/${p.id}`} clickable />)}

@@ -7,6 +7,7 @@ import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
 import CategoryOutlined from '@mui/icons-material/CategoryOutlined';
 import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined';
+import ArchitectureOutlined from '@mui/icons-material/ArchitectureOutlined';
 import EngineeringOutlined from '@mui/icons-material/EngineeringOutlined';
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined';
 import AdminPanelSettingsOutlined from '@mui/icons-material/AdminPanelSettingsOutlined';
@@ -79,6 +80,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Blank Forms', path: '/sequfloh/imported-files?kind=blank' },
         { label: 'Filled Forms', path: '/sequfloh/imported-files?kind=filled' },
       ] },
+      { label: 'Parts Drawings', path: '/sequfloh/drawings', permission: 'sequfloh.view_drawings', icon: <ArchitectureOutlined fontSize="small" />, match: ['/sequfloh/drawings'] },
       { label: 'Quality', path: '/sequfloh/quality', permission: 'sequfloh.view_quality_folder', icon: <VerifiedOutlined fontSize="small" />, match: ['/sequfloh/quality'], children: [
         { label: 'Quality Dashboard', path: '/sequfloh/quality' },
         { label: 'Validation Work Instructions', path: '/sequfloh/quality/validation' },
@@ -88,7 +90,6 @@ export const sequfloh: ModuleDef = {
         { label: 'Engineering Dashboard', path: '/sequfloh/engineering' },
         { label: 'Validation', path: '/sequfloh/engineering/validation' },
         { label: 'Development', path: '/sequfloh/engineering/development' },
-        { label: 'Drawings', path: '/sequfloh/engineering/drawings', permission: 'sequfloh.view_drawings' },
       ] },
       { label: 'Reports', path: '/sequfloh/reports/task-performance', permission: 'sequfloh.view_reports', icon: <AssessmentOutlined fontSize="small" />, match: ['/sequfloh/reports', '/sequfloh/chargebacks'], children: [
         { label: 'Chargeback Reports', path: '/sequfloh/chargebacks' },

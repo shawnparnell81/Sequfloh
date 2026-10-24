@@ -17,7 +17,7 @@ test('no audit history on record pages; Settings audit section follows the permi
   const folder = (await ok(rq.post('/api/drawings/folders', { data: { name: `AuditVis ${stamp}`, siteId: site } }))).id as string;
   const drawing = (await ok(rq.post(`/api/drawings/folders/${folder}/drawings`, { multipart: {
     file: { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% made-up\n%%EOF\n') }, title: 'Test plate', drawingNumber: `DWG-AV${stamp}`, revision: 'A' } }))).id as string;
-  for (const url of [`/sequfloh/instruction/${wi}`, `/sequfloh/inspection-request/${ir}`, `/sequfloh/parts/${part}`, `/sequfloh/engineering/drawings/d/${drawing}`, `/sequfloh/engineering/drawings?folder=${folder}`]) {
+  for (const url of [`/sequfloh/instruction/${wi}`, `/sequfloh/inspection-request/${ir}`, `/sequfloh/parts/${part}`, `/sequfloh/drawings/d/${drawing}`, `/sequfloh/drawings?folder=${folder}`]) {
     await page.goto(url);
     await expect(view(page).locator('[data-record-actions]').first(), url).toBeVisible();
     await expect(view(page).getByRole('tab', { name: 'History' }), url).toHaveCount(0);

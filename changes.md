@@ -1,5 +1,13 @@
 # Changes
 
+## Parts Drawings in the sidebar, with family tabs
+
+- Parts Drawings is now its own sidebar entry at /sequfloh/drawings instead of a page under Engineering.
+- Old /sequfloh/engineering/drawings links (folders and single drawings) redirect to the new address and keep their query.
+- A scrollable tab bar across the top: All first, then one tab per top-level folder (family), named without the trailing " Drawings". Opening a subfolder keeps its family tab selected.
+- Search looks only inside the selected family; tick "Search all families" to search everywhere. The All tab always searches everywhere.
+- The drawing search API accepts an optional family (top-level folder id) to limit results to that folder and the folders under it.
+
 ## Standard record actions, full screen, audit trail on Admin and Settings only
 
 Standard record actions

@@ -103,7 +103,7 @@ test('Import folder on every upload page: subfolders included, other types skipp
   expect(cross.items.length).toBe(0);
 
   // Parts Drawings: the shared buttons open the drawings import with the picked folder
-  await page.goto('/sequfloh/engineering/drawings');
+  await page.goto('/sequfloh/drawings');
   const dr = tree(stamp + 'd', '.pdf', () => '%PDF-1.4\n% made-up drawing\n');
   await view(page).locator('[data-upload-surface="parts-drawings"]').getByTestId('parts-drawings-folder-input').setInputFiles(dr.top);
   const dlg = page.getByRole('dialog');

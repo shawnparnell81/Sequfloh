@@ -43,8 +43,7 @@ test('drawings: import at the top level keeps the folder tree, PDFs only; the pa
   fs.writeFileSync(path.join(top, 'Loose sheet.pdf'), await pdf(browser, 'LOOSE SHEET'));
   fs.writeFileSync(path.join(top, 'readme.txt'), 'made-up notes');
 
-  await section(page, 'Engineering');
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  await section(page, 'Parts Drawings');
   await v.getByRole('button', { name: 'Import drawings' }).click();
   const dlg = page.getByRole('dialog');
   await expect(dlg.getByRole('button', { name: 'Choose files' })).toHaveCount(0);
@@ -70,7 +69,7 @@ test('drawings: import at the top level keeps the folder tree, PDFs only; the pa
   await shot('02-imported-tree');
 
   // choosing the same folder again imports nothing new
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  await section(page, 'Parts Drawings');
   await v.getByRole('button', { name: 'All folders' }).first().click();
   await v.getByRole('button', { name: 'Import drawings' }).click();
   await dlg.getByTestId('import-folder-input').setInputFiles(top);

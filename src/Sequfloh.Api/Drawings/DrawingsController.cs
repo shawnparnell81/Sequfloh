@@ -66,7 +66,7 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     }
 
     [HttpGet("search"), RequirePermission(Permissions.SequflohViewDrawings)]
-    public Task<object> Search(string? q, CancellationToken ct) => drawings.SearchAsync(q, ct);
+    public Task<object> Search(string? q, Guid? family, CancellationToken ct) => drawings.SearchAsync(q, ct, family);
 
     [HttpGet("{id:guid}"), RequirePermission(Permissions.SequflohViewDrawings)]
     public Task<object> Get(Guid id, CancellationToken ct) => drawings.GetAsync(id, ct);

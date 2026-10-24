@@ -35,8 +35,7 @@ test('word drawings: upload a .docx into a folder, see the Word tag, and import 
   await signIn(page);
   const v = view(page);
 
-  await section(page, 'Engineering');
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  await section(page, 'Parts Drawings');
   await v.getByRole('button', { name: 'New folder' }).click();
   await page.getByLabel('Folder name').fill(`Word notes ${k}`);
   await page.getByRole('button', { name: 'Save' }).click();
@@ -101,8 +100,7 @@ test('word drawings: a top-level folder import takes PDF and Word files and skip
   fs.writeFileSync(path.join(top, `Line W ${k}`, 'Outline.dxf'), '0\nEOF\n');
   fs.writeFileSync(path.join(top, 'readme.txt'), 'made-up notes');
 
-  await section(page, 'Engineering');
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  await section(page, 'Parts Drawings');
   await v.getByRole('button', { name: 'Import drawings' }).click();
   const dlg = page.getByRole('dialog');
   await expect(dlg.getByText('Only PDF and Word (DOCX, DOC) files are imported')).toBeVisible();

@@ -41,8 +41,7 @@ test('drawings import: a folder tree with preview, part links, progress and a se
   fs.writeFileSync(path.join(top, 'Pumps', 'Housings', 'Housing outline.dxf'), '0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n');
   fs.writeFileSync(path.join(top, 'readme.txt'), 'made-up notes');
 
-  await section(page, 'Engineering');
-  await page.getByRole('navigation', { name: 'Engineering pages' }).getByRole('link', { name: 'Drawings' }).click();
+  await section(page, 'Parts Drawings');
   await v.getByRole('button', { name: 'New folder' }).click();
   await page.getByLabel('Folder name').fill(`Imports ${k}`);
   await page.getByRole('button', { name: 'Save' }).click();
