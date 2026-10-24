@@ -7,7 +7,8 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 /// One cross-reference number or other attribute of a part. Types lists the part type codes the field belongs to (null means every type); NotTypes lists codes it is not shown for.
 /// Words are the column headings that suggest the field in Parts import.
 /// </summary>
-public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null, string[]? NotTypes = null);
+/// DrawingNumber marks the field that holds the drawing number for the part types it belongs to, so drawings named with that number link to the part.
+public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null, string[]? NotTypes = null, bool DrawingNumber = false);
 
 /// <summary>
 /// The attribute fields of a part. The OR # is the part number and the SENSEN # is the drawing number, so neither is an attribute.
@@ -29,9 +30,13 @@ public static class PartAttributes
         new("napaPn", "NAPA PN", ["napa pn"], Types: FuelPump),
         new("dmaPn", "DMA PN", ["dma pn"], Types: FuelPump),
         new("cross", "Cross", ["cross"], Types: FuelPump),
-        new("jhPn", "JH PN", ["jh pn"], Types: FuelPump),
+        // the JH PN is the drawing of the fuel pump; many OR PNs share one
+        new("jhPn", "JH PN", ["jh pn"], Types: FuelPump, DrawingNumber: true),
         new("boxSize", "Individual Box Size", ["individual box size"], Types: FuelPump),
     ];
+
+    /// <summary>The attribute fields that hold a drawing number. The SENSEN # (the part's drawing number column) always counts as well.</summary>
+    public static IEnumerable<PartAttributeDef> DrawingNumberFields => All.Where(a => a.DrawingNumber);
 
     public static PartAttributeDef? Find(string key) => All.FirstOrDefault(a => a.Key == key);
 

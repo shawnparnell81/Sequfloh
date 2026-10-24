@@ -12,6 +12,19 @@
 - The report can be printed as a PDF or exported to Excel. The work order Job report itself is unchanged. Saved reports can be edited or deleted by people with the new "Manage chargeback reports" permission; anyone with report access can view them. Changes are kept in the Audit Trail.
 - The two new permissions are given to the built-in system roles and the Supervisor role. A work order with crew time cannot be deleted.
 
+## Drawings: link by JH PN, Relink drawings
+
+- Each part family can name the field that holds its drawing number. CSA uses the SENSEN #; Fuel Pump uses the JH PN. Other families can add theirs in one place (the part attribute list).
+- Import drawings now also links a drawing named with a JH PN to every fuel pump that has that JH PN, so one drawing links to all the OR PNs that share it. Matching by OR # and SENSEN # is unchanged. Names are compared ignoring case, the file extension, spaces, dashes and underscores, so "JH 12345.pdf" matches JH PN JH-12345.
+- Placeholders such as "/", "-", "N/A" or a blank never count as a number, so they never link a drawing to a part.
+- The import preview shows how many parts each folder or drawing will link to, for example "7 parts", with the first part numbers.
+- The Drawings page has a "Relink drawings" button for people who can manage drawings. It checks every drawing they can manage against the parts and adds the links that are missing. It never removes a link, including links made by hand, and running it again adds nothing new. It shows how many drawings were checked and how many links were added.
+- Saving a part, or importing parts, links the part to any drawing already named with its OR #, SENSEN # or drawing number field.
+- Drawings search, and the drawing lookup on forms and inspection requests, find a drawing by any number of a linked part: OR #, SENSEN #, NAPA, DMA, Cross, JH, Nissan and every other part number field.
+- A drawing's page lists each linked part with all its numbers, for example "E16070 · DMA PN P50029 · Cross P72128 · JH PN JH-390104Q".
+- A part's page shows its drawings in a box at the top, under the notes.
+- Every link added by Relink or by saving parts writes an Audit Trail entry on the drawing (who, when, and how many parts), and each Relink run writes one entry with its totals.
+
 ## Drawings: import at the top level, and part pickers that find every part
 
 - The Drawings page itself (All folders) now has "Import drawings" too. Choose a folder: its subfolders become drawing folders at the top level, with the same names and nesting, and each PDF goes into its matching folder. PDFs sitting loose in the chosen folder go into a folder named after it. Only PDF files are imported there; the preview shows how many other files are skipped. Preview, part links by OR # or SENSEN #, and carrying on after a stop work as inside a folder. Import inside a folder is unchanged.

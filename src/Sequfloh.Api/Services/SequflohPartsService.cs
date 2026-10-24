@@ -29,7 +29,7 @@ public sealed record OperationStepInput(string Title, string? Category, string D
 /// SEQUFLOH parts: execution attributes on the shared Part Master (no competing part store), controlled parts lists with revision history,
 /// and reusable operation-step templates. Library records (parts lists, operation steps) are organization-wide; every write re-checks the permission.
 /// </summary>
-public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAccessService access, INumberingService numbers, MasterDataService master, SequflohFoundationService f)
+public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAccessService access, INumberingService numbers, MasterDataService master, SequflohFoundationService f, Sequfloh.Drawings.DrawingPartMatcher drawingLinks)
 {
     public const string PartsListType_ = "SqfPartsList";
     static string? T(string? s, int max) { if (string.IsNullOrWhiteSpace(s)) return null; s = s.Trim(); return s.Length > max ? throw new AppException($"A value is limited to {max} characters.") : s; }
@@ -46,6 +46,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         var p = await master.SavePartAsync(null, r.Part, ct); // shared Part Master rules: masterdata.edit, unique number, initial revision
         await ApplyExecutionAsync(p.Id, r.Execution with { RowVersion = 0 }, ct);
         await ApplyTypeAndAttributesAsync(p.Id, r, ct);
+        await drawingLinks.LinkPartsAsync([p.Id], ct);
         return p;
     }
 
@@ -69,6 +70,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await master.SavePartAsync(id, r.Part, ct, numberChecked: true);
         await ApplyExecutionAsync(id, r.Execution with { RowVersion = 0 }, ct);
         await ApplyTypeAndAttributesAsync(id, r, ct);
+        await drawingLinks.LinkPartsAsync([id], ct);
     }
 
     /// <summary>A new or changed product family must be an active value of the product families list; a part may keep a family that was deactivated later.</summary>

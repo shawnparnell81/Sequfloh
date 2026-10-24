@@ -17,7 +17,7 @@ namespace Sequfloh.Drawings;
 /// straight to file storage with a signed address and confirms it here; only names, sizes and keys reach this server. A file already imported to the
 /// same folder with the same name and size is skipped, so picking the same folder again carries on where it stopped.
 /// </summary>
-public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me, AuthSettings auth, DrawingService drawings)
+public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me, AuthSettings auth, DrawingService drawings, DrawingPartMatcher matcher)
 {
     /// <summary>Largest file a bulk import takes.</summary>
     public const long MaxBytes = 5L * 1024 * 1024 * 1024;
@@ -82,24 +82,13 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         return map;
     }
 
-    /// <summary>Parts whose OR # or SENSEN # equals one of the names (ignoring case), by the upper-case name.</summary>
+    /// <summary>Parts matching the names (see DrawingPartMatcher), by the normalized name.</summary>
     async Task<Dictionary<string, List<(Guid Id, string PartNumber)>>> PartsByNameAsync(IEnumerable<string> names, CancellationToken ct)
     {
-        var wanted = names.Select(n => n.Trim().ToUpperInvariant()).Where(n => n.Length > 0).Distinct().ToList();
-        var hits = new Dictionary<string, List<(Guid, string)>>();
-        foreach (var chunk in wanted.Chunk(1000))
-        {
-            var rows = await db.Parts.AsNoTracking().Where(p => chunk.Contains(p.PartNumber.ToUpper()) || (p.DrawingNumber != null && chunk.Contains(p.DrawingNumber.ToUpper())))
-                .Select(p => new { p.Id, p.PartNumber, p.DrawingNumber }).ToListAsync(ct);
-            foreach (var r in rows)
-                foreach (var n in new[] { r.PartNumber.ToUpperInvariant(), r.DrawingNumber?.ToUpperInvariant() }.Distinct())
-                    if (n is not null && chunk.Contains(n))
-                    {
-                        if (!hits.TryGetValue(n, out var l)) hits[n] = l = [];
-                        if (l.All(x => x.Item1 != r.Id)) l.Add((r.Id, r.PartNumber));
-                    }
-        }
-        return hits;
+        var wanted = names.Select(DrawingPartMatcher.Normalize).Where(n => n.Length > 0).ToHashSet();
+        if (wanted.Count == 0) return [];
+        var index = await matcher.IndexAsync(ct);
+        return wanted.Where(index.ContainsKey).ToDictionary(n => n, n => index[n].Select(x => (x.Id, x.PartNumber)).ToList());
     }
 
     static string Title(string fileName) => Path.GetFileNameWithoutExtension(fileName).Trim();
@@ -121,7 +110,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         }
         var folderPaths = (r.Folders ?? []).Select(Segments).Where(s => s.Length > 0).ToList();
         var parts = r.LinkParts ? await PartsByNameAsync(files.Select(f => Title(Segments(f.Path).LastOrDefault() ?? "")).Concat(folderPaths.Select(s => s[^1])), ct) : [];
-        List<string> Match(string name) => parts.TryGetValue(name.Trim().ToUpperInvariant(), out var l) ? l.Select(x => x.PartNumber).Distinct().ToList() : [];
+        List<string> Match(string name) => parts.TryGetValue(DrawingPartMatcher.Normalize(name), out var l) ? l.Select(x => x.PartNumber).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList() : [];
         return new
         {
             Files = files.Select(f =>
@@ -148,7 +137,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             if (tree.ContainsKey(Key(s))) continue;
             var name = DrawingService.Clean(s[^1], 200, "a folder name");
             var f = new DrawingFolder { Name = name, ParentId = tree[Key(s[..^1])], SiteId = root.SiteId, DepartmentId = root.DepartmentId,
-                PartId = parts.TryGetValue(name.ToUpperInvariant(), out var l) ? l.OrderBy(x => x.PartNumber, StringComparer.Ordinal).First().Id : null };
+                PartId = parts.TryGetValue(DrawingPartMatcher.Normalize(name), out var l) ? l.OrderBy(x => x.PartNumber, StringComparer.Ordinal).First().Id : null };
             db.DrawingFolders.Add(f);
             tree[Key(s)] = f.Id;
         }
@@ -267,5 +256,31 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
                 $"{r.Skipped} already there, {r.Failed} failed, {r.Linked} part links"),
         });
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Runs the name matching again over every drawing the user can manage and adds the links that are missing (for example after parts were imported).
+    /// Links are never removed. One audit entry per drawing that gained links, and one for the run.
+    /// </summary>
+    public async Task<object> RelinkAsync(CancellationToken ct)
+    {
+        var scope = await access.GetScopeAsync(UserId, Permissions.SequflohManageDrawings, ct);
+        if (scope.IsEmpty) throw new ForbiddenException();
+        var (checkedCount, added, per) = await matcher.LinkAsync(null, null, ct, scope.Allows);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var (id, site, title, n) in per)
+            db.AuditEntries.Add(new AuditEntry
+            {
+                OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Linked drawing to parts", EntityType = nameof(Drawing), EntityId = id, SiteId = site,
+                CorrelationId = me.CorrelationId, Description = AuditText.Fit($"Relink drawings: drawing {title} linked to {n} more part{(n == 1 ? "" : "s")} with a matching OR #, SENSEN # or drawing number field"),
+            });
+        db.AuditEntries.Add(new AuditEntry
+        {
+            OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Relinked drawings", EntityType = nameof(DrawingFolder), EntityId = Guid.Empty,
+            SiteId = await drawings.TopLevelSiteAsync(null, ct), CorrelationId = me.CorrelationId,
+            Description = AuditText.Fit($"Relink drawings checked {checkedCount} drawings and added {added} part links to {per.Count} drawings"),
+        });
+        await db.SaveChangesAsync(ct);
+        return new { Checked = checkedCount, Added = added, Drawings = per.Count };
     }
 }

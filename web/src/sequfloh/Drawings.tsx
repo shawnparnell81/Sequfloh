@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Link, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
 import OpenInNew from '@mui/icons-material/OpenInNew';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -128,7 +128,7 @@ export function DrawingsPage() {
   const q = useQuery({ queryKey: ['drawing-folders', folder, archived], queryFn: () => get<FolderView>(`${D}/folders?${qs({ parentId: folder || undefined, archived: archived || undefined })}`) });
   const found = useQuery({ queryKey: ['drawing-search', search], enabled: !!search, queryFn: () => get<SearchRow[]>(`${D}/search?${qs({ q: search })}`) });
   const [text, setText] = useState(search);
-  const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'history' | 'import'>(null);
+  const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'history' | 'import' | 'relink'>(null);
   const [confirm, setConfirm] = useState(false);
   const v = q.data; const here = v?.parent;
   const canManage = here ? here.canManage : !!v?.canCreate;
@@ -139,6 +139,7 @@ export function DrawingsPage() {
       actions={canManage && !here?.isArchived && <>
         <Button variant="outlined" onClick={() => setDlg('new')}>New folder</Button>
         <Button variant="outlined" onClick={() => setDlg('import')}>Import drawings</Button>
+        {!here && <Button variant="outlined" onClick={() => setDlg('relink')}>Relink drawings</Button>}
         {here && <Button variant="contained" onClick={() => setDlg('upload')}>Upload drawing</Button>}</>}>
       <Stack direction="row" gap={1} sx={{ mb: 2 }} component="form" onSubmit={(e) => { e.preventDefault(); set('q', text.trim()); }}>
         <TextField size="small" label="Search drawings" placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 360 }} />
@@ -174,6 +175,7 @@ export function DrawingsPage() {
         onClose={() => setDlg(null)} onSaved={(id) => { refresh(); if (dlg === 'new') open(id); }} />
       {here && <UploadDialog open={dlg === 'upload'} folderId={here.id} defaultParts={here.part ? [{ id: here.part.id, label: `${here.part.partNumber} — ${here.part.name}` }] : []} onClose={() => setDlg(null)}
         onSaved={(id) => { refresh(); nav(`/sequfloh/engineering/drawings/d/${id}`); }} />}
+      <RelinkDialog open={dlg === 'relink'} onClose={() => setDlg(null)} />
       {<ImportDrawingsDialog open={dlg === 'import'} folderId={here?.id ?? null} folderName={here?.name ?? 'All folders'} onClose={() => setDlg(null)} onDone={refresh} />}
       {here && <HistoryDialog open={dlg === 'history'} url={`${D}/folders/${here.id}/history`} onClose={() => setDlg(null)} />}
       {here && <Confirm open={confirm} title={here.isArchived ? 'Restore folder' : 'Archive folder'} confirm={here.isArchived ? 'Restore' : 'Archive'} danger={!here.isArchived}
@@ -236,7 +238,7 @@ function HistoryDialog({ open, url, onClose }: { open: boolean; url: string; onC
 }
 
 interface DrawingDetail { id: string; title: string; drawingNumber?: string; notes?: string; currentRevision: string; isArchived: boolean; createdAt: string; updatedAt: string; canManage: boolean;
-  folder: { id: string; name: string; isArchived: boolean; part?: FolderRow['part'] }; parts: { id: string; partNumber: string; name: string }[];
+  folder: { id: string; name: string; isArchived: boolean; part?: FolderRow['part'] }; parts: { id: string; partNumber: string; name: string; numbers?: string }[];
   revisions: { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; createdAt: string; createdByName?: string; viewable: boolean; current: boolean }[] }
 
 export function DrawingPage() {
@@ -267,7 +269,7 @@ export function DrawingPage() {
             <Box><Typography variant="caption" color="text.secondary">Folder</Typography><Typography><Link component={RouterLink} to={`/sequfloh/engineering/drawings?folder=${d.folder.id}`}>{d.folder.name}</Link></Typography></Box>
             <Box><Typography variant="caption" color="text.secondary">Linked parts</Typography><Stack direction="row" gap={0.5} flexWrap="wrap" data-testid="linked-parts">
               {[...(d.folder.part && !d.parts.some((p) => p.id === d.folder.part!.id) ? [d.folder.part] : []), ...d.parts].map((p) =>
-                <Chip key={p.id} size="small" label={p.partNumber} component={RouterLink} to={`/sequfloh/parts/${p.id}`} clickable />)}
+                <Chip key={p.id} size="small" label={('numbers' in p && p.numbers ? p.numbers : p.partNumber) as string} component={RouterLink} to={`/sequfloh/parts/${p.id}`} clickable />)}
               {!d.parts.length && !d.folder.part && <Typography variant="body2" color="text.secondary">None</Typography>}</Stack></Box>
             {d.isArchived && <Chip color="warning" label="Archived" />}
           </Stack>
@@ -358,4 +360,31 @@ export function DrawingViewer() {
       isPdf ? <Box component="iframe" title="Drawing" src={fileUrl(id, r.revision, true)} sx={{ flex: 1, border: 0, width: '100%' }} data-testid="drawing-frame" />
         : <Box sx={{ flex: 1, overflow: 'auto', textAlign: 'center', bgcolor: 'grey.100' }}><Box component="img" alt={label(d!)} src={fileUrl(id, r.revision, true)} sx={{ maxWidth: '100%' }} data-testid="drawing-image" /></Box>}
   </Box>;
+}
+
+/** Runs the part matching again over every drawing and adds the links that are missing. Links are never removed. */
+function RelinkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<{ checked: number; added: number; drawings: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true); setErr(null);
+    try { setRes(await post(`${D}/relink`, {})); qc.invalidateQueries(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setRes(null); setErr(null); } }}>
+    <DialogTitle>Relink drawings</DialogTitle>
+    <DialogContent><Stack gap={2}>
+      <Typography variant="body2">Checks every drawing against the parts and links each drawing to every part whose OR #, SENSEN # or drawing number field matches the drawing title or its folder name
+        (for fuel pumps the JH PN, so one drawing links to all the OR PNs that share it). Case, spaces, dashes and underscores are ignored. Links that are already there, including ones made by hand, are kept.</Typography>
+      {busy && <LinearProgress />}
+      {err && <Alert severity="error">{err}</Alert>}
+      {res && <Alert severity="success" data-testid="relink-result">Checked {res.checked.toLocaleString('en-US')} drawings. Added {res.added.toLocaleString('en-US')} part link{res.added === 1 ? '' : 's'}
+        {res.added > 0 && ` to ${res.drawings.toLocaleString('en-US')} drawing${res.drawings === 1 ? '' : 's'}`}.</Alert>}
+    </Stack></DialogContent>
+    <DialogActions>
+      <Button onClick={onClose} disabled={busy}>{res ? 'Close' : 'Cancel'}</Button>
+      {!res && <Button variant="contained" onClick={run} disabled={busy}>Relink</Button>}
+    </DialogActions>
+  </Dialog>;
 }

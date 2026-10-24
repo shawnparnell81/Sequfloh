@@ -85,6 +85,7 @@ builder.Services.AddSingleton<Sequfloh.Imports.ILegacyOfficeConverter, Sequfloh.
 builder.Services.AddScoped<Sequfloh.Imports.ImportedFileService>();
 builder.Services.AddScoped<Sequfloh.Drawings.DrawingService>();
 builder.Services.AddScoped<Sequfloh.Drawings.DrawingImportService>();
+builder.Services.AddScoped<Sequfloh.Drawings.DrawingPartMatcher>();
 builder.Services.AddScoped<Sequfloh.Deletion.DeletionService>();
 builder.Services.AddScoped<Sequfloh.Tracking.SequflohTimeService>();
 builder.Services.AddSingleton<TokenService>();
