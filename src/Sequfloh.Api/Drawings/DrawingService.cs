@@ -169,7 +169,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new { r.Id, r.Title, r.DrawingNumber, r.CurrentRevision, r.FolderId, r.Folder, r.PartNumber, r.IsArchived, r.UpdatedAt, r.File }).ToList();
     }
 
-    /// <summary>Finds drawings by part number (a linked part, the folder's part or the folder name), drawing number or title. Archived drawings and folders are left out.</summary>
+    /// <summary>Finds drawings by any number of a part (OR #, SENSEN # and every cross-reference number such as NAPA, DMA, Cross or JH; a linked part, the folder's part or the folder name), drawing number or title. Archived drawings and folders are left out.</summary>
     public async Task<object> SearchAsync(string? q, CancellationToken ct)
     {
         var scope = await ScopeAsync(ct);
@@ -177,9 +177,20 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var t = "%" + q.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
         var live = db.DrawingFolders.Where(f => !f.IsArchived);
         var query = db.Drawings.Where(d => !d.IsArchived && live.Any(f => f.Id == d.FolderId) && (EF.Functions.ILike(d.Title, t) || EF.Functions.ILike(d.DrawingNumber ?? "", t)
-            || db.DrawingFolders.Any(f => f.Id == d.FolderId && (EF.Functions.ILike(f.Name, t) || db.Parts.Any(p => p.Id == f.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t)))))
-            || db.DrawingPartLinks.Any(l => l.DrawingId == d.Id && db.Parts.Any(p => p.Id == l.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t))))));
+            || db.DrawingFolders.Any(f => f.Id == d.FolderId && (EF.Functions.ILike(f.Name, t) || db.Parts.Any(p => p.Id == f.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t)))))
+            || db.DrawingPartLinks.Any(l => l.DrawingId == d.Id && db.Parts.Any(p => p.Id == l.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t))))));
         return await DrawingRowsAsync(query, scope, ct, 200);
+    }
+
+    static readonly HashSet<string> NotNumbers = ["keyApplication", "position", "boxSize"];
+
+    /// <summary>A part's numbers in one line, for example "E16070 · DMA PN P50029 · Cross P72128". Placeholders such as "/" are left out.</summary>
+    internal static string PartNumbers(string partNumber, string? drawingNumber, string? attributes)
+    {
+        var a = Infrastructure.Modules.Execution.PartAttributes.Read(attributes);
+        var rest = Infrastructure.Modules.Execution.PartAttributes.All.Where(d => !NotNumbers.Contains(d.Key) && a.ContainsKey(d.Key)).Select(d => (d.Label, Value: a[d.Key]))
+            .Prepend((Label: "SENSEN #", Value: drawingNumber ?? "")).Where(x => DrawingPartMatcher.Normalize(x.Value).Length > 0).Select(x => $"{x.Label} {x.Value}");
+        return string.Join(" · ", rest.Prepend(partNumber));
     }
 
     public async Task<object> GetAsync(Guid id, CancellationToken ct)
@@ -190,8 +201,8 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var revisions = await db.DrawingRevisions.AsNoTracking().Where(v => v.DrawingId == id).OrderByDescending(v => v.CreatedAt)
             .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt, v.CreatedByName }).ToListAsync(ct);
         var canManage = await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, d.SiteId, d.DepartmentId, ct);
-        var parts = await db.DrawingPartLinks.AsNoTracking().Where(l => l.DrawingId == id).Join(db.Parts, l => l.PartId, p => p.Id, (l, p) => new { p.Id, p.PartNumber, p.Name })
-            .OrderBy(p => p.PartNumber).ToListAsync(ct);
+        var parts = (await db.DrawingPartLinks.AsNoTracking().Where(l => l.DrawingId == id).Join(db.Parts, l => l.PartId, p => p.Id, (l, p) => new { p.Id, p.PartNumber, p.Name, p.DrawingNumber, p.Attributes })
+            .OrderBy(p => p.PartNumber).ToListAsync(ct)).Select(p => new { p.Id, p.PartNumber, p.Name, Numbers = PartNumbers(p.PartNumber, p.DrawingNumber, p.Attributes) }).ToList();
         return new
         {
             d.Id, d.Title, d.DrawingNumber, d.Notes, d.CurrentRevision, d.IsArchived, d.CreatedAt, d.UpdatedAt, Folder = folder, CanManage = canManage, Parts = parts,
@@ -342,8 +353,15 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         if (partId is { } pid) parts = [pid];
         else if (!string.IsNullOrWhiteSpace(partNumber))
         {
+            // any number of the part counts: OR #, SENSEN # or a cross-reference number (NAPA, DMA, Cross, JH and so on); placeholders such as "/" never match
             var n = partNumber.Trim().ToUpperInvariant();
-            parts = await db.Parts.AsNoTracking().Where(p => p.PartNumber.ToUpper() == n).Select(p => p.Id).ToListAsync(ct);
+            var key = DrawingPartMatcher.Normalize(n);
+            if (key.Length == 0) return [];
+            var like = "%" + n.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+            parts = (await db.Parts.AsNoTracking().Where(p => p.PartNumber.ToUpper() == n || (p.DrawingNumber != null && p.DrawingNumber.ToUpper() == n) || EF.Functions.ILike(p.AttributeText ?? "", like))
+                .Select(p => new { p.Id, p.PartNumber, p.DrawingNumber, p.Attributes }).ToListAsync(ct))
+                .Where(p => new[] { p.PartNumber, p.DrawingNumber }.Concat(Infrastructure.Modules.Execution.PartAttributes.Read(p.Attributes).Values).Any(v => DrawingPartMatcher.Normalize(v) == key))
+                .Select(p => p.Id).ToList();
         }
         else return [];
         if (parts.Count == 0) return [];

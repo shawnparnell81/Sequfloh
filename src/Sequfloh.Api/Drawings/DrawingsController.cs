@@ -28,6 +28,9 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     [HttpPost("import/abort"), RequirePermission(Permissions.SequflohManageDrawings)]
     public async Task<IActionResult> ImportAbort(DrawingImportService.AbortRequest r, CancellationToken ct) { await imports.AbortAsync(r, ct); return NoContent(); }
 
+    [HttpPost("relink"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public Task<object> Relink(CancellationToken ct) => imports.RelinkAsync(ct);
+
     [HttpPost("import/summary"), RequirePermission(Permissions.SequflohManageDrawings)]
     public async Task<IActionResult> ImportSummary(DrawingImportService.SummaryRequest r, CancellationToken ct) { await imports.SummaryAsync(r, ct); return NoContent(); }
 

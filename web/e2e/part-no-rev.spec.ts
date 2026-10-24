@@ -36,7 +36,7 @@ test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ p
 
   // the Fuel Pump list shows JH part # and Box size and no Rev column
   await v.getByTestId('family-card-Fuel Pump').click();
-  await v.getByLabel('Search').first().fill(`NR-${k}`); await v.getByLabel('Search').first().press('Enter');
+  await v.getByRole('textbox', { name: 'Search', exact: true }).fill(`NR-${k}`); await v.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(v.getByText(`JH-${k}-3`)).toBeVisible();
   await expect(v.getByRole('columnheader', { name: 'JH PN', exact: true })).toBeVisible();
   await expect(v.getByRole('columnheader', { name: 'Individual Box Size' })).toBeVisible();
