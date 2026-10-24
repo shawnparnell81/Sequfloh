@@ -1,5 +1,15 @@
 # Changes
 
+## Crew time on work orders and chargeback reports
+
+- Every work order (all types, Inspection and Production too) has a "Crew time" panel next to the clock on panel, on the Record and Time tabs. Enter the crew size (no names, no accounts) and use Start crew, Pause crew, Continue and Stop crew. One set of buttons applies to the whole crew.
+- Labor hours = (elapsed − paused) × crew size. The panel shows crew elapsed hours, crew size, crew labor hours, registered people hours, the total and total personnel. Crew size is kept with each crew session.
+- Registered people still clock on, pause and clock off the job exactly as before. Their hours are shown on their own line and added into the total. Total personnel = largest crew + each registered person who clocked on.
+- People with the new "Manage crew time" permission can add past crew time with start, stop and pause times, edit it or delete it. "Bulk entry" adds a date range in one go: working days (weekends skipped by default, any day can be unticked), hours per day, start time, unpaid lunch and crew size, with the total shown before saving (for example 3 workers × 10 days × 8 h = 240 labor hours). Negative, future or overlapping times are refused. Every add, edit and delete goes to History and the Audit Trail with who, when and the before and after values.
+- Reports has a new "Chargeback Reports" list. "Create report" there, or "Create chargeback report" on a work order, opens a form with work order # (typed), supplier, part number (search the Part Master or type one), task description, result, qty inspected/reworked, qty bad, total personnel, total hours, dates, optional hourly rate with labor cost, parts replaced, other costs, findings and notes. Linking a work order fills hours (crew and registered people), personnel, dates, part, quantities and findings; all can be changed.
+- The report follows the work order Job report chargeback layout and can be printed as a PDF or exported to Excel. Saved reports can be edited or deleted by people with the new "Manage chargeback reports" permission; anyone with report access can view them. Changes are kept in the Audit Trail.
+- The two new permissions are given to the built-in system roles and the Supervisor role. A work order with crew time cannot be deleted.
+
 ## Drawings: import at the top level, and part pickers that find every part
 
 - The Drawings page itself (All folders) now has "Import drawings" too. Choose a folder: its subfolders become drawing folders at the top level, with the same names and nesting, and each PDF goes into its matching folder. PDFs sitting loose in the chosen folder go into a folder named after it. Only PDF files are imported there; the preview shows how many other files are skipped. Preview, part links by OR # or SENSEN #, and carrying on after a stop work as inside a folder. Import inside a folder is unchanged.

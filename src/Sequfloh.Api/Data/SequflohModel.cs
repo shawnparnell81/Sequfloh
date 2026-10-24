@@ -22,6 +22,8 @@ public partial class AppDbContext
     public DbSet<SequflohTaskAssignee> SequflohTaskAssignees => Set<SequflohTaskAssignee>();
     public DbSet<SequflohTimeEntry> SequflohTimeEntries => Set<SequflohTimeEntry>();
     public DbSet<SequflohTestFile> SequflohTestFiles => Set<SequflohTestFile>();
+    public DbSet<SequflohCrewSession> SequflohCrewSessions => Set<SequflohCrewSession>();
+    public DbSet<SequflohChargebackReport> SequflohChargebackReports => Set<SequflohChargebackReport>();
     public DbSet<SequflohInspectionRequest> SequflohInspectionRequests => Set<SequflohInspectionRequest>();
 
     private static void ConfigureSequfloh(ModelBuilder b)
@@ -243,6 +245,32 @@ public partial class AppDbContext
             e.Property(x => x.KeyValues).HasColumnType("jsonb");
             e.Property(x => x.Kind).HasMaxLength(20).HasDefaultValue("test");
             e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<SequflohCrewSession>(e =>
+        {
+            e.ToTable("sequfloh_crew_sessions");
+            e.HasIndex(x => new { x.TrackingRecordId, x.StartedAt });
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            e.Property(x => x.Events).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
+            e.Property(x => x.Note).HasMaxLength(300);
+        });
+        b.Entity<SequflohChargebackReport>(e =>
+        {
+            e.ToTable("sequfloh_chargeback_reports");
+            e.HasIndex(x => x.CreatedAt);
+            e.HasIndex(x => x.TrackingRecordId);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.WorkOrderNumber).HasMaxLength(100);
+            e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            foreach (var n in new[] { nameof(SequflohChargebackReport.Supplier), nameof(SequflohChargebackReport.PartDescription), nameof(SequflohChargebackReport.CreatedByName) }) e.Property(n).HasMaxLength(200);
+            foreach (var n in new[] { nameof(SequflohChargebackReport.SupplierReference), nameof(SequflohChargebackReport.PartNumber), nameof(SequflohChargebackReport.Result),
+                         nameof(SequflohChargebackReport.DiscoveryMethod), nameof(SequflohChargebackReport.SupplierPartNumber) }) e.Property(n).HasMaxLength(100);
+            e.Property(x => x.LotDateCodes).HasMaxLength(300);
+            e.Property(x => x.TotalHours).HasPrecision(12, 2); e.Property(x => x.CrewHours).HasPrecision(12, 2); e.Property(x => x.UserHours).HasPrecision(12, 2);
+            e.Property(x => x.HourlyRate).HasPrecision(12, 2);
+            e.Property(x => x.Parts).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
+            e.Property(x => x.CostLines).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
         });
         b.Entity<SequflohTimeEntry>(e =>
         {
