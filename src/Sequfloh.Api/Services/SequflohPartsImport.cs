@@ -27,7 +27,7 @@ public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Upd
 /// The user maps columns, previews what will be added, updated or skipped, then confirms; the import is saved in one transaction and audited.
 /// Serial numbers are not imported.
 /// </summary>
-public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, SequflohFoundationService f, ILegacyOfficeConverter legacy)
+public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, SequflohFoundationService f, ILegacyOfficeConverter legacy, Sequfloh.Drawings.DrawingPartMatcher drawingLinks)
 {
     public static readonly string[] Accepted = [".xlsx", ".xlsm", ".xls", ".csv", ".docx", ".doc"];
     public const int MaxRows = 5000;
@@ -346,6 +346,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         var today = await m.TodayAsync(r.SiteId, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var byRow = parsed.ToDictionary(p => p.Row);
+        var saved = new List<Guid>();
         foreach (var row in plan.Rows)
         {
             var p = byRow[row.Row];
@@ -355,9 +356,10 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 part.Revision = p.Revision ?? "A"; // on an update the revision is changed only through Revise
                 p.Apply(part);
                 db.Parts.Add(part);
+                saved.Add(part.Id);
                 db.PartRevisions.Add(new PartRevision { PartId = part.Id, Revision = part.Revision, Reason = "Initial release (imported)", EffectiveOn = today });
             }
-            else if (row.Action == "Update") p.Apply(targets[row.Row]);
+            else if (row.Action == "Update") { p.Apply(targets[row.Row]); saved.Add(targets[row.Row].Id); }
         }
         var file = Path.GetFileName(r.FileName);
         db.AuditEntries.Add(new AuditEntry
@@ -367,6 +369,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        await drawingLinks.LinkPartsAsync(saved, ct); // drawings already named with a new or changed number link to these parts
         return plan;
     }
 }

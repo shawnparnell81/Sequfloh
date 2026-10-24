@@ -308,6 +308,7 @@ export function PartDetailPage() {
           extra="Links to drawings are removed; the drawings stay. Parts used by work instructions, work orders or parts lists can't be deleted; deactivate them instead." /></>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : p && <>
         {p.notes && <Alert severity="warning" icon={false} sx={{ mb: 2, whiteSpace: 'pre-wrap' }} data-testid="part-notes"><Typography variant="subtitle2">Notes</Typography>{p.notes}</Alert>}
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="part-drawings-box"><Typography variant="subtitle2" sx={{ mb: 1 }}>Drawings</Typography><PartDrawingLinks partId={p.id} /></Paper>
         <StatusEditor kind="part" id={p.id} tag={p.statusTag} note={p.statusNote} canEdit={!!q.data?.canEdit} onSaved={refresh} />
         {tab === 'overview' && !p.typeId && <Alert severity="warning" sx={{ mb: 2 }} data-testid="set-part-type"
           action={q.data?.canEdit && <Button color="inherit" size="small" onClick={() => setEdit(true)}>Set product family</Button>}>This part has no product family yet.</Alert>}
@@ -321,8 +322,6 @@ export function PartDetailPage() {
             {code !== FUEL_PUMP && <Field label={DWG_LABEL}>{p.drawingNumber}</Field>}<Field label="Specification">{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}
-          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Drawings</Typography>
-          <PartDrawingLinks partId={p.id} />
           <Typography variant="subtitle2" sx={{ mt: 2 }}>Related SEQUFLOH records</Typography>
           <Typography variant="body2">Parts lists: {q.data!.related.partsLists}</Typography>
         </Paper>}
