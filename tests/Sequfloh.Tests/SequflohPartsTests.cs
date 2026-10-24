@@ -47,7 +47,8 @@ public sealed class SequflohPartsTests(TestApp app)
         Assert.Equal(1, list.GetProperty("total").GetInt32());
         var detail = await viewer.GetElAsync($"/api/sequfloh/parts/{id}");
         Assert.False(detail.GetProperty("canEdit").GetBoolean());
-        Assert.NotEmpty((await viewer.GetElAsync($"/api/sequfloh/parts/{id}/history")).EnumerateArray());
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.GetAsync($"/api/sequfloh/parts/{id}/history")).StatusCode); // history is for the audit trail permission
+        Assert.NotEmpty((await (await app.AdminAsync()).GetElAsync($"/api/sequfloh/parts/{id}/history")).EnumerateArray());
         Assert.Equal(HttpStatusCode.NoContent, (await eng.PostAsync($"/api/sequfloh/parts/{id}/deactivate", new { })).StatusCode);
         Assert.Equal(0, (await viewer.GetElAsync($"/api/sequfloh/parts?q={pn}&view=active")).GetProperty("total").GetInt32());
     }

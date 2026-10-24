@@ -46,7 +46,7 @@ public sealed class InspectionRequestTests(TestApp app)
         Assert.Equal(HttpStatusCode.BadRequest, (await plain.PostAsync(U, new { siteId = site, partNumber = " " })).StatusCode);
         await plain.PostOkAsync($"{U}/{low}/status", new { status = "Cancelled" });
         Assert.Equal("Cancelled", (await plain.GetElAsync($"{U}/{low}")).GetProperty("status").GetString());
-        var hist = (await plain.GetElAsync($"{U}/{low}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString()).ToList();
+        var hist = (await (await app.AdminAsync()).GetElAsync($"{U}/{low}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString()).ToList();
         Assert.Contains(hist, h => h!.Contains("Open → Cancelled"));
     }
 

@@ -158,6 +158,6 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         Response.Headers.ContentDisposition = $"inline; filename=\"{name}\"";
         return File(pdf, "application/pdf");
     }
-    [HttpGet("{id:guid}/history")]
+    [HttpGet("{id:guid}/history")] [RequirePermission(Permissions.SequflohViewAuditTrail)]
     public async Task<object> History(Guid id, CancellationToken ct) { await wi.LoadAsync(id, false, ct); return await parts.HistoryAsync(SequflohInstructionService.EntityType, id, ct); }
 }

@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { FormDialogTitle } from './FullScreen';
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, LinearProgress, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import DriveFolderUploadOutlined from '@mui/icons-material/DriveFolderUploadOutlined';
 import type { UploadSurface } from './uploadSurfaces';
@@ -74,7 +75,7 @@ export function ImportButtons({ surface, accept, maxBytes, upload, onFiles, onDo
         onChange={(e) => { pick(e.target.files, true); e.target.value = ''; }} />
     </Stack>
     {items && <Dialog open onClose={busy ? undefined : () => setItems(null)} maxWidth="md" fullWidth data-testid="bulk-import">
-      <DialogTitle>Import {what}s</DialogTitle>
+      <FormDialogTitle>Import {what}s</FormDialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Accepted here: {accept.join(', ')}{maxBytes ? `, up to ${mb(maxBytes)} each` : ''}. Every file is added on its own; nothing already here is replaced.</Typography>
         {!finished && !busy && settings && <Box sx={{ mb: 2 }}>{typeof settings === 'function' ? settings(items.filter((x) => x.state === 'waiting').map((x) => x.file)) : settings}</Box>}

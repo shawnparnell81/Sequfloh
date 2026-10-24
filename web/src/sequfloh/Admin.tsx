@@ -1,7 +1,8 @@
 import { setupOptions } from '../components/SetupLink';
+import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
+import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
@@ -185,7 +186,7 @@ function SequenceDialog({ seq, onClose, onSaved }: { seq: Sequence | null; onClo
   if (!v) return null;
   return (
     <Dialog open={!!seq} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>{v.label}</DialogTitle>
+      <FormDialogTitle>{v.label}</FormDialogTitle>
       <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
         {error && <Alert severity="error">{error}</Alert>}
         <TextField label="Prefix" value={v.prefix} onChange={(e) => setV({ ...v, prefix: e.target.value })} />
@@ -290,7 +291,7 @@ function ValueDialog({ listKey, value, onClose, onSaved }: { listKey: string; va
   useEffect(() => { setError(null); setV(value && value !== 'new' ? { code: value.code, label: value.label, description: value.description ?? '', isActive: value.isActive, isDefault: value.isDefault } : { code: '', label: '', description: '', isActive: true, isDefault: false }); }, [value]);
   return (
     <Dialog open={!!value} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{isNew ? 'New value' : 'Edit value'}</DialogTitle>
+      <FormDialogTitle>{isNew ? 'New value' : 'Edit value'}</FormDialogTitle>
       <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
         {error && <Alert severity="error">{error}</Alert>}
         <TextField label="Label" required value={v.label} onChange={(e) => setV({ ...v, label: e.target.value })} />
@@ -314,7 +315,7 @@ function HistoryDialog({ value, onClose }: { value: RefValue | null; onClose: ()
   const q = useQuery({ queryKey: ['sqf-value-history', value?.id], queryFn: () => get<{ occurredAt: string; userName: string; action: string; description: string }[]>(`${S}/reference/values/${value!.id}/history`), enabled: !!value });
   return (
     <Dialog open={!!value} onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>History of {value?.label}</DialogTitle>
+      <FormDialogTitle>History of {value?.label}</FormDialogTitle>
       <DialogContent>{q.isLoading ? <Loading /> : (q.data ?? []).length === 0 ? <Empty text="No history yet." /> :
         <Table size="small"><TableHead><TableRow><TableCell>When</TableCell><TableCell>Who</TableCell><TableCell>Action</TableCell><TableCell>Details</TableCell></TableRow></TableHead>
           <TableBody>{q.data!.map((h, i) => <TableRow key={i}><TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(h.occurredAt)}</TableCell><TableCell>{h.userName}</TableCell><TableCell>{h.action}</TableCell><TableCell>{h.description}</TableCell></TableRow>)}</TableBody></Table>}

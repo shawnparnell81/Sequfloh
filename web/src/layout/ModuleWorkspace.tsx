@@ -43,7 +43,7 @@ export function ModuleWorkspace({ module, crumbs, title, actions, tabs, tab, onT
         </Box>
         <SideNav items={mod.sidebar} compact={collapsed} />
       </Box>
-      <Box component="main" sx={{ flex: 1, minWidth: 0 }}>
+      <Box component="main" data-fullscreen-root sx={{ flex: 1, minWidth: 0 }}>
         {section && <SectionMenu section={section} />}
         <Box sx={{ px: { xs: 2, md: 4 }, pt: 3, color: tk.header.fg }}>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.25 }}>

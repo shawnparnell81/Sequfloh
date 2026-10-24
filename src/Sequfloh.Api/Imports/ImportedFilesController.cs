@@ -52,7 +52,7 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
         return File(content, type, name);
     }
 
-    [HttpGet("{id:guid}/history"), RequirePermission(Permissions.SequflohViewImportedFiles)]
+    [HttpGet("{id:guid}/history"), RequirePermission(Permissions.SequflohViewImportedFiles)] [RequirePermission(Permissions.SequflohViewAuditTrail)]
     public Task<object> History(Guid id, CancellationToken ct) => files.HistoryAsync(id, ct);
 
     public sealed record PartNumberRequest(string? PartNumber);

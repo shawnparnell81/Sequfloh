@@ -151,7 +151,7 @@ public sealed class JobReportDetailTests(TestApp app)
         Assert.Equal("C", report.GetProperty("workInstructionRevision").GetString());
         var pdf = await PdfText(plain, $"{U}/{id}/job/report/pdf?full=true&rate=50");
         Assert.Contains("65.00", pdf); // no hours logged: 0 labor + 25 parts + 40 other
-        var history = (await plain.GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString()).ToList();
+        var history = (await (await app.AdminAsync()).GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString()).ToList();
         Assert.Contains(history, h => h!.Contains("Findings on"));
         Assert.Contains(history, h => h!.Contains("Freight 40.00"));
     }

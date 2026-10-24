@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { useUsers } from '../components/Kit';
@@ -34,7 +35,7 @@ export function AssigneesPanel({ recordId, people, canAssign }: { recordId: stri
         {people.length ? people.map((p) => <Chip key={p.id} label={p.displayName} />) : <Typography variant="body2" color="text.secondary">Nobody yet.</Typography>}
       </Stack>
       <Dialog open={open} onClose={busy ? undefined : () => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Assigned people</DialogTitle>
+        <FormDialogTitle>Assigned people</FormDialogTitle>
         <DialogContent>
           {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
           <Autocomplete multiple options={users.data ?? []} value={pick} getOptionLabel={(o) => o.displayName} isOptionEqualToValue={(a, b) => a.id === b.id}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Tooltip, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import EditOutlined from '@mui/icons-material/EditOutlined';
@@ -121,7 +122,7 @@ function SessionDialog({ recordId, session, onClose, onSaved }: { recordId: stri
     catch (e) { setErr((e as Error).message); }
   };
   return <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-    <DialogTitle>{session ? 'Edit crew time' : 'Add past crew time'}</DialogTitle>
+    <FormDialogTitle>{session ? 'Edit crew time' : 'Add past crew time'}</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
       <TextField type="number" label="Crew size (workers)" value={crew} onChange={(e) => setCrew(e.target.value)} inputProps={{ min: 1 }} />
       <Stack direction="row" gap={2}>
@@ -165,7 +166,7 @@ function BulkDialog({ recordId, onClose, onSaved }: { recordId: string; onClose:
     } catch (e) { setErr((e as Error).message); }
   };
   return <Dialog open onClose={onClose} fullWidth maxWidth="md">
-    <DialogTitle>Bulk crew time</DialogTitle>
+    <FormDialogTitle>Bulk crew time</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
       <Stack direction="row" gap={2} flexWrap="wrap">
         <TextField type="date" label="From" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />

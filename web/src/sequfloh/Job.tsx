@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, Chip, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+import { Alert, Box, Button, Checkbox, Chip, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Dialog, DialogActions, DialogContent, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Tooltip, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -49,7 +50,7 @@ export function StatusEditor({ kind, id, tag, note, canEdit, onSaved, compact }:
     </Stack>
     <Typography variant="caption" color="text.secondary">{STATUS_HELP}</Typography>
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-      <DialogTitle>{STATUS_LABEL}</DialogTitle>
+      <FormDialogTitle>{STATUS_LABEL}</FormDialogTitle>
       <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
         <Alert severity="info">{STATUS_HELP}</Alert>
         {select(t, setT, 'medium')}
@@ -167,7 +168,7 @@ function ColumnsDialog({ id, fileId, onClose, onSaved }: { id: string; fileId: s
   const v = m ?? (d ? { ...d.current, resultColumn: d.current.resultColumn ?? d.suggested ?? null } : {});
   const pick = (label: string, key: 'resultColumn' | 'batchColumn' | 'dateColumn') => <TextField select size="small" label={label} value={v[key] ?? ''} onChange={(e) => setM({ ...v, [key]: e.target.value || null })}>
     <MenuItem value="">(none)</MenuItem>{(d?.headers ?? []).map((h) => <MenuItem key={h} value={h}>{h}</MenuItem>)}</TextField>;
-  return <Dialog open onClose={onClose} fullWidth maxWidth="md"><DialogTitle>Tester file columns</DialogTitle>
+  return <Dialog open onClose={onClose} fullWidth maxWidth="md"><FormDialogTitle>Tester file columns</FormDialogTitle>
     <DialogContent>{q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : d && <Stack gap={2} sx={{ pt: 1 }}>
       <Stack direction="row" gap={1} flexWrap="wrap">{pick('Pass/fail column', 'resultColumn')}{pick('Batch column', 'batchColumn')}{pick('Date column', 'dateColumn')}</Stack>
       <TextField size="small" label="Values that mean pass (comma separated)" value={(v.passValues ?? []).join(', ')} placeholder="PASS, PASSED, OK, GOOD"

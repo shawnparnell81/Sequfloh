@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, ListSubheader, MenuItem, Radio, RadioGroup, Stack, Table, TableBody, TableCell,
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, ListSubheader, MenuItem, Radio, RadioGroup, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post } from '../api';
@@ -55,7 +56,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const isDocx = /\.docx?$/i.test(file?.name ?? '');
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" TransitionProps={{ onEnter: reset }}>
-      <DialogTitle>Import parts</DialogTitle>
+      <FormDialogTitle>Import parts</FormDialogTitle>
       <DialogContent>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         {done ? <Alert severity="success" data-testid="import-done">Imported from {table?.fileName}: {done.add} added, {done.update} updated, {done.skip} skipped{done.errors ? `, ${done.errors} row${done.errors === 1 ? '' : 's'} with errors not imported` : ''}.</Alert> : <>

@@ -78,9 +78,10 @@ test('a blank form stays blank; filled copies and saved copies are separate file
   await shot('08-edit-blank-on.png');
   await view(page).getByRole('switch', { name: 'Edit blank' }).uncheck();
 
-  await view(page).getByRole('tab', { name: 'History' }).click();
-  await expect(view(page).getByText('Created from blank form').first()).toBeVisible();
-  await expect(view(page).getByText('Saved as copy').first()).toBeVisible();
+  await expect(view(page).getByRole('tab', { name: 'History' })).toHaveCount(0);
+  await page.goto(`/admin/audit-trail?q=${encodeURIComponent(blankTitle)}`);
+  await expect(view(page).getByText(/created from blank form/i).first()).toBeVisible();
+  await expect(view(page).getByText(/saved as copy/i).first()).toBeVisible();
   await shot('09-blank-history-audit.png');
 
   await page.goto('/sequfloh/imported-files?kind=blank');

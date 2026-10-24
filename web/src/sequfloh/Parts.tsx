@@ -1,7 +1,8 @@
 import { setupOptions } from '../components/SetupLink';
+import { FormDialogTitle } from '../components/FullScreen';
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, Menu, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, Menu, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
@@ -16,8 +17,9 @@ import { fmtDateTime } from '../components/Status';
 import { ImportPartsDialog } from './PartsImport';
 import { ChangeFamilyDialog } from './ChangeFamily';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
-import { StatusEditor, downloadCsv, useStatusFilter } from './Job';
+import { StatusEditor, useStatusFilter } from './Job';
 import { partNo } from './partLabel';
+import { RecordActions } from '../components/RecordActions';
 import { LOT_CHOICES, UNITS, Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, type Col, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
 const crumbs = (label: string, extra?: { label: string; to?: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts and Items', to: '/sequfloh/parts' }, { label, to: extra ? undefined : undefined }, ...(extra ? [extra] : [])];
@@ -240,7 +242,7 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
   };
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" TransitionProps={{ onEnter: init }}>
-      <DialogTitle>{edit ? `Edit part ${edit.partNumber}` : 'New part'}</DialogTitle>
+      <FormDialogTitle>{edit ? `Edit part ${edit.partNumber}` : 'New part'}</FormDialogTitle>
       <DialogContent>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Box sx={{ pt: 1 }}><Grid>
@@ -296,7 +298,6 @@ export function PartDetailPage() {
   const { id } = useParams();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['sqf-part', id], queryFn: () => get<PartDetail>(`${S}/parts/${id}`) });
-  const history = useQuery({ queryKey: ['sqf-part-history', id], queryFn: () => get<AuditRow[]>(`${S}/parts/${id}/history`) });
   const [edit, setEdit] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState('overview');
@@ -304,15 +305,15 @@ export function PartDetailPage() {
   const ptypes = usePartTypes();
   const p = q.data?.part;
   const code = ptypes.data?.find((t) => t.id === p?.typeId)?.code;
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); qc.invalidateQueries({ queryKey: ['sqf-part', id] }); qc.invalidateQueries({ queryKey: ['sqf-part-history', id] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); qc.invalidateQueries({ queryKey: ['sqf-part', id] }); };
   return (
     <SqfPage title={p ? `${p.partNumber} · ${p.name}` : 'Part'} crumbs={crumbs('Part Master', { label: p?.partNumber ?? '…' })} recent={p ? { label: `Part ${p.partNumber}`, itemType: 'Part', recordId: p.id } : null}
-      tabs={[{ label: 'Overview', value: 'overview' }, { label: 'Parts lists', value: 'lists' }, { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
-      actions={p && <>{q.data?.canEdit && <>
-        <Button variant="outlined" onClick={() => setEdit(true)}>Edit</Button>
-        <Button color={p.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{p.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button></>}
-        <DeleteButton what={`part ${p.partNumber}`} url={`${S}/parts/${p.id}`} to="/sequfloh/parts"
-          extra="Links to drawings are removed; the drawings stay. Parts used by work instructions, work orders or parts lists can't be deleted; deactivate them instead." /></>}>
+      tabs={[{ label: 'Overview', value: 'overview' }, { label: 'Parts lists', value: 'lists' }]} tab={tab} onTab={setTab}
+      actions={p && <RecordActions surface="part" edit={!!q.data?.canEdit && { onClick: () => setEdit(true) }}
+        del={{ what: `part ${p.partNumber}`, url: `${S}/parts/${p.id}`, to: '/sequfloh/parts',
+          extra: "Links to drawings are removed; the drawings stay. Parts used by work instructions, work orders or parts lists can't be deleted; deactivate them instead." }}>
+        {q.data?.canEdit && <Button color={p.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{p.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button>}
+      </RecordActions>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : p && <>
         {p.notes && <Alert severity="warning" icon={false} sx={{ mb: 2, whiteSpace: 'pre-wrap' }} data-testid="part-notes"><Typography variant="subtitle2">Notes</Typography>{p.notes}</Alert>}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="part-drawings-box"><Typography variant="subtitle2" sx={{ mb: 1 }}>Drawings</Typography><PartDrawingLinks partId={p.id} /></Paper>
@@ -335,7 +336,6 @@ export function PartDetailPage() {
         </Paper>}
         {tab === 'lists' && (q.data!.partsLists.length === 0 ? <Empty text="No parts lists use this part." /> : <SimpleTable head={['Number', 'Title', 'Rev', 'Type', 'Status']}
           rows={q.data!.partsLists.map((l) => [<Link key="n" component={RouterLink} to={`/sequfloh/parts-lists/${l.id}`}><Mono>{l.number}</Mono></Link>, l.title, l.revision, words(l.listType), <SqfStatus key="s" status={l.status} />])} />)}
-        {tab === 'history' && <HistoryTable q={history} />}
         <PartDialog open={edit} edit={p} onClose={() => setEdit(false)} onSaved={refresh} />
         <Confirm open={confirm} title={p.status === 'Inactive' ? 'Reactivate part' : 'Deactivate part'} confirm={p.status === 'Inactive' ? 'Reactivate' : 'Deactivate'} danger={p.status !== 'Inactive'}
           text={p.status === 'Inactive' ? 'The part becomes available for new SEQUFLOH records again.' : 'The part stays on existing records but cannot be selected for new ones.'}
@@ -349,24 +349,6 @@ export function SimpleTable({ head, rows }: { head: string[]; rows: React.ReactN
   return <Paper variant="outlined"><TableContainer sx={{ overflowX: 'auto' }}><Table size="small">
     <TableHead><TableRow>{head.map((h) => <TableCell key={h}>{h}</TableCell>)}</TableRow></TableHead>
     <TableBody>{rows.map((r, i) => <TableRow key={i}>{r.map((c, j) => <TableCell key={j}>{c}</TableCell>)}</TableRow>)}</TableBody></Table></TableContainer></Paper>;
-}
-
-export interface AuditRow { occurredAt: string; userName?: string; action: string; description?: string; reason?: string }
-export function HistoryTable({ q, name = 'history' }: { q: { data?: AuditRow[]; isLoading: boolean; error: unknown }; name?: string }) {
-  const [filter, setFilter] = useState('');
-  if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorState error={q.error} />;
-  if (!q.data?.length) return <Empty text="No audit history yet." />;
-  const f = filter.trim().toLowerCase();
-  const rows = q.data.filter((h) => !f || [h.action, words(h.action), h.userName, h.description, h.reason, fmtDateTime(h.occurredAt)].some((x) => x?.toLowerCase().includes(f)));
-  return <Stack gap={1}>
-    <Stack direction="row" gap={1} alignItems="center">
-      <TextField size="small" label="Filter history" value={filter} onChange={(e) => setFilter(e.target.value)} sx={{ minWidth: 260 }} />
-      <Typography variant="body2" color="text.secondary">{rows.length} of {q.data.length}</Typography><Box flex={1} />
-      <Button variant="outlined" onClick={() => downloadCsv(`${name}.csv`, ['When (UTC)', 'Action', 'User', 'Description', 'Reason'], rows.map((h) => [h.occurredAt, words(h.action), h.userName, h.description, h.reason]))}>Export CSV</Button>
-    </Stack>
-    <SimpleTable head={['When', 'Action', 'User', 'Details']} rows={rows.map((h) => [fmtDateTime(h.occurredAt), words(h.action), h.userName ?? '—', [h.description, h.reason].filter(Boolean).join(' · ')])} />
-  </Stack>;
 }
 
 // ------------------------------------------------------------------ parts lists
@@ -422,7 +404,7 @@ function ListDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
   };
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setErr(null); setF(edit ? { title: edit.title, parentPartId: edit.parentPartId ?? '', description: edit.description ?? '', listType: edit.listType } : { title: '', parentPartId: '', description: '', listType: 'Standard' }); } }}>
-      <DialogTitle>{edit ? `Edit ${edit.number}` : 'New parts list'}</DialogTitle>
+      <FormDialogTitle>{edit ? `Edit ${edit.number}` : 'New parts list'}</FormDialogTitle>
       <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
         {err && <Alert severity="error">{err}</Alert>}
         <TextField label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
@@ -446,7 +428,7 @@ function ItemDialog({ open, listId, edit, onClose, onSaved }: { open: boolean; l
   };
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, v]) => [k, v === null || v === undefined ? '' : typeof v === 'boolean' ? v : String(v)])) } as typeof blank : blank); } }}>
-      <DialogTitle>{edit ? `Edit item ${edit.itemNumber}` : 'Add item'}</DialogTitle>
+      <FormDialogTitle>{edit ? `Edit item ${edit.itemNumber}` : 'Add item'}</FormDialogTitle>
       <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
         {err && <Alert severity="error">{err}</Alert>}
         <PartPicker label="Part from Part Master" value={f.partId} onChange={(id, pn) => setF({ ...f, partId: id, partNumber: pn ?? f.partNumber })} />
@@ -469,14 +451,13 @@ export function PartsListDetailPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['sqf-list', id], queryFn: () => get<ListDetail>(`${S}/parts-lists/${id}`) });
-  const history = useQuery({ queryKey: ['sqf-list-history', id], queryFn: () => get<AuditRow[]>(`${S}/parts-lists/${id}/history`) });
   const [tab, setTab] = useState('items');
   const [dlg, setDlg] = useState<null | 'edit' | 'item' | 'release' | 'revise' | 'active' | 'copy'>(null);
   const [item, setItem] = useState<ItemRow | null>(null);
   const [copyFrom, setCopyFrom] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const lists = useQuery({ queryKey: ['sqf-list-pick'], queryFn: () => get<Paged<ListRow>>(`${S}/parts-lists?pageSize=200`), enabled: dlg === 'copy' });
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-list', id] }); qc.invalidateQueries({ queryKey: ['sqf-list-history', id] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-list', id] }); };
   const act = async (fn: () => Promise<unknown>) => { setErr(null); try { await fn(); refresh(); } catch (e) { setErr((e as Error).message); } };
   const l = q.data?.list;
   const editable = !!q.data?.canEdit && l?.status === 'Draft';
@@ -484,14 +465,14 @@ export function PartsListDetailPage() {
   const move = (i: number, d: number) => { const ids = items.map((x) => x.id); [ids[i], ids[i + d]] = [ids[i + d], ids[i]]; act(() => post(`${S}/parts-lists/${id}/items/reorder`, { ids })); };
   return (
     <SqfPage title={l ? `${l.number} · ${l.title}` : 'Parts list'} crumbs={crumbs('Parts Lists', { label: l?.number ?? '…' })} recent={l ? { label: `Parts list ${l.number}`, itemType: 'PartsList', recordId: l.id } : null}
-      tabs={[{ label: 'Items', value: 'items' }, { label: 'Revisions', value: 'revisions' }, { label: 'History', value: 'history' }]} tab={tab} onTab={setTab}
-      actions={q.data?.canEdit && l && <>
-        {l.status === 'Draft' && <Button variant="outlined" onClick={() => setDlg('edit')}>Edit</Button>}
+      tabs={[{ label: 'Items', value: 'items' }, { label: 'Revisions', value: 'revisions' }]} tab={tab} onTab={setTab}
+      actions={q.data?.canEdit && l && <RecordActions surface="parts-list" edit={l.status === 'Draft' && { onClick: () => setDlg('edit') }}
+        del={{ what: `parts list ${l.number ?? ''}`.trim(), url: `${S}/parts-lists/${l.id}`, to: '/sequfloh/parts-lists', extra: 'All revisions and items of this list are removed.' }}>
         {l.status === 'Draft' && <Button variant="contained" onClick={() => setDlg('release')}>Release</Button>}
         {l.status === 'Released' && <Button variant="contained" onClick={() => setDlg('revise')}>New revision</Button>}
         <Button onClick={() => act(async () => { const r = await post<{ id: string }>(`${S}/parts-lists/${l.id}/duplicate`, {}); nav(`/sequfloh/parts-lists/${r.id}`); })}>Duplicate</Button>
         <Button color={l.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setDlg('active')}>{l.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button>
-        <DeleteButton what={`parts list ${l.number ?? ''}`.trim()} url={`${S}/parts-lists/${l.id}`} to="/sequfloh/parts-lists" extra="All revisions and items of this list are removed." /></>}>
+      </RecordActions>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : l && <>
         {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr(null)}>{err}</Alert>}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}><Grid cols={4}>
@@ -515,7 +496,6 @@ export function PartsListDetailPage() {
         </>}
         {tab === 'revisions' && (q.data!.revisions.length === 0 ? <Empty text="No earlier revisions." /> : <SimpleTable head={['Revision', 'Status', 'Reason', 'Superseded', 'By', 'Items']}
           rows={q.data!.revisions.map((r) => [r.revision, words(r.statusAtRevision), r.reason ?? '—', fmtDateTime(r.createdAt), r.createdBy ?? '—', (() => { try { return (JSON.parse(r.snapshot).items ?? []).length; } catch { return '—'; } })()])} />)}
-        {tab === 'history' && <HistoryTable q={history} />}
         <ListDialog open={dlg === 'edit'} edit={l} onClose={() => setDlg(null)} onSaved={refresh} />
         <ItemDialog open={dlg === 'item'} listId={l.id} edit={item} onClose={() => setDlg(null)} onSaved={refresh} />
         <Confirm open={dlg === 'release'} title="Release parts list" confirm="Release" text="Releasing locks the list. Further changes need a new revision." onClose={() => setDlg(null)}
@@ -526,7 +506,7 @@ export function PartsListDetailPage() {
           text={l.status === 'Inactive' ? 'The list returns to its previous status.' : 'The list can no longer be selected for new work instructions.'} onClose={() => setDlg(null)}
           onConfirm={async () => { await post(`${S}/parts-lists/${l.id}/${l.status === 'Inactive' ? 'reactivate' : 'deactivate'}`, {}); refresh(); }} />
         <Dialog open={dlg === 'copy'} onClose={() => setDlg(null)} fullWidth maxWidth="sm">
-          <DialogTitle>Copy items from another list</DialogTitle>
+          <FormDialogTitle>Copy items from another list</FormDialogTitle>
           <DialogContent><TextField select fullWidth label="Source list" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} sx={{ mt: 1 }}>
             {(lists.data?.items ?? []).filter((x) => x.id !== l.id).map((x) => <MenuItem key={x.id} value={x.id}>{x.number} · {x.title} ({x.items} items)</MenuItem>)}</TextField></DialogContent>
           <DialogActions><Button onClick={() => setDlg(null)}>Cancel</Button><Button variant="contained" disabled={!copyFrom} onClick={() => { setDlg(null); act(() => post(`${S}/parts-lists/${l.id}/copy-items`, { sourceListId: copyFrom })); }}>Copy items</Button></DialogActions>
@@ -595,7 +575,7 @@ function StepDialog({ edit, onClose, onSaved }: { edit: StepRow | null | undefin
   return (
     <Dialog open={edit !== undefined} onClose={onClose} fullWidth maxWidth="md"
       TransitionProps={{ onEnter: () => { setErr(null); setF(Object.fromEntries(stepFields.map(([k]) => [k, edit?.[k] === null || edit?.[k] === undefined ? '' : String(edit[k])]))); } }}>
-      <DialogTitle>{edit ? `Edit ${edit.number}` : 'New operation step'}</DialogTitle>
+      <FormDialogTitle>{edit ? `Edit ${edit.number}` : 'New operation step'}</FormDialogTitle>
       <DialogContent>{err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}<Box sx={{ pt: 1 }}><Grid>
         {stepFields.map(([k, label, req]) => k === 'category' && (categories.data?.length ?? 0) > 0
           ? <TextField key={k} select label={label} value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value })}><MenuItem value="">—</MenuItem>{categories.data!.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}</TextField>

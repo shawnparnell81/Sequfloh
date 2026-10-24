@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
+import { FormDialogTitle } from '../components/FullScreen';
+import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
   TableContainer, TableHead, TablePagination, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { del, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { ModuleWorkspace } from '../layout/ModuleWorkspace';
@@ -81,7 +83,7 @@ function AddUserDialog({ roles, onClose, onSaved }: { roles: RoleRow[]; onClose:
   };
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Add person</DialogTitle>
+      <FormDialogTitle>Add person</FormDialogTitle>
       <DialogContent>
         <ErrorLine error={error} />
         <Stack gap={2} sx={{ mt: 1 }}>
@@ -116,7 +118,7 @@ function EditUserDialog({ user, roles, self, onClose, onSaved }: { user: UserRow
   const siteName = (id: string | null) => (id ? (sites.data ?? []).find((s) => s.id === id)?.code ?? '' : 'All sites');
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>{user.displayName}</DialogTitle>
+      <FormDialogTitle>{user.displayName}</FormDialogTitle>
       <DialogContent>
         <ErrorLine error={error} />
         {note && <Alert severity="success" sx={{ mb: 2 }}>{note}</Alert>}
@@ -204,7 +206,7 @@ function RoleDialog({ role, catalog, onClose, onSaved }: { role: RoleRow | null;
   const remove = async () => { setError(null); try { await del(`/api/admin/roles/${role!.id}`); onSaved(); } catch (e) { setError((e as Error).message); } };
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>{role ? `Edit role: ${role.name}` : 'New role'}</DialogTitle>
+      <FormDialogTitle>{role ? `Edit role: ${role.name}` : 'New role'}</FormDialogTitle>
       <DialogContent>
         <ErrorLine error={error} />
         <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} sx={{ mt: 1, mb: 2 }}>
@@ -287,32 +289,55 @@ export function SitesPage() {
 }
 
 // ------------------------------------------------------------------ audit trail
-interface AuditRow { id: number; who: string; what: string; when: string; description: string }
+interface AuditRow { id: number; who: string; what: string; when: string; description: string; entityType: string; entityId: string }
+const spaced = (x: string) => x.replace(/^Sequfloh/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
+/** The full audit trail, only on the Administration page: filter by record type, record, user, action and date. */
 export function AuditTrailPage() {
   const { can } = useAuth();
-  const [q, setQ] = useState('');
+  const allowed = can('audittrail.view');
+  const [sp, setSp] = useSearchParams();
+  const v = (k: string) => sp.get(k) ?? '';
+  const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n, { replace: true }); setPage(0); };
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(50);
-  const data = useQuery({ queryKey: ['audit-trail', q, page, size], queryFn: () => get<{ total: number; items: AuditRow[] }>(`/api/audit-trail?q=${encodeURIComponent(q)}&page=${page + 1}&pageSize=${size}`), enabled: can('audittrail.view') });
+  const qs = new URLSearchParams({ page: String(page + 1), pageSize: String(size) });
+  for (const k of ['q', 'entityType', 'entityId', 'userId', 'action', 'from', 'to']) if (v(k)) qs.set(k, v(k));
+  const data = useQuery({ queryKey: ['audit-trail', qs.toString()], queryFn: () => get<{ total: number; items: AuditRow[] }>(`/api/audit-trail?${qs}`), enabled: allowed });
+  const filters = useQuery({ queryKey: ['audit-trail-filters'], queryFn: () => get<{ types: string[]; actions: string[] }>('/api/audit-trail/filters'), enabled: allowed });
+  const users = useQuery({ queryKey: ['admin-users'], queryFn: () => get<UserRow[]>('/api/admin/users'), enabled: allowed && can('admin.users') });
+  const recordOk = !v('entityId') || /^[0-9a-f-]{36}$/i.test(v('entityId'));
   return (
     <ModuleWorkspace crumbs={crumbsFor('Audit Trail')} title="Audit Trail">
-      {!can('audittrail.view') ? <Denied what="the audit trail" /> : <>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: 820 }}>Every change and sign-in: who did it, what they did, when, and a plain description. Entries can't be edited or removed.</Typography>
-        <TextField size="small" label="Search descriptions and names" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} sx={{ mb: 2, minWidth: 360 }} />
+      {!allowed ? <Denied what="the audit trail" /> : <>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: 820 }}>Every change and sign-in for every record: who did it, what they did, when, and a plain description. Entries can't be edited or removed. Record pages do not show their history; it is kept here.</Typography>
+        <Stack direction="row" gap={1.5} flexWrap="wrap" sx={{ mb: 2 }} data-testid="audit-filters">
+          <TextField size="small" label="Search descriptions and names" value={v('q')} onChange={(e) => set('q', e.target.value)} sx={{ minWidth: 280 }} />
+          <TextField select size="small" label="Record type" value={v('entityType')} onChange={(e) => set('entityType', e.target.value)} sx={{ minWidth: 200 }}>
+            <MenuItem value="">All record types</MenuItem>{(filters.data?.types ?? []).map((t) => <MenuItem key={t} value={t}>{spaced(t)}</MenuItem>)}</TextField>
+          <TextField size="small" label="Record id" value={v('entityId')} onChange={(e) => set('entityId', e.target.value.trim())} error={!recordOk} helperText={recordOk ? undefined : 'Paste the record id'} sx={{ minWidth: 300 }} />
+          {users.data && <TextField select size="small" label="User" value={v('userId')} onChange={(e) => set('userId', e.target.value)} sx={{ minWidth: 200 }}>
+            <MenuItem value="">Everyone</MenuItem>{users.data.map((u) => <MenuItem key={u.id} value={u.id}>{u.displayName}</MenuItem>)}</TextField>}
+          <TextField select size="small" label="Action" value={v('action')} onChange={(e) => set('action', e.target.value)} sx={{ minWidth: 180 }}>
+            <MenuItem value="">All actions</MenuItem>{(filters.data?.actions ?? []).map((t) => <MenuItem key={t} value={t}>{spaced(t)}</MenuItem>)}</TextField>
+          <TextField size="small" type="date" label="From" value={v('from')} onChange={(e) => set('from', e.target.value)} InputLabelProps={{ shrink: true }} />
+          <TextField size="small" type="date" label="To" value={v('to')} onChange={(e) => set('to', e.target.value)} InputLabelProps={{ shrink: true }} />
+          {sp.toString() && <Button onClick={() => { setSp({}, { replace: true }); setPage(0); }}>Clear filters</Button>}
+        </Stack>
         <TableContainer component={Paper}>
           <Table size="small">
-            <TableHead><TableRow><TableCell>Who</TableCell><TableCell>What</TableCell><TableCell>When</TableCell><TableCell>Description</TableCell></TableRow></TableHead>
+            <TableHead><TableRow><TableCell>Who</TableCell><TableCell>What</TableCell><TableCell>When</TableCell><TableCell>Record type</TableCell><TableCell>Description</TableCell></TableRow></TableHead>
             <TableBody>
-              {(data.data?.items ?? []).map((a) => (
+              {(recordOk ? data.data?.items ?? [] : []).map((a) => (
                 <TableRow key={a.id} hover>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>{a.who}</TableCell>
-                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{a.what.replace(/([a-z])([A-Z])/g, '$1 $2')}</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{spaced(a.what)}</TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(a.when)}</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}><Button size="small" sx={{ p: 0, minWidth: 0, textTransform: 'none' }} title="Show only this record" onClick={() => { const n = new URLSearchParams(sp); n.set('entityType', a.entityType); n.set('entityId', a.entityId); setSp(n, { replace: true }); setPage(0); }}>{spaced(a.entityType)}</Button></TableCell>
                   <TableCell>{a.description}</TableCell>
                 </TableRow>))}
             </TableBody>
           </Table>
-          <TablePagination component="div" count={data.data?.total ?? 0} page={page} rowsPerPage={size} rowsPerPageOptions={[25, 50, 100]}
+          <TablePagination component="div" count={recordOk ? data.data?.total ?? 0 : 0} page={page} rowsPerPage={size} rowsPerPageOptions={[25, 50, 100]}
             onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={(e) => { setSize(Number(e.target.value)); setPage(0); }} />
         </TableContainer>
       </>}
