@@ -9,7 +9,7 @@ using Sequfloh.Infrastructure.Persistence;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 /// <summary>
-/// Controlled printed layouts for SEQUFLOH: Validation, Validation / FAI, FAI, Repair Test and Repair Work Instructions,
+/// Controlled printed layouts for SEQUFLOH: Validation, Validation / FAI, FAI, Repair Test, Repair Work and Inspection Instructions,
 /// built from the designer schema so every printed section matches the designer. Each print is audited.
 /// </summary>
 public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohInstructionService wi, SequflohFoundationService f, SequflohTrackingService tracking)

@@ -4,7 +4,7 @@ using Sequfloh.Domain.Common;
 namespace Sequfloh.Domain.Execution;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum WorkInstructionType { Validation = 0, ValidationFai = 1, Fai = 2, RepairTest = 3, RepairWork = 4 }
+public enum WorkInstructionType { Validation = 0, ValidationFai = 1, Fai = 2, RepairTest = 3, RepairWork = 4, Inspection = 5 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum WorkInstructionStatus { Draft = 0, Released = 6, Superseded = 7, Obsolete = 8 }

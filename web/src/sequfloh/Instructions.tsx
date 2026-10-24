@@ -34,6 +34,7 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
   fai: { api: 'fai', title: 'FAI Work Instructions', kind: 'validation', newType: 'Fai', description: 'First article inspection instructions with their characteristics.' },
   'repair-test': { api: 'repair-test', title: 'Repair Test Instructions', kind: 'repair', newType: 'RepairTest', description: 'Repair test instructions: test steps, parameters and pass / fail criteria.' },
   repair: { api: 'repair', title: 'Repair Work Instructions', kind: 'repair', newType: 'RepairWork', description: 'Repair folder: Repair Work Instructions and Repair Test instructions, kept separate from validation instructions.' },
+  inspection: { api: 'inspection', title: 'Inspection Work Instructions', kind: 'generic', newType: 'Inspection', description: 'Inspection instructions used when an inspection request is turned into a work order.' },
   draft: { api: 'drafts', title: 'Draft Instructions', kind: 'generic', description: 'Instructions that can still be edited. Release one when it is ready.' },
   released: { api: 'released', title: 'Released Instructions', kind: 'generic', description: 'Current released revisions. Released revisions are read-only; changes go through a new revision.' },
   obsolete: { api: 'obsolete', title: 'Obsolete Instructions', kind: 'generic', description: 'Instructions marked obsolete. They stay on file and cannot be used for new work.' },
@@ -170,7 +171,7 @@ export function NewInstructionPage() {
   };
   return (
     <SqfPage title="New work instruction" crumbs={wiCrumbs('New work instruction')} permission="sequfloh.create_work_instruction" recent={null}
-      description="Choose the work instruction type first. The type decides which designer opens: Validation, Validation / FAI, FAI, Repair Test or Repair Work Instruction.">
+      description="Choose the work instruction type first. The type decides which designer opens: Validation, Validation / FAI, FAI, Repair Test, Repair Work Instruction or Inspection.">
       <Paper variant="outlined" sx={{ p: 3, maxWidth: 880 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Typography variant="overline" component="h2" sx={{ fontWeight: 700 }}>WORK INSTRUCTION TYPE</Typography>
@@ -306,7 +307,7 @@ export function InstructionPage() {
     ...(schema.hasCharacteristics ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(schema.hasPartsRows ? [{ label: 'Repair parts', value: 'parts' }] : []),
     ...(q.data.canDevelop || doc.developmentStatus || doc.engineeringNotes ? [{ label: 'Development', value: 'development' }] : []),
     { label: 'History', value: 'history' }];
-  const folder = schema.type === 'RepairWork' || schema.type === 'RepairTest' ? { label: 'Repair Work Instructions', to: '/sequfloh/instructions/repair' } : { label: 'Validation Work Instructions', to: '/sequfloh/instructions/validation' };
+  const folder = schema.type === 'RepairWork' || schema.type === 'RepairTest' ? { label: 'Repair Work Instructions', to: '/sequfloh/instructions/repair' } : schema.type === 'Inspection' ? { label: 'Inspection Work Instructions', to: '/sequfloh/instructions/inspection' } : { label: 'Validation Work Instructions', to: '/sequfloh/instructions/validation' };
   return (
     <SqfPage title={<>{doc.number} rev {doc.revision} — {doc.title}</>} crumbs={wiCrumbs(`${doc.number} rev ${doc.revision}`, folder)} recent={{ label: `${doc.number} rev ${doc.revision} ${doc.title}`, itemType: 'Work instruction', recordId: doc.id }}
       tabs={tabs} tab={tab} onTab={setTab}

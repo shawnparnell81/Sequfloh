@@ -12,7 +12,7 @@ interface AuthState {
   needsSetup: boolean;
   loading: boolean;
   can: (permission: string) => boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     needsSetup: !!q.data?.needsSetup,
     loading: q.isLoading,
     can: (p) => !!me?.grants.some((g) => g.permission === p),
-    login: async (email, password) => { await post('/api/auth/login', { email, password }); clearTabs(); await qc.invalidateQueries(); },
+    login: async (email, password, rememberMe = false) => { await post('/api/auth/login', { email, password, rememberMe }); clearTabs(); await qc.invalidateQueries(); },
     refresh: async () => { await qc.invalidateQueries(); },
     logout: async () => {
       await post('/api/auth/logout');

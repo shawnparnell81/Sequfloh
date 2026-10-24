@@ -12,12 +12,12 @@ using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Platform;
 
-public sealed record LoginRequest(string Email, string Password);
+public sealed record LoginRequest(string Email, string Password, bool RememberMe = false);
 public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 public sealed record SetupRequest(string OrganizationName, string SiteCode, string SiteName, string TimeZone, string DisplayName, string Email, string Password);
 
 [ApiController, Route("api/auth")]
-public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationUser> hasher, TokenService tokens, IAccessService access, Seeder seeder, IWebHostEnvironment env) : ControllerBase
+public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationUser> hasher, TokenService tokens, IAccessService access, Seeder seeder, IWebHostEnvironment env, AuthSettings authSettings) : ControllerBase
 {
     public const int MinPasswordLength = 10;
     const int MaxFailures = 5;
@@ -32,11 +32,13 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         if (password.Length > 200) throw new AppException("Passwords are limited to 200 characters.");
     }
 
-    // a session cookie (no Expires): closing the browser signs the person out; the token itself still expires after SessionHours
-    void SetCookie(string token, DateTimeOffset expires) =>
+    // Without "Remember me" this is a session cookie (no Expires): closing the browser signs the person out and the token still expires after SessionHours.
+    // With "Remember me" the cookie and the token both last RememberDays.
+    void SetCookie(string token, DateTimeOffset expires, bool remember = false) =>
         Response.Cookies.Append(AuthSettings.CookieName, token, new CookieOptions
         {
-            HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = !env.IsDevelopment() && !env.IsEnvironment("Testing") && Request.IsHttps, Path = "/"
+            HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = !env.IsDevelopment() && !env.IsEnvironment("Testing") && Request.IsHttps, Path = "/",
+            Expires = remember ? expires : null
         });
 
     /// <summary>True until the first administrator has been created.</summary>
@@ -93,10 +95,10 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         }
         if (result == PasswordVerificationResult.SuccessRehashNeeded) u.PasswordHash = hasher.HashPassword(u, r.Password!);
         u.FailedSignIns = 0; u.LockedUntil = null; u.LastSignInAt = now;
-        Audit(u.Id, u.DisplayName, "SignedIn", $"{u.DisplayName} signed in");
+        Audit(u.Id, u.DisplayName, "SignedIn", r.RememberMe ? $"{u.DisplayName} signed in with Remember me (stays signed in for {authSettings.RememberDays} days)" : $"{u.DisplayName} signed in");
         await db.SaveChangesAsync(ct);
-        var (token, expires) = tokens.Issue(u);
-        SetCookie(token, expires);
+        var (token, expires) = tokens.Issue(u, r.RememberMe);
+        SetCookie(token, expires, r.RememberMe);
         return Ok(new { token, expires, mustChangePassword = u.MustChangePassword });
     }
 
@@ -130,8 +132,9 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         u.PasswordHash = hasher.HashPassword(u, r.NewPassword); u.MustChangePassword = false; u.PasswordChangedAt = DateTimeOffset.UtcNow; u.TokenVersion++;
         Audit(u.Id, u.DisplayName, "PasswordChanged", $"{u.DisplayName} changed their password");
         await db.SaveChangesAsync(ct);
-        var (token, expires) = tokens.Issue(u);
-        SetCookie(token, expires);
+        var remember = User.FindFirst("rem")?.Value == "1"; // keep the Remember me choice made at sign-in
+        var (token, expires) = tokens.Issue(u, remember);
+        SetCookie(token, expires, remember);
         return Ok(new { token, expires });
     }
 }

@@ -53,7 +53,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         TrackingType.Validation => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai],
         TrackingType.Fai => [WorkInstructionType.Fai, WorkInstructionType.ValidationFai],
         TrackingType.Repair => [WorkInstructionType.RepairWork],
-        _ => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.RepairTest, WorkInstructionType.RepairWork]
+        _ => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.RepairTest, WorkInstructionType.RepairWork, WorkInstructionType.Inspection]
     };
 
     /// <summary>Task transitions: allowed source states, target (null keeps the state), permission, reason rule, event type.</summary>

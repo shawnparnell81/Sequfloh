@@ -258,6 +258,9 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
                 if (steps.Count == 0) problems.Add("Add at least one test step.");
                 if (C("repairTest", "passCriteria") is null) problems.Add("Enter the pass criteria.");
                 break;
+            case WorkInstructionType.Inspection:
+                if (steps.Count == 0) problems.Add("Add at least one inspection step.");
+                break;
             case WorkInstructionType.RepairWork:
                 if (wi.PartId is null) problems.Add("Choose the part being repaired.");
                 if (wi.RepairDescription is null) problems.Add("Choose the repair description.");

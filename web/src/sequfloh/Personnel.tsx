@@ -146,7 +146,7 @@ export function DevelopmentPage() {
       description="Draft work instructions in development, with the assigned engineer, target date, project and development status."
       actions={can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to="/sequfloh/instructions/new">New work instruction</Button>}>
       <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ type: v('type') }} onChange={set} onClear={() => { setSp({}); setPage(1); }}
-        filters={[{ key: 'type', label: 'Type', options: Object.entries({ Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction' }) }]}
+        filters={[{ key: 'type', label: 'Type', options: Object.entries({ Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairTest: 'Repair Test', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection' }) }]}
         extra={<TextField size="small" label="Part number" defaultValue={v('part')} key={'p' + v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 150 }} />} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/instruction/${r.id}?tab=development`)}
         empty={sp.toString() ? 'No instructions match these filters.' : 'No instructions are in development.'} cols={[

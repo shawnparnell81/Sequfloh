@@ -15,7 +15,7 @@ public static class SequflohCatalog
 
     public static readonly ReferenceListDef[] Lists =
     [
-        new("work-instruction-types", "Work instruction types", "Instruction types offered when a work instruction is created.", ["Validation", "Validation / FAI", "FAI", "Repair Test", "Repair Work Instruction"]),
+        new("work-instruction-types", "Work instruction types", "Instruction types offered when a work instruction is created.", ["Validation", "Validation / FAI", "FAI", "Repair Test", "Repair Work Instruction", "Inspection"]),
         new("lifecycle-statuses", "Lifecycle statuses", "Display labels of the work instruction lifecycle statuses.", ["Draft", "Released", "Superseded", "Obsolete"]),
         new("activity-statuses", "Activity statuses", "Display labels of the tracking and task statuses.", ["Not Started", "Assigned", "In Progress", "Paused", "On Hold", "Completed", "Failed", "Canceled"]),
         new("validation-types", "Validation types", "Kinds of validation.", ["Design validation", "Process validation", "Equipment qualification", "Software validation", "Test method validation", "Packaging validation", "Material validation"]),
@@ -57,6 +57,7 @@ public static class SequflohCatalog
         new("SqfFaiInstruction", "FAI instructions", "FWI-"),
         new("SqfRepairTestInstruction", "Repair test instructions", "RTI-"),
         new("SqfRepairWorkInstruction", "Repair work instructions", "RWI-"),
+        new("SqfInspectionInstruction", "Inspection instructions", "IWI-"),
         new("SqfValidationRecord", "Validation records", "VAL-T-"),
         new("SqfFaiRecord", "FAI records", "FAI-T-"),
         new("SqfRepairRecord", "Repair records", "RPR-"),

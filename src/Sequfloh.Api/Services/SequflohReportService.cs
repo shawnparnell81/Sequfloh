@@ -44,7 +44,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     static double? Minutes(long seconds) => Math.Round(seconds / 60.0, 1);
     static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection" };
     static readonly Dictionary<WorkInstructionType, string> WiLabel = new() { [WorkInstructionType.Validation] = "Validation", [WorkInstructionType.ValidationFai] = "Validation / FAI", [WorkInstructionType.Fai] = "FAI",
-        [WorkInstructionType.RepairTest] = "Repair Test", [WorkInstructionType.RepairWork] = "Repair Work Instruction" };
+        [WorkInstructionType.RepairTest] = "Repair Test", [WorkInstructionType.RepairWork] = "Repair Work Instruction", [WorkInstructionType.Inspection] = "Inspection" };
 
     public async Task<IReadOnlyList<SequflohReportInfo>> AvailableAsync(CancellationToken ct)
     {

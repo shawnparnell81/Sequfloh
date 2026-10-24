@@ -57,6 +57,7 @@ export const sequfloh: ModuleDef = {
         { label: 'FAI Work Instructions', path: '/sequfloh/instructions/fai' },
         { label: 'Repair Test Instructions', path: '/sequfloh/instructions/repair-test' },
         { label: 'Repair Work Instructions', path: '/sequfloh/instructions/repair' },
+        { label: 'Inspection Work Instructions', path: '/sequfloh/instructions/inspection' },
         { label: 'Draft Instructions', path: '/sequfloh/instructions/draft' },
         { label: 'Released Instructions', path: '/sequfloh/instructions/released' },
         { label: 'Obsolete Instructions', path: '/sequfloh/instructions/obsolete' },
