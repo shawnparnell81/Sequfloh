@@ -445,6 +445,9 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<string>("Sections")
+                        .HasColumnType("jsonb");
+
                     b.Property<Guid?>("SiteId")
                         .HasColumnType("uuid");
 

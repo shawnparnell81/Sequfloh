@@ -271,6 +271,7 @@ public partial class AppDbContext
             e.Property(x => x.HourlyRate).HasPrecision(12, 2);
             e.Property(x => x.Parts).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.Property(x => x.CostLines).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
+            e.Property(x => x.Sections).HasColumnType("jsonb");
         });
         b.Entity<SequflohTimeEntry>(e =>
         {

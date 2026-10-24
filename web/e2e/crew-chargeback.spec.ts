@@ -70,13 +70,19 @@ test('crew time, bulk backdate and chargeback report', async ({ page }) => {
   await form.getByLabel('Supplier', { exact: true }).fill('Made-up Supplier Co');
   await form.getByRole('combobox', { name: 'Part number' }).fill(`34BW-CB-${stamp}`);
   await form.getByLabel('Description of the inspection / rebox task').fill('Inspect and rebox made-up injectors');
-  await form.getByLabel('Result').click();
+  await form.getByLabel('Result', { exact: true }).click();
   await page.getByRole('option', { name: 'Fail' }).click();
   await form.getByLabel('Qty inspected / reworked').fill('500');
   await form.getByLabel('Qty bad').fill('35');
   await form.getByLabel('Hourly rate (optional)').fill('25');
-  await form.getByLabel('Notes').fill('Made-up notes for the supplier');
+  await form.getByRole('textbox', { name: 'Notes', exact: true }).fill('Made-up notes for the supplier');
+  // choose what goes in the report: leave out findings, notes and sign-off, add the detailed time log
+  await expect(form.getByTestId('section-crewSessions')).toBeChecked();
+  await expect(form.getByTestId('section-timeLog')).not.toBeChecked();
+  for (const k of ['findings', 'notes', 'signoff']) await form.getByTestId(`section-${k}`).uncheck();
+  await form.getByTestId('section-timeLog').check();
   if (shots) await form.screenshot({ path: path.join(shots, '03-chargeback-report-form.png'), animations: 'disabled', caret: 'hide' });
+  if (shots) await form.getByTestId('cb-sections').locator('xpath=..').screenshot({ path: path.join(shots, '03b-report-section-tick-boxes.png'), animations: 'disabled' });
   await view(page).getByTestId('save-chargeback').click();
   const v = view(page).getByTestId('chargeback-view');
   await expect(v).toContainText('Made-up Supplier Co');
@@ -86,6 +92,12 @@ test('crew time, bulk backdate and chargeback report', async ({ page }) => {
   const pdf = await rq.get(`/api/sequfloh/chargebacks/${id}/pdf`);
   expect(pdf.ok()).toBeTruthy();
   expect(pdf.headers()['content-type']).toContain('application/pdf');
+  const pdfText = (await pdf.body()).toString('latin1');
+  for (const h of ['(Chargeback)', '(Job)', '(Worker time)', '(Crew time sessions)', '(Man hours by technician)', '(Detailed time log)', '(Chargeback summary)', '(Crew labor hours)', '(Registered people hours)'])
+    expect(pdfText).toContain(h);
+  for (const h of ['(Sign-off)', '(Made-up notes for the supplier)', '(Findings / nonconformance)']) expect(pdfText).not.toContain(h);
+  await expect(v).not.toContainText('Sign-off');
+  await expect(v).toContainText('Detailed time log');
   const xlsx = await rq.get(`/api/sequfloh/chargebacks/${id}/xlsx`);
   expect(xlsx.ok()).toBeTruthy();
   expect(xlsx.headers()['content-type']).toContain('spreadsheetml');

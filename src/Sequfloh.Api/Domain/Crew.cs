@@ -57,6 +57,8 @@ public class SequflohChargebackReport : Entity, IAudited
     /// <summary>Other cost lines (JSON array of description and amount).</summary>
     public string CostLines { get; set; } = "[]";
     public string? Notes { get; set; }
+    /// <summary>The report sections ticked to appear in the PDF, Excel file and on screen (JSON array of keys). Null means the defaults.</summary>
+    public string? Sections { get; set; }
     public string CreatedByName { get; set; } = "";
     public string AuditLabel => $"chargeback report {WorkOrderNumber}";
 }

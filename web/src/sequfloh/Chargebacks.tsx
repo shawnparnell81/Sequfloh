@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
@@ -19,9 +19,12 @@ interface Report {
   totalPersonnel?: number | null; totalHours?: number | null; crewHours?: number | null; userHours?: number | null; dateFrom?: string | null; dateTo?: string | null; hourlyRate?: number | null;
   laborCost?: number | null; discoveryMethod?: string | null; supplierPartNumber?: string | null; lotDateCodes?: string | null; rootCause?: string | null; correctiveAction?: string | null;
   parts: { partNumber: string; description?: string | null; quantity: number; unitCost?: number | null }[]; costLines: { description: string; amount: number }[]; notes?: string | null;
-  partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string;
+  sections: string[]; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string;
 }
 type Form = Record<string, string>;
+interface SectionOpt { key: string; label: string; default: boolean }
+interface Block { key: string; heading: string; fields?: { label: string; value: string }[] | null; columns?: string[] | null; rows?: (string | null)[][] | null; photos?: string[] | null }
+const useSectionOptions = () => useQuery({ queryKey: ['sqf-cb-sections'], queryFn: () => get<SectionOpt[]>(`${S}/chargebacks/sections`), staleTime: Infinity });
 
 const crumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Reports', to: '/sequfloh/reports/task-performance' }, { label: 'Chargeback Reports', to: '/sequfloh/chargebacks' }, { label }];
 const money = (n?: number | null) => (n === null || n === undefined ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
@@ -77,6 +80,9 @@ export function ChargebackEditPage() {
   const [partText, setPartText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sections, setSections] = useState<string[] | null>(null);
+  const sectionOpts = useSectionOptions();
+  const picked = sections ?? (sectionOpts.data ?? []).filter((o) => o.default).map((o) => o.key);
   const results = useOptions('validation-results');
   const methods = useOptions('discovery-methods');
   const partSearch = usePartSearch<PartOpt>(partText);
@@ -101,6 +107,7 @@ export function ChargebackEditPage() {
     setParts(r.parts.map((p) => ({ partNumber: p.partNumber, description: p.description ?? '', quantity: String(p.quantity), unitCost: p.unitCost === null || p.unitCost === undefined ? '' : String(p.unitCost) })));
     setLines(r.costLines.map((l) => ({ description: l.description, amount: String(l.amount) })));
     if (r.trackingRecordId) setWo({ id: r.trackingRecordId, number: r.trackingNumber ?? '' });
+    setSections(r.sections);
   }, [existing.data]);
   const labor = n(f.totalHours) !== null && n(f.hourlyRate) !== null ? Math.round(n(f.totalHours)! * n(f.hourlyRate)! * 100) / 100 : null;
   const save = async () => {
@@ -109,7 +116,7 @@ export function ChargebackEditPage() {
       workOrderNumber: f.workOrderNumber ?? '', trackingRecordId: wo?.id ?? null, supplier: t(f.supplier), supplierReference: t(f.supplierReference), partId: f.partId || null, partNumber: t(f.partNumber),
       partDescription: t(f.partDescription), taskDescription: t(f.taskDescription), result: t(f.result), qtyInspected: n(f.qtyInspected), qtyBad: n(f.qtyBad), totalPersonnel: n(f.totalPersonnel),
       totalHours: n(f.totalHours), dateFrom: t(f.dateFrom), dateTo: t(f.dateTo), hourlyRate: n(f.hourlyRate), discoveryMethod: t(f.discoveryMethod), supplierPartNumber: t(f.supplierPartNumber),
-      lotDateCodes: t(f.lotDateCodes), rootCause: t(f.rootCause), correctiveAction: t(f.correctiveAction), notes: t(f.notes),
+      lotDateCodes: t(f.lotDateCodes), rootCause: t(f.rootCause), correctiveAction: t(f.correctiveAction), notes: t(f.notes), sections: picked,
       parts: parts.filter((p) => p.partNumber.trim()).map((p) => ({ partNumber: p.partNumber, description: p.description || null, quantity: Number(p.quantity || 0), unitCost: n(p.unitCost) })),
       costLines: lines.filter((l) => l.description.trim()).map((l) => ({ description: l.description, amount: Number(l.amount || 0) })),
     };
@@ -181,6 +188,19 @@ export function ChargebackEditPage() {
           <IconButton aria-label="Remove cost" onClick={() => setLines(lines.filter((_, j) => j !== i))}><DeleteOutline /></IconButton></Stack>)}
         <Box><Button size="small" onClick={() => setLines([...lines, { description: '', amount: '' }])}>Add cost line</Button></Box>
       </Section>
+      <Section title="What goes in the report">
+        <Typography variant="body2" color="text.secondary">Tick what appears in the PDF, the Excel file and on screen. Sections with nothing in them are left out.</Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, columnGap: 2 }} data-testid="cb-sections">
+          {(sectionOpts.data ?? []).map((o) => <FormControlLabel key={o.key} label={o.label}
+            control={<Checkbox checked={picked.includes(o.key)} inputProps={{ 'data-testid': `section-${o.key}` } as React.InputHTMLAttributes<HTMLInputElement>}
+              onChange={(e) => setSections(e.target.checked ? [...picked, o.key] : picked.filter((k) => k !== o.key))} />} />)}
+        </Box>
+        <Stack direction="row" gap={1}>
+          <Button size="small" onClick={() => setSections((sectionOpts.data ?? []).map((o) => o.key))}>Tick all</Button>
+          <Button size="small" onClick={() => setSections((sectionOpts.data ?? []).filter((o) => o.default).map((o) => o.key))}>Defaults</Button>
+          <Button size="small" onClick={() => setSections([])}>Untick all</Button>
+        </Stack>
+      </Section>
       <Section title="Findings and notes">
         {fld('rootCause', 'Supplier root cause', { multiline: true, minRows: 2 })}
         {fld('correctiveAction', 'Corrective action requested', { multiline: true, minRows: 2 })}
@@ -188,14 +208,6 @@ export function ChargebackEditPage() {
       </Section>
     </Stack>
   </SqfPage>;
-}
-
-function Facts({ items }: { items: [string, React.ReactNode][] }) {
-  const shown = items.filter(([, v]) => v !== null && v !== undefined && v !== '' && v !== '—');
-  if (!shown.length) return null;
-  return <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '240px 1fr' }, rowGap: 0.75, columnGap: 2 }}>
-    {shown.map(([k, v]) => [<Typography key={`${k}-k`} color="text.secondary">{k}</Typography>, <Typography key={`${k}-v`} sx={{ fontWeight: 500, whiteSpace: 'pre-wrap' }}>{v}</Typography>])}
-  </Box>;
 }
 
 export function ChargebackViewPage() {
@@ -206,8 +218,6 @@ export function ChargebackViewPage() {
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorState error={q.error} />;
   const r = q.data;
-  const good = r.qtyInspected !== null && r.qtyInspected !== undefined && r.qtyBad !== null && r.qtyBad !== undefined ? r.qtyInspected - r.qtyBad : null;
-  const sec = (title: string, body: React.ReactNode) => <Paper variant="outlined" sx={{ p: 2 }}><Typography variant="h3" sx={{ mb: 1.5 }}>{title}</Typography>{body}</Paper>;
   return <SqfPage title={`Chargeback report ${r.workOrderNumber}`} crumbs={crumbs(r.workOrderNumber)} permission="sequfloh.view_reports"
     actions={<Stack direction="row" gap={1}>
       <Button variant="contained" href={`${S}/chargebacks/${r.id}/pdf`} target="_blank" rel="noopener" data-testid="cb-pdf">Print / PDF</Button>
@@ -215,25 +225,28 @@ export function ChargebackViewPage() {
       {canEdit && <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/${r.id}`}>Edit</Button>}
       {canEdit && <Button color="error" onClick={async () => { if (confirm('Delete this chargeback report?')) { await del(`${S}/chargebacks/${r.id}`); nav('/sequfloh/chargebacks'); } }}>Delete</Button>}
     </Stack>}>
-    <Stack gap={2} sx={{ maxWidth: 1000 }} data-testid="chargeback-view">
-      <Stack direction="row" gap={1.5} flexWrap="wrap">
-        {[['Qty inspected / reworked', num(r.qtyInspected)], ['Qty bad', num(r.qtyBad)], ['Personnel', num(r.totalPersonnel)], ['Total hours', num(r.totalHours, 2)], ['Total chargeback', money(r.total)]].map(([k, v]) =>
-          <Paper key={k} variant="outlined" sx={{ p: 1.5, minWidth: 160 }}><Typography variant="caption" color="text.secondary">{k}</Typography><Typography variant="h2" sx={{ fontVariantNumeric: 'tabular-nums' }}>{v}</Typography></Paper>)}
-      </Stack>
-      {sec('Chargeback', <Facts items={[['Supplier', r.supplier], ['Supplier reference / PO', r.supplierReference], ['Created', `${fmtDateTime(r.createdAt)} by ${r.createdByName}`]]} />)}
-      {sec('Job', <Facts items={[['Work order #', <Mono>{r.workOrderNumber}</Mono>], ['Linked work order', r.trackingRecordId ? <RouterLink to={`/sequfloh/record/${r.trackingRecordId}`}>{r.trackingNumber}</RouterLink> : null],
-        ['Part number', r.partNumber ? <Mono>{r.partNumber}</Mono> : null], ['Description', r.partDescription], ['Supplier part number', r.supplierPartNumber], ['Lot / date codes', r.lotDateCodes],
-        ['Dates', r.dateFrom || r.dateTo ? `${r.dateFrom ?? ''} to ${r.dateTo ?? ''}` : null]]} />)}
-      {sec('Task and result', <Facts items={[['Description of task', r.taskDescription], ['Discovery method', r.discoveryMethod], ['Result', r.result],
-        ['Qty inspected / reworked', num(r.qtyInspected)], ['Qty bad', num(r.qtyBad)], ['Qty good', num(good)]]} />)}
-      {sec('Labor', <Facts items={[['Total personnel on the task', num(r.totalPersonnel)], ['Crew labor hours', r.crewHours === null || r.crewHours === undefined ? null : num(r.crewHours, 2)],
-        ['Registered people hours', r.userHours === null || r.userHours === undefined ? null : num(r.userHours, 2)], ['Total hours worked', num(r.totalHours, 2)],
-        ['Hourly rate', r.hourlyRate === null || r.hourlyRate === undefined ? null : money(r.hourlyRate)], ['Labor cost', r.laborCost === null || r.laborCost === undefined ? null : money(r.laborCost)]]} />)}
-      {r.parts.length > 0 && sec('Parts replaced', <Table size="small"><TableHead><TableRow><TableCell>Part number</TableCell><TableCell>Description</TableCell><TableCell align="right">Quantity</TableCell><TableCell align="right">Unit cost</TableCell></TableRow></TableHead>
-        <TableBody>{r.parts.map((p, i) => <TableRow key={i}><TableCell><Mono>{p.partNumber}</Mono></TableCell><TableCell>{p.description}</TableCell><TableCell align="right">{num(p.quantity, 0)}</TableCell><TableCell align="right">{money(p.unitCost)}</TableCell></TableRow>)}</TableBody></Table>)}
-      {sec('Chargeback summary', <Facts items={[['Labor', money(r.laborCost)], ['Parts', r.partsCost ? money(r.partsCost) : null], ...r.costLines.map((l) => [l.description, money(l.amount)] as [string, string]),
-        ['Total chargeback', <b>{money(r.total)}</b>]]} />)}
-      {(r.rootCause || r.correctiveAction || r.notes) && sec('Findings and notes', <Facts items={[['Supplier root cause', r.rootCause], ['Corrective action requested', r.correctiveAction], ['Notes', r.notes]]} />)}
-    </Stack>
+    <ReportBlocks id={r.id} title={`Chargeback Report: ${r.partNumber ?? r.workOrderNumber}`} supplier={r.supplier} />
   </SqfPage>;
+}
+
+/** The saved report on screen, in the same order and look as its PDF: blue section bars, label / value rows and tables. */
+function ReportBlocks({ id, title, supplier }: { id: string; title: string; supplier?: string | null }) {
+  const q = useQuery({ queryKey: ['sqf-cb-view', id], queryFn: () => get<Block[]>(`${S}/chargebacks/${id}/view`) });
+  if (q.isLoading) return <Loading />;
+  if (q.error || !q.data) return <ErrorState error={q.error} />;
+  return <Paper variant="outlined" sx={{ p: 3, maxWidth: 900 }} data-testid="chargeback-view">
+    <Typography variant="h2">{title}</Typography>
+    {supplier && <Typography variant="body2" sx={{ mb: 1 }}>Supplier: {supplier}</Typography>}
+    {q.data.length === 0 && <Typography color="text.secondary">No sections are ticked for this report.</Typography>}
+    {q.data.map((b, i) => <Box key={i} sx={{ mt: b.heading ? 2 : 1 }} data-section={b.key}>
+      {b.heading && <Typography sx={{ bgcolor: '#E8EEF5', color: 'primary.main', fontWeight: 600, px: 1, py: 0.5, mb: 1 }}>{b.heading}</Typography>}
+      {b.fields && <Box sx={{ display: 'grid', gridTemplateColumns: '220px 1fr', rowGap: 0.25, columnGap: 2, px: 1 }}>
+        {b.fields.map((f) => [<Typography key={`${f.label}-k`} variant="body2" sx={{ fontWeight: 600 }}>{f.label}</Typography>,
+          <Typography key={`${f.label}-v`} variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{f.value}</Typography>])}
+      </Box>}
+      {b.columns && <Table size="small"><TableHead><TableRow>{b.columns.map((c) => <TableCell key={c} sx={{ fontWeight: 600 }}>{c}</TableCell>)}</TableRow></TableHead>
+        <TableBody>{(b.rows ?? []).map((r, j) => <TableRow key={j}>{r.map((c, k) => <TableCell key={k} sx={r[0] === 'Total' ? { fontWeight: 600 } : undefined}>{c}</TableCell>)}</TableRow>)}</TableBody></Table>}
+      {b.photos?.map((p) => <Typography key={p} variant="body2" sx={{ px: 1 }}>Photo: {p}</Typography>)}
+    </Box>)}
+  </Paper>;
 }

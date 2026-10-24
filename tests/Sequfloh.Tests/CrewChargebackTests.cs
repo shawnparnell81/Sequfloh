@@ -194,12 +194,42 @@ public sealed class CrewChargebackTests(TestApp app)
 
         var pdf = await lead.GetAsync($"{C}/{rep.Id()}/pdf");
         Assert.True(pdf.IsSuccessStatusCode);
-        Assert.StartsWith("%PDF", System.Text.Encoding.ASCII.GetString((await pdf.Content.ReadAsByteArrayAsync())[..4]));
+        var pdfText = System.Text.Encoding.Latin1.GetString(await pdf.Content.ReadAsByteArrayAsync());
+        Assert.StartsWith("%PDF", pdfText);
+        // default sections: the job report layout with worker time added
+        foreach (var h in new[] { "(Chargeback)", "(Job)", "(Worker time)", "(Crew time sessions)", "(Man hours by technician)", "(Chargeback summary)", "(Sign-off)", "(Crew labor hours)", "(Registered people hours)", "(Combined total)" })
+            Assert.Contains(h, pdfText);
+        Assert.DoesNotContain("(Detailed time log)", pdfText); // off by default
         var xlsx = await lead.GetAsync($"{C}/{rep.Id()}/xlsx");
         Assert.True(xlsx.IsSuccessStatusCode);
         using var wb = new ClosedXML.Excel.XLWorkbook(new MemoryStream(await xlsx.Content.ReadAsByteArrayAsync()));
         var text = string.Join("|", wb.Worksheet(1).CellsUsed().Select(c => c.GetFormattedString()));
         Assert.Contains("WO-MADEUP-2000", text); Assert.Contains("Crew labor hours", text); Assert.Contains("Registered people hours", text); Assert.Contains("Total chargeback", text);
+        Assert.Contains("Crew time sessions", text); Assert.Contains("Man hours by technician", text);
+
+        // only the ticked sections are printed and exported, and the choice is saved with the report
+        var picked = await (await lead.PostOkAsync(C, new
+        {
+            workOrderNumber = "WO-MADEUP-2001", trackingRecordId = id, supplier = "Made-up Supplier Co", partNumber = "E99001", notes = "Made-up note text", hourlyRate = 25,
+            sections = new[] { "header", "part", "results", "crewSummary", "timeLog" },
+        })).JsonAsync();
+        Assert.Equal(new string?[] { "header", "part", "results", "crewSummary", "timeLog" }, picked.GetProperty("sections").EnumerateArray().Select(e => e.GetString()).ToArray());
+        var p2 = System.Text.Encoding.Latin1.GetString(await (await lead.GetAsync($"{C}/{picked.Id()}/pdf")).Content.ReadAsByteArrayAsync());
+        foreach (var h in new[] { "(Chargeback)", "(Job)", "(Worker time)", "(Detailed time log)", "(E99001)" }) Assert.Contains(h, p2);
+        foreach (var h in new[] { "(Crew time sessions)", "(Man hours by technician)", "(Chargeback summary)", "(Sign-off)", "(Made-up note text)", "(Work instruction)" }) Assert.DoesNotContain(h, p2);
+        using var wb2 = new ClosedXML.Excel.XLWorkbook(new MemoryStream(await (await lead.GetAsync($"{C}/{picked.Id()}/xlsx")).Content.ReadAsByteArrayAsync()));
+        var t2 = string.Join("|", wb2.Worksheet(1).CellsUsed().Select(c => c.GetFormattedString()));
+        Assert.Contains("Worker time", t2); Assert.Contains("Detailed time log", t2);
+        Assert.DoesNotContain("Crew time sessions", t2); Assert.DoesNotContain("Total chargeback", t2); Assert.DoesNotContain("Made-up note text", t2);
+        var view = await lead.GetElAsync($"{C}/{picked.Id()}/view");
+        Assert.Equal(new string?[] { "header", "job", "crewSummary", "timeLog" }, view.EnumerateArray().Select(b => b.Str("key")).ToArray());
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync(C, new { workOrderNumber = "WO-X", sections = new[] { "made-up" } })).StatusCode);
+        // the original job report still prints as before
+        var jobPdf = await lead.GetAsync($"/api/sequfloh/tracking/{id}/job/report/pdf");
+        Assert.True(jobPdf.IsSuccessStatusCode);
+        var jr = System.Text.Encoding.Latin1.GetString(await jobPdf.Content.ReadAsByteArrayAsync());
+        Assert.Contains("(Chargeback summary)", jr); Assert.DoesNotContain("(Worker time)", jr);
+
         var list = await lead.GetElAsync($"{C}?q=MADEUP-2000");
         Assert.Single(list.EnumerateArray());
 

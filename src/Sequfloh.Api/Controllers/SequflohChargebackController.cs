@@ -12,6 +12,8 @@ public sealed class SequflohChargebackController(SequflohChargebackService svc) 
 {
     [HttpGet] public Task<object> List([FromQuery] string? q, CancellationToken ct) => svc.ListAsync(q, ct);
     [HttpGet("prefill/{trackingId:guid}")] public Task<object> Prefill(Guid trackingId, CancellationToken ct) => svc.PrefillAsync(trackingId, ct);
+    [HttpGet("sections")] public object Sections() => SequflohChargebackService.SectionOptions;
+    [HttpGet("{id:guid}/view")] public Task<object> View(Guid id, CancellationToken ct) => svc.ViewAsync(id, ct);
     [HttpGet("{id:guid}")] public Task<object> Get(Guid id, CancellationToken ct) => svc.GetAsync(id, ct);
     [HttpPost] public Task<object> Create(ChargebackInput r, CancellationToken ct) => svc.CreateAsync(r, ct);
     [HttpPut("{id:guid}")] public Task<object> Update(Guid id, ChargebackInput r, CancellationToken ct) => svc.UpdateAsync(id, r, ct);
