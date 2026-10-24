@@ -37,7 +37,7 @@ function putBlob(url: string, body: Blob, contentType: string | null, onBytes: (
  * Import a whole folder of drawings (or several files) into the current folder: the folder tree is recreated, every file becomes a drawing titled
  * with its file name, and the files go straight to file storage. Picking the same folder again skips what is already here.
  */
-export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDone }: { open: boolean; folderId: string; folderName: string; onClose: () => void; onDone: () => void }) {
+export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDone }: { open: boolean; folderId: string | null; folderName: string; onClose: () => void; onDone: () => void }) {
   const [items, setItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Plan['folders']>([]);
   const [revision, setRevision] = useState('A');
@@ -49,6 +49,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
   const stop = useRef<AbortController | null>(null);
   const dirInput = useRef<HTMLInputElement>(null);
 
+  const top = folderId === null;
   const reset = () => { setItems([]); setFolders([]); setRevision('A'); setLinkParts(true); setOthers(false); setErr(null); setProg(null); setBusy(''); };
 
   const pick = async (list: FileList | null, folderPick: boolean) => {
@@ -56,16 +57,18 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     setErr(null); setProg(null); setBusy('reading');
     try {
       const all: Item[] = [...list].filter((f) => !f.name.startsWith('.')).map((file) => {
-        const path = (folderPick && file.webkitRelativePath) || file.name;
+        let path = (folderPick && file.webkitRelativePath) || file.name;
+        // at the top level the chosen folder's subfolders become top-level folders; files loose in the chosen folder keep it as their folder
+        if (top && path.split('/').length > 2) path = path.split('/').slice(1).join('/');
         const e = ext(file.name);
-        return { file, path, kind: e === '.pdf' ? 'pdf' : KNOWN.includes(e) ? 'other' : 'unsupported' };
+        return { file, path, kind: e === '.pdf' ? 'pdf' : !top && KNOWN.includes(e) ? 'other' : 'unsupported' };
       });
       await plan(all, linkParts);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(''); }
   };
 
   const plan = async (all: Item[], link: boolean) => {
-    const dirs = [...new Set(all.flatMap((i) => { const p = dirOf(i.path).split('/').filter(Boolean); return p.map((_, n) => p.slice(0, n + 1).join('/')); }))];
+    const dirs = [...new Set(all.filter((i) => i.kind !== 'unsupported').flatMap((i) => { const p = dirOf(i.path).split('/').filter(Boolean); return p.map((_, n) => p.slice(0, n + 1).join('/')); }))];
     const byPath = new Map<string, Plan['files'][number]>();
     const fl: Plan['folders'] = [];
     const known = all.filter((i) => i.kind !== 'unsupported');
@@ -87,7 +90,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     try {
       // folders first, parents before children, so files can go up side by side
       const dirs = [...new Set(todo.map((i) => dirOf(i.path)).filter(Boolean))];
-      const ids: Record<string, string> = { '': folderId };
+      const ids: Record<string, string> = folderId ? { '': folderId } : {};
       for (let n = 0; n < dirs.length; n += BATCH) Object.assign(ids, await post<Record<string, string>>(`${D}/folders`, { folderId, linkParts, paths: dirs.slice(n, n + BATCH) }));
       const queue = [...todo];
       const one = async (i: Item) => {
@@ -133,13 +136,15 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     <DialogContent><Stack gap={2} sx={{ pt: 1 }} data-testid="import-drawings">
       {err && <Alert severity="error">{err}</Alert>}
       {!prog && <>
-        <Typography variant="body2" color="text.secondary">Choose a folder to bring in everything in it, with its subfolders, or choose several files. Each file becomes a drawing titled with its file name.
-          Files go straight to file storage. Choosing the same folder again skips files already here (same folder, name and size), so a stopped import can carry on.</Typography>
+        {top ? <Typography variant="body2" color="text.secondary">Choose a folder. Its subfolders are made as drawing folders here, with the same names and nesting, and each PDF goes into its matching folder,
+          titled with its file name. Only PDF files are imported; other files are skipped. Choosing the same folder again skips files already imported, so a stopped import can carry on.</Typography>
+        : <Typography variant="body2" color="text.secondary">Choose a folder to bring in everything in it, with its subfolders, or choose several files. Each file becomes a drawing titled with its file name.
+          Files go straight to file storage. Choosing the same folder again skips files already here (same folder, name and size), so a stopped import can carry on.</Typography>}
         <Stack direction="row" gap={1}>
           <Button variant="outlined" component="label" disabled={!!busy}>Choose folder
             <input hidden type="file" ref={(el) => { dirInput.current = el; el?.setAttribute('webkitdirectory', ''); }} multiple data-testid="import-folder-input" onChange={(e) => { pick(e.target.files, true); e.target.value = ''; }} /></Button>
-          <Button variant="outlined" component="label" disabled={!!busy}>Choose files
-            <input hidden type="file" multiple data-testid="import-files-input" onChange={(e) => { pick(e.target.files, false); e.target.value = ''; }} /></Button>
+          {!top && <Button variant="outlined" component="label" disabled={!!busy}>Choose files
+            <input hidden type="file" multiple data-testid="import-files-input" onChange={(e) => { pick(e.target.files, false); e.target.value = ''; }} /></Button>}
         </Stack>
         <Stack direction="row" gap={2} alignItems="center" flexWrap="wrap">
           <TextField size="small" label="Revision for all" required value={revision} onChange={(e) => setRevision(e.target.value.toUpperCase())} sx={{ width: 160 }} helperText="Given to every new drawing" />
@@ -153,12 +158,13 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
             <Fact label="Files" value={items.length.toLocaleString('en-US')} />
             <Fact label="Total size" value={gb(items.reduce((s, i) => s + i.file.size, 0))} />
             <Fact label="PDF files" value={pdfs.length.toLocaleString('en-US')} />
+            {top && <Fact label="Skipped (not PDF)" value={bad.length.toLocaleString('en-US')} />}
             <Fact label="Already imported" value={already.toLocaleString('en-US')} />
             <Fact label="To import" value={`${todo.length.toLocaleString('en-US')} · ${gb(todo.reduce((s, i) => s + i.file.size, 0))}`} />
           </Stack>
           {other.length > 0 && <Alert severity="warning" data-testid="non-pdf">{other.length} file{other.length === 1 ? ' is' : 's are'} not PDF ({[...new Set(other.map((i) => ext(i.file.name)))].join(', ')}), for example {other[0].path}.
             <FormControlLabel sx={{ display: 'block' }} control={<Checkbox checked={others} onChange={(_, c) => setOthers(c)} />} label="Import these too (they download instead of opening in the browser)" /></Alert>}
-          {bad.length > 0 && <Alert severity="info">{bad.length} file{bad.length === 1 ? ' is' : 's are'} not a drawing type and will be skipped, for example {bad[0].path}.</Alert>}
+          {bad.length > 0 && !top && <Alert severity="info">{bad.length} file{bad.length === 1 ? ' is' : 's are'} not a drawing type and will be skipped, for example {bad[0].path}.</Alert>}
           {linkParts && <Box>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Part matches ({matches.length.toLocaleString('en-US')})</Typography>
             {matches.length === 0 ? <Typography variant="body2" color="text.secondary">No folder or file name matches an OR # or SENSEN #.</Typography>

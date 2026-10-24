@@ -114,4 +114,41 @@ public sealed class DrawingImportTests(TestApp app)
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsync($"{I}/plan", new { folderId = root, files = Array.Empty<object>(), linkParts = false })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsync($"{I}/start", new { folderId = root, fileName = "a.pdf", size = 10L })).StatusCode);
     }
+
+    [Fact]
+    public async Task A_folder_imported_at_the_top_level_makes_its_tree_there_links_parts_and_resumes()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync(Manager, site);
+        var pn = await PartAsync(site);
+        var a = Pdf("top-one"); var b = Pdf("top-two-longer");
+        var files = new[] { new { path = $"Line 1/{pn}/cover.pdf", size = a.LongLength }, new { path = "Line 1/Fixtures/plate.pdf", size = b.LongLength } };
+        string[] folders = ["Line 1", $"Line 1/{pn}", "Line 1/Fixtures"];
+
+        var plan = await (await c.PostOkAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = true, files, folders })).JsonAsync();
+        Assert.All(plan.GetProperty("folders").EnumerateArray(), f => Assert.False(f.GetProperty("exists").GetBoolean()));
+        var ids = (await (await c.PostOkAsync($"{I}/folders", new { folderId = (Guid?)null, linkParts = true, paths = new[] { $"Line 1/{pn}", "Line 1/Fixtures" } })).JsonAsync())
+            .EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetGuid());
+        Assert.Equal(1, (await ImportFileAsync(c, ids[$"Line 1/{pn}"], "cover.pdf", a, ["Line 1", pn])).Int("linked"));
+        await ImportFileAsync(c, ids["Line 1/Fixtures"], "plate.pdf", b, ["Line 1", "Fixtures"]);
+
+        // "Line 1" is a top-level folder of the site, its subfolders sit under it, the part folder is linked
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var line = await db.DrawingFolders.AsNoTracking().SingleAsync(f => f.SiteId == site && f.Name == "Line 1");
+            Assert.Null(line.ParentId);
+            Assert.Equal(2, await db.DrawingFolders.CountAsync(f => f.ParentId == line.Id));
+        }
+        Assert.Single(await c.GetJsonAsync<List<JsonElement>>($"{D}/for-part?partNumber={pn}"));
+
+        // choosing the same folder again finds the folders and files already there, without making a second tree
+        plan = await (await c.PostOkAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = true, files, folders })).JsonAsync();
+        Assert.All(plan.GetProperty("files").EnumerateArray(), f => Assert.True(f.GetProperty("exists").GetBoolean()));
+        Assert.All(plan.GetProperty("folders").EnumerateArray(), f => Assert.True(f.GetProperty("exists").GetBoolean()));
+        var again = (await (await c.PostOkAsync($"{I}/folders", new { folderId = (Guid?)null, linkParts = true, paths = new[] { "Line 1/Fixtures" } })).JsonAsync()).GetProperty("Line 1/Fixtures").GetGuid();
+        Assert.Equal(ids["Line 1/Fixtures"], again);
+
+        await c.PostOkAsync($"{I}/summary", new { folderId = (Guid?)null, imported = 2, folders = 3, bytes = a.Length + b.Length, skipped = 0, failed = 0, linked = 1, cancelled = false });
+    }
 }

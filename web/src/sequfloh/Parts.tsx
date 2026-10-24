@@ -1,7 +1,7 @@
 import { setupOptions } from '../components/SetupLink';
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, Dialog, Menu, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, Menu, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
@@ -9,6 +9,7 @@ import ContentCopy from '@mui/icons-material/ContentCopy';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, getBlob, post, put } from '../api';
+import { otherNumbers, usePartSearch } from './partSearch';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
@@ -387,9 +388,16 @@ export function PartsListsPage() {
 }
 
 function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChange: (id: string, pn?: string) => void; label?: string }) {
-  const parts = useQuery({ queryKey: ['sqf-part-pick'], queryFn: () => get<Paged<PartRow>>(`${S}/parts?view=active&pageSize=200`) });
-  return <TextField select label={label} value={value} onChange={(e) => onChange(e.target.value, parts.data?.items.find((p) => p.id === e.target.value)?.partNumber)}>
-    <MenuItem value="">—</MenuItem>{(parts.data?.items ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{partNo(p)} · {p.name}</MenuItem>)}{setupOptions('sqfPart', parts.data?.items)}</TextField>;
+  const [text, setText] = useState('');
+  const parts = usePartSearch<PartRow>(text, { view: 'active' });
+  // the chosen part may not be on the current page of matches, so read it on its own
+  const chosen = useQuery({ queryKey: ['sqf-part-one', value], enabled: !!value, queryFn: () => get<{ part: PartRow }>(`${S}/parts/${value}`) });
+  const current = value ? (parts.items.find((p) => p.id === value) ?? chosen.data?.part ?? null) : null;
+  return <Autocomplete size="small" options={parts.items} value={current} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} loading={parts.loading}
+    getOptionLabel={(p) => `${partNo(p)} · ${p.name}`} noOptionsText={text ? 'No part matches' : 'Type a part number'}
+    renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partNo(p)} · {p.name}</Typography>{otherNumbers(p) && <Typography variant="caption" color="text.secondary">{otherNumbers(p)}</Typography>}</Box></li>}
+    onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, p) => onChange(p?.id ?? '', p?.partNumber)}
+    renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by OR #, SENSEN #, NAPA, DMA or JH PN" />} />;
 }
 
 interface ListDetail { list: { id: string; number: string; title: string; parentPartId?: string; revision: string; status: string; description?: string; listType: string; releasedAt?: string; releasedBy: string;

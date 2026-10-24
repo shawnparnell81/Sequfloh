@@ -17,7 +17,7 @@ namespace Sequfloh.Drawings;
 /// straight to file storage with a signed address and confirms it here; only names, sizes and keys reach this server. A file already imported to the
 /// same folder with the same name and size is skipped, so picking the same folder again carries on where it stopped.
 /// </summary>
-public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me, AuthSettings auth)
+public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me, AuthSettings auth, DrawingService drawings)
 {
     /// <summary>Largest file a bulk import takes.</summary>
     public const long MaxBytes = 5L * 1024 * 1024 * 1024;
@@ -25,14 +25,23 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
     static readonly TimeSpan TokenLife = TimeSpan.FromHours(12);
 
     public sealed record FileItem(string Path, long Size);
-    public sealed record PlanRequest(Guid FolderId, List<FileItem>? Files, List<string>? Folders, bool LinkParts);
-    public sealed record FoldersRequest(Guid FolderId, List<string>? Paths, bool LinkParts);
+    public sealed record PlanRequest(Guid? FolderId, List<FileItem>? Files, List<string>? Folders, bool LinkParts);
+    public sealed record FoldersRequest(Guid? FolderId, List<string>? Paths, bool LinkParts);
     public sealed record StartRequest(Guid FolderId, string FileName, long Size);
     public sealed record FinishRequest(string Token, string? UploadId, List<UploadedPart>? Parts, string? Revision, bool LinkParts, List<string>? MatchNames);
     public sealed record AbortRequest(string Token, string? UploadId);
-    public sealed record SummaryRequest(Guid FolderId, int Imported, int Folders, long Bytes, int Skipped, int Failed, int Linked, bool Cancelled);
+    public sealed record SummaryRequest(Guid? FolderId, int Imported, int Folders, long Bytes, int Skipped, int Failed, int Linked, bool Cancelled);
 
     Guid UserId => me.UserId ?? throw new ForbiddenException();
+
+    /// <summary>Where an import goes: a folder, or the top level (All folders) of a site when Id is null.</summary>
+    sealed record Root(Guid? Id, Guid SiteId, Guid? DepartmentId, string Name);
+
+    async Task<Root> RootAsync(Guid? folderId, CancellationToken ct)
+    {
+        if (folderId is { } id) { var f = await ManagedFolderAsync(id, ct); return new Root(f.Id, f.SiteId, f.DepartmentId, f.Name); }
+        return new Root(null, await drawings.TopLevelSiteAsync(null, ct), null, "All folders");
+    }
 
     async Task<DrawingFolder> ManagedFolderAsync(Guid id, CancellationToken ct)
     {
@@ -50,10 +59,14 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
     static string Key(string[] segs) => string.Join("/", segs).ToUpperInvariant();
 
     /// <summary>The folders under a folder that are not archived, by path from it ("" is the folder itself).</summary>
-    async Task<Dictionary<string, Guid>> TreeAsync(DrawingFolder root, CancellationToken ct)
+    async Task<Dictionary<string, Guid?>> TreeAsync(Root root, CancellationToken ct)
     {
-        var map = new Dictionary<string, Guid> { [""] = root.Id };
-        var level = new List<(Guid Id, string Path)> { (root.Id, "") };
+        var map = new Dictionary<string, Guid?> { [""] = root.Id };
+        var level = new List<(Guid Id, string Path)>();
+        if (root.Id is { } rid) level.Add((rid, ""));
+        else
+            foreach (var k in await db.DrawingFolders.AsNoTracking().Where(f => f.ParentId == null && f.SiteId == root.SiteId && !f.IsArchived).Select(f => new { f.Id, f.Name }).ToListAsync(ct))
+                if (map.TryAdd(k.Name.ToUpperInvariant(), k.Id)) level.Add((k.Id, k.Name.ToUpperInvariant()));
         while (level.Count > 0 && map.Count < 200_000)
         {
             var ids = level.Select(x => x.Id).ToList();
@@ -94,11 +107,11 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
     /// <summary>What an import of these files would do: which files are already here, which folders are new and which names match parts.</summary>
     public async Task<object> PlanAsync(PlanRequest r, CancellationToken ct)
     {
-        var root = await ManagedFolderAsync(r.FolderId, ct);
+        var root = await RootAsync(r.FolderId, ct);
         var files = r.Files ?? [];
         if (files.Count > MaxBatch) throw new AppException($"Send at most {MaxBatch} files at a time.");
         var tree = await TreeAsync(root, ct);
-        var folderIds = tree.Values.ToList();
+        var folderIds = tree.Values.OfType<Guid>().ToList();
         var have = new HashSet<(Guid, string, long)>();
         foreach (var chunk in folderIds.Chunk(5000))
         {
@@ -114,7 +127,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             Files = files.Select(f =>
             {
                 var s = Segments(f.Path);
-                var exists = s.Length > 0 && tree.TryGetValue(Key(s[..^1]), out var fid) && have.Contains((fid, s[^1].ToUpperInvariant(), f.Size));
+                var exists = s.Length > 0 && tree.TryGetValue(Key(s[..^1]), out var fid) && fid is { } fv && have.Contains((fv, s[^1].ToUpperInvariant(), f.Size));
                 return new { f.Path, Exists = exists, Parts = s.Length > 0 ? Match(Title(s[^1])) : [] };
             }),
             Folders = folderPaths.Select(s => new { Path = string.Join("/", s), Exists = tree.ContainsKey(Key(s)), Parts = Match(s[^1]) }),
@@ -124,7 +137,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
     /// <summary>Creates the folders that are not there yet (parents first) and returns every folder's id by path.</summary>
     public async Task<Dictionary<string, Guid>> FoldersAsync(FoldersRequest r, CancellationToken ct)
     {
-        var root = await ManagedFolderAsync(r.FolderId, ct);
+        var root = await RootAsync(r.FolderId, ct);
         var paths = (r.Paths ?? []).Select(Segments).Where(s => s.Length > 0).ToList();
         if (paths.Count > MaxBatch) throw new AppException($"Send at most {MaxBatch} folders at a time.");
         var tree = await TreeAsync(root, ct);
@@ -140,7 +153,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             tree[Key(s)] = f.Id;
         }
         await db.SaveChangesAsync(ct);
-        return paths.ToDictionary(s => string.Join("/", s), s => tree[Key(s)]);
+        return paths.ToDictionary(s => string.Join("/", s), s => tree[Key(s)]!.Value);
     }
 
     // ---- one file -------------------------------------------------------------------------------------------------------------------
@@ -244,13 +257,13 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
     /// <summary>One audit entry for the whole import, on the folder it went into.</summary>
     public async Task SummaryAsync(SummaryRequest r, CancellationToken ct)
     {
-        var f = await ManagedFolderAsync(r.FolderId, ct);
+        var f = await RootAsync(r.FolderId, ct);
         static string Size(long b) => b >= 1L << 30 ? $"{b / (double)(1L << 30):0.##} GB" : $"{b / (double)(1L << 20):0.#} MB";
         db.AuditEntries.Add(new AuditEntry
         {
-            OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Imported drawings", EntityType = nameof(DrawingFolder), EntityId = f.Id, SiteId = f.SiteId,
+            OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Imported drawings", EntityType = nameof(DrawingFolder), EntityId = f.Id ?? Guid.Empty, SiteId = f.SiteId,
             CorrelationId = me.CorrelationId,
-            Description = AuditText.Fit($"{(r.Cancelled ? "Stopped an import" : "Imported")} into drawing folder {f.Name}: {r.Imported} drawings ({Size(r.Bytes)}), {r.Folders} new folders, " +
+            Description = AuditText.Fit($"{(r.Cancelled ? "Stopped an import" : "Imported")} into {(f.Id is null ? "the top level of Drawings (All folders)" : $"drawing folder {f.Name}")}: {r.Imported} drawings ({Size(r.Bytes)}), {r.Folders} new folders, " +
                 $"{r.Skipped} already there, {r.Failed} failed, {r.Linked} part links"),
         });
         await db.SaveChangesAsync(ct);
