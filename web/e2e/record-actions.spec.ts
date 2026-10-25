@@ -320,7 +320,7 @@ test('fix list: optional instruction, drawings, hidden part fields, completed fo
   const row = view(page).getByRole('row', { name: new RegExp(`FAI copy ${stamp}`) });
   await expect(row).toBeVisible();
   await expect(row.getByTestId('completed-print')).toBeVisible();
-  await row.getByTestId('completed-open').click();
+  await page.goto(`/sequfloh/imported-files/${await row.getByTestId('completed-open').getAttribute('data-id')}`);
   await (await more(page)).getByTestId('change-family').click();
   await page.getByRole('dialog').getByLabel('Product family').click();
   await page.getByRole('option', { name: 'Unassigned' }).click();
