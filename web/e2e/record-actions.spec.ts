@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { FULLSCREEN_VIEWERS, MENU_ACTIONS, RECORD_SURFACES, type RecordSurface } from '../src/components/recordSurfaces';
-import { settledShot, signIn, view } from './support';
+import { more, settledShot, signIn, view } from './support';
 
 /**
  * Every record page uses the one shared action bar and offers the standard actions listed in recordSurfaces.ts. Also checks that Delete names the
@@ -321,7 +321,7 @@ test('fix list: optional instruction, drawings, hidden part fields, completed fo
   await expect(row).toBeVisible();
   await expect(row.getByTestId('completed-print')).toBeVisible();
   await row.getByTestId('completed-open').click();
-  await view(page).locator('[data-action="edit"]').first().click();
+  await (await more(page)).getByTestId('change-family').click();
   await page.getByRole('dialog').getByLabel('Product family').click();
   await page.getByRole('option', { name: 'Unassigned' }).click();
   await page.getByTestId('family-save').click();

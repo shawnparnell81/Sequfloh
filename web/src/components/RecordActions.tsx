@@ -51,18 +51,21 @@ export function RecordActions({ surface, dirty = false, busy = false, edit, save
   print?: { href?: string; onClick?: () => void; disabled?: boolean; testid?: string } | false;
   importNode?: ReactNode; del?: DeleteProps | false; more?: (MoreAction | false | null | undefined)[]; children?: ReactNode;
   /** Number (and title) editing for the record, through the shared number dialog. */
-  rename?: { kind: NumberedKind; id: string; number: string; title?: string | null; onDone: () => void } | false;
+  rename?: { kind: NumberedKind; id: string; number: string; title?: string | null; asEdit?: boolean; onDone: () => void } | false;
 }) {
   const [ask, setAsk] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const d = useDeleteAction(del || { what: '', url: '', show: false });
-  const items = [...(rename ? [{ label: rename.title !== undefined && rename.title !== null ? 'Edit number and title' : 'Edit number', onClick: () => setRenaming(true), testid: 'edit-number' }] : []), ...more.filter((m): m is MoreAction => !!m)];
+  // with no other edit, Edit changes the number (and title) - never hidden only under More
+  const renameIsEdit = !!rename && !!rename.asEdit && !edit;
+  const items = [...(rename && !renameIsEdit ? [{ label: rename.title !== undefined && rename.title !== null ? 'Edit number and title' : 'Edit number', onClick: () => setRenaming(true), testid: 'edit-number' }] : []), ...more.filter((m): m is MoreAction => !!m)];
   const hasMore = items.length > 0 || d.allowed;
   const pick = (f: () => void) => () => { setMenu(null); f(); };
   return (
     <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" data-record-actions={surface} data-unsaved={dirty ? 'true' : undefined}>
       {edit && <Button variant="outlined" data-action="edit" disabled={busy} onClick={edit.onClick}>{edit.label ?? 'Edit'}</Button>}
+      {renameIsEdit && <Button variant="outlined" data-action="edit" data-testid="edit-number" disabled={busy || dirty} onClick={() => setRenaming(true)}>Edit</Button>}
       {save && <Button variant="contained" data-action="save" disabled={busy || save.disabled || !dirty} onClick={save.onClick}>{save.label ?? 'Save'}</Button>}
       {cancel && <Button data-action="cancel" disabled={busy || (!dirty && !cancel.always)} onClick={() => (dirty ? setAsk(true) : cancel.onClick())}>{cancel.label ?? 'Cancel'}</Button>}
       {print && <Button variant="outlined" data-action="print" startIcon={<PrintOutlined />} data-testid={print.testid} {...(print.href ? { href: print.href, target: '_blank', rel: 'noopener' } : { onClick: print.onClick })} disabled={print.disabled || dirty}>Print</Button>}

@@ -425,21 +425,12 @@ function ValidationFormsPage() {
   const q = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`) });
   const [pick, setPick] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
-  const save = async (familyId: string, label: string, blankFormId: string) => {
+  const save = async (familyId: string, label: string, blankFormId: string, test = false) => {
     setMsg(null);
-    try { await put(`${S}/validation-forms/${familyId}`, { blankFormId: blankFormId || null }); setMsg({ sev: 'success', text: `Saved the validation form for ${label}.` }); setPick((p) => { const n = { ...p }; delete n[familyId]; return n; }); await qc.invalidateQueries({ queryKey: ['sqf-validation-forms'] }); }
+    try { await put(test ? `${S}/validation-forms/tests/${familyId}` : `${S}/validation-forms/${familyId}`, { blankFormId: blankFormId || null }); setMsg({ sev: 'success', text: `Saved the validation form for ${label}.` }); setPick((p) => { const n = { ...p }; delete n[familyId]; return n; }); await qc.invalidateQueries({ queryKey: ['sqf-validation-forms'] }); }
     catch (e) { setMsg({ sev: 'error', text: (e as Error).message }); }
   };
-  const crumbs = [{ label: 'SEQUFLOH Settings' }, { label: 'Validation forms by product' }];
-  return (
-    <SqfPage title="Validation forms by product" crumbs={crumbs} permission="sequfloh.manage_settings"
-      description="Choose the blank form each product family uses for validation. A new Validation / FAI work order for the family gets a copy of the confirmed form to fill out. A suggestion is only used once you save it.">
-      {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : q.data && <Stack gap={2}>
-        {msg && <Alert severity={msg.sev} onClose={() => setMsg(null)}>{msg.text}</Alert>}
-        {q.data.families.length === 0 ? <Alert severity="info">No product families yet. Add them under Dropdown Management, Product families.</Alert> :
-        <Paper variant="outlined"><Table size="small" data-testid="validation-forms-table">
-          <TableHead><TableRow><TableCell>Product family</TableCell><TableCell>Blank form</TableCell><TableCell>Status</TableCell><TableCell /></TableRow></TableHead>
-          <TableBody>{q.data.families.map((f) => {
+const vfRow = (f: { id: string; label: string; blankFormId?: string | null; suggestedId?: string | null }, test: boolean) => {
             const value = pick[f.id] ?? f.blankFormId ?? f.suggestedId ?? '';
             const confirmed = !!f.blankFormId && value === f.blankFormId;
             return <TableRow key={f.id} data-testid={`vf-row-${f.label}`}>
@@ -448,9 +439,24 @@ function ValidationFormsPage() {
                 <MenuItem value=""><em>None</em></MenuItem>{q.data!.blanks.map((b) => <MenuItem key={b.id} value={b.id}>{b.number} {b.title}</MenuItem>)}</TextField></TableCell>
               <TableCell>{confirmed ? <Chip size="small" color="success" label="Confirmed" /> : !f.blankFormId && value && value === f.suggestedId && pick[f.id] === undefined ? <Chip size="small" color="warning" label="Suggested, not saved" />
                 : value !== (f.blankFormId ?? '') ? <Chip size="small" label="Not saved" /> : <Chip size="small" label="No form" />}</TableCell>
-              <TableCell align="right"><Button size="small" variant="contained" disabled={confirmed || (!value && !f.blankFormId)} onClick={() => void save(f.id, f.label, value)} data-testid={`vf-save-${f.label}`}>{value ? 'Confirm and save' : 'Clear'}</Button></TableCell>
+              <TableCell align="right"><Button size="small" variant="contained" disabled={confirmed || (!value && !f.blankFormId)} onClick={() => void save(f.id, f.label, value, test)} data-testid={`vf-save-${f.label}`}>{value ? 'Confirm and save' : 'Clear'}</Button></TableCell>
             </TableRow>;
-          })}</TableBody></Table></Paper>}
+          };
+  const crumbs = [{ label: 'SEQUFLOH Settings' }, { label: 'Validation forms by product and test' }];
+  return (
+    <SqfPage title="Validation forms by product and test" crumbs={crumbs} permission="sequfloh.manage_settings"
+      description="Choose the blank form each product family uses for validation. A new Validation / FAI work order for the family gets a copy of the confirmed form to fill out. A suggestion is only used once you save it.">
+      {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : q.data && <Stack gap={2}>
+        {msg && <Alert severity={msg.sev} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+        {q.data.families.length === 0 ? <Alert severity="info">No product families yet. Add them under Dropdown Management, Product families.</Alert> :
+        <Paper variant="outlined"><Table size="small" data-testid="validation-forms-table">
+          <TableHead><TableRow><TableCell>Product family</TableCell><TableCell>Blank form</TableCell><TableCell>Status</TableCell><TableCell /></TableRow></TableHead>
+          <TableBody>{q.data.families.map((f) => vfRow(f, false))}</TableBody></Table></Paper>}
+        <Typography variant="h2" sx={{ mt: 1 }}>Tests</Typography>
+        <Typography variant="body2" color="text.secondary">Tests are not product families. A new work order of the test, for any product, gets a copy of the confirmed form to fill out.</Typography>
+        <Paper variant="outlined"><Table size="small" data-testid="test-forms-table">
+          <TableHead><TableRow><TableCell>Test</TableCell><TableCell>Blank form</TableCell><TableCell>Status</TableCell><TableCell /></TableRow></TableHead>
+          <TableBody>{(q.data.tests ?? []).map((t) => vfRow({ ...t, id: t.key }, true))}</TableBody></Table></Paper>
       </Stack>}
     </SqfPage>
   );

@@ -103,6 +103,24 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
             await tracking.SetValidationFormAsync(x.Id, info, ct);
             form = info;
         }
+        if (x.Type == TrackingType.SaltSpray)
+        {
+            // only the form an administrator confirmed for Salt Spray Test is attached, never a suggestion
+            var info = new JsonObject { ["test"] = "Salt Spray Test" };
+            var blankId = (await db.SequflohSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.SaltSprayFormId;
+            if (blankId is { } bid && await db.ImportedFiles.AnyAsync(b => b.Id == bid && b.IsBlankForm && !b.IsArchived, ct))
+            {
+                try
+                {
+                    var copy = JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(await files.FillOutAsync(bid, x.Number, $"Salt Spray Test {x.Number}", ct, x.PartNumber, r.FamilyId)))!.AsObject();
+                    info["fileId"] = copy["Id"]?.ToString(); info["fileNumber"] = copy["Number"]?.ToString(); info["fileTitle"] = copy["Title"]?.ToString();
+                }
+                catch (Exception e) when (e is AppException) { info["message"] = $"The Salt Spray Test form could not be started: {e.Message}"; }
+            }
+            else info["message"] = "No form is confirmed for Salt Spray Test. An administrator can set one in Settings > Validation forms by product.";
+            await tracking.SetValidationFormAsync(x.Id, info, ct);
+            form = info;
+        }
         return new { x.Id, x.Number, ValidationForm = form };
     }
     /// <summary>Records qty good and bad, further inspection and the quarantine flag of an inspection or warranty work order.</summary>

@@ -131,7 +131,7 @@ function TrackingFolder({ folder }: { folder: string }) {
 }
 
 // ------------------------------------------------------------------ new work order
-export interface ValidationForms { blanks: { id: string; number: string; title: string }[]; families: { id: string; label: string; blankFormId?: string | null; suggestedId?: string | null }[] }
+export interface ValidationForms { blanks: { id: string; number: string; title: string }[]; families: { id: string; label: string; blankFormId?: string | null; suggestedId?: string | null }[]; tests?: { key: string; label: string; blankFormId?: string | null; suggestedId?: string | null }[] }
 interface WiOpt { id: string; number: string; revision: string; title: string; type: string; partId?: string; partNumber?: string; partDescription?: string; operation?: string; repairDescription?: string; siteId: string; departmentId?: string }
 export function NewTrackingPage() {
   const nav = useNavigate();
@@ -278,7 +278,7 @@ export function TrackingRecordPage() {
   const plan = q.data.canPlan && !busy;
   const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
-  const vf = (rec.details as unknown as { validationForm?: { family?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
+  const vf = (rec.details as unknown as { validationForm?: { family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
     { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
@@ -314,8 +314,8 @@ export function TrackingRecordPage() {
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
         {vf && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
-          <Typography variant="h3" sx={{ mb: 1 }}>Validation form{vf.family ? ` — ${vf.family}` : ''}</Typography>
-          {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. It is saved under Completed Validation / FAI for this product family.</Typography>
+          <Typography variant="h3" sx={{ mb: 1 }}>{vf.test ? `${vf.test} form` : `Validation form${vf.family ? ` — ${vf.family}` : ''}`}</Typography>
+          {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. {vf.test ? '' : 'It is saved under Completed Validation / FAI for this product family.'}</Typography>
             : <Alert severity="warning">{vf.message ?? 'No validation form is confirmed for this product family.'}</Alert>}
         </Paper>}
         {(rec.type === 'Inspection' || rec.type === 'Warranty') && <InspectionResults rec={rec} onSaved={refresh} />}
