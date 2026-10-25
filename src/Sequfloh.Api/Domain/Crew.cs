@@ -76,3 +76,18 @@ public class SequflohChargebackReport : Entity, IAudited
     public string CreatedByName { get; set; } = "";
     public string AuditLabel => $"chargeback report {WorkOrderNumber}";
 }
+
+/// <summary>A saved job report: the job report PDF of a work order as it was when saved (on completion, or saved by hand). Never changed after it is saved.</summary>
+public class SequflohSavedJobReport : Entity, IAudited
+{
+    public Guid? TrackingRecordId { get; set; }
+    public string TrackingNumber { get; set; } = "";
+    public string? WorkOrderNumber { get; set; }
+    public Guid? SiteId { get; set; }
+    /// <summary>Why it was saved: "Completed" when the work order was completed, "Saved" when someone saved it from the job report.</summary>
+    public string Reason { get; set; } = "";
+    public string FileName { get; set; } = "";
+    public byte[] Pdf { get; set; } = [];
+    public string CreatedByName { get; set; } = "";
+    public string AuditLabel => $"job report {TrackingNumber}";
+}

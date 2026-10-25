@@ -45,4 +45,41 @@ public sealed class SequflohJobController(SequflohJobService job, SequflohPrintS
         var (pdf, name) = await job.PdfAsync(id, supplier, reference, rate, print, ct, full == true);
         return File(pdf, "application/pdf", name);
     }
+
+    /// <summary>Saves the job report as it is now to the saved reports under Reports.</summary>
+    [HttpPost("{id:guid}/job/report/save")]
+    public async Task<object> SaveReport(Guid id, CancellationToken ct) { var x = await job.SaveReportAsync(id, "Saved", print, ct); return new { x.Id, x.CreatedAt }; }
+
+    /// <summary>The work order as a read-only document (the full job report PDF), shown in the browser.</summary>
+    [HttpGet("{id:guid}/job/report/view")]
+    public async Task<IActionResult> View(Guid id, CancellationToken ct)
+    {
+        var (pdf, name) = await job.PdfAsync(id, null, null, null, print, ct);
+        return InlinePdf.Send(this, pdf, name);
+    }
+}
+
+/// <summary>Saved job reports and chargeback reports under Reports. Viewing needs the reports permission.</summary>
+[ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh/saved-reports")]
+public sealed class SequflohSavedReportsController(SequflohJobService job) : ControllerBase
+{
+    [HttpGet] public Task<object> List([FromQuery] string? q, [FromQuery] string? type, CancellationToken ct) => job.SavedReportsAsync(q, type, ct);
+    [HttpGet("job/{id:guid}/pdf")]
+    public async Task<IActionResult> Pdf(Guid id, CancellationToken ct)
+    {
+        var (pdf, name) = await job.SavedJobReportPdfAsync(id, ct);
+        return InlinePdf.Send(this, pdf, name);
+    }
+}
+
+/// <summary>A PDF shown in the browser's own PDF viewer in a new tab, with the file name kept.</summary>
+public static class InlinePdf
+{
+    public static IActionResult Send(ControllerBase c, byte[] pdf, string name)
+    {
+        c.Response.Headers.ContentDisposition = $"inline; filename=\"{name.Replace("\"", "")}\"";
+        c.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
+        c.Response.Headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; object-src 'self'; frame-ancestors 'self'";
+        return c.File(pdf, "application/pdf");
+    }
 }

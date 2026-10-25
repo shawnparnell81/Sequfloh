@@ -21,7 +21,7 @@ public sealed class SequflohChargebackController(SequflohChargebackService svc) 
     [HttpPost] public Task<object> Create(ChargebackInput r, CancellationToken ct) => svc.CreateAsync(r, ct);
     [HttpPut("{id:guid}")] public Task<object> Update(Guid id, ChargebackInput r, CancellationToken ct) => svc.UpdateAsync(id, r, ct);
     [HttpDelete("{id:guid}")] public async Task<IActionResult> Delete(Guid id, CancellationToken ct) { await svc.DeleteAsync(id, ct); return NoContent(); }
-    [HttpGet("{id:guid}/pdf")] public async Task<IActionResult> Pdf(Guid id, CancellationToken ct) { var (b, n) = await svc.PdfAsync(id, ct); return File(b, "application/pdf", n); }
+    [HttpGet("{id:guid}/pdf")] public async Task<IActionResult> Pdf(Guid id, CancellationToken ct) { var (b, n) = await svc.PdfAsync(id, ct); return InlinePdf.Send(this, b, n); }
     [HttpGet("{id:guid}/xlsx")]
     public async Task<IActionResult> Xlsx(Guid id, CancellationToken ct) { var (b, n) = await svc.ExcelAsync(id, ct); return File(b, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", n); }
 }

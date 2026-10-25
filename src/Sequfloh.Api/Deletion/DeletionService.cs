@@ -244,6 +244,7 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
     {
         var f = await db.ImportedFiles.Include(x => x.Versions).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("File");
         await RequireAsync(f, ct);
+        await Sequfloh.Imports.ImportedFileService.GuardClosedWorkOrderAsync(db, access, me.UserId ?? throw new ForbiddenException(), f, ct);
         if (f.IsBlankForm)
         {
             var copies = await db.ImportedFiles.CountAsync(x => x.BlankFormId == id, ct);

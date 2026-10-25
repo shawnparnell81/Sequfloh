@@ -328,6 +328,7 @@ export function TrackingRecordPage() {
         <SqfStatus status={rec.status} />
         {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`}>Job report</Button>
+        <Button variant="outlined" href={`${S}/tracking/${rec.id}/job/report/view`} target="_blank" rel="noopener" data-testid="wo-open-file">Open as file</Button>
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?wo=${rec.id}`} data-testid="wo-create-chargeback">Create chargeback report</Button>
       </RecordActions>}>
       <InventoryNote />
@@ -342,6 +343,7 @@ export function TrackingRecordPage() {
         <RecordDrawings recordId={rec.id} />
         {vf && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
           <Typography variant="h3" sx={{ mb: 1 }}>{vf.test ? `${vf.test} form` : `Validation form${vf.family ? ` — ${vf.family}` : ''}`}</Typography>
+          {vf.fileId && closed && <Alert severity="info" sx={{ mb: 1 }} data-testid="wo-form-locked">This work order is closed, so its form is locked and can't be changed.</Alert>}
           {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. {vf.test ? '' : 'It is saved under Completed Validation / FAI for this product family.'}</Typography>
             : <Alert severity="warning">{vf.message ?? 'No validation form is confirmed for this product family.'}</Alert>}
           {q.data.canAttachForm && <Button variant="outlined" sx={{ mt: 1.5 }} disabled={busy || dirty} onClick={() => setAttach(true)} data-testid="wo-attach-form">Attach validation form</Button>}

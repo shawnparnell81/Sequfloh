@@ -25,6 +25,7 @@ public partial class AppDbContext
     public DbSet<SequflohCrewSession> SequflohCrewSessions => Set<SequflohCrewSession>();
     public DbSet<SequflohDayWorker> SequflohDayWorkers => Set<SequflohDayWorker>();
     public DbSet<SequflohChargebackReport> SequflohChargebackReports => Set<SequflohChargebackReport>();
+    public DbSet<SequflohSavedJobReport> SequflohSavedJobReports => Set<SequflohSavedJobReport>();
     public DbSet<SequflohInspectionRequest> SequflohInspectionRequests => Set<SequflohInspectionRequest>();
 
     private static void ConfigureSequfloh(ModelBuilder b)
@@ -283,6 +284,18 @@ public partial class AppDbContext
             e.Property(x => x.Parts).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.Property(x => x.CostLines).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.Property(x => x.Sections).HasColumnType("jsonb");
+        });
+        b.Entity<SequflohSavedJobReport>(e =>
+        {
+            e.ToTable("sequfloh_saved_job_reports");
+            e.HasIndex(x => x.CreatedAt);
+            e.HasIndex(x => x.TrackingRecordId);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            e.Property(x => x.WorkOrderNumber).HasMaxLength(100);
+            e.Property(x => x.Reason).HasMaxLength(40);
+            e.Property(x => x.FileName).HasMaxLength(300);
+            e.Property(x => x.CreatedByName).HasMaxLength(200);
         });
         b.Entity<SequflohTimeEntry>(e =>
         {

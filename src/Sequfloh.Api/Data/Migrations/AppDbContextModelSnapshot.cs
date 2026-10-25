@@ -1168,6 +1168,72 @@ namespace Sequfloh.Data.Migrations
                     b.ToTable("sequfloh_reference_values", "sqf");
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohSavedJobReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<byte[]>("Pdf")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid?>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TrackingNumber")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("TrackingRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WorkOrderNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TrackingRecordId");
+
+                    b.ToTable("sequfloh_saved_job_reports", "sqf");
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3158,6 +3224,14 @@ namespace Sequfloh.Data.Migrations
                         .HasForeignKey("PartsListId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohSavedJobReport", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohTrackingRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TrackingRecordId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohTaskAssignee", b =>

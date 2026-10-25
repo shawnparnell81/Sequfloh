@@ -11,6 +11,7 @@ using Sequfloh.Imports;
 using Sequfloh.Infrastructure.Modules.Quality;
 using Sequfloh.Infrastructure.Persistence;
 using Sequfloh.Platform;
+using Sequfloh.Domain.Security;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
@@ -453,6 +454,54 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         f.Audit("JobReportPrinted", SequflohTrackingService.EntityType, rec.Id, $"Printed the job report for {x.Number}", rec.SiteId);
         await db.SaveChangesAsync(ct);
         return (pdf, $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.Number)}.pdf");
+    }
+
+    /// <summary>Saves the job report PDF of the work order as it is now to the saved reports under Reports. Kept as saved; a later save adds a new one.</summary>
+    public async Task<SequflohSavedJobReport> SaveReportAsync(Guid id, string reason, SequflohPrintService print, CancellationToken ct)
+    {
+        var rec = await tracking.LoadAsync(id, false, ct);
+        var (pdf, name) = await PdfAsync(id, null, null, null, print, ct);
+        var by = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? current.UserName ?? "";
+        var x = new SequflohSavedJobReport { TrackingRecordId = rec.Id, TrackingNumber = rec.Number, WorkOrderNumber = rec.WorkOrder, SiteId = rec.SiteId, Reason = reason, FileName = name, Pdf = pdf, CreatedByName = by };
+        db.SequflohSavedJobReports.Add(x);
+        f.Audit("JobReportSaved", SequflohTrackingService.EntityType, rec.Id,
+            reason == "Completed" ? $"{rec.Number}: job report saved to Reports when the work order was completed" : $"{rec.Number}: job report saved to Reports", rec.SiteId);
+        await db.SaveChangesAsync(ct);
+        return x;
+    }
+
+    /// <summary>Saved job reports and saved chargeback reports, newest first, searched by work order number (or record number) and filtered by type ("job" or "chargeback").</summary>
+    public async Task<object> SavedReportsAsync(string? q, string? type, CancellationToken ct)
+    {
+        if (!await m.CanAnyAsync(Permissions.SequflohViewReports, ct)) throw new ForbiddenException();
+        var like = string.IsNullOrWhiteSpace(q) ? null : $"%{q.Trim()}%";
+        var rows = new List<(string Type, Guid Id, Guid? TrackingId, string? WorkOrder, string? Number, string? Detail, DateTimeOffset At, string By)>();
+        if (type is null or "" or "job")
+        {
+            var jq = db.SequflohSavedJobReports.AsNoTracking();
+            if (like is not null) jq = jq.Where(x => EF.Functions.ILike(x.TrackingNumber, like) || (x.WorkOrderNumber != null && EF.Functions.ILike(x.WorkOrderNumber, like)));
+            rows.AddRange((await jq.OrderByDescending(x => x.CreatedAt).Take(500).Select(x => new { x.Id, x.TrackingRecordId, x.WorkOrderNumber, x.TrackingNumber, x.Reason, x.CreatedAt, x.CreatedByName }).ToListAsync(ct))
+                .Select(x => ("job", x.Id, x.TrackingRecordId, x.WorkOrderNumber, (string?)x.TrackingNumber, (string?)(x.Reason == "Completed" ? "Saved when completed" : "Saved from the job report"), x.CreatedAt, x.CreatedByName)));
+        }
+        if (type is null or "" or "chargeback")
+        {
+            var cq = db.SequflohChargebackReports.AsNoTracking();
+            if (like is not null) cq = cq.Where(x => EF.Functions.ILike(x.WorkOrderNumber, like) || (x.TrackingNumber != null && EF.Functions.ILike(x.TrackingNumber, like)));
+            rows.AddRange((await cq.OrderByDescending(x => x.CreatedAt).Take(500).Select(x => new { x.Id, x.TrackingRecordId, x.WorkOrderNumber, x.TrackingNumber, x.Supplier, x.CreatedAt, x.CreatedByName }).ToListAsync(ct))
+                .Select(x => ("chargeback", x.Id, x.TrackingRecordId, (string?)x.WorkOrderNumber, x.TrackingNumber, x.Supplier, x.CreatedAt, x.CreatedByName)));
+        }
+        return rows.OrderByDescending(r => r.At).Take(500).Select(r => new
+        {
+            r.Type, r.Id, TrackingRecordId = r.TrackingId, WorkOrderNumber = r.WorkOrder, TrackingNumber = r.Number, r.Detail, CreatedAt = r.At, CreatedByName = r.By,
+            Url = r.Type == "job" ? $"/api/sequfloh/saved-reports/job/{r.Id}/pdf" : $"/api/sequfloh/chargebacks/{r.Id}/pdf",
+        });
+    }
+
+    public async Task<(byte[] Pdf, string Name)> SavedJobReportPdfAsync(Guid id, CancellationToken ct)
+    {
+        if (!await m.CanAnyAsync(Permissions.SequflohViewReports, ct)) throw new ForbiddenException();
+        var x = await db.SequflohSavedJobReports.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, ct) ?? throw new NotFoundException("Saved job report");
+        return (x.Pdf, x.FileName);
     }
 
     public static bool HasFindings(JobFindings f) => f with { ErpReference = null } != new JobFindings();
