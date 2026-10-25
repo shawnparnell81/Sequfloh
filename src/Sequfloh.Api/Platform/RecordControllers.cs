@@ -148,6 +148,8 @@ public sealed class FilesController(AppDbContext db, IFileStorage storage, IAcce
         var s = await storage.GetAsync(a.StorageKey, ct) ?? throw new NotFoundException("File content");
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         var safeInline = inline && (a.ContentType.StartsWith("image/") && a.ContentType != "image/svg+xml" || a.ContentType == "application/pdf");
+        // shown inside the app's own pages, so the file may be framed by the same site only
+        if (safeInline) { Response.Headers["X-Frame-Options"] = "SAMEORIGIN"; Response.Headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; object-src 'self'; frame-ancestors 'self'"; }
         return File(s, a.ContentType, safeInline ? null : a.FileName);
     }
 
