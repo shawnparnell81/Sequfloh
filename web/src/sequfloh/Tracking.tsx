@@ -223,7 +223,7 @@ export function NewTrackingPage() {
           {fld('workOrder', 'Work order')}{type === 'Repair' ? fld('repairOrder', 'Repair order') : fld('project', 'Project')}
           {type === 'Repair' && fld('customerReturnReference', 'Customer-return reference')}
           {fld('operation', 'Operation')}
-          {fld('plannedStart', 'Date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
+          {fld('plannedStart', 'Expected start date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
           {fld('min', 'Minimum benchmark (minutes)', { type: 'number' })}{fld('max', 'Maximum benchmark (minutes)', { type: 'number' })}
           {type === 'Repair' && <Box sx={{ gridColumn: '1 / -1' }}>{fld('reportedCondition', 'Reported condition', { multiline: true, minRows: 2, fullWidth: true })}</Box>}
         </Grid>
