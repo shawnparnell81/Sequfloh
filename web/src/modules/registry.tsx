@@ -95,7 +95,7 @@ export const sequfloh: ModuleDef = {
       ] },
       { label: 'Reports', path: '/sequfloh/reports/task-performance', permission: 'sequfloh.view_reports', icon: <AssessmentOutlined fontSize="small" />, match: ['/sequfloh/reports', '/sequfloh/chargebacks'], children: [
         { label: 'Chargeback Reports', path: '/sequfloh/chargebacks' },
-        { label: 'Saved Job and Chargeback Reports', path: '/sequfloh/reports/saved' },
+        { label: 'Job Reports', path: '/sequfloh/reports/job-reports' },
         { label: 'Task Performance', path: '/sequfloh/reports/task-performance' },
         { label: 'Validation / FAI Status', path: '/sequfloh/reports/validation-status' },
         { label: 'Repair / Rework Status', path: '/sequfloh/reports/repair-status' },
