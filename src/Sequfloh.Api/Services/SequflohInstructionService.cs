@@ -12,7 +12,7 @@ using Sequfloh.Infrastructure.Services;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record DevelopmentInput(Guid? AssignedEngineerId = null, DateOnly? TargetCompletionDate = null, string? Project = null, string? EngineeringNotes = null, string? DevelopmentStatus = null);
-public sealed record InstructionCreateInput(WorkInstructionType Type, string Title, Guid SiteId, Guid? DepartmentId, Guid? PartId, Guid? TemplateId = null);
+public sealed record InstructionCreateInput(WorkInstructionType Type, string Title, Guid SiteId, Guid? DepartmentId, Guid? PartId, Guid? TemplateId = null, string? Number = null);
 public sealed record InstructionSaveInput(string Title, Guid SiteId, Guid? DepartmentId, Guid? OwnerId, Guid? PartId, string? ProductFamily, string? Assembly,
     string? Model, string? Variant, string? Process, string? Operation, string? Workstation, string? Location, string? ValidationType, string? FaiType, string? RepairCategory, string? RepairType,
     string? RepairDescription, string? ResultStatus, DateOnly? EffectiveDate, JsonObject? Content, JsonArray? Steps, JsonArray? Characteristics, JsonArray? PartsRows, uint RowVersion = 0, JsonArray? Blocks = null);
@@ -26,7 +26,7 @@ public sealed record CopyCharacteristicsInput(Guid FromInstructionId);
 /// copying library data (operation steps, parts lists, characteristics) into the instruction, and release rules driven by the designer schema.
 /// Every transition reloads and locks the row, so a stale or repeated click cannot apply twice.
 /// </summary>
-public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m, INumberingService numbers, SequflohFoundationService f,
+public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m, SequflohFoundationService f,
     SequflohNotifications notify, ICurrentUser me)
 {
     public const string EntityType = nameof(SequflohWorkInstruction);
@@ -120,12 +120,14 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         await m.ValidateLocationAsync(r.SiteId, r.DepartmentId, ct);
         ModuleSupport.Required(r.Title, "Title", 300);
         if (!SequflohDesigner.Schemas.TryGetValue(r.Type, out var schema)) throw new AppException("Choose the work instruction type.");
+        var number = RecordNumbers.Clean(r.Number, 200, "work instruction number");
+        await RecordNumbers.EnsureFreeAsync(db.SequflohWorkInstructions.IgnoreQueryFilters().Select(o => o.Number), number, "A work instruction numbered", ct);
         var settings = await f.GetSettingsAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var wi = new SequflohWorkInstruction
         {
             Type = r.Type, Title = r.Title.Trim(), SiteId = r.SiteId, DepartmentId = r.DepartmentId, Status = WorkInstructionStatus.Draft, OwnerId = m.UserId, AuthorId = m.UserId,
-            Revision = SequflohFoundationService.FirstRevision(settings.Numbering.RevisionFormat), Number = await numbers.NextAsync(schema.NumberingType, null, ct)
+            Revision = SequflohFoundationService.FirstRevision(settings.Numbering.RevisionFormat), Number = number
         };
         wi.FamilyId = wi.Id;
         await ApplyPartAsync(wi, r.PartId, ct);
@@ -425,16 +427,18 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         return wi;
     }
 
-    public async Task<SequflohWorkInstruction> DuplicateAsync(Guid id, CancellationToken ct)
+    public async Task<SequflohWorkInstruction> DuplicateAsync(Guid id, string? number, CancellationToken ct)
     {
         var src = await LoadAsync(id, false, ct);
         await m.RequireAsync(Permissions.SequflohCreateWorkInstruction, src.SiteId, src.DepartmentId, ct);
+        var n = RecordNumbers.Clean(number, 200, "work instruction number");
+        await RecordNumbers.EnsureFreeAsync(db.SequflohWorkInstructions.IgnoreQueryFilters().Select(o => o.Number), n, "A work instruction numbered", ct);
         var settings = await f.GetSettingsAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var wi = Copy(src);
         wi.Blocks = SequflohBlocks.WithoutImages(wi.Blocks); // a duplicate is a new instruction; its pictures are attached again
         wi.FamilyId = wi.Id; wi.Title = (src.Title + " (copy)")[..Math.Min(300, src.Title.Length + 7)];
-        wi.Number = await numbers.NextAsync(SequflohDesigner.Schemas[src.Type].NumberingType, null, ct);
+        wi.Number = n;
         wi.Revision = SequflohFoundationService.FirstRevision(settings.Numbering.RevisionFormat);
         db.SequflohWorkInstructions.Add(wi);
         Transition(wi, "duplicate", null, WorkInstructionStatus.Draft, $"Copied from {src.Number} rev {src.Revision}.");

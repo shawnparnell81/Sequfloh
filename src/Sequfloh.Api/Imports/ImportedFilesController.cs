@@ -8,8 +8,8 @@ namespace Sequfloh.Imports;
 public sealed class ImportedFilesController(ImportedFileService files) : ControllerBase
 {
     public sealed record SaveCellsRequest(int BaseVersion, List<CellEdit> Edits, bool EditBlank = false);
-    public sealed record FillOutRequest(string? Title, string? PartNumber = null, Guid? FamilyId = null);
-    public sealed record SaveCopyRequest(int BaseVersion, string? Title, List<CellEdit>? Cells, List<ParagraphEdit>? Paragraphs, Guid? FamilyId = null);
+    public sealed record FillOutRequest(string? Number, string? Title, string? PartNumber = null, Guid? FamilyId = null);
+    public sealed record SaveCopyRequest(int BaseVersion, string? Number, string? Title, List<CellEdit>? Cells, List<ParagraphEdit>? Paragraphs, Guid? FamilyId = null);
     public sealed record PreviewCellsRequest(string? Sheet, List<CellEdit> Edits);
     public sealed record SaveDocumentRequest(int BaseVersion, List<ParagraphEdit> Edits, bool EditBlank = false);
     public sealed record RenameRequest(string Title);
@@ -18,11 +18,11 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
     public Task<object> List(string? q, string? kind, string? family, int page = 1, int pageSize = 50, CancellationToken ct = default) => files.ListAsync(q, kind, page, pageSize, ct, family);
 
     [HttpPost, RequirePermission(Permissions.SequflohImportFiles), RequestSizeLimit(ImportedFileService.MaxBytes + 64 * 1024)]
-    public async Task<object> Upload(IFormFile file, [FromForm] string? title, [FromForm] Guid? siteId, [FromForm] Guid? departmentId, [FromForm] bool blankForm, CancellationToken ct, [FromForm] bool completedForm = false, [FromForm] Guid? familyId = null)
+    public async Task<object> Upload(IFormFile file, [FromForm] string? title, [FromForm] Guid? siteId, [FromForm] Guid? departmentId, [FromForm] bool blankForm, CancellationToken ct, [FromForm] bool completedForm = false, [FromForm] Guid? familyId = null, [FromForm] string? number = null)
     {
         if (file is null || file.Length == 0) throw new Application.Abstractions.AppException("Choose a file.");
         await using var s = file.OpenReadStream();
-        var f = await files.UploadAsync(s, file.FileName, title, siteId, departmentId, ct, blankForm, completedForm, familyId);
+        var f = await files.UploadAsync(s, file.FileName, title, siteId, departmentId, ct, blankForm, completedForm, familyId, number);
         return new { f.Id, f.Number, f.Title };
     }
 
@@ -71,10 +71,10 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
     public async Task<IActionResult> Archive(Guid id, CancellationToken ct) { await files.ArchiveAsync(id, ct); return NoContent(); }
 
     [HttpPost("{id:guid}/fill-out"), RequirePermission(Permissions.SequflohImportFiles)]
-    public Task<object> FillOut(Guid id, FillOutRequest r, CancellationToken ct) => files.FillOutAsync(id, r.Title, ct, r.PartNumber, r.FamilyId);
+    public Task<object> FillOut(Guid id, FillOutRequest r, CancellationToken ct) => files.FillOutAsync(id, r.Number, r.Title, ct, r.PartNumber, r.FamilyId);
 
     [HttpPost("{id:guid}/save-as-copy"), RequirePermission(Permissions.SequflohImportFiles)]
-    public Task<object> SaveAsCopy(Guid id, SaveCopyRequest r, CancellationToken ct) => files.SaveAsCopyAsync(id, r.BaseVersion, r.Title, r.Cells, r.Paragraphs, ct, r.FamilyId);
+    public Task<object> SaveAsCopy(Guid id, SaveCopyRequest r, CancellationToken ct) => files.SaveAsCopyAsync(id, r.BaseVersion, r.Number, r.Title, r.Cells, r.Paragraphs, ct, r.FamilyId);
 
     [HttpPost("{id:guid}/versions"), RequirePermission(Permissions.SequflohImportFiles), RequestSizeLimit(ImportedFileService.MaxBytes + 64 * 1024)]
     public async Task<object> UploadVersion(Guid id, IFormFile file, CancellationToken ct)

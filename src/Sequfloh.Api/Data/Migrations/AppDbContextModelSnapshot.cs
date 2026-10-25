@@ -1808,8 +1808,8 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<string>("WorkInstructionNumber")
                         .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("WorkInstructionRevision")
                         .IsRequired()
@@ -1983,8 +1983,8 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<string>("Number")
                         .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTimeOffset?>("ObsoleteAt")
                         .HasColumnType("timestamp with time zone");
@@ -2254,8 +2254,8 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<string>("Number")
                         .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
 
                     b.Property<string>("OriginalFileName")
                         .IsRequired()

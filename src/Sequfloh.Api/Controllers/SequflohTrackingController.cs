@@ -87,14 +87,14 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         object? form = null;
         if (x.Type == TrackingType.Validation && r.FamilyId is { } fam)
         {
-            // only a form the administrator confirmed for the family is attached; nothing is guessed here
+            // only a form the administrator confirmed for the family is attached; nothing is guessed here. The started form takes the work order's own number.
             var family = await db.SequflohReferenceValues.AsNoTracking().FirstOrDefaultAsync(v => v.Id == fam && v.ListKey == SequflohCatalog.ProductFamilies, ct);
             var info = new JsonObject { ["familyId"] = fam.ToString(), ["family"] = family?.Label };
             if (family?.ValidationFormId is { } blankId && await db.ImportedFiles.AnyAsync(b => b.Id == blankId && b.IsBlankForm && !b.IsArchived, ct))
             {
                 try
                 {
-                    var copy = JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(await files.FillOutAsync(blankId, $"{family.Label} validation {x.Number}", ct, x.PartNumber, fam)))!.AsObject();
+                    var copy = JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(await files.FillOutAsync(blankId, x.Number, $"{family.Label} validation {x.Number}", ct, x.PartNumber, fam)))!.AsObject();
                     info["fileId"] = copy["Id"]?.ToString(); info["fileNumber"] = copy["Number"]?.ToString(); info["fileTitle"] = copy["Title"]?.ToString();
                 }
                 catch (Exception e) when (e is AppException) { info["message"] = $"The validation form for {family.Label} could not be started: {e.Message}"; }

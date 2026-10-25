@@ -37,9 +37,10 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             "superseded" => query.Where(x => x.Status == WorkInstructionStatus.Superseded),
             "obsolete" => query.Where(x => x.Status == WorkInstructionStatus.Obsolete),
             "development" => query.Where(x => x.Status == WorkInstructionStatus.Draft),
-            "validation-only" => query.Where(x => x.Type == WorkInstructionType.Validation),
-            "validation-fai" => query.Where(x => x.Type == WorkInstructionType.ValidationFai),
-            "fai" => query.Where(x => x.Type == WorkInstructionType.Fai),
+            // Validation, Validation / FAI and FAI instructions are one type to the user
+            "validation-only" => query.Where(x => (x.Type == WorkInstructionType.Validation || x.Type == WorkInstructionType.ValidationFai || x.Type == WorkInstructionType.Fai)),
+            "validation-fai" => query.Where(x => (x.Type == WorkInstructionType.Validation || x.Type == WorkInstructionType.ValidationFai || x.Type == WorkInstructionType.Fai)),
+            "fai" => query.Where(x => (x.Type == WorkInstructionType.Validation || x.Type == WorkInstructionType.ValidationFai || x.Type == WorkInstructionType.Fai)),
             "repair-test" => query.Where(x => x.Type == WorkInstructionType.RepairTest),
             "repair-work" => query.Where(x => x.Type == WorkInstructionType.RepairWork),
             "inspection" => query.Where(x => x.Type == WorkInstructionType.Inspection),
@@ -47,7 +48,8 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             _ => query
         };
         if (status is not null) query = query.Where(x => x.Status == status);
-        if (type is not null) query = query.Where(x => x.Type == type);
+        if (type is WorkInstructionType.Validation or WorkInstructionType.ValidationFai or WorkInstructionType.Fai) query = query.Where(x => (x.Type == WorkInstructionType.Validation || x.Type == WorkInstructionType.ValidationFai || x.Type == WorkInstructionType.Fai));
+        else if (type is not null) query = query.Where(x => x.Type == type);
         if (!string.IsNullOrWhiteSpace(part)) query = query.Where(x => x.PartNumber != null && EF.Functions.ILike(x.PartNumber, $"%{part.Trim()}%"));
         if (!string.IsNullOrWhiteSpace(repairCategory)) query = query.Where(x => x.RepairCategory == repairCategory);
         if (!string.IsNullOrWhiteSpace(repairType)) query = query.Where(x => x.RepairType == repairType);
@@ -111,9 +113,10 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
 
     /// <summary>Imports one file as a new draft work instruction: the title is the file name and the file is attached to the draft (same file rules as attachments).</summary>
     [HttpPost("import"), RequirePermission(Permissions.SequflohCreateWorkInstruction), RequestSizeLimit(global::Sequfloh.Platform.FilesController.MaxBytes + 64 * 1024)]
-    public async Task<object> Import(IFormFile file, [FromForm] WorkInstructionType type, [FromForm] Guid siteId, [FromForm] Guid? departmentId, CancellationToken ct)
+    public async Task<object> Import(IFormFile file, [FromForm] WorkInstructionType type, [FromForm] Guid siteId, [FromForm] Guid? departmentId, CancellationToken ct, [FromForm] string? number = null)
     {
         global::Sequfloh.Platform.FilesController.Check(file);
+        // the number and title are the file name as it was saved, without its extension
         var title = Path.GetFileNameWithoutExtension(Path.GetFileName(file.FileName)).Trim();
         if (title.Length > 200) title = title[..200];
         // a Procedure Instruction imported again under the same title is revised: a released one gets a new draft revision, which then carries the new file
@@ -125,7 +128,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             return new { target.Id, target.Number, Title = title, Revised = true };
         }
         // the file was checked above; creating the draft runs in its own transaction, so a failed attach takes the new draft away again
-        var x = await wi.CreateAsync(new InstructionCreateInput(type, title, siteId, departmentId, null), ct);
+        var x = await wi.CreateAsync(new InstructionCreateInput(type, title, siteId, departmentId, null, Number: string.IsNullOrWhiteSpace(number) ? title : number), ct);
         try { await global::Sequfloh.Platform.FilesController.AttachAsync(db, storage, "SequflohWorkInstruction", x.Id, x.SiteId, file, ct); }
         catch
         {
@@ -149,7 +152,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
     [HttpPost("{id:guid}/revise")] [RequirePermission(Permissions.SequflohReviseWorkInstruction)]
     public async Task<object> Revise(Guid id, ReviseInput r, CancellationToken ct) { var x = await wi.ReviseAsync(id, r, ct); return new { x.Id, x.Number, x.Revision }; }
     [HttpPost("{id:guid}/duplicate")] [RequirePermission(Permissions.SequflohCreateWorkInstruction)]
-    public async Task<object> Duplicate(Guid id, CancellationToken ct) { var x = await wi.DuplicateAsync(id, ct); return new { x.Id, x.Number }; }
+    public async Task<object> Duplicate(Guid id, RecordNumberInput r, CancellationToken ct) { var x = await wi.DuplicateAsync(id, r.Number, ct); return new { x.Id, x.Number }; }
     [HttpPost("{id:guid}/copy-operation-steps")] [RequirePermission(Permissions.SequflohEditDraftWorkInstruction)]
     public async Task<object> CopySteps(Guid id, CopyStepsInput r, CancellationToken ct) => new { Copied = await wi.CopyOperationStepsAsync(id, r, ct) };
     [HttpPost("{id:guid}/copy-parts")] [RequirePermission(Permissions.SequflohEditDraftWorkInstruction)]

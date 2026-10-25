@@ -12,12 +12,12 @@ test('job time: clock on, pause for break and lunch, clock off', async ({ page }
   await signIn(page);
   const rq = page.request;
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Clock instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Clock instruction ${stamp}`, siteId: site } }))).id as string;
   const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Work' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
   await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
-  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-C${stamp}` } }))).id as string;
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-C${stamp}` } }))).id as string;
 
   await page.goto(`/sequfloh/record/${wo}?tab=time`);
   const v = view(page);

@@ -223,12 +223,16 @@ public sealed class ImportTests(TestApp app)
         var (_, viewer) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewImportedFiles], site);
         var (_, outsider) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewImportedFiles], await app.CreateSiteAsync());
 
+        var savedName = $"Torque checks {Guid.NewGuid():N}"[..24];
         var form = new MultipartFormDataContent();
-        form.Add(new ByteArrayContent(InspectionWorkbook()), "file", "Torque checks.xlsx");
+        form.Add(new ByteArrayContent(InspectionWorkbook()), "file", savedName + ".xlsx");
         form.Add(new StringContent(site.ToString()), "siteId");
-        var created = await (await editor.Http.PostAsync("/api/imported-files", form)).JsonAsync();
+        var upload = new HttpRequestMessage(HttpMethod.Post, "/api/imported-files") { Content = form };
+        upload.Headers.Add("X-Test-Own-Number", "1");
+        var created = await (await editor.Http.SendAsync(upload)).JsonAsync();
         var id = created.Id();
-        Assert.StartsWith("IMP-", created.Str("number"));
+        Assert.Equal(savedName, created.Str("number")); // the file name as saved, without its extension
+        Assert.Equal(savedName, created.Str("title"));
 
         var detail = await viewer.GetElAsync($"/api/imported-files/{id}");
         Assert.Equal("spreadsheet", detail.Str("kind"));

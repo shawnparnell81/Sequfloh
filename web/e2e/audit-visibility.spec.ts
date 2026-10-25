@@ -9,8 +9,8 @@ test('no audit history on record pages; Settings audit section follows the permi
   await signIn(page);
   const rq = page.request;
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Audit vis ${stamp}`, siteId: site } }))).id as string;
-  const ir = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { siteId: site, partNumber: `AV-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Audit vis ${stamp}`, siteId: site } }))).id as string;
+  const ir = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, siteId: site, partNumber: `AV-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
   const part = (await ok(rq.post('/api/sequfloh/parts', { data: {
     part: { partNumber: `AV-${stamp}`, name: 'Test washer', partType: 0, revision: 'A', unitOfMeasure: 'EA', siteId: site, status: 0, hasSpecialCharacteristics: false },
     execution: { productFamily: 'Test', isRepairable: false, isSerialized: false, isLotControlled: false } } }))).id as string;

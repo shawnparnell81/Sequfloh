@@ -16,7 +16,7 @@ test('inspection requests: quick action, list order, convert to work order, dele
   await ok(rq.post('/api/sequfloh/parts', { data: {
     part: { partNumber: pn, name: 'Example bracket assembly', partType: 1, revision: 'A', unitOfMeasure: 'EA', siteId: site, status: 0, hasSpecialCharacteristics: false },
     execution: { productFamily: 'Test', isRepairable: false, isSerialized: false, isLotControlled: false } } }));
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Inspection instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Inspection instruction ${stamp}`, siteId: site } }))).id as string;
   const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Inspect' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
@@ -37,6 +37,7 @@ test('inspection requests: quick action, list order, convert to work order, dele
   // form in a dialog, part picked from the Part Master fills the description
   await button().click();
   const dlg = page.getByRole('dialog');
+  await dlg.getByTestId('ir-number').fill(`IR-${stamp}`);
   await dlg.getByLabel('Part number').fill(pn);
   await page.getByRole('option', { name: new RegExp(pn) }).click();
   await expect(dlg.getByLabel('Part description')).toHaveValue('Example bracket assembly');
@@ -51,9 +52,9 @@ test('inspection requests: quick action, list order, convert to work order, dele
   const id = page.url().split('/').pop()!;
 
   // a few more for the order: overdue critical, free-entry low
-  await ok(rq.post('/api/sequfloh/inspection-requests', { data: { siteId: site, partNumber: `FREE-${stamp}`, partDescription: 'Supplier sample lot', quantity: 5, reason: 'AQL sample result', priority: 'Low', requestedDate: '2026-10-30' } }));
-  await ok(rq.post('/api/sequfloh/inspection-requests', { data: { siteId: site, partNumber: pn, quantity: 2, reason: 'Customer request', priority: 'Critical', requestedDate: '2026-10-15' } }));
-  const del = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { siteId: site, partNumber: `DEL-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
+  await ok(rq.post('/api/sequfloh/inspection-requests', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, siteId: site, partNumber: `FREE-${stamp}`, partDescription: 'Supplier sample lot', quantity: 5, reason: 'AQL sample result', priority: 'Low', requestedDate: '2026-10-30' } }));
+  await ok(rq.post('/api/sequfloh/inspection-requests', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, siteId: site, partNumber: pn, quantity: 2, reason: 'Customer request', priority: 'Critical', requestedDate: '2026-10-15' } }));
+  const del = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, siteId: site, partNumber: `DEL-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
   await page.goto(`/sequfloh/inspection-requests`);
   await view(page).getByLabel('Search').fill(stamp);
   const rows = view(page).locator('tbody tr');
@@ -73,6 +74,7 @@ test('inspection requests: quick action, list order, convert to work order, dele
   await cd.getByRole('combobox', { name: 'Work instruction' }).fill(String(stamp)); // narrow the list once many instructions exist
   await page.getByRole('option', { name: new RegExp(`Inspection instruction ${stamp}`) }).click();
   await shot('convert-dialog');
+  await cd.getByTestId('convert-number').fill(`WO-IR-${Date.now()}`);
   await cd.getByRole('button', { name: 'Create work order' }).click();
   await expect(page).toHaveURL(/sequfloh\/record\//);
   await expect(page.getByRole('dialog')).toBeHidden();

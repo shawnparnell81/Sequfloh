@@ -13,15 +13,13 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record SettingsDto(GeneralSettings General, NumberingSettings Numbering, WorkInstructionSettings WorkInstructions, TrackingSettings Tracking, ValidationSettings Validation,
     FaiSettings Fai, RepairSettings Repair, DisplaySettings Display, ExportSettings Export, NotificationSettings Notifications, SecuritySettings Security, uint RowVersion);
-public sealed record SequenceDto(string RecordType, string Label, string Prefix, int Padding, string Pattern, long NextValue, string Example);
-public sealed record SequenceInput(string RecordType, string Prefix, int Padding, string Pattern);
 public sealed record ReferenceValueInput(string Code, string Label, string? Description, bool IsActive = true, bool IsDefault = false, uint RowVersion = 0);
 public sealed record ReorderInput(List<Guid> Ids);
 public sealed record RoleAccessInput(List<string> Permissions, uint? RowVersion);
 public sealed record UserItemInput(string Kind, string ItemType, Guid? RecordId, string Path, string Label);
 
 /// <summary>
-/// SEQUFLOH foundation: settings (inside the shared audited settings model), numbering on the shared numbering service,
+/// SEQUFLOH foundation: settings (inside the shared audited settings model), the revision format,
 /// reference lists, module access on the existing roles, recent and pinned items, idempotent seeding and module audit events.
 /// </summary>
 public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, ICurrentUser current, IAccessService access)
@@ -126,40 +124,6 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
     {
         var s = await db.SequflohSettings.AsNoTracking().Select(x => x.General).FirstOrDefaultAsync(ct);
         return SequflohJson.Read<GeneralSettings>(s).ModuleEnabled;
-    }
-
-    // ------------------------------------------------------------------ numbering
-    public async Task<List<SequenceDto>> SequencesAsync(CancellationToken ct)
-    {
-        var rows = await db.NumberSequences.AsNoTracking().Where(x => x.SiteId == null && x.RecordType.StartsWith("Sqf")).ToListAsync(ct);
-        var year = m.Now.Year;
-        return SequflohCatalog.Numbering.Select(d =>
-        {
-            var r = rows.FirstOrDefault(x => x.RecordType == d.RecordType) ?? new NumberSequence { RecordType = d.RecordType, Prefix = d.Prefix };
-            var pattern = r.ResetYearly ? "PREFIX-YEAR-SEQUENCE" : "PREFIX-SEQUENCE";
-            return new SequenceDto(d.RecordType, d.Label, r.Prefix, r.Padding, pattern, r.NextValue, $"{r.Prefix}{(r.ResetYearly ? $"{year}-" : "")}{r.NextValue.ToString().PadLeft(r.Padding, '0')}");
-        }).ToList();
-    }
-
-    public async Task SaveSequenceAsync(SequenceInput r, CancellationToken ct)
-    {
-        await RequireOrgAsync(Permissions.SequflohManageSettings, ct);
-        var def = SequflohCatalog.Numbering.FirstOrDefault(d => d.RecordType == r.RecordType) ?? throw new NotFoundException("Numbering sequence");
-        ModuleSupport.Required(r.Prefix, "Prefix", 20);
-        if (r.Prefix.Any(c => !(char.IsLetterOrDigit(c) || c is '-' or '_' or '/' or '.'))) throw new AppException("The prefix may contain letters, digits and - _ / . only.");
-        if (r.Padding is < 1 or > 10) throw new AppException("Sequence padding must be between 1 and 10.");
-        if (r.Pattern is not ("PREFIX-YEAR-SEQUENCE" or "PREFIX-SEQUENCE")) throw new AppException("The numbering pattern must be PREFIX-YEAR-SEQUENCE or PREFIX-SEQUENCE.");
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM sqf.number_sequences WHERE \"RecordType\" = {r.RecordType} AND \"SiteId\" IS NULL FOR UPDATE", ct);
-        var seq = await db.NumberSequences.FirstOrDefaultAsync(x => x.RecordType == r.RecordType && x.SiteId == null, ct);
-        if (seq is null) { seq = new NumberSequence { RecordType = r.RecordType }; db.NumberSequences.Add(seq); }
-        var before = $"{seq.Prefix}|{seq.Padding}|{seq.ResetYearly}";
-        var yearly = r.Pattern == "PREFIX-YEAR-SEQUENCE";
-        if (yearly && !seq.ResetYearly) { seq.Year = m.Now.Year; }
-        seq.Prefix = r.Prefix.Trim(); seq.Padding = r.Padding; seq.ResetYearly = yearly;
-        Audit("SettingsChanged", "SequflohNumbering", seq.Id, $"Changed SEQUFLOH numbering for {def.Label}: {before} -> {seq.Prefix}|{seq.Padding}|{seq.ResetYearly}", context: new { recordType = r.RecordType });
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
     }
 
     /// <summary>First revision label in the configured format.</summary>
@@ -449,7 +413,7 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
 
     // ------------------------------------------------------------------ seeding
     /// <summary>
-    /// Idempotent SEQUFLOH seed: settings row, numbering sequences, reference values and suggested permission sets. Only missing items are added;
+    /// Idempotent SEQUFLOH seed: settings row, reference values and suggested permission sets. Only missing items are added;
     /// administrator-modified values are never overwritten (see <see cref="ResetListAsync"/> for the confirmed reset). No users or roles are created.
     /// </summary>
     public async Task<int> EnsureSeededAsync(CancellationToken ct) => await SeedAsync(db, ct);
@@ -468,9 +432,6 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
             });
             added++;
         }
-        foreach (var n in SequflohCatalog.Numbering)
-            if (!await db.NumberSequences.AnyAsync(s => s.RecordType == n.RecordType && s.SiteId == null, ct))
-            { db.NumberSequences.Add(new NumberSequence { RecordType = n.RecordType, Prefix = n.Prefix, Padding = 4, ResetYearly = true, Year = DateTime.UtcNow.Year }); added++; }
         var existing = await db.SequflohReferenceValues.Select(v => new { v.ListKey, v.Code }).ToListAsync(ct);
         foreach (var l in SequflohCatalog.Lists)
             for (var i = 0; i < l.Seed.Length; i++)

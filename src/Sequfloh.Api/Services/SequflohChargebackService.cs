@@ -152,7 +152,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             x.Period = JsonSerializer.Serialize(per with { Person = T(per.Person, 200), SubType = T(per.SubType, 100) }, SequflohJson.Options);
         }
         else x.Period = null;
-        x.WorkOrderNumber = T(i.WorkOrderNumber, 100) ?? (i.Period is { } pp ? $"{pp.Kind} {pp.Label()}" : throw new AppException("Enter the work order number."));
+        x.WorkOrderNumber = T(i.WorkOrderNumber, 100) ?? throw new AppException(i.Period is null ? "Enter the work order number." : "Enter the report number.");
         if (i.QtyInspected is < 0 || i.QtyBad is < 0 || i.TotalPersonnel is < 0 || i.TotalHours is < 0 || i.HourlyRate is < 0) throw new AppException("Numbers can't be negative.");
         if (i.QtyBad is { } b && i.QtyInspected is { } q && b > q) throw new AppException("Qty bad can't be more than the quantity inspected / reworked.");
         if (i.DateFrom is { } df && i.DateTo is { } dt && dt < df) throw new AppException("The end date must be on or after the start date.");
@@ -390,10 +390,9 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("ChargebackReportPrinted", Entity, x.Id, $"Printed the chargeback report for work order {x.WorkOrderNumber}", x.SiteId);
         await db.SaveChangesAsync(ct);
-        return (pdf, $"chargeback-{Safe(x.WorkOrderNumber)}.pdf");
+        return (pdf, $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.WorkOrderNumber)}.pdf");
     }
 
-    static string Safe(string s) => string.Concat(s.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-'));
 
     public async Task<(byte[] Bytes, string Name)> ExcelAsync(Guid id, CancellationToken ct)
     {
@@ -423,6 +422,6 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         using var ms = new MemoryStream(); wb.SaveAs(ms);
         f.Audit("ChargebackReportExported", Entity, x.Id, $"Exported the chargeback report for work order {x.WorkOrderNumber} to Excel", x.SiteId);
         await db.SaveChangesAsync(ct);
-        return (ms.ToArray(), $"chargeback-{Safe(x.WorkOrderNumber)}.xlsx");
+        return (ms.ToArray(), $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.WorkOrderNumber)}.xlsx");
     }
 }

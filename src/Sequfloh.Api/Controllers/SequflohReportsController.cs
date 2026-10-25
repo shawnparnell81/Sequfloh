@@ -49,7 +49,7 @@ public sealed class SequflohReportsController(AppDbContext db, ModuleSupport m, 
         return new
         {
             Key = key, r.Definition.Title, r.Definition.Description, r.Columns, Total = r.Rows.Count, Items = r.Rows.Skip((page - 1) * pageSize).Take(pageSize),
-            StatusCounts = key is "task-performance" or "validation" or "fai" or "repair" or "production" ? SequflohReportService.StatusCounts(r) : null,
+            StatusCounts = SequflohReportService.Key(key) is "task-performance" or "validation" or "repair" or "production" ? SequflohReportService.StatusCounts(r) : null,
         };
     }
 

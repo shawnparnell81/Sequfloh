@@ -13,7 +13,7 @@ public partial class AppDbContext
         b.Entity<ImportedFile>(e =>
         {
             e.ToTable("imported_files");
-            e.Property(x => x.Number).HasMaxLength(40);
+            e.Property(x => x.Number).HasMaxLength(300);
             e.HasIndex(x => x.Number).IsUnique();
             e.Property(x => x.Title).HasMaxLength(300);
             e.Property(x => x.SourceFormat).HasMaxLength(10);

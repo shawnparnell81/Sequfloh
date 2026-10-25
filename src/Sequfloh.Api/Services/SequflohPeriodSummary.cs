@@ -44,7 +44,7 @@ public static class SequflohPeriodSummary
     static string H(long s) => (s / 3600m).ToString("0.00", CultureInfo.InvariantCulture);
     static string I(int v) => v.ToString(CultureInfo.InvariantCulture);
     static string Bar(long part, long max) => max <= 0 ? "" : new string('█', (int)Math.Round(20.0 * part / max));
-    static readonly Dictionary<TrackingType, string> TypeNames = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty" };
+    static readonly Dictionary<TrackingType, string> TypeNames = new() { [TrackingType.Validation] = "Validation / FAI", [TrackingType.Fai] = "Validation / FAI", [TrackingType.Repair] = "Repair / Rework", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty", [TrackingType.SaltSpray] = "Salt Spray Test" };
     public static string TypeName(TrackingType t) => TypeNames.TryGetValue(t, out var n) ? n : t.ToString();
 
     /// <summary>
@@ -62,7 +62,7 @@ public static class SequflohPeriodSummary
             var (sd, ed) = p.Range();
             DateTimeOffset At(DateOnly d) { var t = d.ToDateTime(TimeOnly.MinValue); return new DateTimeOffset(t, zone.GetUtcOffset(t)).ToUniversalTime(); }
             from = At(sd); to = At(ed.AddDays(1));
-            if (!string.IsNullOrWhiteSpace(p.Type)) { var ty = Enum.TryParse<TrackingType>(p.Type, true, out var tt) ? tt : throw new AppException("Unknown work order type."); q = q.Where(r => r.Type == ty); }
+            if (!string.IsNullOrWhiteSpace(p.Type)) { var ty = Enum.TryParse<TrackingType>(p.Type, true, out var tt) ? tt : throw new AppException("Unknown work order type."); q = ty is TrackingType.Validation or TrackingType.Fai ? q.Where(r => r.Type == TrackingType.Validation || r.Type == TrackingType.Fai) : q.Where(r => r.Type == ty); }
             if (!string.IsNullOrWhiteSpace(p.SubType)) q = q.Where(r => r.InspectionSubType == p.SubType);
             if (p.SiteId is { } site) q = q.Where(r => r.SiteId == site);
             if (p.FamilyId is { } fid) { var parts = db.Parts.Where(x => x.TypeId == fid).Select(x => x.Id); q = q.Where(r => r.PartId != null && parts.Contains(r.PartId.Value)); }
@@ -99,7 +99,8 @@ public static class SequflohPeriodSummary
         if (p.SiteId is { } site) records = records.Where(r => r.SiteId == site);
         var q = records.Where(r => timedIds.Contains(r.Id)
             || (string.IsNullOrEmpty(person) && ((r.CreatedAt >= from && r.CreatedAt < to) || (r.ActualCompletion >= from && r.ActualCompletion < to))));
-        if (type is { } ty) q = q.Where(r => r.Type == ty);
+        // Validation and FAI are one type to the user (Validation / FAI)
+        if (type is { } ty) q = ty is TrackingType.Validation or TrackingType.Fai ? q.Where(r => r.Type == TrackingType.Validation || r.Type == TrackingType.Fai) : q.Where(r => r.Type == ty);
         if (!string.IsNullOrWhiteSpace(p.SubType)) q = q.Where(r => r.InspectionSubType == p.SubType);
         var recs = await q.ToListAsync(ct);
         var partIds = recs.Where(r => r.PartId != null).Select(r => r.PartId!.Value).Distinct().ToList();

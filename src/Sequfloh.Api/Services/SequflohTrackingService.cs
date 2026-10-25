@@ -14,7 +14,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null);
 public sealed record InspectionResultsInput(int? QtyGood, int? QtyBad, bool? FurtherInspection, bool Quarantine, string? QuarantineReason);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
@@ -30,7 +30,7 @@ public sealed record TaskActionInput(Guid OperationId, int StateVersion, string?
 /// legal transition, accumulates persisted timing from database timestamps, appends a task event with a unique operation ID and writes an audit entry.
 /// Repeating an operation ID returns the stored result without applying the change twice.
 /// </summary>
-public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, INumberingService numbers, SequflohFoundationService f,
+public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, SequflohFoundationService f,
     SequflohNotifications notify)
 {
     public const string EntityType = nameof(SequflohTrackingRecord);
@@ -43,10 +43,6 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     {
         TrackingType.Validation => Permissions.SequflohCreateValidationRecord, TrackingType.Fai => Permissions.SequflohCreateFaiRecord,
         TrackingType.Repair => Permissions.SequflohCreateRepairRecord, _ => Permissions.SequflohCreateProductionTask
-    };
-    static string NumberingType(TrackingType t) => t switch
-    {
-        TrackingType.Validation => "SqfValidationRecord", TrackingType.Fai => "SqfFaiRecord", TrackingType.Repair => "SqfRepairRecord", _ => "SqfProductionTask"
     };
     /// <summary>Instruction types a tracking record of this type may execute.</summary>
     public static WorkInstructionType[] InstructionTypes(TrackingType t) => t switch
@@ -156,6 +152,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         var subType = T(r.InspectionSubType, 100);
         if (r.Type is TrackingType.Inspection or TrackingType.Warranty && subType is not null) await f.RequireOptionAsync(SequflohCatalog.InspectionSubTypes, subType, "Inspection sub-type", ct);
         if (r.Type == TrackingType.Repair && partId is null) throw new AppException("Choose the repairable part.");
+        var number = RecordNumbers.Clean(r.Number, 40, "work order number");
+        await RecordNumbers.EnsureFreeAsync(db.SequflohTrackingRecords.IgnoreQueryFilters().Select(o => o.Number), number, "A work order numbered", ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         me = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
         var now = await DbNowAsync(ct);
@@ -187,7 +185,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
         if (content["samples"] is JsonObject smp) details["samplePlan"] = smp.DeepClone();
         if (content["conditions"] is JsonObject cnd) details["conditionLimits"] = cnd.DeepClone();
         rec.Details = details.ToJsonString();
-        rec.Number = await numbers.NextAsync(NumberingType(r.Type), null, ct);
+        rec.Number = number;
         db.SequflohTrackingRecords.Add(rec);
         foreach (var u in team) db.SequflohTaskAssignees.Add(new SequflohTaskAssignee { TrackingRecordId = rec.Id, UserId = u, AddedAt = now });
         // drawings already linked to this exact part are attached; nothing is matched loosely here
@@ -666,7 +664,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, IN
     }
 
     async Task<string> NameAsync(Guid? id, CancellationToken ct) => id is null ? "nobody" : await db.Users.Where(u => u.Id == id).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "unknown";
-    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "FAI", TrackingType.Validation => "validation", TrackingType.Repair => "repair", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", _ => "production" };
+    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI", TrackingType.Validation => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray Test", TrackingType.Repair => "Repair / Rework", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", _ => "production" };
     public static string Words(TrackingStatus s) => SequflohInstructionService.Words(s.ToString());
     static string Words(string s) => SequflohInstructionService.Words(s);
     static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];

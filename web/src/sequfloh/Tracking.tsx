@@ -1,7 +1,7 @@
 import { setupOptions } from '../components/SetupLink';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,7 @@ import { Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage
 import { NewInspectionRequestButton } from './InspectionRequests';
 import { SimpleTable } from './Parts';
 import { RecordActions } from '../components/RecordActions';
+import { NumberField } from '../components/RecordNumber';
 import { ProblemList } from './Designer';
 import { FindingsPanel } from './Findings';
 import { InventoryNote, JobPanel } from './Job';
@@ -23,11 +24,14 @@ import { ViewDrawingButton } from './Drawings';
 import { PartDrawingLinks, RecordDrawings } from './Drawings';
 import { useFamilies } from './Imports';
 
-export const trackingTypes: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty' };
-/** Types offered by the New work order builder; FAI and Production stay available for links that ask for them. */
-const builderTypes: Record<string, string> = { Validation: 'Validation/FAI', Repair: 'Repair', Inspection: 'Inspection', Warranty: 'Warranty' };
+/** Work order type names. Validation and FAI are one type to the user: records stored as either show as Validation / FAI. */
+export const trackingTypes: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test' };
+/** One entry per type for type pickers and filters (Validation / FAI listed once). */
+export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Production', 'Production']];
+/** Types offered by the New work order builder; Production stays available for links that ask for it. */
+const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test' };
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
-const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task' };
+const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task', SaltSpray: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work Orders', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
 /** The one way to start a work order: the type is chosen inside the builder. */
@@ -55,13 +59,12 @@ export interface TrRow { id: string; number: string; type: string; status: strin
   actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; assignees?: string[]; owner?: string; department?: string; site?: string; elapsedSeconds: number; statusTag?: string | null; statusNote?: string | null;
   pausedSeconds: number; holdSeconds: number; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number; varianceMinutes?: number; stateVersion: number }
 const folders: Record<string, { title: string; description: string; type?: string }> = {
-  'validation-fai': { title: 'Validation/FAI', type: 'Validation', description: 'Validation and FAI work orders together.' },
-  validation: { title: 'Validation', type: 'Validation', description: 'Validation records executed against released Validation and Validation / FAI work instructions.' },
-  fai: { title: 'FAI', type: 'Fai', description: 'First article inspection records with characteristic results, verifications and final disposition.' },
-  repair: { title: 'Repair', type: 'Repair', description: 'Repair work orders: conditions, operations, material quantities, test results and final disposition.' },
+  'validation-fai': { title: 'Validation / FAI', type: 'Validation', description: 'Validation / FAI work orders.' },
+  repair: { title: 'Repair / Rework', type: 'Repair', description: 'Repair / Rework work orders: conditions, operations, material quantities, test results and final disposition.' },
   production: { title: 'Production', type: 'Production', description: 'Production tasks with work order, operation, benchmark range and persisted timing.' },
   inspection: { title: 'Inspection', type: 'Inspection', description: 'Inspection work orders: sub-type, what to inspect, and qty good, qty bad, further inspection and quarantine.' },
   warranty: { title: 'Warranty', type: 'Warranty', description: 'Warranty work orders with the same fields and results as inspections.' },
+  'salt-spray': { title: 'Salt Spray Test', type: 'SaltSpray', description: 'Salt Spray Test work orders, with the same clock, crew and day-worker time as every other work order.' },
   open: { title: 'Open Work Orders', description: 'Every work order that is not completed, failed or canceled.' },
   completed: { title: 'Completed Work Orders', description: 'Completed work orders.' },
 };
@@ -80,7 +83,12 @@ export const trackingCols = (extra: { key: string; label: string; render?: (r: T
 ];
 
 export function TrackingFolderPage() {
-  const { folder = 'open' } = useParams();
+  const { folder: asked = 'open' } = useParams();
+  // the old Validation and FAI folders open Validation / FAI
+  if (asked === 'validation' || asked === 'fai') return <Navigate to="/sequfloh/tracking/validation-fai" replace />;
+  return <TrackingFolder folder={asked} />;
+}
+function TrackingFolder({ folder }: { folder: string }) {
   const cfg = folders[folder] ?? folders.open;
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
@@ -96,7 +104,7 @@ export function TrackingFolderPage() {
   const depts: [string, string][] = (sites.data ?? []).filter((s) => !v('site') || s.id === v('site')).flatMap((s) => s.departments.map((d) => [d.id, `${s.code} · ${d.name}`] as [string, string]));
   const filters: { key: string; label: string; options: [string, string][] }[] = [
     { key: 'status', label: 'Status', options: trackingStatuses.map((s) => [s, words(s)]) },
-    ...(cfg.type ? [] : [{ key: 'type', label: 'Type', options: Object.entries(trackingTypes) as [string, string][] }]),
+    ...(cfg.type ? [] : [{ key: 'type', label: 'Type', options: trackingTypeOptions }]),
     { key: 'owner', label: 'Owner', options: userOpts }, { key: 'assigned', label: 'Assigned user', options: userOpts },
     { key: 'department', label: 'Department', options: depts },
     { key: 'site', label: 'Site', options: (sites.data ?? []).map((s) => [s.id, s.code]) },
@@ -153,8 +161,9 @@ export function NewTrackingPage() {
   const create = async () => {
     setBusy(true); setErr(null);
     try {
+      if (!f.number?.trim()) throw new Error('Enter the number.');
       if (isInsp && !f.subType) throw new Error('Choose the inspection sub-type.');
-      const r = await post<{ id: string }>(`${S}/tracking`, { type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' ? nul(familyId) : null,
+      const r = await post<{ id: string }>(`${S}/tracking`, { number: f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' ? nul(familyId) : null,
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
@@ -168,6 +177,7 @@ export function NewTrackingPage() {
       <Paper variant="outlined" sx={{ p: 3, maxWidth: 980 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Grid cols={2}>
+          <NumberField size="small" value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'new-wo-number', maxLength: 200 }} />
           <TextField select size="small" label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }} inputProps={{ 'data-testid': 'new-wo-type' }}>
             {allowed.map((t) => <MenuItem key={t} value={t}>{builderTypes[t] ?? trackingTypes[t]}</MenuItem>)}</TextField>
           <Autocomplete size="small" options={wis.data ?? []} value={wi} loading={wis.isLoading} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -266,7 +276,7 @@ export function TrackingRecordPage() {
   };
   const enter = q.data.canEnter && !busy;
   const plan = q.data.canPlan && !busy;
-  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty' }[rec.type] ?? 'open';
+  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
   const vf = (rec.details as unknown as { validationForm?: { family?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
@@ -285,6 +295,7 @@ export function TrackingRecordPage() {
         save={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => void save() }}
         cancel={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => { setDoc(structuredClone(q.data!.record)); setDirty(false); } }}
         print={{ href: `${S}/tracking/${rec.id}/print` }}
+        rename={q.data.canPlan && { kind: 'work-order', id: rec.id, number: rec.number, onDone: () => { void q.refetch(); } }}
         del={{ what: `work order ${rec.number}`, url: `${S}/tracking/${rec.id}`, show: !!q.data.canDelete, to: `/sequfloh/tracking/${folder}`,
           extra: 'Use this for work orders made by mistake. Work orders with logged time are kept for chargebacks and can only be cancelled.' }}>
         <SqfStatus status={rec.status} />
@@ -304,7 +315,7 @@ export function TrackingRecordPage() {
         <RecordDrawings recordId={rec.id} />
         {vf && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
           <Typography variant="h3" sx={{ mb: 1 }}>Validation form{vf.family ? ` — ${vf.family}` : ''}</Typography>
-          {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. It is saved under Completed Validation/FAI for this product family.</Typography>
+          {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. It is saved under Completed Validation / FAI for this product family.</Typography>
             : <Alert severity="warning">{vf.message ?? 'No validation form is confirmed for this product family.'}</Alert>}
         </Paper>}
         {(rec.type === 'Inspection' || rec.type === 'Warranty') && <InspectionResults rec={rec} onSaved={refresh} />}

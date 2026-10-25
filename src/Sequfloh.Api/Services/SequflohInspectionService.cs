@@ -14,14 +14,14 @@ using Sequfloh.Platform;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record InspectionRequestInput(Guid SiteId, string? PartNumber = null, Guid? PartId = null, string? PartDescription = null, decimal? Quantity = null, string? Reason = null,
-    string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null);
-public sealed record InspectionConvertInput(Guid? WorkInstructionId = null, TrackingType Type = TrackingType.Inspection);
+    string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null, string? Number = null);
+public sealed record InspectionConvertInput(Guid? WorkInstructionId = null, TrackingType Type = TrackingType.Inspection, string? Number = null);
 
 /// <summary>
 /// Inspection requests. Anyone who can open SEQUFLOH at a site can submit one. The list is ordered by priority (the order of the admin list) and then by
 /// requested completion date. A request can be turned into a work order that carries its part, quantity, priority, date and requirement.
 /// </summary>
-public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, INumberingService numbers, SequflohFoundationService f, SequflohTrackingService tracking)
+public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, SequflohFoundationService f, SequflohTrackingService tracking)
 {
     public const string EntityType = nameof(SequflohInspectionRequest);
     static string? T(string? s, int max) => string.IsNullOrWhiteSpace(s) ? null : s.Trim().Length > max ? throw new AppException($"Keep it under {max} characters.") : s.Trim();
@@ -107,8 +107,9 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
         var r = new SequflohInspectionRequest { SiteId = x.SiteId, RequestedById = m.UserId };
         await Fill(r, x, ct);
         r.RequestedByName = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
+        r.Number = RecordNumbers.Clean(x.Number, 40, "inspection request number");
+        await RecordNumbers.EnsureFreeAsync(db.SequflohInspectionRequests.Select(o => o.Number), r.Number, "An inspection request numbered", ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        r.Number = await numbers.NextAsync("SqfInspectionRequest", null, ct);
         db.SequflohInspectionRequests.Add(r);
         f.Audit("InspectionRequestCreated", EntityType, r.Id, $"{r.Number} requested for {r.PartNumber} ({r.Priority})", r.SiteId);
         await db.SaveChangesAsync(ct);
@@ -152,7 +153,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
             due = end;
         }
         var cond = string.Join("\n", new[] { $"Inspection request {r.Number}", r.Reason is null ? null : $"Reason: {r.Reason}", r.Requirement is null ? null : $"Requirement: {r.Requirement}" }.Where(s => s is not null));
-        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond), ct);
+        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond, Number: x.Number), ct);
         var tracked = await db.SequflohTrackingRecords.FirstAsync(e => e.Id == rec.Id, ct);
         if (r.Quantity is { } q) tracked.QuantityTarget = (int)Math.Round(q);
         if (x.Type != TrackingType.Validation && rec.PartId is { } part && !await db.TrackingRecordDrawings.AnyAsync(e => e.TrackingRecordId == rec.Id, ct))

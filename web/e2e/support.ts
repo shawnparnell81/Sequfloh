@@ -1,3 +1,5 @@
+import path from 'node:path';
+import fs from 'node:fs';
 import { expect, type Page } from '@playwright/test';
 
 /** A local account with administrator rights; set E2E_EMAIL and E2E_PASSWORD for the local database. */
@@ -39,3 +41,9 @@ export async function choosePartName(page: Page, name?: string) {
 
 /** Opens the More menu of the record action bar (Archive, Delete and other rare actions live there). */
 export const more = async (p: Page, scope = view(p)) => { await scope.getByTestId('more-actions').first().click(); return p.getByRole('menu'); };
+
+/** A test file under a name no earlier run used: the file name is the record number, and the same number twice is blocked. */
+export const fresh = (file: string) => {
+  const ext = path.extname(file);
+  return { name: `${path.basename(file, ext)} ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}${ext}`, mimeType: 'application/octet-stream', buffer: fs.readFileSync(file) };
+};

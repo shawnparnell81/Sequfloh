@@ -362,8 +362,8 @@ public sealed class CrewChargebackTests(TestApp app)
             await db.SaveChangesAsync();
         }
         var sections = new[] { "sumHours", "sumByType", "sumByPerson", "sumCounts", "sumQuality", "sumChargebacks", "sumPauses", "sumDetail", "sumCharts" };
-        var rep = await (await lead.PostOkAsync(C, new { sections, period = new { kind = "Week", from = "2001-02-14", type = "Production" } })).JsonAsync();
-        Assert.Equal("Week 2001-02-12 to 2001-02-18", rep.Str("workOrderNumber"));
+        var rep = await (await lead.PostOkAsync(C, new { workOrderNumber = "CB-WK7 made up", sections, period = new { kind = "Week", from = "2001-02-14", type = "Production" } })).JsonAsync();
+        Assert.Equal("CB-WK7 made up", rep.Str("workOrderNumber"));
         Assert.Equal("Week", rep.GetProperty("period").GetProperty("kind").GetString());
         var view = (await lead.GetElAsync($"{C}/{rep.Id()}/view")).EnumerateArray().ToList();
         JsonElement B(string k) => view.Single(b => b.GetProperty("key").GetString() == k);

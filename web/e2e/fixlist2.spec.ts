@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { section, settledShot, signIn, view } from './support';
+import { section, settledShot, signIn, view, fresh } from './support';
 
 const shots = process.env.FL2_SHOTS;
 const shot = async (page: Page, name: string) => { if (shots) await settledShot(page, path.join(shots, `${name}.png`)); };
@@ -12,7 +12,7 @@ const pick = async (page: Page, label: string, option: string | RegExp) => {
 test('form editor: fit to width, zoom, full screen and open in a new window', async ({ page, context }) => {
   await signIn(page);
   await section(page, 'Imported Files');
-  await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
+  await page.getByTestId('imported-files-files-input').setInputFiles(fresh(path.resolve(process.env.E2E_CF_XLSX!)));
   await page.getByLabel('Title').fill(`Zoom check ${Date.now()}`);
   await page.getByTestId('bulk-import-start').click();
   await expect(page).toHaveURL(/\/sequfloh\/imported-files\/[0-9a-f-]{36}$/);
@@ -39,7 +39,7 @@ test('validation forms by product, and the work order builder for each type', as
   const stamp = Date.now().toString().slice(-6);
   const title = `Validation blank ${stamp}`;
   await section(page, 'Imported Files');
-  await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
+  await page.getByTestId('imported-files-files-input').setInputFiles(fresh(path.resolve(process.env.E2E_CF_XLSX!)));
   await page.getByLabel('Title').fill(title);
   await expect(page.getByTestId('import-blank')).toBeChecked();
   await page.getByTestId('bulk-import-start').click();
@@ -64,6 +64,7 @@ test('validation forms by product, and the work order builder for each type', as
   await expect(view(page).getByTestId('new-wo-form-note')).toContainText(title);
   await view(page).getByTestId('new-wo-qty').fill('3');
   await shot(page, 'new-work-order-validation');
+  await view(page).getByTestId('new-wo-number').fill(`WO-${Date.now()}`);
   await view(page).getByTestId('new-wo-create').click();
   await expect(view(page).getByTestId('wo-validation-form')).toContainText(`${fam} validation`);
 
@@ -74,6 +75,7 @@ test('validation forms by product, and the work order builder for each type', as
   await view(page).getByLabel('Repairable part', { exact: true }).pressSequentially('3', { delay: 50 });
   await page.getByRole('option').first().click();
   await shot(page, 'new-work-order-repair');
+  await view(page).getByTestId('new-wo-number').fill(`WO-${Date.now()}`);
   await view(page).getByTestId('new-wo-create').click();
   await expect(view(page).getByTestId('wo-test-results')).toContainText('Test results');
 
@@ -85,6 +87,7 @@ test('validation forms by product, and the work order builder for each type', as
     await view(page).getByTestId('new-wo-description').fill(`Made-up ${t.toLowerCase()} check`);
     await view(page).getByTestId('new-wo-qty').fill('10');
     await shot(page, `new-work-order-${t.toLowerCase()}`);
+    await view(page).getByTestId('new-wo-number').fill(`WO-${Date.now()}`);
     await view(page).getByTestId('new-wo-create').click();
     const box = view(page).getByTestId('wo-inspection-results');
     await expect(box).toBeVisible();

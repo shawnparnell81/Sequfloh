@@ -32,7 +32,7 @@ public sealed record SettingsSaveRequest(JsonElement Value, uint RowVersion);
 public sealed record AccessRequest(string? Page);
 public sealed record ResetRequest(bool Confirmed);
 
-/// <summary>SEQUFLOH foundation: module context, settings, numbering, reference data, module access, recent and pinned items.</summary>
+/// <summary>SEQUFLOH foundation: module context, settings, reference data, module access, recent and pinned items.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh")]
 public sealed class SequflohFoundationController(SequflohFoundationService f) : ControllerBase
 {
@@ -44,9 +44,6 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     [HttpPut("settings/{section}")] [RequirePermission(Permissions.SequflohManageSettings)]
     public async Task<IActionResult> SaveSettings(string section, SettingsSaveRequest r, CancellationToken ct) { await f.SaveSectionAsync(section, r.Value, r.RowVersion, ct); return NoContent(); }
 
-    [HttpGet("numbering")] public Task<List<SequenceDto>> Numbering(CancellationToken ct) => f.SequencesAsync(ct);
-    [HttpPut("numbering")] [RequirePermission(Permissions.SequflohManageSettings)]
-    public async Task<IActionResult> SaveNumbering(SequenceInput r, CancellationToken ct) { await f.SaveSequenceAsync(r, ct); return NoContent(); }
 
     // reference data
     [HttpGet("reference")] public Task<object> Lists(CancellationToken ct) => f.ListsAsync(ct);

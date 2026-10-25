@@ -100,16 +100,12 @@ public sealed class SequflohFoundationTests(TestApp app)
     }
 
     [Fact]
-    public async Task Numbering_patterns_and_revision_formats_are_configurable()
+    public async Task Revision_formats_are_configurable_and_no_number_sequence_is_offered()
     {
         var (_, admin) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohManageSettings]);
-        var seqs = await admin.GetElAsync("/api/sequfloh/numbering");
-        Assert.Equal(SequflohCatalog.Numbering.Length, seqs.GetArrayLength());
-        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsync("/api/sequfloh/numbering", new { recordType = "SqfPartsList", prefix = "PL-", padding = 4, pattern = "YEAR-ONLY" })).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsync("/api/sequfloh/numbering", new { recordType = "SqfPartsList", prefix = "PL-", padding = 5, pattern = "PREFIX-YEAR-SEQUENCE" })).StatusCode);
-        var pl = (await admin.GetElAsync("/api/sequfloh/numbering")).EnumerateArray().First(x => x.Str("recordType") == "SqfPartsList");
-        Assert.Matches($"^PL-{DateTime.UtcNow.Year}-\\d{{5}}$", pl.Str("example"));
-        await admin.PutAsync("/api/sequfloh/numbering", new { recordType = "SqfPartsList", prefix = "PL-", padding = 4, pattern = "PREFIX-YEAR-SEQUENCE" });
+        // numbers are the company's own: there is no sequence to read or set
+        Assert.False((await admin.GetAsync("/api/sequfloh/numbering")).IsSuccessStatusCode);
+        Assert.False((await admin.PutAsync("/api/sequfloh/numbering", new { recordType = "SqfPartsList", prefix = "PL-", padding = 5, pattern = "PREFIX-YEAR-SEQUENCE" })).IsSuccessStatusCode);
         Assert.Equal("B", SequflohFoundationService.NextRevision("A", "Letters"));
         Assert.Equal("AA", SequflohFoundationService.NextRevision("Z", "Letters"));
         Assert.Equal("01", SequflohFoundationService.NextRevision("00", "TwoDigits"));

@@ -15,14 +15,14 @@ test('starter templates: one per instruction type, offered in the picker', async
   await box.getByText('Starter - FAI', { exact: true }).scrollIntoViewIfNeeded();
   await page.evaluate(() => { const el = [...document.querySelectorAll('[aria-label="Layout templates"] h6, [aria-label="Layout templates"] .MuiTypography-subtitle2')].find((e) => e.textContent === 'Starter - FAI'); el?.scrollIntoView({ block: 'center' }); });
   await shot('01-starter-templates-list');
-  await page.goto('/sequfloh/instructions/new?type=Fai');
+  await page.goto('/sequfloh/instructions/new?type=ValidationFai');
   const dlg = page.getByRole('dialog').or(view(page)).first();
   const typeSel = dlg.getByLabel('Work instruction type');
-  if (!(await typeSel.textContent())?.includes('FAI')) { await typeSel.click(); await page.getByRole('option', { name: 'FAI', exact: true }).click(); }
+  await expect(typeSel).toContainText('Validation / FAI');
   const picker = dlg.getByLabel('Start from template');
   await expect(picker).toBeEnabled();
   await picker.click();
-  await expect(page.getByRole('option', { name: /^Starter - FAI ·/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /^Starter - Validation \/ FAI ·/ })).toBeVisible();
   await expect(page.getByRole('option', { name: /^Starter - Repair Test/ })).toHaveCount(0);
   await shot('02-picker-fai-starter');
   await page.keyboard.press('Escape');

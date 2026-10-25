@@ -54,7 +54,7 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
                 Active = await tr.CountAsync(x => x.Status == TrackingStatus.InProgress, ct),
                 Paused = await tr.CountAsync(x => x.Status == TrackingStatus.Paused, ct),
                 Overdue = await open.CountAsync(x => x.DueAt != null && x.DueAt < cutoff, ct),
-                ValidationInProgress = await open.CountAsync(x => x.Type == TrackingType.Validation, ct),
+                ValidationInProgress = await open.CountAsync(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai, ct),
                 FaiInProgress = await open.CountAsync(x => x.Type == TrackingType.Fai, ct),
                 RepairInProgress = await open.CountAsync(x => x.Type == TrackingType.Repair, ct),
                 ProductionInProgress = await open.CountAsync(x => x.Type == TrackingType.Production, ct),

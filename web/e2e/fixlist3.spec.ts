@@ -47,7 +47,7 @@ test('completed validation/FAI: import on a family tab lands in that family; rec
 test('work orders section: pages in order, no "Tracking" labels, New work order on each', async ({ page }) => {
   await signIn(page);
   await section(page, 'Work Orders');
-  const labels = ['Open Work Orders', 'Validation/FAI', 'Repair', 'Inspection', 'Warranty', 'Production', 'Completed Work Orders'];
+  const labels = ['Open Work Orders', 'Validation / FAI', 'Repair / Rework', 'Inspection', 'Warranty', 'Salt Spray Test', 'Production', 'Completed Work Orders'];
   await expect(view(page).getByTestId('section-page')).toHaveText(labels);
   await shot(page, 'work-orders-section');
   for (const l of labels) {
@@ -72,6 +72,7 @@ test('create report: period picker, filters and the period tick boxes build the 
   const keys = ['sumHours', 'sumByType', 'sumBySubType', 'sumByFamily', 'sumByPerson', 'sumCounts', 'sumQuality', 'sumChargebacks', 'sumPauses', 'sumDetail', 'sumCharts'];
   for (const k of keys) { await expect(form.getByTestId(`section-${k}`)).not.toBeChecked(); await form.getByTestId(`section-${k}`).check(); }
   for (const k of ['findings', 'notes', 'signoff']) await form.getByTestId(`section-${k}`).uncheck();
+  await form.getByLabel('Report number').fill(`RPT-WK-${Date.now()}`); // the company's own report number
   await form.getByTestId('cb-period').scrollIntoViewIfNeeded();
   await shot(page, 'create-report-period-and-summary-sections');
   await view(page).getByTestId('save-chargeback').click();
@@ -154,12 +155,12 @@ test('create report: the person filter lists everyone with recorded time, includ
   const ok = async (r: Promise<import('@playwright/test').APIResponse>) => { const x = await r; expect(x.ok(), await x.text()).toBeTruthy(); return x.status() === 204 ? null : x.json(); };
   const stamp = Date.now().toString().slice(-6);
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Person filter instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Person filter instruction ${stamp}`, siteId: site } }))).id as string;
   const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Check' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
   await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
-  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-P${stamp}` } }))).id as string;
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-P${stamp}` } }))).id as string;
   const worker = `Made-up Day Worker ${stamp}`;
   await ok(rq.post(`/api/sequfloh/tracking/${wo}/crew/workers`, { data: { name: worker } }));
   const wid = ((await ok(rq.get(`/api/sequfloh/tracking/${wo}/crew`))).workers as { id: string; name: string }[]).find((w) => w.name === worker)!.id;
@@ -182,7 +183,7 @@ test('create report: the person filter lists everyone with recorded time, includ
   await page.getByRole('option', { name: worker, exact: true }).click();
   // the list follows the filters: a type with no time for the worker drops them and resets to All people
   await form.getByTestId('cb-filter-type').locator('xpath=..').getByRole('combobox').click();
-  await page.getByRole('option', { name: 'Repair', exact: true }).click();
+  await page.getByRole('option', { name: 'Repair / Rework', exact: true }).click();
   await expect(person).toHaveText(/All people/);
   await form.getByTestId('cb-filter-type').locator('xpath=..').getByRole('combobox').click();
   await page.getByRole('option', { name: 'All types' }).click();
@@ -196,6 +197,7 @@ test('create report: the person filter lists everyone with recorded time, includ
   // a linked work order lists only the people with time on that job
   expect(await ok(rq.get(`/api/sequfloh/chargebacks/people?trackingRecordId=${wo}`))).toEqual([worker]);
   for (const k of ['sumHours', 'sumByPerson']) await form.getByTestId(`section-${k}`).check();
+  await form.getByLabel('Report number').fill(`RPT-P-${Date.now()}`);
   await view(page).getByTestId('save-chargeback').click();
   const v = view(page).getByTestId('chargeback-view');
   await expect(v).toContainText(`person ${worker}`);

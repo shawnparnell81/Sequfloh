@@ -206,7 +206,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     [HttpPut("parts-lists/{id:guid}")] [RequirePermission(Permissions.SequflohManagePartsLists)]
     public async Task<IActionResult> UpdateList(Guid id, PartsListInput r, CancellationToken ct) { await parts.UpdateListAsync(id, r, ct); return NoContent(); }
     [HttpPost("parts-lists/{id:guid}/duplicate")] [RequirePermission(Permissions.SequflohManagePartsLists)]
-    public async Task<object> DuplicateList(Guid id, CancellationToken ct) { var l = await parts.DuplicateListAsync(id, ct); return new { l.Id, l.Number }; }
+    public async Task<object> DuplicateList(Guid id, RecordNumberInput r, CancellationToken ct) { var l = await parts.DuplicateListAsync(id, r.Number, ct); return new { l.Id, l.Number }; }
     [HttpPost("parts-lists/{id:guid}/release")] [RequirePermission(Permissions.SequflohManagePartsLists)]
     public async Task<IActionResult> ReleaseList(Guid id, CancellationToken ct) { await parts.ReleaseListAsync(id, ct); return NoContent(); }
     [HttpPost("parts-lists/{id:guid}/revise")] [RequirePermission(Permissions.SequflohManagePartsLists)]
@@ -246,7 +246,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     [HttpPut("operation-steps/{id:guid}")] [RequirePermission(Permissions.SequflohManageOperationSteps)]
     public async Task<IActionResult> UpdateStep(Guid id, OperationStepInput r, CancellationToken ct) { await parts.UpdateStepAsync(id, r, ct); return NoContent(); }
     [HttpPost("operation-steps/{id:guid}/duplicate")] [RequirePermission(Permissions.SequflohManageOperationSteps)]
-    public async Task<object> DuplicateStep(Guid id, CancellationToken ct) { var s = await parts.DuplicateStepAsync(id, ct); return new { s.Id, s.Number }; }
+    public async Task<object> DuplicateStep(Guid id, RecordNumberInput r, CancellationToken ct) { var s = await parts.DuplicateStepAsync(id, r.Number, ct); return new { s.Id, s.Number }; }
     [HttpPost("operation-steps/{id:guid}/activate")] [RequirePermission(Permissions.SequflohManageOperationSteps)]
     public async Task<IActionResult> ActivateStep(Guid id, CancellationToken ct) { await parts.SetStepActiveAsync(id, true, ct); return NoContent(); }
     [HttpPost("operation-steps/{id:guid}/deactivate")] [RequirePermission(Permissions.SequflohManageOperationSteps)]

@@ -21,6 +21,7 @@ import { DrawingFileFields, DrawingPicker, PartDrawingLinks, ViewDrawingButton, 
 import { InventoryNote } from './Job';
 import { partOption } from './partLabel';
 import { RecordActions } from '../components/RecordActions';
+import { EditNumberDialog, NumberField, useNumberPrompt } from '../components/RecordNumber';
 import { LOT_CHOICES, UNITS, Confirm, DeleteButton, Empty, ErrorState, Filters, Grid, Loading, Mono, Paged, PagedTable, type Col, S, SqfPage, SqfStatus, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 
 const crumbs = (label: string, extra?: { label: string; to?: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Parts and Items', to: '/sequfloh/parts' }, { label, to: extra ? undefined : undefined }, ...(extra ? [extra] : [])];
@@ -409,24 +410,25 @@ interface ListDetail { list: { id: string; number: string; title: string; parent
 interface ItemRow { id: string; itemNumber: number; partId?: string; partNumber: string; description?: string; quantity: number; unit?: string; required: boolean; alternatePartNumber?: string; traceability: string; notes?: string }
 
 function ListDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: ListDetail['list'] }) {
-  const [f, setF] = useState({ title: '', parentPartId: '', description: '', listType: 'Standard' });
+  const [f, setF] = useState({ number: '', title: '', parentPartId: '', description: '', listType: 'Standard' });
   const [err, setErr] = useState<string | null>(null);
   useUnsaved(open && !!f.title && !edit);
   const save = async () => {
-    const body = { title: f.title, parentPartId: f.parentPartId || null, description: nul(f.description), listType: f.listType, rowVersion: edit?.rowVersion ?? 0 };
+    const body = { number: edit ? null : f.number.trim(), title: f.title, parentPartId: f.parentPartId || null, description: nul(f.description), listType: f.listType, rowVersion: edit?.rowVersion ?? 0 };
     try { if (edit) { await put(`${S}/parts-lists/${edit.id}`, body); onSaved(edit.id); } else onSaved((await post<{ id: string }>(`${S}/parts-lists`, body)).id); onClose(); } catch (e) { setErr((e as Error).message); }
   };
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setErr(null); setF(edit ? { title: edit.title, parentPartId: edit.parentPartId ?? '', description: edit.description ?? '', listType: edit.listType } : { title: '', parentPartId: '', description: '', listType: 'Standard' }); } }}>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setErr(null); setF(edit ? { number: edit.number, title: edit.title, parentPartId: edit.parentPartId ?? '', description: edit.description ?? '', listType: edit.listType } : { number: '', title: '', parentPartId: '', description: '', listType: 'Standard' }); } }}>
       <FormDialogTitle>{edit ? `Edit ${edit.number}` : 'New parts list'}</FormDialogTitle>
       <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
         {err && <Alert severity="error">{err}</Alert>}
+        {!edit && <NumberField value={f.number} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'list-number', maxLength: 40 }} />}
         <TextField label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
         <TextField select label="List type" value={f.listType} onChange={(e) => setF({ ...f, listType: e.target.value })}>{listTypes.map((t) => <MenuItem key={t} value={t}>{words(t)}</MenuItem>)}</TextField>
         <PartPicker label="Parent part" value={f.parentPartId} onChange={(id) => setF({ ...f, parentPartId: id })} />
         <TextField label="Description" multiline minRows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
       </Stack></DialogContent>
-      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" disabled={!f.title.trim()} onClick={save}>Save</Button></DialogActions>
+      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" disabled={!f.title.trim() || (!edit && !f.number.trim())} onClick={save}>Save</Button></DialogActions>
     </Dialog>
   );
 }
@@ -470,6 +472,7 @@ export function PartsListDetailPage() {
   const [item, setItem] = useState<ItemRow | null>(null);
   const [copyFrom, setCopyFrom] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const np = useNumberPrompt();
   const lists = useQuery({ queryKey: ['sqf-list-pick'], queryFn: () => get<Paged<ListRow>>(`${S}/parts-lists?pageSize=200`), enabled: dlg === 'copy' });
   const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-list', id] }); };
   const act = async (fn: () => Promise<unknown>) => { setErr(null); try { await fn(); refresh(); } catch (e) { setErr((e as Error).message); } };
@@ -481,10 +484,12 @@ export function PartsListDetailPage() {
     <SqfPage title={l ? `${l.number} · ${l.title}` : 'Parts list'} crumbs={crumbs('Parts Lists', { label: l?.number ?? '…' })} recent={l ? { label: `Parts list ${l.number}`, itemType: 'PartsList', recordId: l.id } : null}
       tabs={[{ label: 'Items', value: 'items' }, { label: 'Revisions', value: 'revisions' }]} tab={tab} onTab={setTab}
       actions={q.data?.canEdit && l && <RecordActions surface="parts-list" edit={l.status === 'Draft' && { onClick: () => setDlg('edit') }}
+        rename={{ kind: 'parts-list', id: l.id, number: l.number, title: l.title, onDone: refresh }}
         del={{ what: `parts list ${l.number ?? ''}`.trim(), url: `${S}/parts-lists/${l.id}`, to: '/sequfloh/parts-lists', extra: 'All revisions and items of this list are removed.' }}>
         {l.status === 'Draft' && <Button variant="contained" onClick={() => setDlg('release')}>Release</Button>}
         {l.status === 'Released' && <Button variant="contained" onClick={() => setDlg('revise')}>New revision</Button>}
-        <Button onClick={() => act(async () => { const r = await post<{ id: string }>(`${S}/parts-lists/${l.id}/duplicate`, {}); nav(`/sequfloh/parts-lists/${r.id}`); })}>Duplicate</Button>
+        <Button onClick={() => act(async () => { const n = await np.ask(`Duplicate ${l.number}`); if (!n) return; const r = await post<{ id: string }>(`${S}/parts-lists/${l.id}/duplicate`, { number: n }); nav(`/sequfloh/parts-lists/${r.id}`); })}>Duplicate</Button>
+        {np.dialog}
         <Button color={l.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setDlg('active')}>{l.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button>
       </RecordActions>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : l && <>
@@ -544,6 +549,8 @@ export function OperationStepsPage() {
   const [search, setSearch] = useState(''); const [f, setF] = useState<Record<string, string>>({ active: 'true' });
   const q = useQuery({ queryKey: ['sqf-steps', search, f], queryFn: () => get<Paged<StepRow>>(`${S}/operation-steps?${qs({ q: search, active: f.active, pageSize: 200 })}`) });
   const [edit, setEdit] = useState<StepRow | null | undefined>(undefined);
+  const [renaming, setRenaming] = useState<StepRow | null>(null);
+  const np = useNumberPrompt();
   const [err, setErr] = useState<string | null>(null);
   const manage = can('sequfloh.manage_operation_steps');
   const refresh = () => qc.invalidateQueries({ queryKey: ['sqf-steps'] });
@@ -568,11 +575,14 @@ export function OperationStepsPage() {
             <Tooltip title="Move up"><span><IconButton size="small" aria-label={`Move ${s.number} up`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowUpward fontSize="small" /></IconButton></span></Tooltip>
             <Tooltip title="Move down"><span><IconButton size="small" aria-label={`Move ${s.number} down`} disabled={i === rows.length - 1} onClick={() => move(i, 1)}><ArrowDownward fontSize="small" /></IconButton></span></Tooltip>
             <Button size="small" onClick={() => setEdit(s)}>Edit</Button>
-            <Button size="small" onClick={() => act(() => post(`${S}/operation-steps/${s.id}/duplicate`, {}))}>Duplicate</Button>
+            <Button size="small" data-testid="edit-number" onClick={() => setRenaming(s)}>Edit number</Button>
+            <Button size="small" onClick={() => act(async () => { const n = await np.ask(`Duplicate ${s.number}`); if (n) await post(`${S}/operation-steps/${s.id}/duplicate`, { number: n }); })}>Duplicate</Button>
             <Button size="small" color={s.isActive ? 'error' : 'primary'} onClick={() => act(() => post(`${S}/operation-steps/${s.id}/${s.isActive ? 'deactivate' : 'activate'}`, {}))}>{s.isActive ? 'Deactivate' : 'Activate'}</Button>
             <DeleteButton size="small" what={`step ${s.number}`} url={`${S}/operation-steps/${s.id}`} extra="Copies already placed in work instructions stay." />
           </Stack> : null])} />}
       <StepDialog edit={edit} onClose={() => setEdit(undefined)} onSaved={refresh} />
+      {np.dialog}
+      {renaming && <EditNumberDialog open kind="operation-step" id={renaming.id} number={renaming.number} title={renaming.title} onClose={() => setRenaming(null)} onDone={() => { setRenaming(null); refresh(); }} />}
     </SqfPage>
   );
 }
@@ -584,6 +594,7 @@ function StepDialog({ edit, onClose, onSaved }: { edit: StepRow | null | undefin
   const save = async () => {
     const body: Record<string, unknown> = Object.fromEntries(stepFields.map(([k]) => [k, ['target', 'minimum', 'maximum'].includes(k) ? numOrNull(f[k]) : nul(f[k])]));
     body.isActive = edit?.isActive ?? true; body.rowVersion = edit?.rowVersion ?? 0;
+    if (!edit) body.number = f.number?.trim() ?? '';
     try { if (edit) await put(`${S}/operation-steps/${edit.id}`, body); else await post(`${S}/operation-steps`, body); onSaved(); onClose(); } catch (e) { setErr((e as Error).message); }
   };
   return (
@@ -591,12 +602,13 @@ function StepDialog({ edit, onClose, onSaved }: { edit: StepRow | null | undefin
       TransitionProps={{ onEnter: () => { setErr(null); setF(Object.fromEntries(stepFields.map(([k]) => [k, edit?.[k] === null || edit?.[k] === undefined ? '' : String(edit[k])]))); } }}>
       <FormDialogTitle>{edit ? `Edit ${edit.number}` : 'New operation step'}</FormDialogTitle>
       <DialogContent>{err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}<Box sx={{ pt: 1 }}><Grid>
+        {!edit && <NumberField value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'step-number', maxLength: 40 }} />}
         {stepFields.map(([k, label, req]) => k === 'category' && (categories.data?.length ?? 0) > 0
           ? <TextField key={k} select label={label} value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value })}><MenuItem value="">—</MenuItem>{categories.data!.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}</TextField>
           : <TextField key={k} label={label} required={req} type={['target', 'minimum', 'maximum'].includes(k) ? 'number' : 'text'} multiline={k === 'detailedAction' || k === 'safetyWarning'}
             value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />)}
       </Grid></Box></DialogContent>
-      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" disabled={!f.title?.trim() || !f.detailedAction?.trim()} onClick={save}>Save</Button></DialogActions>
+      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" disabled={(!edit && !f.number?.trim()) || !f.title?.trim() || !f.detailedAction?.trim()} onClick={save}>Save</Button></DialogActions>
     </Dialog>
   );
 }

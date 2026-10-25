@@ -13,7 +13,7 @@ import { useFamilies } from './Imports';
 import { useSites } from '../components/Kit';
 
 interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null }
-const WO_TYPES = ['Validation', 'Fai', 'Repair', 'Inspection', 'Warranty', 'Production'];
+const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Production', 'Production']];
 
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null; attributes?: string | null }
 interface WoOpt { id: string; number: string; workOrder?: string | null; partNumber?: string | null; workInstructionTitle?: string | null }
@@ -164,7 +164,7 @@ export function ChargebackEditPage() {
       {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
       <Section title="Job">
         {row(
-          <TextField key="wo" label="Work order #" required={!period} value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText={period ? "Optional for a period report; the period is used when empty" : "Your own work order number"} inputProps={{ 'data-testid': 'cb-wo' }} />,
+          <TextField key="wo" label={period ? 'Report number' : 'Work order #'} required value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText={period ? 'Your own number for this report, exactly as your company writes it' : 'Your own work order number'} inputProps={{ 'data-testid': 'cb-wo' }} />,
           <Autocomplete key="link" fullWidth options={wos.data?.items ?? []} value={wo} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number}${o.workOrder ? ` · ${o.workOrder}` : ''}${o.partNumber ? ` · ${o.partNumber}` : ''}`}
             onInputChange={(_, v, r) => r === 'input' && setWoText(v)}
@@ -236,7 +236,7 @@ export function ChargebackEditPage() {
             <MenuItem value="">All people</MenuItem>{[...(peopleList ?? []), ...(period.person && !(peopleList ?? []).some((n) => n.toLowerCase() === period.person!.toLowerCase()) ? [period.person] : [])].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}
           </TextField>
           <TextField select label="Type (optional)" value={period.type ?? ''} onChange={(e) => setP({ type: e.target.value })} inputProps={{ 'data-testid': 'cb-filter-type' }}>
-            <MenuItem value="">All types</MenuItem>{WO_TYPES.map((x) => <MenuItem key={x} value={x}>{x === 'Fai' ? 'FAI' : x}</MenuItem>)}
+            <MenuItem value="">All types</MenuItem>{WO_TYPES.map(([x, l]) => <MenuItem key={x} value={x}>{l}</MenuItem>)}
           </TextField>
           <TextField select label="Sub-type (optional)" value={period.subType ?? ''} onChange={(e) => setP({ subType: e.target.value })} inputProps={{ 'data-testid': 'cb-filter-subtype' }}>
             <MenuItem value="">All sub-types</MenuItem>{(subTypes.data ?? []).map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}

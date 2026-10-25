@@ -5,7 +5,7 @@ test('a draft instruction is released with one button and the release shows in t
   await signIn(page);
   const site = (await (await page.request.get('/api/organization/sites')).json())[0].id;
   const title = `Release check ${Date.now()}`;
-  const { id } = await (await page.request.post('/api/sequfloh/instructions', { data: { type: 'Validation', title, siteId: site } })).json();
+  const { id } = await (await page.request.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title, siteId: site } })).json();
   const url = `/api/sequfloh/instructions/${id}`;
   const wi = (await (await page.request.get(url)).json()).instruction;
   const saved = await page.request.put(url, { data: { title, siteId: site, departmentId: null, ownerId: null, partId: null, repairDescription: null, effectiveDate: null,

@@ -86,7 +86,7 @@ public sealed class ExportSettings
     public Dictionary<string, List<string>> IncludedColumns { get; set; } = new();
     public Dictionary<string, string> ReportTitles { get; set; } = new()
     {
-        ["work-instructions"] = "Work Instruction Status", ["validation"] = "Validation Tracking", ["fai"] = "FAI Tracking", ["repair"] = "Repair Tracking", ["production"] = "Production Tracking",
+        ["work-instructions"] = "Work Instruction Status", ["validation"] = "Validation / FAI Status", ["fai"] = "Validation / FAI Status", ["repair"] = "Repair / Rework Status", ["production"] = "Production Tracking",
         ["parts"] = "Part Master", ["parts-lists"] = "Parts Lists", ["task-log"] = "Task Log", ["time-variance"] = "Time Variance", ["audit"] = "SEQUFLOH Audit Trail",
         ["user-activity"] = "User Activity", ["task-performance"] = "Task Performance"
     };

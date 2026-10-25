@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { section, signIn, view } from './support';
+import { section, signIn, view, fresh } from './support';
 
 /** E2E_CF_XLSX points at a workbook whose "Torque Audit" sheet has PASS/FAIL formulas in G5:G8 coloured green/red by conditional formatting. */
 test('pass and fail colours change as soon as a reading is edited', async ({ page }) => {
@@ -8,7 +8,7 @@ test('pass and fail colours change as soon as a reading is edited', async ({ pag
   const shots = process.env.E2E_SHOTS;
   await signIn(page);
   await section(page, 'Imported Files');
-  await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
+  await page.getByTestId('imported-files-files-input').setInputFiles(fresh(path.resolve(process.env.E2E_CF_XLSX!)));
   await page.getByTestId('import-blank').uncheck();
   await page.getByTestId('bulk-import-start').click();
   await expect(page).toHaveURL(/\/sequfloh\/imported-files\/[0-9a-f-]{36}$/);

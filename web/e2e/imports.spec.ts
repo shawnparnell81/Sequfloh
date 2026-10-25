@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
-import { section, signIn, view } from './support';
+import { section, signIn, view, fresh } from './support';
 
 /** E2E_XLSX and E2E_DOCX point at local sample files: a workbook whose sheet "Torque Audit" has formulas, and any Word document. */
 test.describe('imported files', () => {
@@ -8,7 +8,7 @@ test.describe('imported files', () => {
     test.skip(!process.env.E2E_XLSX, 'set E2E_XLSX');
     await signIn(page);
     await section(page, 'Imported Files');
-    await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_XLSX!));
+    await page.getByTestId('imported-files-files-input').setInputFiles(fresh(path.resolve(process.env.E2E_XLSX!)));
     await page.getByTestId('import-blank').uncheck();
     await page.getByTestId('bulk-import-start').click();
     await expect(page).toHaveURL(/\/sequfloh\/imported-files\/[0-9a-f-]{36}$/);
@@ -27,7 +27,7 @@ test.describe('imported files', () => {
     test.skip(!process.env.E2E_DOCX, 'set E2E_DOCX');
     await signIn(page);
     await section(page, 'Imported Files');
-    await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_DOCX!));
+    await page.getByTestId('imported-files-files-input').setInputFiles(fresh(path.resolve(process.env.E2E_DOCX!)));
     await page.getByTestId('import-blank').uncheck();
     await page.getByTestId('bulk-import-start').click();
     const para = view(page).locator('p[data-editable]').last();

@@ -35,7 +35,7 @@ test.describe('workspace tabs', () => {
     // closing a record tab with unsaved typing asks first
     const site = (await (await page.request.get('/api/organization/sites')).json())[0].id;
     const title = `Tab draft ${Date.now()}`;
-    await page.request.post('/api/sequfloh/instructions', { data: { type: 'Validation', title, siteId: site } });
+    await page.request.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title, siteId: site } });
     await section(page, 'Work Instructions');
     await view(page).getByTestId('section-page').filter({ hasText: 'Draft Instructions' }).click();
     await view(page).locator('tbody tr', { hasText: title }).click({ modifiers: ['Control'] });

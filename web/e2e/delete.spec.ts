@@ -15,7 +15,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   const dialog = () => page.getByRole('dialog');
 
   // a draft work instruction made by mistake
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Mistake instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Mistake instruction ${stamp}`, siteId: site } }))).id as string;
   await page.goto(`/sequfloh/instruction/${wi}`);
   await expect(view(page).getByTestId('more-actions')).toBeVisible();
   await shot('instruction-with-delete');
@@ -49,7 +49,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   await dialog().getByRole('button', { name: 'Cancel' }).click();
 
   // a work order with two people and a running timer
-  const rel = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Timer test instruction ${stamp}`, siteId: site } }))).id as string;
+  const rel = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Timer test instruction ${stamp}`, siteId: site } }))).id as string;
   const relDoc = (await ok(rq.get(`/api/sequfloh/instructions/${rel}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${rel}`, { data: { title: relDoc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Check the test piece' }], characteristics: [], partsRows: [], rowVersion: relDoc.rowVersion ?? 0 } }));
@@ -57,7 +57,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   expect(relRes.ok(), await relRes.text()).toBeTruthy();
   await ok(rq.post('/api/admin/users', { data: { email: `helper.${stamp}@example.test`, displayName: `Test Helper ${stamp}`, password: `Pw-${stamp}-${Math.random().toString(36).slice(2)}`, mustChangePassword: false, defaultSiteId: site } }));
   const me = (await ok(rq.get('/api/auth/session'))).user;
-  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: rel, siteId: site, assignedUserId: me.id } }))).id as string;
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: rel, siteId: site, assignedUserId: me.id } }))).id as string;
   await page.goto(`/sequfloh/record/${wo}`);
   await view(page).getByTestId('edit-assignees').click();
   await dialog().getByLabel('People').fill(`Test Helper ${stamp}`);
@@ -84,7 +84,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   await shot('work-orders-list-assignees');
 
   // a work order made by mistake (no time) can be deleted
-  const oops = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: rel, siteId: site } }))).id as string;
+  const oops = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: rel, siteId: site } }))).id as string;
   await page.goto(`/sequfloh/record/${oops}`);
   await (await more(page)).getByTestId('delete-button').click();
   await expect(dialog()).toContainText('logged time are kept');

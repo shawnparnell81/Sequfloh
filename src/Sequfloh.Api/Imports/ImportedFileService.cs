@@ -22,7 +22,7 @@ public sealed record ParagraphEdit(int Ref, string Text);
 /// Imported files: upload (Excel, CSV, Word, and legacy xls/doc through the office converter), the in-app view of a worksheet or document,
 /// saving edits as a new version (formulas recalculated by the workbook engine), and downloads. Files go to the configured file storage.
 /// </summary>
-public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, ILegacyOfficeConverter legacy, INumberingService numbers, IAccessService access, ICurrentUser me)
+public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, ILegacyOfficeConverter legacy, IAccessService access, ICurrentUser me)
 {
     public const long MaxBytes = 20 * 1024 * 1024;
     public const string XlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -85,7 +85,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
 
-    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false, bool completedForm = false, Guid? familyId = null)
+    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false, bool completedForm = false, Guid? familyId = null, string? number = null)
     {
         if (completedForm && blankForm) throw new AppException("A completed form cannot also be a blank form.");
         if (!completedForm && familyId is not null) throw new AppException("Only a completed form has a product family.");
@@ -98,10 +98,13 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             ?? throw new AppException("Set up a site first.");
         if (!await access.CanAccessAsync(UserId, Permissions.SequflohImportFiles, site, departmentId, ct)) throw new ForbiddenException();
 
+        // the number is the company's own: the file name exactly as it was saved, without its extension, unless the user typed one
+        var fileNumber = RecordNumbers.Clean(string.IsNullOrWhiteSpace(number) ? Path.GetFileNameWithoutExtension(name) : number, 300);
+        await RecordNumbers.EnsureFreeAsync(db.ImportedFiles.Select(o => o.Number), fileNumber, "A file numbered", ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var f = new ImportedFile
         {
-            Number = await numbers.NextAsync("SqfImportedFile", site, ct),
+            Number = fileNumber,
             Title = string.IsNullOrWhiteSpace(title) ? DefaultTitle(name) : title.Trim(),
             Kind = kind, SourceFormat = ext.TrimStart('.'), OriginalFileName = name, SiteId = site, DepartmentId = departmentId, Summary = summary, IsBlankForm = blankForm,
             IsCompletedForm = completedForm, FamilyId = completedForm ? familyId : null,
@@ -483,21 +486,21 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     }
 
     /// <summary>Starts a filled copy of a blank form from its current version and returns the new file.</summary>
-    public async Task<object> FillOutAsync(Guid id, string? title, CancellationToken ct, string? partNumber = null, Guid? familyId = null)
+    public async Task<object> FillOutAsync(Guid id, string? number, string? title, CancellationToken ct, string? partNumber = null, Guid? familyId = null)
     {
         await CheckFamilyAsync(familyId, ct);
         var blank = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
         if (!blank.IsBlankForm) throw new AppException("Only a blank form can be filled out. Use Save as new copy instead.");
         if (blank.IsArchived) throw new AppException("This blank form is archived.");
         var (v, bytes) = await CurrentAsync(blank, null, ct);
-        var copy = await CreateCopyAsync(blank, v, bytes, title, blank.Id, blank.CurrentVersion, $"Started from blank form {blank.Number} version {blank.CurrentVersion}", ct,
+        var copy = await CreateCopyAsync(blank, v, bytes, number, title, blank.Id, blank.CurrentVersion, $"Started from blank form {blank.Number} version {blank.CurrentVersion}", ct,
             c => ("Created from blank form", $"Created {c.Number} {c.Title} from blank form {blank.Number} {blank.Title} (version {blank.CurrentVersion}){(c.PartNumber is null ? "" : $" for part {c.PartNumber}")}"),
             partNumber, familyId);
         return new { copy.Id, copy.Number, copy.Title };
     }
 
     /// <summary>Saves edits to a new file and leaves the one being edited as it is. A copy of a blank form or of a filled copy is linked to the same blank form.</summary>
-    public async Task<object> SaveAsCopyAsync(Guid id, int baseVersion, string? title, IReadOnlyList<CellEdit>? cells, IReadOnlyList<ParagraphEdit>? paragraphs, CancellationToken ct, Guid? familyId = null)
+    public async Task<object> SaveAsCopyAsync(Guid id, int baseVersion, string? number, string? title, IReadOnlyList<CellEdit>? cells, IReadOnlyList<ParagraphEdit>? paragraphs, CancellationToken ct, Guid? familyId = null)
     {
         await CheckFamilyAsync(familyId, ct);
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
@@ -519,22 +522,25 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         }
         var blankId = f.IsBlankForm ? f.Id : f.BlankFormId;
         var blankVersion = f.IsBlankForm ? f.CurrentVersion : f.BlankFormVersion;
-        var copy = await CreateCopyAsync(f, v, bytes, title, blankId, blankVersion, $"Saved as a copy of {f.Number} version {f.CurrentVersion}. {note}", ct,
+        var copy = await CreateCopyAsync(f, v, bytes, number, title, blankId, blankVersion, $"Saved as a copy of {f.Number} version {f.CurrentVersion}. {note}", ct,
             c => ("Saved as copy", $"Saved {c.Number} {c.Title} as a new copy of {f.Number} {f.Title} (version {f.CurrentVersion}); {f.Number} was left as it is. {note}"), null, familyId ?? f.FamilyId);
         return new { copy.Id, copy.Number, copy.Title };
     }
 
-    async Task<ImportedFile> CreateCopyAsync(ImportedFile from, ImportedFileVersion v, byte[] bytes, string? title, Guid? blankId, int? blankVersion, string note, CancellationToken ct,
+    async Task<ImportedFile> CreateCopyAsync(ImportedFile from, ImportedFileVersion v, byte[] bytes, string? number, string? title, Guid? blankId, int? blankVersion, string note, CancellationToken ct,
         Func<ImportedFile, (string Action, string Text)> audit, string? partNumber = null, Guid? familyId = null)
     {
         if (from.Kind == ImportedFileKind.Pdf) throw new AppException("A PDF completed form is kept as uploaded and can't be copied.");
         var ext = Path.GetExtension(v.FileName).ToLowerInvariant();
-        var t = string.IsNullOrWhiteSpace(title) ? $"{from.Title} – {DateTimeOffset.UtcNow:yyyy-MM-dd}" : title.Trim();
+        // the user names the new file: its number is typed in the save dialog, never made up here
+        var n = RecordNumbers.Clean(number, 300);
+        await RecordNumbers.EnsureFreeAsync(db.ImportedFiles.Select(o => o.Number), n, "A file numbered", ct);
+        var t = string.IsNullOrWhiteSpace(title) ? n : title.Trim();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var copy = new ImportedFile
         {
-            Number = await numbers.NextAsync("SqfImportedFile", from.SiteId, ct), Title = t.Length > 300 ? t[..300] : t, Kind = from.Kind, SourceFormat = ext.TrimStart('.'),
-            OriginalFileName = Path.GetFileNameWithoutExtension(v.FileName) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = Summarize(from.Kind, bytes, ext),
+            Number = n, Title = t.Length > 300 ? t[..300] : t, Kind = from.Kind, SourceFormat = ext.TrimStart('.'),
+            OriginalFileName = SafeFileName(n) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = Summarize(from.Kind, bytes, ext),
             BlankFormId = blankId, BlankFormVersion = blankVersion, FamilyId = blankId is null ? null : familyId,
             PartNumber = string.IsNullOrWhiteSpace(partNumber) ? (from.IsBlankForm ? null : from.PartNumber) : partNumber.Trim().Length > 100 ? partNumber.Trim()[..100] : partNumber.Trim(),
         };
@@ -555,6 +561,14 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         return copy;
     }
 
+    /// <summary>The number as a file name: only characters a file name can't hold are replaced.</summary>
+    public static string SafeFileName(string name)
+    {
+        var bad = Path.GetInvalidFileNameChars().Concat(['\\', '/', ':', '*', '?', '"', '<', '>', '|']).ToHashSet();
+        var s = new string(name.Select(c => bad.Contains(c) || char.IsControl(c) ? '_' : c).ToArray()).Trim();
+        return s.Length == 0 ? "file" : s;
+    }
+
     static IEnumerable<WPara> AllParagraphs(DocModel m)
     {
         static IEnumerable<WPara> Of(WTable t) => t.Rows.SelectMany(r => r.Cells).SelectMany(c => c.Paras.Concat(c.Nested.SelectMany(Of)));
@@ -573,7 +587,9 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (original)
             return (await storage.GetAsync(f.OriginalStorageKey, ct) ?? throw new NotFoundException("File content"), ContentTypeOf(Path.GetExtension(f.OriginalFileName).ToLowerInvariant()), f.OriginalFileName);
         var (v, bytes) = await CurrentAsync(f, version, ct);
-        var name = version is null || version == f.CurrentVersion ? v.FileName : $"{Path.GetFileNameWithoutExtension(v.FileName)} (version {v.Version}){Path.GetExtension(v.FileName)}";
+        // the download is named by the file's own number (its saved name, or what the user renamed it to)
+        var own = SafeFileName(f.Number);
+        var name = version is null || version == f.CurrentVersion ? own + Path.GetExtension(v.FileName) : $"{own} (version {v.Version}){Path.GetExtension(v.FileName)}";
         return (new MemoryStream(bytes), v.ContentType, name);
     }
 

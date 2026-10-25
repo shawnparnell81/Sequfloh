@@ -119,11 +119,11 @@ public static class SequflohDesigner
 
     public static readonly IReadOnlyDictionary<WorkInstructionType, DesignerSchema> Schemas = new Dictionary<WorkInstructionType, DesignerSchema>
     {
-        [WorkInstructionType.Validation] = new(WorkInstructionType.Validation, "Validation", "SqfValidationInstruction", Merge(Validation), "Validation steps", ValidationSteps, false, [], false, []),
+        [WorkInstructionType.Validation] = new(WorkInstructionType.Validation, "Validation / FAI", "SqfValidationInstruction", Merge(Validation), "Validation steps", ValidationSteps, false, [], false, []),
         [WorkInstructionType.ValidationFai] = new(WorkInstructionType.ValidationFai, "Validation / FAI", "SqfWorkInstruction", Merge([.. Validation, .. Fai]), "Validation steps", ValidationSteps, true, Characteristic, false, []),
-        [WorkInstructionType.Fai] = new(WorkInstructionType.Fai, "FAI", "SqfFaiInstruction", Merge(Fai), "Procedure steps", ProcedureSteps, true, Characteristic, false, []),
-        [WorkInstructionType.RepairTest] = new(WorkInstructionType.RepairTest, "Repair Test", "SqfRepairTestInstruction", Merge(RepairTest), "Test steps", TestSteps, false, [], false, []),
-        [WorkInstructionType.RepairWork] = new(WorkInstructionType.RepairWork, "Repair Work Instruction", "SqfRepairWorkInstruction", Merge(RepairWork), "Repair steps", RepairSteps, false, [], true, PartsRowColumns),
+        [WorkInstructionType.Fai] = new(WorkInstructionType.Fai, "Validation / FAI", "SqfFaiInstruction", Merge(Fai), "Procedure steps", ProcedureSteps, true, Characteristic, false, []),
+        [WorkInstructionType.RepairTest] = new(WorkInstructionType.RepairTest, "Repair / Rework Test", "SqfRepairTestInstruction", Merge(RepairTest), "Test steps", TestSteps, false, [], false, []),
+        [WorkInstructionType.RepairWork] = new(WorkInstructionType.RepairWork, "Repair / Rework Work Instruction", "SqfRepairWorkInstruction", Merge(RepairWork), "Repair steps", RepairSteps, false, [], true, PartsRowColumns),
         [WorkInstructionType.Inspection] = new(WorkInstructionType.Inspection, "Inspection", "SqfInspectionInstruction", Merge(Inspection), "Inspection steps", ProcedureSteps, false, [], false, []),
         // imported files that apply to every part of a product family: the file is the content, so there are no sections or steps
         [WorkInstructionType.Procedure] = new(WorkInstructionType.Procedure, "Procedure Instructions", "SqfInspectionInstruction", [], "Steps", ProcedureSteps, false, [], false, []),
