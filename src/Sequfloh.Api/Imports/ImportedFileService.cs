@@ -56,7 +56,10 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (kind == "document") query = query.Where(f => f.Kind == ImportedFileKind.Document);
         if (kind == "blank") query = query.Where(f => f.IsBlankForm);
         if (kind == "filled") query = query.Where(f => f.BlankFormId != null || f.IsCompletedForm);
-        if (family == "none") query = query.Where(f => f.FamilyId == null);
+        // Salt Spray Test is a test, not a product family: its copies come from the confirmed Salt Spray Test blank form
+        var saltId = family is "salt-spray" or "none" ? (await db.SequflohSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.SaltSprayFormId : null;
+        if (family == "salt-spray") query = query.Where(f => saltId != null && f.BlankFormId == saltId);
+        else if (family == "none") query = query.Where(f => f.FamilyId == null && (saltId == null || f.BlankFormId != saltId));
         else if (Guid.TryParse(family, out var fam)) query = query.Where(f => f.FamilyId == fam);
         var rows = await query.OrderByDescending(f => f.UpdatedAt)
             .Select(f => new { f.Id, f.Number, f.Title, f.Kind, f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.SiteId, f.DepartmentId, f.CreatedAt, f.UpdatedAt, f.IsBlankForm, f.PartNumber, f.FamilyId,

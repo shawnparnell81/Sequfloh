@@ -32,6 +32,8 @@ public sealed class FixList7Tests(TestApp app)
             Assert.True(a.GetProperty("validationForm").TryGetProperty("fileId", out _));
             var first = a.GetProperty("validationForm").GetProperty("fileNumber").GetString()!;
             Assert.EndsWith("-1", first);
+            Assert.Contains(first, await (await c.Http.GetAsync("/api/imported-files?kind=filled&family=salt-spray&pageSize=200")).Content.ReadAsStringAsync());
+            Assert.DoesNotContain(first, await (await c.Http.GetAsync("/api/imported-files?kind=filled&family=none&pageSize=200")).Content.ReadAsStringAsync());
             Assert.False((await c.GetElAsync($"{T}/{a.Id()}")).GetProperty("canAttachForm").GetBoolean());
 
             Assert.True((await admin.PutAsync(Setting, new { blankFormId = (Guid?)null })).IsSuccessStatusCode);

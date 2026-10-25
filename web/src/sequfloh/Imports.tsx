@@ -661,7 +661,7 @@ export function CompletedFormsPage() {
   const famLabel = families.find((x) => x.id === tab)?.label;
   const [unFam, setUnFam] = useState('');
   const target = tab === 'none' ? unFam : tab;
-  const importNode = can('sequfloh.import_files') && fams.data && <ImportButtons surface="completed-forms" accept={COMPLETED_TYPES} maxBytes={20 * 1024 * 1024} what="completed form" variant="contained"
+  const importNode = can('sequfloh.import_files') && fams.data && tab !== 'salt-spray' && <ImportButtons surface="completed-forms" accept={COMPLETED_TYPES} maxBytes={20 * 1024 * 1024} what="completed form" variant="contained"
     settings={<Stack gap={1}>{tab === 'none'
       ? <FamilySelect value={unFam} onChange={setUnFam} helperText="Leave empty to save the forms as Unassigned." />
       : <Typography variant="body2" data-testid="completed-import-family">Saved as completed forms in <b>{famLabel}</b>.</Typography>}</Stack>}
@@ -677,9 +677,10 @@ export function CompletedFormsPage() {
       actions={<RecordActions surface="completed-forms" print={{ onClick: () => window.print() }} importNode={importNode} />}>
       <Tabs value={fams.data ? tab : false} onChange={(_, v) => setSp({ family: v })} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile data-testid="completed-family-tabs" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
         {families.map((f) => <Tab key={f.id} value={f.id} label={f.label} />)}
+        <Tab value="salt-spray" label="Salt Spray Test" data-testid="completed-salt-spray" />
         <Tab value="none" label="Unassigned" data-testid="completed-unassigned" />
       </Tabs>
-      {fams.isLoading ? <Loading /> : <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty="No filled forms in this family yet."
+      {fams.isLoading ? <Loading /> : <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty={tab === 'salt-spray' ? 'No Salt Spray Test forms yet.' : 'No filled forms in this family yet.'}
         cols={[{ key: 'title', label: 'Title', render: (r: CompletedRow) => <><Mono>{r.number}</Mono> {r.title}</> }, { key: 'partNumber', label: 'Part number', render: (r: CompletedRow) => r.partNumber ? <Mono>{r.partNumber}</Mono> : '—' },
           { key: 'updatedAt', label: 'Saved', render: (r: CompletedRow) => fmtDateTime(r.updatedAt) },
           { key: 'actions', label: '', render: (r: CompletedRow) => <Stack direction="row" gap={1} onClick={(e) => e.stopPropagation()}>
