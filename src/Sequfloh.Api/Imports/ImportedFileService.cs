@@ -58,8 +58,8 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (kind == "filled") query = query.Where(f => f.BlankFormId != null || f.IsCompletedForm);
         // Salt Spray Test is a test, not a product family: its copies come from the confirmed Salt Spray Test blank form
         var saltId = family is "salt-spray" or "none" ? (await db.SequflohSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.SaltSprayFormId : null;
-        if (family == "salt-spray") query = query.Where(f => saltId != null && f.BlankFormId == saltId);
-        else if (family == "none") query = query.Where(f => f.FamilyId == null && (saltId == null || f.BlankFormId != saltId));
+        if (family == "salt-spray") query = query.Where(f => f.IsSaltSprayTest || (saltId != null && f.BlankFormId == saltId));
+        else if (family == "none") query = query.Where(f => f.FamilyId == null && !f.IsSaltSprayTest && (saltId == null || f.BlankFormId != saltId));
         else if (Guid.TryParse(family, out var fam)) query = query.Where(f => f.FamilyId == fam);
         var rows = await query.OrderByDescending(f => f.UpdatedAt)
             .Select(f => new { f.Id, f.Number, f.Title, f.Kind, f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.SiteId, f.DepartmentId, f.CreatedAt, f.UpdatedAt, f.IsBlankForm, f.PartNumber, f.FamilyId,
@@ -88,8 +88,9 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
 
-    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false, bool completedForm = false, Guid? familyId = null, string? number = null)
+    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false, bool completedForm = false, Guid? familyId = null, string? number = null, bool saltSpray = false)
     {
+        if (saltSpray && (!completedForm || familyId is not null)) throw new AppException("A Salt Spray Test report is imported as a completed form without a product family.");
         if (completedForm && blankForm) throw new AppException("A completed form cannot also be a blank form.");
         if (!completedForm && familyId is not null) throw new AppException("Only a completed form has a product family.");
         if (completedForm) await CheckFamilyAsync(familyId, ct);
@@ -110,7 +111,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             Number = fileNumber,
             Title = string.IsNullOrWhiteSpace(title) ? DefaultTitle(name) : title.Trim(),
             Kind = kind, SourceFormat = ext.TrimStart('.'), OriginalFileName = name, SiteId = site, DepartmentId = departmentId, Summary = summary, IsBlankForm = blankForm,
-            IsCompletedForm = completedForm, FamilyId = completedForm ? familyId : null,
+            IsCompletedForm = completedForm, FamilyId = completedForm ? familyId : null, IsSaltSprayTest = saltSpray,
         };
         if (f.Title.Length > 300) f.Title = f.Title[..300];
         f.OriginalStorageKey = $"imports/{f.Id:N}/original{storedExt}";
@@ -120,7 +121,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         db.ImportedFileVersions.Add(await StoreVersionAsync(f, 1, working, workingExt, workingType, ConvertedNote(ext), ct));
         if (completedForm)
             db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Imported completed form", EntityType = nameof(ImportedFile),
-                EntityId = f.Id, SiteId = f.SiteId, Description = $"Imported {f.Number} {f.Title} as a completed form into {await FamilyLabelAsync(familyId, ct)}" });
+                EntityId = f.Id, SiteId = f.SiteId, Description = $"Imported {f.Number} {f.Title} as a completed form into {(saltSpray ? "Salt Spray Test" : await FamilyLabelAsync(familyId, ct))}" });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return f;

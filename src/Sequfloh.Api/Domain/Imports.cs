@@ -30,6 +30,8 @@ public class ImportedFile : Entity, IAudited, IArchivable, ISiteScoped
     public bool IsBlankForm { get; set; }
     /// <summary>A completed (filled) form imported straight into Completed Validation/FAI, not made from a blank form here.</summary>
     public bool IsCompletedForm { get; set; }
+    /// <summary>A completed Salt Spray Test report imported into the Salt Spray Test tab of Completed Validation/FAI (a test, not a product family).</summary>
+    public bool IsSaltSprayTest { get; set; }
     /// <summary>For a filled copy: the blank form it came from and the version of that blank it started from.</summary>
     public Guid? BlankFormId { get; set; }
     public int? BlankFormVersion { get; set; }

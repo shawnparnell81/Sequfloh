@@ -18,11 +18,11 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
     public Task<object> List(string? q, string? kind, string? family, int page = 1, int pageSize = 50, CancellationToken ct = default) => files.ListAsync(q, kind, page, pageSize, ct, family);
 
     [HttpPost, RequirePermission(Permissions.SequflohImportFiles), RequestSizeLimit(ImportedFileService.MaxBytes + 64 * 1024)]
-    public async Task<object> Upload(IFormFile file, [FromForm] string? title, [FromForm] Guid? siteId, [FromForm] Guid? departmentId, [FromForm] bool blankForm, CancellationToken ct, [FromForm] bool completedForm = false, [FromForm] Guid? familyId = null, [FromForm] string? number = null)
+    public async Task<object> Upload(IFormFile file, [FromForm] string? title, [FromForm] Guid? siteId, [FromForm] Guid? departmentId, [FromForm] bool blankForm, CancellationToken ct, [FromForm] bool completedForm = false, [FromForm] Guid? familyId = null, [FromForm] string? number = null, [FromForm] bool saltSpray = false)
     {
         if (file is null || file.Length == 0) throw new Application.Abstractions.AppException("Choose a file.");
         await using var s = file.OpenReadStream();
-        var f = await files.UploadAsync(s, file.FileName, title, siteId, departmentId, ct, blankForm, completedForm, familyId, number);
+        var f = await files.UploadAsync(s, file.FileName, title, siteId, departmentId, ct, blankForm, completedForm, familyId, number, saltSpray);
         return new { f.Id, f.Number, f.Title };
     }
 
