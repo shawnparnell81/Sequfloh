@@ -58,6 +58,8 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     [HttpGet("validation-forms")] public Task<object> ValidationForms(CancellationToken ct) => f.ValidationFormsAsync(ct);
     [HttpPut("validation-forms/{familyId:guid}")] [RequirePermission(Permissions.SequflohManageSettings)]
     public async Task<IActionResult> SetValidationForm(Guid familyId, ValidationFormInput r, CancellationToken ct) { await f.SetValidationFormAsync(familyId, r.BlankFormId, ct); return NoContent(); }
+    [HttpPut("validation-forms/tests/{key}")] [RequirePermission(Permissions.SequflohManageSettings)]
+    public async Task<IActionResult> SetTestForm(string key, ValidationFormInput r, CancellationToken ct) { await f.SetTestFormAsync(key, r.BlankFormId, ct); return NoContent(); }
     public sealed record HiddenFieldsInput(List<string>? Fields);
     [HttpPut("reference/values/{id:guid}/hidden-fields")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> FamilyHiddenFields(Guid id, HiddenFieldsInput r, CancellationToken ct) { await f.SetFamilyHiddenFieldsAsync(id, r.Fields, ct); return NoContent(); }

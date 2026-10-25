@@ -1210,6 +1210,9 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<Guid?>("SaltSprayFormId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Security")
                         .IsRequired()
                         .HasColumnType("jsonb");

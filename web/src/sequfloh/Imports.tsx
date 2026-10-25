@@ -195,9 +195,9 @@ export function ImportedFilePage() {
       recent={d ? { label: `${d.number} ${d.title}`, itemType: 'ImportedFile', recordId: d.id } : null}
       tabs={pdf ? [{ label: 'PDF', value: 'file' }] : [{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' },
         ...(d?.isBlankForm ? [{ label: `Filled copies (${d.copies?.length ?? 0})`, value: 'copies' }] : [])]} tab={tab} onTab={setTab}
-      actions={d && <RecordActions surface={filled ? 'completed-form' : 'imported-file'} print={{ onClick: () => (pdf ? window.open(`${A}/${d.id}/download?view=true`, '_blank', 'noopener') : window.print()) }} edit={d.canEdit && filled && !pdf && { onClick: () => setFamOpen(true) }}
-        rename={d.canEdit && { kind: 'file', id: d.id, number: d.number, title: d.title, onDone: refresh }}
-        more={[d.canEdit && { label: 'Archive', testid: 'archive-file', onClick: () => setArchiveOpen(true) }]}
+      actions={d && <RecordActions surface={filled ? 'completed-form' : 'imported-file'} print={{ onClick: () => (pdf ? window.open(`${A}/${d.id}/download?view=true`, '_blank', 'noopener') : window.print()) }}
+        rename={d.canEdit && { kind: 'file', id: d.id, number: d.number, title: d.title, asEdit: true, onDone: refresh }}
+        more={[d.canEdit && filled && !pdf && { label: 'Change product family', testid: 'change-family', onClick: () => setFamOpen(true) }, d.canEdit && { label: 'Archive', testid: 'archive-file', onClick: () => setArchiveOpen(true) }]}
         importNode={d.canEdit && !pdf && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
           <input hidden type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc" data-testid="upload-version-input" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadVersion(f); }} /></Button>}
         del={{ what: `${d.number} ${d.title}`, url: `${A}/${d.id}`, to: filled ? `/sequfloh/completed-forms?family=${d.familyId ?? 'none'}` : '/sequfloh/imported-files',

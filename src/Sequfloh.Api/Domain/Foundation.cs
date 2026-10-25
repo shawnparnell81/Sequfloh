@@ -19,6 +19,8 @@ public class SequflohSettings : Entity, IAudited
     public string Export { get; set; } = "{}";
     public string Notifications { get; set; } = "{}";
     public string Security { get; set; } = "{}";
+    /// <summary>The blank form an administrator confirmed for Salt Spray Test work orders (a test, not a product family).</summary>
+    public Guid? SaltSprayFormId { get; set; }
     public string AuditLabel => "SEQUFLOH settings";
 }
 

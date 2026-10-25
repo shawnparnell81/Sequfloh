@@ -220,9 +220,13 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
             .Select(v => new { v.Id, v.Label, v.Code, v.ValidationFormId }).ToListAsync(ct);
         var blanks = await db.ImportedFiles.AsNoTracking().Where(b => b.IsBlankForm && !b.IsArchived).OrderBy(b => b.Title).Select(b => new { b.Id, b.Number, b.Title }).ToListAsync(ct);
         static bool Has(string s, string w) => s.Contains(w, StringComparison.OrdinalIgnoreCase);
+        var salt = (await db.SequflohSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.SaltSprayFormId;
         return new
         {
             Blanks = blanks,
+            // tests are not product families; each row works the same way: a suggestion is never used until saved
+            Tests = new[] { new { Key = "salt-spray", Label = "Salt Spray Test", BlankFormId = salt,
+                SuggestedId = blanks.Where(b => Has(b.Title, "salt spray")).Select(b => (Guid?)b.Id).FirstOrDefault() } },
             Families = families.Select(v => new
             {
                 v.Id, v.Label, BlankFormId = v.ValidationFormId,
@@ -242,6 +246,21 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         var before = v.ValidationFormId is { } old ? await db.ImportedFiles.Where(x => x.Id == old).Select(x => x.Number + " " + x.Title).FirstOrDefaultAsync(ct) : null;
         v.ValidationFormId = blankId;
         Audit("ValidationFormConfirmed", nameof(SequflohReferenceValue), v.Id, $"Validation form for {v.Label} changed from {before ?? "none"} to {title ?? "none"}");
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task SetTestFormAsync(string key, Guid? blankId, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageSettings, ct);
+        if (key != "salt-spray") throw new NotFoundException("Test");
+        var s = await RowAsync(ct);
+        string? title = null;
+        if (blankId is { } b)
+            title = await db.ImportedFiles.Where(x => x.Id == b && x.IsBlankForm && !x.IsArchived).Select(x => x.Number + " " + x.Title).FirstOrDefaultAsync(ct) ?? throw new AppException("Choose a blank form that is not archived.");
+        if (s.SaltSprayFormId == blankId) return;
+        var before = s.SaltSprayFormId is { } old ? await db.ImportedFiles.Where(x => x.Id == old).Select(x => x.Number + " " + x.Title).FirstOrDefaultAsync(ct) : null;
+        s.SaltSprayFormId = blankId;
+        Audit("ValidationFormConfirmed", nameof(SequflohSettings), s.Id, $"Form for Salt Spray Test changed from {before ?? "none"} to {title ?? "none"}");
         await db.SaveChangesAsync(ct);
     }
 

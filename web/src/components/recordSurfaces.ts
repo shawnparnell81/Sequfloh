@@ -13,7 +13,7 @@ export const RECORD_SURFACES = {
   'drawing-folder': { label: 'Drawing folder', actions: ['edit', 'import', 'delete', 'fullscreen'] },
   'completed-forms': { label: 'Completed Validation / FAI (a product family tab)', actions: ['print', 'import', 'fullscreen'] },
   'completed-form': { label: 'Completed form', actions: ['edit', 'print', 'import', 'delete', 'fullscreen'] },
-  'imported-file': { label: 'Imported file / template', actions: ['print', 'import', 'delete', 'fullscreen'] },
+  'imported-file': { label: 'Imported file / template', actions: ['edit', 'print', 'import', 'delete', 'fullscreen'] },
   'inspection-request': { label: 'Inspection request', actions: ['edit', 'delete', 'fullscreen'] },
   'part': { label: 'Part', actions: ['edit', 'delete', 'fullscreen'] },
   'parts-list': { label: 'Parts list (draft)', actions: ['edit', 'delete', 'fullscreen'] },

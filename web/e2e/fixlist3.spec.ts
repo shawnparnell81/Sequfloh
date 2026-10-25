@@ -135,7 +135,7 @@ test('completed validation/FAI: a PDF imported on a family tab is kept as upload
   await expect(view(page).getByTestId('completed-pdf-frame')).toBeVisible();
   const fb = view(page).locator('[data-record-actions="completed-form"]');
   for (const a of ['print', 'fullscreen']) await expect(fb.locator(`[data-action="${a}"]`).first()).toBeVisible();
-  await expect(fb.locator('[data-action="edit"]')).toHaveCount(0);
+  await expect(fb.locator('[data-action="edit"]')).toBeVisible(); // number and title stay editable on a PDF
   await expect(view(page).getByTestId('upload-version')).toHaveCount(0);
   const id = page.url().split('/imported-files/')[1].split(/[?/]/)[0];
   const r = await page.request.get(`/api/imported-files/${id}/download?view=true`);

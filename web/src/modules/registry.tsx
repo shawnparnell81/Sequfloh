@@ -119,7 +119,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Notification Settings', path: '/sequfloh/settings/notifications' },
         { label: 'Revision Settings', path: '/sequfloh/settings/numbering' },
         { label: 'Display Preferences', path: '/sequfloh/settings/display' },
-        { label: 'Validation forms by product', path: '/sequfloh/settings/validation-forms' },
+        { label: 'Validation forms by product and test', path: '/sequfloh/settings/validation-forms' },
         { label: 'Export Settings', path: '/sequfloh/settings/export' },
         { label: 'Security Settings', path: '/sequfloh/settings/security' },
       ] },
