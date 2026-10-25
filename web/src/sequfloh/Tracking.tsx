@@ -223,7 +223,7 @@ export function NewTrackingPage() {
           {fld('workOrder', 'Work order')}{type === 'Repair' ? fld('repairOrder', 'Repair order') : fld('project', 'Project')}
           {type === 'Repair' && fld('customerReturnReference', 'Customer-return reference')}
           {fld('operation', 'Operation')}
-          {fld('plannedStart', 'Date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
+          {fld('plannedStart', 'Expected start date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
           {fld('min', 'Minimum benchmark (minutes)', { type: 'number' })}{fld('max', 'Maximum benchmark (minutes)', { type: 'number' })}
           {type === 'Repair' && <Box sx={{ gridColumn: '1 / -1' }}>{fld('reportedCondition', 'Reported condition', { multiline: true, minRows: 2, fullWidth: true })}</Box>}
         </Grid>
@@ -333,7 +333,7 @@ export function TrackingRecordPage() {
             : <Alert severity="warning">{vf.message ?? 'No validation form is confirmed for this product family.'}</Alert>}
           {q.data.canAttachForm && <Button variant="outlined" sx={{ mt: 1.5 }} disabled={busy || dirty} onClick={() => setAttach(true)} data-testid="wo-attach-form">Attach validation form</Button>}
         </Paper>}
-        {attach && <AttachFormDialog id={rec.id} number={rec.number} onClose={() => setAttach(false)} onDone={() => { setAttach(false); void refresh(); setMsg({ sev: 'success', text: 'The form is attached.' }); }} />}
+        {attach && <AttachFormDialog id={rec.id} onClose={() => setAttach(false)} onDone={() => { setAttach(false); void refresh(); setMsg({ sev: 'success', text: 'The form is attached.' }); }} />}
         {(rec.type === 'Inspection' || rec.type === 'Warranty') && <InspectionResults rec={rec} onSaved={refresh} />}
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Work order">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Work order</Typography>
@@ -445,8 +445,8 @@ const local = (iso: string) => { if (!iso) return ''; const d = new Date(iso); c
 
 /** Inspection and warranty results: qty good, qty bad (feeds the chargeback report), further inspection and the quarantine flag. Saved on its own and audited. */
 /** Starts the confirmed form copy on a work order that has none yet; the number starts as the work order number and can be changed. */
-function AttachFormDialog({ id, number, onClose, onDone }: { id: string; number: string; onClose: () => void; onDone: () => void }) {
-  const [n, setN] = useState(number);
+function AttachFormDialog({ id, onClose, onDone }: { id: string; onClose: () => void; onDone: () => void }) {
+  const [n, setN] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const go = async () => {
@@ -458,13 +458,13 @@ function AttachFormDialog({ id, number, onClose, onDone }: { id: string; number:
       <FormDialogTitle>Attach validation form</FormDialogTitle>
       <DialogContent>
         <Stack gap={2} sx={{ pt: 1 }}>
-          <TextField label="Form number" required value={n} onChange={(e) => setN(e.target.value)} inputProps={{ 'data-testid': 'attach-form-number' }} />
+          <TextField label="Form number" helperText="Leave blank to use the next number, e.g. FRM-VAL-001-1" value={n} onChange={(e) => setN(e.target.value)} inputProps={{ 'data-testid': 'attach-form-number' }} />
           {err && <Alert severity="error" data-testid="attach-form-error">{err}</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={busy || !n.trim()} onClick={() => void go()} data-testid="attach-form-go">Attach</Button>
+        <Button variant="contained" disabled={busy} onClick={() => void go()} data-testid="attach-form-go">Attach</Button>
       </DialogActions>
     </Dialog>
   );

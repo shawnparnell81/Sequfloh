@@ -486,6 +486,15 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     }
 
     /// <summary>Starts a filled copy of a blank form from its current version and returns the new file.</summary>
+    /// <summary>The blank form's number with the next count after it, e.g. FRM-VAL-001-1, then FRM-VAL-001-2.</summary>
+    public async Task<string> NextCopyNumberAsync(Guid blankId, CancellationToken ct)
+    {
+        var baseNo = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(b => b.Id == blankId).Select(b => b.Number).FirstAsync(ct);
+        var prefix = baseNo + "-";
+        var used = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(o => o.Number.StartsWith(prefix)).Select(o => o.Number).ToListAsync(ct);
+        var max = used.Select(u => int.TryParse(u[prefix.Length..], out var k) ? k : 0).DefaultIfEmpty(0).Max();
+        return prefix + (max + 1);
+    }
     public async Task<object> FillOutAsync(Guid id, string? number, string? title, CancellationToken ct, string? partNumber = null, Guid? familyId = null)
     {
         await CheckFamilyAsync(familyId, ct);

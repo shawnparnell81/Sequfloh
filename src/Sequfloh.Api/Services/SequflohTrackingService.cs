@@ -111,6 +111,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     {
         if (lockPrefix) await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtext({0}))", [prefix], ct);
         var taken = await db.SequflohTrackingRecords.IgnoreQueryFilters().AsNoTracking().Where(x => x.Number.StartsWith(prefix)).Select(x => x.Number).ToListAsync(ct);
+        // a form copy keeps its number after its work order is deleted, so those numbers are skipped too
+        taken.AddRange(await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(x => x.Number.StartsWith(prefix)).Select(x => x.Number).ToListAsync(ct));
         var max = taken.Select(n => n[prefix.Length..]).Where(s => s.Length > 0 && s.All(char.IsAsciiDigit)).Select(s => int.TryParse(s, out var v) ? v : 0).DefaultIfEmpty(0).Max();
         return $"{prefix}{max + 1:000}";
     }
