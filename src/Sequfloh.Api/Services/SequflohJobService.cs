@@ -82,7 +82,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     async Task<SequflohTrackingRecord> WorkableAsync(Guid id, CancellationToken ct)
     {
         var r = await tracking.LoadAsync(id, true, ct);
-        if (r.Status == TrackingStatus.Canceled) throw new ConflictException($"{r.Number} is canceled.");
+        SequflohTrackingService.RequireOpen(r);
         return r;
     }
 
@@ -305,7 +305,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     public async Task DeleteFileAsync(Guid fileId, CancellationToken ct)
     {
         var (x, r) = await FileAsync(fileId, true, ct);
-        if (r.Status == TrackingStatus.Canceled) throw new ConflictException($"{r.Number} is canceled.");
+        SequflohTrackingService.RequireOpen(r);
         db.SequflohTestFiles.Remove(x);
         await db.SaveChangesAsync(ct);
         await storage.DeleteAsync(x.StorageKey, ct);

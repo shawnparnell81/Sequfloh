@@ -37,11 +37,12 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
 
     public static string H(long seconds) => (seconds / 3600m).ToString("0.00", CultureInfo.InvariantCulture);
 
-    async Task<SequflohTrackingRecord> EditableAsync(Guid id, CancellationToken ct)
+    async Task<SequflohTrackingRecord> EditableAsync(Guid id, CancellationToken ct, bool clockingOff = false)
     {
         var r = await tracking.LoadAsync(id, false, ct);
         await m.RequireAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct);
-        if (r.Status == TrackingStatus.Canceled) throw new ConflictException($"{r.Number} is canceled.");
+        // a crew still clocked on when the work order closed can always be clocked off, so its time is kept
+        if (!clockingOff) SequflohTrackingService.RequireOpen(r);
         return r;
     }
 
@@ -116,9 +117,9 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         await db.SaveChangesAsync(ct);
     }
 
-    async Task<(SequflohTrackingRecord, SequflohCrewSession)> RunningAsync(Guid id, Guid? worker, CancellationToken ct)
+    async Task<(SequflohTrackingRecord, SequflohCrewSession)> RunningAsync(Guid id, Guid? worker, CancellationToken ct, bool clockingOff = false)
     {
-        var r = await EditableAsync(id, ct);
+        var r = await EditableAsync(id, ct, clockingOff);
         var s = await db.SequflohCrewSessions.FirstOrDefaultAsync(x => x.TrackingRecordId == id && x.WorkerId == worker && x.StoppedAt == null, ct) ?? throw new ConflictException(worker is null ? "The crew is not clocked on this job." : "This worker is not clocked on this job.");
         return (r, s);
     }
@@ -144,7 +145,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
 
     public async Task StopAsync(Guid id, CancellationToken ct, Guid? workerId = null)
     {
-        var (r, s) = await RunningAsync(id, workerId, ct);
+        var (r, s) = await RunningAsync(id, workerId, ct, clockingOff: true);
         var now = m.Now;
         if (s.PausedAt is { } p) { s.PausedSeconds += Math.Max(0, (long)(now - p).TotalSeconds); s.PausedAt = null; Add(s, "Continue", now); }
         s.StoppedAt = now; Add(s, "Stop", now);
@@ -338,7 +339,8 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         return new
         {
             ServerTime = now,
-            CanEdit = r.Status != TrackingStatus.Canceled && await m.CanAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct),
+            CanEdit = !SequflohTrackingService.IsClosed(r) && await m.CanAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct),
+            CanClockOff = await m.CanAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct),
             Running = running is null ? null : new { running.Id, running.CrewSize, running.StartedAt, running.PausedAt, Seconds = Worked(running, now), PausedSeconds = Paused(running, now) },
             t.CrewWorkedSeconds, t.CrewPausedSeconds, t.CrewLaborSeconds, t.UserSeconds, t.Users, t.TotalSeconds, t.Personnel, t.MaxCrew, t.From, t.To, t.DayWorkerSeconds,
             Workers = workers.Select(w =>

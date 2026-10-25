@@ -67,8 +67,53 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         new("fail", "Fail", [TrackingStatus.InProgress], TrackingStatus.Failed, Permissions.SequflohFailTask, true, "Failure"),
         new("reassign", "Reassign", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], null, Permissions.SequflohReassignTask, false, "Reassignment"),
         new("cancel", "Cancel", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], TrackingStatus.Canceled, Permissions.SequflohCancelTask, true, "Cancellation"),
+        new("reopen", "Reopen", [TrackingStatus.Completed], TrackingStatus.InProgress, Permissions.SequflohReopenCompleted, true, "Reopen"),
         new("override", "Administrative override", [.. Enum.GetValues<TrackingStatus>()], null, Permissions.SequflohManageSettings, true, "AdministrativeOverride"),
     ];
+
+    /// <summary>True when the work order is Completed or Canceled and nothing on it can be changed until it is reopened.</summary>
+    public static bool IsClosed(SequflohTrackingRecord r) => r.Status is TrackingStatus.Completed or TrackingStatus.Canceled;
+    public static void RequireOpen(SequflohTrackingRecord r)
+    {
+        if (IsClosed(r)) throw new ConflictException($"{r.Number} is {Words(r.Status)} and cannot be changed.");
+    }
+
+    /// <summary>A number code: letters and digits only, upper case, up to 10 characters; blank is null.</summary>
+    public static string? CleanCode(string? code)
+    {
+        var c = code?.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(c)) return null;
+        if (c.Length > 10 || !c.All(char.IsAsciiLetterOrDigit)) throw new AppException("A number code is up to 10 letters or digits.");
+        return c;
+    }
+
+    /// <summary>"WO-{type}-{family}{yy}-" when the type and the family both have a code, otherwise null.</summary>
+    public async Task<string?> NumberPrefixAsync(TrackingType type, Guid? familyId, Guid? partId, Guid siteId, CancellationToken ct)
+    {
+        var t = await f.GetSettingsAsync(ct);
+        var typeCode = CleanCodeOrNull(type switch
+        {
+            TrackingType.Validation or TrackingType.Fai => t.Tracking.ValidationNumberCode, TrackingType.Repair => t.Tracking.RepairNumberCode, TrackingType.Inspection => t.Tracking.InspectionNumberCode,
+            TrackingType.Warranty => t.Tracking.WarrantyNumberCode, TrackingType.SaltSpray => t.Tracking.SaltSprayNumberCode, _ => null,
+        });
+        if (typeCode is null) return null;
+        var fam = familyId ?? (partId is { } p ? await db.Parts.AsNoTracking().Where(x => x.Id == p).Select(x => x.TypeId).FirstOrDefaultAsync(ct) : null);
+        if (fam is null) return null;
+        var famCode = CleanCodeOrNull(await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == fam && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.NumberCode).FirstOrDefaultAsync(ct));
+        if (famCode is null) return null;
+        var year = TimeZoneInfo.ConvertTime(await DbNowAsync(ct), await m.ZoneAsync(siteId, ct)).Year % 100;
+        return $"WO-{typeCode}-{famCode}{year:00}-";
+    }
+    static string? CleanCodeOrNull(string? c) { try { return CleanCode(c); } catch (AppException) { return null; } }
+
+    /// <summary>The next number after the highest existing one with this prefix, counting per prefix from 001. Inside a transaction the prefix is locked until commit.</summary>
+    public async Task<string> NextNumberAsync(string prefix, bool lockPrefix, CancellationToken ct)
+    {
+        if (lockPrefix) await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtext({0}))", [prefix], ct);
+        var taken = await db.SequflohTrackingRecords.IgnoreQueryFilters().AsNoTracking().Where(x => x.Number.StartsWith(prefix)).Select(x => x.Number).ToListAsync(ct);
+        var max = taken.Select(n => n[prefix.Length..]).Where(s => s.Length > 0 && s.All(char.IsAsciiDigit)).Select(s => int.TryParse(s, out var v) ? v : 0).DefaultIfEmpty(0).Max();
+        return $"{prefix}{max + 1:000}";
+    }
 
     // ------------------------------------------------------------------ queries
     public async Task<IQueryable<SequflohTrackingRecord>> QueryAsync(CancellationToken ct) => await m.ScopeAsync(db.SequflohTrackingRecords.AsNoTracking(), Permissions.SequflohAccess, ct);
@@ -152,9 +197,16 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         var subType = T(r.InspectionSubType, 100);
         if (r.Type is TrackingType.Inspection or TrackingType.Warranty && subType is not null) await f.RequireOptionAsync(SequflohCatalog.InspectionSubTypes, subType, "Inspection sub-type", ct);
         if (r.Type == TrackingType.Repair && partId is null) throw new AppException("Choose the repairable part.");
-        var number = RecordNumbers.Clean(r.Number, 40, "work order number");
-        await RecordNumbers.EnsureFreeAsync(db.SequflohTrackingRecords.IgnoreQueryFilters().Select(o => o.Number), number, "A work order numbered", ct);
+        // a blank number takes the next automatic one when the type and the family both have a code; otherwise the number is typed as before
+        var prefix = string.IsNullOrWhiteSpace(r.Number) ? await NumberPrefixAsync(r.Type, r.FamilyId, partId, r.SiteId, ct) : null;
+        string number = "";
+        if (prefix is null)
+        {
+            number = RecordNumbers.Clean(r.Number, 40, "work order number");
+            await RecordNumbers.EnsureFreeAsync(db.SequflohTrackingRecords.IgnoreQueryFilters().Select(o => o.Number), number, "A work order numbered", ct);
+        }
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (prefix is not null) number = await NextNumberAsync(prefix, true, ct);
         me = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
         var now = await DbNowAsync(ct);
         var rec = new SequflohTrackingRecord
@@ -233,7 +285,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var rec = await LockAsync(id, ct);
         if (rec.Type is not (TrackingType.Inspection or TrackingType.Warranty)) throw new AppException("Inspection results are kept on inspection and warranty work orders.");
-        if (rec.Status == TrackingStatus.Canceled) throw new ConflictException($"{rec.Number} is canceled and cannot be changed.");
+        RequireOpen(rec);
         if (r.QtyGood is < 0 || r.QtyBad is < 0) throw new AppException("Quantities can't be negative.");
         var reason = T(r.QuarantineReason, 1000);
         if (r.Quarantine && reason is null) throw new AppException("Say why quarantine is required.");
@@ -251,6 +303,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     public async Task SetValidationFormAsync(Guid id, JsonObject info, CancellationToken ct)
     {
         var rec = await db.SequflohTrackingRecords.FirstAsync(x => x.Id == id, ct);
+        RequireOpen(rec);
         var d = JsonNode.Parse(rec.Details)!.AsObject();
         d["validationForm"] = info;
         rec.Details = d.ToJsonString();
@@ -534,6 +587,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
                 break;
             case "fail": rec.FailureReason = reason; if (rec.Type is TrackingType.Production or TrackingType.Inspection || rec.Result != "Fail") rec.Result = "Fail"; break;
             case "cancel": rec.CancelReason = reason; break;
+            case "reopen": rec.ActualCompletion = null; rec.CompletedById = null; break;
             case "override":
                 to = r.TargetStatus ?? throw new AppException("Choose the status to set.");
                 if (to == from) throw new AppException("The task already has that status.");

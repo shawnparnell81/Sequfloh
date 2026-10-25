@@ -116,7 +116,7 @@ export function ExecutionQueuePage() {
           <TextField size="small" type="date" label="Due from" value={v('from')} onChange={(e) => set('from', e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
           <TextField size="small" type="date" label="Due to" value={v('to')} onChange={(e) => set('to', e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
         </>} />
-      <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}`)}
+      <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} locked={(r) => r.status === 'Canceled'}
         empty={sp.toString() ? 'No tasks match these filters.' : cfg.empty} cols={cols} />
       {row.dialog}
     </SqfPage>
@@ -293,7 +293,7 @@ export function WorkHistoryPage() {
           { key: 'active', label: 'Active', render: (r) => <Mono>{fmtSeconds(r.activeSeconds)}</Mono> },
           { key: 'paused', label: 'Paused', render: (r) => <Mono>{fmtSeconds(r.pausedSeconds)}</Mono> },
         ]} />
-        : <PagedTable q={done} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}?tab=events`)}
+        : <PagedTable q={done} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}?tab=events`)} locked={(r) => r.status === 'Canceled'}
           empty={sp.toString() !== 'tab=completed' ? 'No completed executions match these filters.' : 'No completed executions yet.'} cols={[
             { key: 'number', label: 'Tracking number', sort: true, render: (r) => <Mono>{r.number}</Mono> },
             { key: 'type', label: 'Type', render: (r) => trackingTypes[r.type] ?? r.type },

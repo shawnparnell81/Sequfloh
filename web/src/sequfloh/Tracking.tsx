@@ -124,7 +124,7 @@ function TrackingFolder({ folder }: { folder: string }) {
           <TextField size="small" type="date" label="From" value={v('from')} onChange={(e) => set('from', e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
           <TextField size="small" type="date" label="To" value={v('to')} onChange={(e) => set('to', e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
         </>} />
-      <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}`)}
+      <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} locked={(r) => r.status === 'Canceled'}
         empty={sp.toString() ? 'No work orders match these filters.' : 'No work orders in this folder yet.'} cols={trackingCols(extra)} />
     </SqfPage>
   );
@@ -154,6 +154,16 @@ export function NewTrackingPage() {
   const [siteId, setSiteId] = useState(''); const [departmentId, setDepartmentId] = useState(''); const [assigned, setAssigned] = useState('');
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
+  // automatic number when the type and the product family both have a code; it stays editable
+  const famForNumber = type === 'Validation' ? familyId : '';
+  const next = useQuery({ queryKey: ['sqf-tr-next', type, famForNumber, part?.id, siteId], enabled: !!type && !!siteId,
+    queryFn: () => get<{ number: string | null }>(`${S}/tracking/next-number?${qs({ type, familyId: famForNumber || undefined, partId: famForNumber ? undefined : part?.id, siteId })}`) });
+  const [suggested, setSuggested] = useState('');
+  useEffect(() => {
+    const n = next.data?.number ?? '';
+    setF((cur) => (!cur.number || cur.number === suggested ? { ...cur, number: n } : cur));
+    setSuggested(n);
+  }, [next.data?.number]); // eslint-disable-line react-hooks/exhaustive-deps
   const wis = useQuery({ queryKey: ['sqf-tr-wi', type, wiText], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type, q: wiText })}`), enabled: !!type });
   const site = sites.data?.find((s) => s.id === siteId);
   const fld = (k: string, label: string, props: Record<string, unknown> = {}) => <TextField size="small" label={label} value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} {...props} />;
@@ -162,8 +172,9 @@ export function NewTrackingPage() {
     setBusy(true); setErr(null);
     try {
       if (!f.number?.trim()) throw new Error('Enter the number.');
+      const auto = !!suggested && f.number.trim() === suggested;
       if (isInsp && !f.subType) throw new Error('Choose the inspection sub-type.');
-      const r = await post<{ id: string }>(`${S}/tracking`, { number: f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' ? nul(familyId) : null,
+      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' ? nul(familyId) : null,
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
@@ -256,6 +267,8 @@ export function TrackingRecordPage() {
   if (q.error) return <SqfPage title="Work order" crumbs={trCrumbs('Not available')}><ErrorState error={q.error} retry={q.refetch} /></SqfPage>;
   if (!doc || !q.data) return null;
   const rec = q.data.record;
+  if (rec.status === 'Canceled') return <SqfPage title={`Work order ${rec.number}`} crumbs={trCrumbs(rec.number)}><Alert severity="info" data-testid="wo-canceled">This work order is canceled and can't be opened.</Alert></SqfPage>;
+  const closed = rec.status === 'Completed' || rec.status === 'Canceled';
   const upd = (patch: Partial<TrRecord>) => { setDoc({ ...doc, ...patch }); setDirty(true); };
   const refresh = async () => { setDirty(false); await qc.invalidateQueries({ queryKey: ['sqf-tr-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-tr'] }); };
   const save = async (quiet = false) => {
@@ -309,7 +322,7 @@ export function TrackingRecordPage() {
       {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
 
       {tab === 'record' && <Stack gap={2}>
-        <TimePanel recordId={rec.id} />
+        <TimePanel recordId={rec.id} closed={closed} />
         <CrewPanel recordId={rec.id} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
@@ -415,9 +428,9 @@ export function TrackingRecordPage() {
         </Paper>
       </Stack>}
 
-      {tab === 'job' && <JobPanel id={rec.id} canWork={rec.status !== 'Canceled'} />}
-      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} /><CrewPanel recordId={rec.id} /></Stack>}
-      {tab === 'findings' && <FindingsPanel id={rec.id} canWork={rec.status !== 'Canceled'} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
+      {tab === 'job' && <JobPanel id={rec.id} canWork={!closed} />}
+      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} closed={closed} /><CrewPanel recordId={rec.id} /></Stack>}
+      {tab === 'findings' && <FindingsPanel id={rec.id} canWork={!closed} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />
     </SqfPage>
@@ -433,7 +446,7 @@ function InspectionResults({ rec, onSaved }: { rec: TrRecord; onSaved: () => Pro
   const [v, setV] = useState(init);
   const [err, setErr] = useState<string | null>(null); const [ok, setOk] = useState(false); const [busy, setBusy] = useState(false);
   useEffect(() => setV(init()), [rec.stateVersion, rec.qtyGood, rec.qtyBad, rec.quarantine]); // eslint-disable-line react-hooks/exhaustive-deps
-  const locked = rec.status === 'Canceled';
+  const locked = rec.status === 'Canceled' || rec.status === 'Completed';
   const yn = (k: 'further' | 'quarantine', label: string, testid: string) => <TextField select size="small" label={label} value={v[k]} disabled={locked} onChange={(e) => setV({ ...v, [k]: e.target.value })} inputProps={{ 'data-testid': testid }}>
     {k === 'further' && <MenuItem value=""><em>Not recorded</em></MenuItem>}<MenuItem value="yes">Yes</MenuItem><MenuItem value="no">No</MenuItem></TextField>;
   const saveIt = async () => {

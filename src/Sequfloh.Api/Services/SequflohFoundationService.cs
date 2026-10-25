@@ -273,6 +273,19 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>The code a product family uses in automatic work order numbers. Blank clears it.</summary>
+    public async Task SetFamilyNumberCodeAsync(Guid id, string? code, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
+        var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == id && x.ListKey == SequflohCatalog.ProductFamilies, ct) ?? throw new NotFoundException("Product family");
+        var clean = SequflohTrackingService.CleanCode(code);
+        var before = v.NumberCode;
+        if (before == clean) return;
+        v.NumberCode = clean;
+        Audit("FamilyNumberCodeChanged", nameof(SequflohReferenceValue), v.Id, $"Work order number code of {v.Label} changed from {before ?? "none"} to {clean ?? "none"}");
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task SetActiveAsync(Guid id, bool active, CancellationToken ct)
     {
         await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);

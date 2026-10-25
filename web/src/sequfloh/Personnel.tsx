@@ -1,7 +1,7 @@
 import { setupOptions } from '../components/SetupLink';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, TextField, Typography, alpha, type Theme } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { get, put } from '../api';
 import { useAuth } from '../auth';
@@ -28,7 +28,7 @@ export function MiniList({ title, rows, empty, kind }: { title: string; rows?: M
     <Paper variant="outlined" sx={{ overflow: 'hidden' }} component="section" aria-label={title}>
       <PanelHead title={title} />
       {(rows ?? []).length === 0 ? <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.75 }}>{empty}</Typography> :
-        <List dense disablePadding>{rows!.map((r) => <ListItemButton key={r.id} component={RouterLink} to={kind === 'instruction' ? `/sequfloh/instruction/${r.id}` : `/sequfloh/record/${r.id}`}>
+        <List dense disablePadding>{rows!.map((r) => <ListItemButton key={r.id} {...(kind === 'record' && r.status === 'Canceled' ? { disableRipple: true, "data-canceled": true, sx: (t: Theme) => ({ cursor: 'default', bgcolor: alpha(t.palette.error.main, t.palette.mode === 'dark' ? 0.22 : 0.1), '&:hover': { bgcolor: alpha(t.palette.error.main, t.palette.mode === 'dark' ? 0.22 : 0.1) } }) } : { component: RouterLink, to: kind === 'instruction' ? `/sequfloh/instruction/${r.id}` : `/sequfloh/record/${r.id}` })}>
           <ListItemText primary={<Stack direction="row" gap={1} alignItems="center"><Mono>{r.number}{r.revision ? ` rev ${r.revision}` : ''}</Mono><SqfStatus status={r.status} /></Stack>}
             secondary={[typeLabel[r.type] ?? r.type, r.title ?? (r.workInstructionNumber ? `${r.workInstructionNumber} rev ${r.workInstructionRevision}` : ''), r.partNumber, fmtDateTime(r.releasedAt ?? r.updatedAt)].filter(Boolean).join(' · ')} />
         </ListItemButton>)}</List>}
@@ -116,7 +116,7 @@ export function EngineeringValidationPage() {
   return (
     <SqfPage title="Validation / FAI" crumbs={eCrumbs('Validation / FAI')} permission="sequfloh.view_engineering_folder" tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
       description="Validation activity and results from the validation work orders you can see.">
-      <PagedTable q={tr} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} empty="No validation records here." cols={[
+      <PagedTable q={tr} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} locked={(r) => r.status === 'Canceled'} empty="No validation records here." cols={[
         { key: 'number', label: 'Tracking number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'wi', label: 'Instruction / revision', render: (r) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
         { key: 'partNumber', label: 'Part', render: (r) => r.partNumber ?? '—' }, { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
         { key: 'result', label: 'Result', render: (r) => <SqfStatus status={r.result} /> },
