@@ -16,6 +16,7 @@ public sealed record SettingsDto(GeneralSettings General, NumberingSettings Numb
 public sealed record ReferenceValueInput(string Code, string Label, string? Description, bool IsActive = true, bool IsDefault = false, uint RowVersion = 0);
 public sealed record ReorderInput(List<Guid> Ids);
 public sealed record RoleAccessInput(List<string> Permissions, uint? RowVersion);
+public sealed record HomeSection(string Key, bool Visible);
 public sealed record UserItemInput(string Kind, string ItemType, Guid? RecordId, string Path, string Label);
 
 /// <summary>
@@ -408,6 +409,34 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
             var old = await db.SequflohUserItems.Where(i => i.UserId == uid && i.Kind == "recent").OrderByDescending(i => i.LastOpenedAt).Skip(50).ToListAsync(ct);
             if (old.Count > 0) { db.SequflohUserItems.RemoveRange(old); await db.SaveChangesAsync(ct); }
         }
+    }
+
+    // ------------------------------------------------------------------ the user's own Home layout
+    public static readonly string[] HomeSections = ["quick", "dashboard", "pinned", "recent"];
+
+    /// <summary>The user's saved Home sections in order, or null when the user keeps the default.</summary>
+    public async Task<List<HomeSection>?> HomeLayoutAsync(CancellationToken ct)
+    {
+        var uid = m.UserId;
+        var x = await db.SequflohHomeLayouts.AsNoTracking().FirstOrDefaultAsync(h => h.UserId == uid, ct);
+        return x is null ? null : System.Text.Json.JsonSerializer.Deserialize<List<HomeSection>>(x.Sections, System.Text.Json.JsonSerializerOptions.Web);
+    }
+
+    public async Task SaveHomeLayoutAsync(List<HomeSection> sections, CancellationToken ct)
+    {
+        if (sections.Count != HomeSections.Length || sections.Select(s => s.Key).Distinct().Count() != HomeSections.Length || sections.Any(s => !HomeSections.Contains(s.Key)))
+            throw new AppException("Every Home section must be listed once.");
+        var uid = m.UserId;
+        var x = await db.SequflohHomeLayouts.FirstOrDefaultAsync(h => h.UserId == uid, ct);
+        if (x is null) { x = new SequflohHomeLayout { UserId = uid }; db.SequflohHomeLayouts.Add(x); }
+        x.Sections = System.Text.Json.JsonSerializer.Serialize(sections, System.Text.Json.JsonSerializerOptions.Web);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task ResetHomeLayoutAsync(CancellationToken ct)
+    {
+        var uid = m.UserId;
+        await db.SequflohHomeLayouts.Where(h => h.UserId == uid).ExecuteDeleteAsync(ct);
     }
 
     public async Task RemoveFavoriteAsync(Guid id, CancellationToken ct)

@@ -30,6 +30,19 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     [HttpGet("parts/choices")]
     public object Choices() => new { PartChoices.Units, PartChoices.YesNo, PartChoices.LotControl };
 
+    [HttpGet("parts/import/layouts")]
+    public Task<List<ImportLayoutView>> ImportLayouts(CancellationToken ct) => import.LayoutsAsync(ct);
+
+    [HttpPost("parts/import/layouts")]
+    public Task<ImportLayoutView> SaveImportLayout(ImportLayoutInput r, CancellationToken ct) => import.SaveLayoutAsync(r, ct);
+
+    public sealed record LayoutRename(string Name);
+    [HttpPut("parts/import/layouts/{id:guid}/name")]
+    public Task<ImportLayoutView> RenameImportLayout(Guid id, LayoutRename r, CancellationToken ct) => import.RenameLayoutAsync(id, r.Name, ct);
+
+    [HttpDelete("parts/import/layouts/{id:guid}")]
+    public async Task<IActionResult> DeleteImportLayout(Guid id, CancellationToken ct) { await import.DeleteLayoutAsync(id, ct); return NoContent(); }
+
     [HttpPost("parts/import/preview")]
     public Task<PartsImportPlan> ImportPreview(PartsImportRequest r, CancellationToken ct) => import.PreviewAsync(r, ct);
 
