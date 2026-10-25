@@ -7,7 +7,7 @@ test.describe('workspace tabs', () => {
     await expect(tabs(page)).toHaveCount(1);
     await section(page, 'Parts and Items');
     await expect(view(page).getByTestId('section-menu')).toContainText('Part Master');
-    await section(page, 'Tracking');
+    await section(page, 'Work Orders');
     await section(page, 'Reports');
     await expect(tabs(page)).toHaveCount(4);
 

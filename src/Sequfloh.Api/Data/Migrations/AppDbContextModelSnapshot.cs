@@ -426,6 +426,9 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("jsonb")
                         .HasDefaultValueSql("'[]'::jsonb");
 
+                    b.Property<string>("Period")
+                        .HasColumnType("text");
+
                     b.Property<int?>("QtyBad")
                         .HasColumnType("integer");
 
@@ -2241,6 +2244,9 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsBlankForm")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsCompletedForm")
                         .HasColumnType("boolean");
 
                     b.Property<int>("Kind")

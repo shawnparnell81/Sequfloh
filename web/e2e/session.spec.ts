@@ -6,7 +6,7 @@ const shots = process.env.E2E_SESSION_SHOTS;
 test('closing the browser ends the session and signing in starts with Home only', async ({ page, browser }) => {
   await signIn(page);
   await section(page, 'Parts and Items');
-  await section(page, 'Tracking');
+  await section(page, 'Work Orders');
   await expect(tabs(page)).toHaveCount(3);
   if (shots) await settledShot(page, `${shots}/01-tabs-before-sign-out.png`);
 

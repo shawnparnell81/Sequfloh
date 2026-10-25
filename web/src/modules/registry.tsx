@@ -42,15 +42,14 @@ export const sequfloh: ModuleDef = {
         { label: 'Overdue Work', path: '/sequfloh/execution/overdue' },
         { label: 'Work History', path: '/sequfloh/execution/history' },
       ] },
-      { label: 'Tracking', path: '/sequfloh/tracking/validation', permission: 'sequfloh.view_live_execution', icon: <TimelineOutlined fontSize="small" />, match: ['/sequfloh/tracking', '/sequfloh/record/'], children: [
-        { label: 'Validation Tracking', path: '/sequfloh/tracking/validation' },
-        { label: 'FAI Tracking', path: '/sequfloh/tracking/fai' },
-        { label: 'Repair Tracking', path: '/sequfloh/tracking/repair' },
-        { label: 'Production Tracking', path: '/sequfloh/tracking/production' },
-        { label: 'Inspection Tracking', path: '/sequfloh/tracking/inspection' },
-        { label: 'Warranty Tracking', path: '/sequfloh/tracking/warranty' },
-        { label: 'Open Activities', path: '/sequfloh/tracking/open' },
-        { label: 'Completed Activities', path: '/sequfloh/tracking/completed' },
+      { label: 'Work Orders', path: '/sequfloh/tracking/open', permission: 'sequfloh.view_live_execution', icon: <TimelineOutlined fontSize="small" />, match: ['/sequfloh/tracking', '/sequfloh/record/'], children: [
+        { label: 'Open Work Orders', path: '/sequfloh/tracking/open' },
+        { label: 'Validation/FAI', path: '/sequfloh/tracking/validation-fai', match: ['/sequfloh/tracking/validation', '/sequfloh/tracking/fai'] },
+        { label: 'Repair', path: '/sequfloh/tracking/repair' },
+        { label: 'Inspection', path: '/sequfloh/tracking/inspection' },
+        { label: 'Warranty', path: '/sequfloh/tracking/warranty' },
+        { label: 'Production', path: '/sequfloh/tracking/production' },
+        { label: 'Completed Work Orders', path: '/sequfloh/tracking/completed' },
       ] },
       { label: 'Inspection Requests', path: '/sequfloh/inspection-requests', icon: <FactCheckOutlined fontSize="small" />, match: ['/sequfloh/inspection-request'] },
       { label: 'Work Instructions', path: '/sequfloh/instructions/all', icon: <DescriptionOutlined fontSize="small" />, match: ['/sequfloh/instructions', '/sequfloh/instruction/'], children: [

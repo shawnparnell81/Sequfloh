@@ -9,27 +9,29 @@ import { ApiError, api, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
-import { Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, S, SqfPage, qs, useUnsaved } from './common';
+import { Confirm, Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, S, SqfPage, qs, useUnsaved } from './common';
 import { PartDrawingLinks } from './Drawings';
 import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
 
 /** The file types Imported Files takes, the same for one file or a folder. */
 const IMPORT_TYPES = ['.xlsx', '.xlsm', '.xls', '.csv', '.docx', '.doc'];
+/** Completed forms also come as PDF; those are stored as uploaded and open in the PDF viewer. */
+const COMPLETED_TYPES = [...IMPORT_TYPES, '.pdf'];
 const A = '/api/imported-files';
 const GREEN = '#0E8550';
 const crumbs = (label: string, extra?: { label: string }) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Imported Files', to: '/sequfloh/imported-files' }, { label }, ...(extra ? [extra] : [])];
 
-interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; isBlankForm: boolean; blankForm?: string | null }
+interface FileRow { id: string; number: string; title: string; kind: 'spreadsheet' | 'document' | 'pdf'; sourceFormat: string; originalFileName: string; currentVersion: number; updatedAt: string; isBlankForm: boolean; blankForm?: string | null }
 interface Detail {
-  id: string; number: string; title: string; kind: 'spreadsheet' | 'document'; sourceFormat: string; originalFileName: string; currentVersion: number; createdAt: string; updatedAt: string; canEdit: boolean;
-  isBlankForm: boolean; partNumber?: string | null; familyId?: string | null; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
+  id: string; number: string; title: string; kind: 'spreadsheet' | 'document' | 'pdf'; sourceFormat: string; originalFileName: string; currentVersion: number; createdAt: string; updatedAt: string; canEdit: boolean;
+  isBlankForm: boolean; isCompletedForm?: boolean; partNumber?: string | null; familyId?: string | null; blankForm?: { id: string; number: string; title: string; version?: number | null } | null;
   copies?: { id: string; number: string; title: string; blankFormVersion?: number | null; createdAt: string; updatedAt: string }[] | null;
   summary: { formulaTotal?: number; formulaClasses?: Record<string, number>; warnings?: string[]; security?: string[]; sheets?: { name: string; charts: number; pivots: number }[]; paragraphs?: number; tables?: number; controls?: number };
   versions: { version: number; fileName: string; sizeBytes: number; note?: string; createdAt: string }[];
 }
 
-const kindLabel = (k: string) => (k === 'spreadsheet' ? 'Spreadsheet' : 'Word document');
+const kindLabel = (k: string) => (k === 'spreadsheet' ? 'Spreadsheet' : k === 'pdf' ? 'PDF' : 'Word document');
 const formatLabel = (f: string) => f.toUpperCase();
 const today = () => new Date().toLocaleDateString('en-CA');
 const listTitles: Record<string, string> = { spreadsheet: 'Spreadsheets', document: 'Word Documents', blank: 'Blank Forms', filled: 'Filled Forms' };
@@ -180,21 +182,25 @@ export function ImportedFilePage() {
     } catch (e) { setUpMsg({ kind: 'error', text: (e as Error).message }); } finally { setUpBusy(false); }
   };
   const protectedBlank = !!d?.isBlankForm && !editBlank;
+  const filled = !!d && (!!d.blankForm || !!d.isCompletedForm);
+  const pdf = d?.kind === 'pdf';
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const editable = !!d && d.canEdit && latest && !protectedBlank;
   return (
     <SqfPage title={d ? `${d.number} · ${d.title}` : 'Imported file'} crumbs={crumbs(d?.number ?? 'File')} permission="sequfloh.view_imported_files"
       recent={d ? { label: `${d.number} ${d.title}`, itemType: 'ImportedFile', recordId: d.id } : null}
-      tabs={[{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' },
+      tabs={pdf ? [{ label: 'PDF', value: 'file' }] : [{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' },
         ...(d?.isBlankForm ? [{ label: `Filled copies (${d.copies?.length ?? 0})`, value: 'copies' }] : [])]} tab={tab} onTab={setTab}
-      actions={d && <RecordActions surface="imported-file" print={{ onClick: () => window.print() }} edit={d.canEdit && !!d.blankForm && { onClick: () => setFamOpen(true) }}
-        importNode={d.canEdit && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
+      actions={d && <RecordActions surface={filled ? 'completed-form' : 'imported-file'} print={{ onClick: () => (pdf ? window.open(`${A}/${d.id}/download?view=true`, '_blank', 'noopener') : window.print()) }} edit={d.canEdit && filled && !pdf && { onClick: () => setFamOpen(true) }}
+        more={[d.canEdit && { label: 'Archive', testid: 'archive-file', onClick: () => setArchiveOpen(true) }]}
+        importNode={d.canEdit && !pdf && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
           <input hidden type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx,.doc" data-testid="upload-version-input" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadVersion(f); }} /></Button>}
-        del={{ what: `${d.number} ${d.title}`, url: `${A}/${d.id}`, to: '/sequfloh/imported-files',
+        del={{ what: `${d.number} ${d.title}`, url: `${A}/${d.id}`, to: filled ? `/sequfloh/completed-forms?family=${d.familyId ?? 'none'}` : '/sequfloh/imported-files',
           extra: d.isBlankForm ? "Blank forms with filled copies can't be deleted; delete the copies first or archive the form." : 'All versions and stored files are removed.' }}>
         {d.isBlankForm && d.canEdit && <Button variant="contained" onClick={() => { setFillError(null); setFillOpen(true); }} data-testid="fill-out">Fill out a copy</Button>}
         <Button startIcon={<DownloadOutlined />} onClick={(e) => setMenu(e.currentTarget)}>Download</Button>
         <Menu open={!!menu} anchorEl={menu} onClose={() => setMenu(null)}>
-          <MenuItem component="a" href={`${A}/${d.id}/download${latest ? '' : `?version=${shown}`}`} onClick={() => setMenu(null)}>{latest ? 'Current version' : `Version ${shown}`} ({d.kind === 'spreadsheet' ? 'Excel' : 'Word'})</MenuItem>
+          <MenuItem component="a" href={`${A}/${d.id}/download${latest ? '' : `?version=${shown}`}`} onClick={() => setMenu(null)}>{latest ? 'Current version' : `Version ${shown}`} ({d.kind === 'spreadsheet' ? 'Excel' : d.kind === 'pdf' ? 'PDF' : 'Word'})</MenuItem>
           <MenuItem component="a" href={`${A}/${d.id}/download?original=true`} onClick={() => setMenu(null)}>As uploaded ({d.originalFileName})</MenuItem>
         </Menu>
       </RecordActions>}>
@@ -211,14 +217,17 @@ export function ImportedFilePage() {
           {d.kind === 'spreadsheet' && (d.summary.formulaTotal ?? 0) > 0 && <Chip size="small" variant="outlined" sx={{ borderColor: GREEN, color: GREEN }} label={`${d.summary.formulaTotal} formulas`} />}
           {d.kind === 'document' && <Chip size="small" variant="outlined" label={`${d.summary.paragraphs ?? 0} paragraphs · ${d.summary.tables ?? 0} tables`} />}
         </Stack>
-        {d.blankForm && <FamilyDialog open={famOpen} file={d} onClose={() => setFamOpen(false)} onSaved={() => { setFamOpen(false); refresh(); }} />}
-        {!d.isBlankForm && (d.partNumber || d.canEdit) && <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}><CopyPartNumber d={d} onSaved={refresh} /></Paper>}
+        <Confirm open={archiveOpen} title={`Archive ${d.number} ${d.title}?`} confirm="Archive" text="It is hidden from the lists. The file and its versions are kept, and the archive is recorded in the audit trail."
+          onClose={() => setArchiveOpen(false)} onConfirm={async () => { await post(`${A}/${d.id}/archive`, {}); setArchiveOpen(false); qc.invalidateQueries({ queryKey: ['imported-completed'] }); nav(filled ? `/sequfloh/completed-forms?family=${d.familyId ?? 'none'}` : '/sequfloh/imported-files'); }} />
+        {filled && <FamilyDialog open={famOpen} file={d} onClose={() => setFamOpen(false)} onSaved={() => { setFamOpen(false); refresh(); }} />}
+        {!pdf && !d.isBlankForm && (d.partNumber || d.canEdit) && <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}><CopyPartNumber d={d} onSaved={refresh} /></Paper>}
         {upMsg && <Alert severity={upMsg.kind} sx={{ mb: 1 }} onClose={() => setUpMsg(null)}>{upMsg.text}</Alert>}
         {d.isBlankForm && tab === 'file' && <Alert severity={editBlank ? 'warning' : 'info'} sx={{ mb: 1 }}>{editBlank
           ? 'You are editing the blank form itself. Saved changes become a new version of the blank; filled copies made earlier stay as they are.'
           : 'This is a blank form, so it is protected. Use Fill out a copy to start a filled one; turn on Edit blank to change the blank itself.'}</Alert>}
         {[...(d.summary.security ?? []), ...(d.summary.warnings ?? [])].slice(0, 4).map((w) => <Alert key={w} severity="info" sx={{ mb: 1 }}>{w}</Alert>)}
-        {tab === 'file' && <FormView fileId={d.id}>{d.kind === 'spreadsheet'
+        {tab === 'file' && pdf && <Paper variant="outlined" sx={{ height: '75vh', display: 'flex' }}><Box component="iframe" title={d.title} src={`${A}/${d.id}/download?view=true`} sx={{ flex: 1, border: 0, width: '100%' }} data-testid="completed-pdf-frame" /></Paper>}
+        {tab === 'file' && !pdf && <FormView fileId={d.id}>{d.kind === 'spreadsheet'
           ? <SheetEditor key={d.id} file={d} version={shown} editable={editable} editBlank={editBlank} onSaved={refresh} />
           : <DocumentEditor key={d.id} file={d} version={shown} editable={editable} editBlank={editBlank} onSaved={refresh} />}</FormView>}
         {tab === 'copies' && (d.copies?.length ? <Paper variant="outlined" data-testid="copies">
@@ -642,9 +651,25 @@ export function CompletedFormsPage() {
   useEffect(() => setPage(1), [tab]);
   const q = useQuery({ queryKey: ['imported-completed', tab, page, size], enabled: !!fams.data,
     queryFn: () => get<Paged<CompletedRow>>(`${A}?${qs({ kind: 'filled', family: tab, page, pageSize: size })}`) });
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const famLabel = families.find((x) => x.id === tab)?.label;
+  const [unFam, setUnFam] = useState('');
+  const target = tab === 'none' ? unFam : tab;
+  const importNode = can('sequfloh.import_files') && fams.data && <ImportButtons surface="completed-forms" accept={COMPLETED_TYPES} maxBytes={20 * 1024 * 1024} what="completed form" variant="contained"
+    settings={<Stack gap={1}>{tab === 'none'
+      ? <FamilySelect value={unFam} onChange={setUnFam} helperText="Leave empty to save the forms as Unassigned." />
+      : <Typography variant="body2" data-testid="completed-import-family">Saved as completed forms in <b>{famLabel}</b>.</Typography>}</Stack>}
+    upload={async (file) => {
+      const fd = new FormData(); fd.append('file', file); fd.append('title', file.name.replace(/\.[^.]+$/, ''));
+      fd.append('blankForm', 'false'); fd.append('completedForm', 'true'); if (target) fd.append('familyId', target);
+      await api('POST', A, fd);
+    }}
+    onDone={() => qc.invalidateQueries({ queryKey: ['imported-completed'] })} />;
   return (
     <SqfPage title="Completed Validation/FAI" crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Completed Validation/FAI' }]} permission="sequfloh.view_imported_files"
-      description="Filled forms made from blank forms in Imported Files, one tab per product family. Change a form's family from Edit on the form.">
+      description="Completed forms, one tab per product family. Import file or Import folder on a tab saves the files straight into that family as completed forms. Change a form's family from Edit on the form."
+      actions={<RecordActions surface="completed-forms" print={{ onClick: () => window.print() }} importNode={importNode} />}>
       <Tabs value={fams.data ? tab : false} onChange={(_, v) => setSp({ family: v })} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile data-testid="completed-family-tabs" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
         {families.map((f) => <Tab key={f.id} value={f.id} label={f.label} />)}
         <Tab value="none" label="Unassigned" data-testid="completed-unassigned" />

@@ -38,6 +38,9 @@ test('standard record actions on every record page', async ({ page }) => {
     file: { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% made-up test drawing\n%%EOF\n') }, title: 'Test bracket', drawingNumber: `DWG-RA${stamp}`, revision: 'A' } }))).id as string;
   const file = (await ok(rq.post('/api/imported-files', { multipart: {
     file: { name: `actions-${stamp}.xlsx`, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: fs.readFileSync(path.resolve(process.env.E2E_XLSX!)) }, title: `Actions file ${stamp}` } }))).id as string;
+  const fam = (await (await rq.get('/api/sequfloh/validation-forms')).json()).families[0].id as string;
+  const done = (await ok(rq.post('/api/imported-files', { multipart: {
+    file: { name: `done-${stamp}.xlsx`, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: fs.readFileSync(path.resolve(process.env.E2E_XLSX!)) }, title: `Completed ${stamp}`, completedForm: 'true', familyId: fam } }))).id as string;
 
   const visits: Record<RecordSurface, string> = {
     'work-instruction': `/sequfloh/instruction/${draft}`,
@@ -47,6 +50,8 @@ test('standard record actions on every record page', async ({ page }) => {
     'drawing': `/sequfloh/drawings/d/${drawing}`,
     'drawing-folder': `/sequfloh/drawings?folder=${folder}`,
     'imported-file': `/sequfloh/imported-files/${file}`,
+    'completed-form': `/sequfloh/imported-files/${done}`,
+    'completed-forms': `/sequfloh/completed-forms?family=${fam}`,
     'inspection-request': `/sequfloh/inspection-request/${ir}`,
     'part': `/sequfloh/parts/${part}`,
     'parts-list': `/sequfloh/parts-lists/${list}`,

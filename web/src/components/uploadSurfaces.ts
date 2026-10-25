@@ -5,6 +5,7 @@
  */
 export const UPLOAD_SURFACES = {
   'imported-files': 'Imported Files (blank templates and forms)',
+  'completed-forms': 'Completed Validation/FAI (completed forms into the product family tab)',
   'parts-drawings': 'Drawings',
   'work-instructions': 'Work Instructions list',
   'work-instruction-files': 'Work instruction files',

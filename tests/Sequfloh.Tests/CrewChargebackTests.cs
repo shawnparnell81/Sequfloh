@@ -327,4 +327,101 @@ public sealed class CrewChargebackTests(TestApp app)
         Assert.Contains(audit, a => a.StartsWith("CrewStarted") && a.Contains("Made-up Pat clocked on"));
         Assert.Contains(audit, a => a.StartsWith("CrewTimeEdited") && a.Contains("Made-up Lee"));
     }
+
+    [Fact]
+    public async Task A_period_report_sums_recorded_time_counts_results_and_pauses_and_exports()
+    {
+        var (_, id, lead, plain, plainId) = await JobAsync();
+        async Task<int> Ver() => (await lead.GetElAsync($"{U}/{id}")).GetProperty("record").GetProperty("stateVersion").GetInt32();
+        await lead.PostOkAsync($"{U}/{id}/actions/start", new { operationId = Guid.NewGuid(), stateVersion = await Ver() });
+        await lead.PostOkAsync($"{U}/{id}/actions/pause", new { operationId = Guid.NewGuid(), stateVersion = await Ver(), reason = "Waiting for made-up parts" });
+        await lead.PostOkAsync($"{U}/{id}/actions/resume", new { operationId = Guid.NewGuid(), stateVersion = await Ver() });
+        var day = new DateTimeOffset(2001, 2, 14, 12, 0, 0, TimeSpan.Zero);
+        var tech = "Period Tech " + Guid.NewGuid().ToString("N")[..6];
+        var worker = "Day Worker " + Guid.NewGuid().ToString("N")[..6]; // a named day worker with no account
+        var late = "Late Tech " + Guid.NewGuid().ToString("N")[..6]; // time on this job, but a month after the period
+        var other = "Other Job Tech " + Guid.NewGuid().ToString("N")[..6]; // time in the period, but only on another job
+        var (_, otherId, _, _, _) = await JobAsync();
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var on = await db.SequflohTrackingRecords.Where(r => r.Id == otherId).Select(r => r.Number).SingleAsync();
+            db.SequflohTimeEntries.Add(new SequflohTimeEntry { TrackingRecordId = otherId, TrackingNumber = on, UserId = plainId, UserName = other, StartedAt = new DateTimeOffset(2001, 2, 14, 13, 0, 0, TimeSpan.Zero), Seconds = 1800 });
+            await db.SaveChangesAsync();
+        }
+        await lead.PostOkAsync($"{U}/{id}/crew/workers", new { name = worker });
+        var wid = (await lead.GetElAsync($"{U}/{id}/crew")).GetProperty("workers").EnumerateArray().First(w => w.Str("name") == worker).Id();
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var num = await db.SequflohTrackingRecords.Where(r => r.Id == id).Select(r => r.Number).SingleAsync();
+            db.SequflohTimeEntries.Add(new SequflohTimeEntry { TrackingRecordId = id, TrackingNumber = num, UserId = plainId, UserName = tech, StartedAt = day, StoppedAt = day.AddHours(3), Seconds = 3 * 3600 });
+            db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = id, CrewSize = 2, StartedAt = day, StoppedAt = day.AddHours(2) });
+            db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = id, CrewSize = 1, StartedAt = day, StoppedAt = day.AddHours(1.5), WorkerId = wid, WorkerName = worker });
+            db.SequflohTimeEntries.Add(new SequflohTimeEntry { TrackingRecordId = id, TrackingNumber = num, UserId = plainId, UserName = late, StartedAt = day.AddDays(34), StoppedAt = day.AddDays(34).AddHours(1), Seconds = 3600 });
+            await db.SaveChangesAsync();
+        }
+        var sections = new[] { "sumHours", "sumByType", "sumByPerson", "sumCounts", "sumQuality", "sumChargebacks", "sumPauses", "sumDetail", "sumCharts" };
+        var rep = await (await lead.PostOkAsync(C, new { sections, period = new { kind = "Week", from = "2001-02-14", type = "Production" } })).JsonAsync();
+        Assert.Equal("Week 2001-02-12 to 2001-02-18", rep.Str("workOrderNumber"));
+        Assert.Equal("Week", rep.GetProperty("period").GetProperty("kind").GetString());
+        var view = (await lead.GetElAsync($"{C}/{rep.Id()}/view")).EnumerateArray().ToList();
+        JsonElement B(string k) => view.Single(b => b.GetProperty("key").GetString() == k);
+        string F(string k, string label) => B(k).GetProperty("fields").EnumerateArray().Single(x => x.GetProperty("label").GetString() == label).GetProperty("value").GetString()!;
+        Assert.StartsWith("9.00", F("sumHours", "Total hours")); // 3 h signed-in + crew of 2 for 2 h + day worker 1.5 h, plus 0.5 h on the other job
+        Assert.Equal("4.00", F("sumHours", "Crew (labor hours = hours × crew size)"));
+        var people = B("sumByPerson").GetProperty("rows").EnumerateArray().Select(r => r[0].GetString()).ToList();
+        Assert.Contains(tech, people); Assert.Contains("Crew", people);
+        Assert.Contains(B("sumByType").GetProperty("rows").EnumerateArray(), r => r[0].GetString() == "Production" && r[2].GetString() == "9.00");
+        Assert.Contains(B("sumDetail").GetProperty("rows").EnumerateArray(), r => r[11].GetString() == "8.50");
+        Assert.Contains(B("sumCharts").GetProperty("rows").EnumerateArray(), r => r[1].GetString() == tech);
+        Assert.Equal("0", F("sumCounts", "Opened in the period")); // created today, timed in 2001
+        // a person filter keeps only that person's time
+        var one = await (await lead.PostOkAsync(C, new { sections, period = new { kind = "Day", from = "2001-02-14", person = tech } })).JsonAsync();
+        var v1 = (await lead.GetElAsync($"{C}/{one.Id()}/view")).EnumerateArray().ToList();
+        Assert.StartsWith("3.00", v1.Single(b => b.GetProperty("key").GetString() == "sumHours").GetProperty("fields")[0].GetProperty("value").GetString());
+        // the person list holds signed-in people and day workers with no account, sorted and once each; picking the day worker filters to their time
+        List<string> People(JsonElement e) => e.EnumerateArray().Select(x => x.GetString()!).ToList();
+        Assert.Empty(People(await lead.GetElAsync($"{C}/people"))); // nothing chosen yet
+        // a linked work order: only people with time on that job, at any date
+        var onJob = People(await lead.GetElAsync($"{C}/people?trackingRecordId={id}"));
+        Assert.Contains(tech, onJob); Assert.Contains(worker, onJob); Assert.Contains(late, onJob); Assert.DoesNotContain(other, onJob);
+        // a period: only people with time in it, narrowed by the other filters
+        var list = People(await lead.GetElAsync($"{C}/people?kind=Day&from=2001-02-14"));
+        Assert.Contains(tech, list); Assert.Contains(worker, list); Assert.Contains(other, list); Assert.DoesNotContain(late, list);
+        Assert.DoesNotContain(other, People(await lead.GetElAsync($"{C}/people?kind=Day&from=2001-02-14&trackingRecordId={id}")));
+        Assert.DoesNotContain(tech, People(await lead.GetElAsync($"{C}/people?kind=Day&from=2001-02-14&type=Repair")));
+        Assert.Contains(tech, People(await lead.GetElAsync($"{C}/people?kind=Day&from=2001-02-14&type=Production")));
+        Assert.DoesNotContain(tech, People(await lead.GetElAsync($"{C}/people?kind=Day&from=2001-02-14&familyId={Guid.NewGuid()}")));
+        // an optional site: narrows the person list and the report to that site's work orders; All sites does not
+        var siteA = (await lead.GetElAsync($"{U}/{id}")).GetProperty("record").GetProperty("siteId").GetGuid();
+        var atA = People(await lead.GetElAsync($"{C}/people?kind=Day&from=2001-02-14&siteId={siteA}"));
+        Assert.Contains(tech, atA); Assert.Contains(worker, atA); Assert.DoesNotContain(other, atA);
+        var siteRep = await (await lead.PostOkAsync(C, new { sections, period = new { kind = "Week", from = "2001-02-14", siteId = siteA } })).JsonAsync();
+        var vs = (await lead.GetElAsync($"{C}/{siteRep.Id()}/view")).EnumerateArray().ToList();
+        Assert.StartsWith("8.50", vs.Single(b => b.GetProperty("key").GetString() == "sumHours").GetProperty("fields")[0].GetProperty("value").GetString());
+        Assert.DoesNotContain(vs.Single(b => b.GetProperty("key").GetString() == "sumByPerson").GetProperty("rows").EnumerateArray(), r => r[0].GetString() == other);
+        Assert.Equal(siteA, siteRep.GetProperty("period").GetProperty("siteId").GetGuid());
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync(C, new { period = new { kind = "Day", from = "2001-02-14", siteId = Guid.NewGuid() } })).StatusCode);
+        Assert.Equal(list.Order(StringComparer.OrdinalIgnoreCase).ToList(), list);
+        Assert.Equal(list.Count, list.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        var dw = await (await lead.PostOkAsync(C, new { sections, period = new { kind = "Day", from = "2001-02-14", person = worker } })).JsonAsync();
+        var v3 = (await lead.GetElAsync($"{C}/{dw.Id()}/view")).EnumerateArray().ToList();
+        Assert.StartsWith("1.50", v3.Single(b => b.GetProperty("key").GetString() == "sumHours").GetProperty("fields")[0].GetProperty("value").GetString());
+        Assert.Equal([worker], v3.Single(b => b.GetProperty("key").GetString() == "sumByPerson").GetProperty("rows").EnumerateArray().Select(r => r[0].GetString()).Where(n => n != "Total").ToList());
+        // pauses with reasons in today's period
+        var now = await (await lead.PostOkAsync(C, new { sections = new[] { "sumPauses", "sumCounts" }, period = new { kind = "Custom", from = DateTime.UtcNow.AddDays(-1).ToString("yyyy-MM-dd"), to = DateTime.UtcNow.AddDays(1).ToString("yyyy-MM-dd") } })).JsonAsync();
+        var v2 = (await lead.GetElAsync($"{C}/{now.Id()}/view")).EnumerateArray().ToList();
+        Assert.Contains(v2.Single(b => b.GetProperty("key").GetString() == "sumPauses").GetProperty("rows").EnumerateArray(), r => r[1].GetString() == "Waiting for made-up parts");
+        // bad periods
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync(C, new { period = new { kind = "Custom", from = "2001-02-14", to = "2001-02-01" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync(C, new { period = new { kind = "Fortnight", from = "2001-02-14" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync(C, new { period = new { kind = "Day" } })).StatusCode);
+        var pdf = await lead.GetAsync($"{C}/{rep.Id()}/pdf");
+        Assert.True(pdf.IsSuccessStatusCode, await pdf.Content.ReadAsStringAsync());
+        var xlsx = await lead.GetAsync($"{C}/{rep.Id()}/xlsx");
+        Assert.True(xlsx.IsSuccessStatusCode);
+        var all = string.Join(" ", view.Select(b => b.GetRawText())).ToLowerInvariant();
+        Assert.DoesNotContain("pay", all.Replace("paused", "")); Assert.DoesNotContain("audit", all); Assert.DoesNotContain("compliance", all);
+    }
 }

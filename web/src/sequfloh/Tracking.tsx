@@ -29,7 +29,7 @@ const builderTypes: Record<string, string> = { Validation: 'Validation/FAI', Rep
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
 const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
-  [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Tracking', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
+  [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work Orders', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
 /** The one way to start a work order: the type is chosen inside the builder. */
 export function NewWorkOrderButton({ type, variant = 'contained' }: { type?: string; variant?: 'contained' | 'outlined' }) {
   const { can } = useAuth();
@@ -55,14 +55,15 @@ export interface TrRow { id: string; number: string; type: string; status: strin
   actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; assignees?: string[]; owner?: string; department?: string; site?: string; elapsedSeconds: number; statusTag?: string | null; statusNote?: string | null;
   pausedSeconds: number; holdSeconds: number; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number; varianceMinutes?: number; stateVersion: number }
 const folders: Record<string, { title: string; description: string; type?: string }> = {
-  validation: { title: 'Validation Tracking', type: 'Validation', description: 'Validation records executed against released Validation and Validation / FAI work instructions.' },
-  fai: { title: 'FAI Tracking', type: 'Fai', description: 'First article inspection records with characteristic results, verifications and final disposition.' },
-  repair: { title: 'Repair Tracking', type: 'Repair', description: 'Repair work orders: conditions, operations, material quantities, test results and final disposition.' },
-  production: { title: 'Production Tracking', type: 'Production', description: 'Production tasks with work order, operation, benchmark range and persisted timing.' },
-  inspection: { title: 'Inspection Tracking', type: 'Inspection', description: 'Inspection work orders: sub-type, what to inspect, and qty good, qty bad, further inspection and quarantine.' },
-  warranty: { title: 'Warranty Tracking', type: 'Warranty', description: 'Warranty work orders with the same fields and results as inspections.' },
-  open: { title: 'Open Activities', description: 'Every work order that is not completed, failed or canceled.' },
-  completed: { title: 'Completed Activities', description: 'Completed work orders.' },
+  'validation-fai': { title: 'Validation/FAI', type: 'Validation', description: 'Validation and FAI work orders together.' },
+  validation: { title: 'Validation', type: 'Validation', description: 'Validation records executed against released Validation and Validation / FAI work instructions.' },
+  fai: { title: 'FAI', type: 'Fai', description: 'First article inspection records with characteristic results, verifications and final disposition.' },
+  repair: { title: 'Repair', type: 'Repair', description: 'Repair work orders: conditions, operations, material quantities, test results and final disposition.' },
+  production: { title: 'Production', type: 'Production', description: 'Production tasks with work order, operation, benchmark range and persisted timing.' },
+  inspection: { title: 'Inspection', type: 'Inspection', description: 'Inspection work orders: sub-type, what to inspect, and qty good, qty bad, further inspection and quarantine.' },
+  warranty: { title: 'Warranty', type: 'Warranty', description: 'Warranty work orders with the same fields and results as inspections.' },
+  open: { title: 'Open Work Orders', description: 'Every work order that is not completed, failed or canceled.' },
+  completed: { title: 'Completed Work Orders', description: 'Completed work orders.' },
 };
 const Elapsed = ({ r }: { r: TrRow }) => <LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} />;
 export const trackingCols = (extra: { key: string; label: string; render?: (r: TrRow) => ReactNode; sort?: boolean }[] = []) => [
@@ -265,7 +266,7 @@ export function TrackingRecordPage() {
   };
   const enter = q.data.canEnter && !busy;
   const plan = q.data.canPlan && !busy;
-  const folder = { Validation: 'validation', Fai: 'fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty' }[rec.type] ?? 'open';
+  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
   const vf = (rec.details as unknown as { validationForm?: { family?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
