@@ -453,7 +453,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("JobReportPrinted", SequflohTrackingService.EntityType, rec.Id, $"Printed the job report for {x.Number}", rec.SiteId);
         await db.SaveChangesAsync(ct);
-        return (pdf, $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.Number)}.pdf");
+        return (pdf, $"Job Report RPT {Sequfloh.Imports.ImportedFileService.SafeFileName(x.Number)}.pdf");
     }
 
     /// <summary>Saves the job report PDF of the work order as it is now to the saved reports under Reports. Kept as saved; a later save adds a new one.</summary>

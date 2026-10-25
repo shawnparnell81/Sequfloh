@@ -60,18 +60,16 @@ function DateUserFilters({ v, set }: { v: (k: string) => string; set: (k: string
 /** One SEQUFLOH report: filters, server-paged table of the full filtered result, status counts and Excel export of everything that matches. */
 interface Saved { type: 'job' | 'chargeback'; id: string; trackingRecordId?: string | null; workOrderNumber?: string | null; trackingNumber?: string | null; detail?: string | null; createdAt: string; createdByName: string; url: string }
 
-/** Saved job reports (saved by hand or when a work order is completed) and saved chargeback reports, searched by work order number. */
+/** Saved job reports (saved by hand or when a work order is completed), searched by work order number. Chargeback reports have their own folder, Chargeback Reports. */
 function SavedReportsPage() {
-  const [text, setText] = useState(''); const [type, setType] = useState('');
+  const [text, setText] = useState(''); const type = 'job';
   const q = useQuery({ queryKey: ['sqf-saved-reports', text, type], queryFn: () => get<Saved[]>(`${S}/saved-reports?${qs({ q: text || undefined, type: type || undefined })}`) });
   const open = (r: Saved) => { window.open(r.url, '_blank', 'noopener'); };
-  return <SqfPage title="Saved Job and Chargeback Reports" crumbs={rCrumbs('Saved Job and Chargeback Reports')} permission="sequfloh.view_reports" description="Job reports and chargeback reports saved for each work order.">
+  return <SqfPage title="Job Reports" crumbs={rCrumbs('Job Reports')} permission="sequfloh.view_reports" description="Job reports saved for each work order, by hand or when the work order was completed.">
     <Stack direction="row" gap={1} sx={{ mb: 2 }} flexWrap="wrap">
       <TextField size="small" label="Work order #" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 260 }} inputProps={{ 'data-testid': 'saved-search' }} />
-      <TextField select size="small" label="Type" value={type} onChange={(e) => setType(e.target.value)} sx={{ minWidth: 200 }}>
-        <MenuItem value="">All</MenuItem><MenuItem value="job">Job report</MenuItem><MenuItem value="chargeback">Chargeback report</MenuItem></TextField>
     </Stack>
-    {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : !q.data?.length ? <Empty text="No saved reports found." /> :
+    {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : !q.data?.length ? <Empty text="No job reports found." /> :
       <Paper variant="outlined"><List dense data-testid="saved-reports">{q.data.map((r) => <ListItemButton key={r.type + r.id} onClick={() => open(r)}>
         <ListItemText primary={<><Mono>{r.workOrderNumber || r.trackingNumber || '—'}</Mono> · {r.type === 'job' ? 'Job report' : 'Chargeback report'}{r.detail ? ` · ${r.detail}` : ''}</>}
           secondary={`${fmtDateTime(r.createdAt)} · ${r.createdByName}`} />
@@ -82,7 +80,7 @@ function SavedReportsPage() {
 
 export function ReportPage() {
   const { slug = 'task-performance' } = useParams();
-  if (slug === 'saved') return <SavedReportsPage />;
+  if (slug === 'job-reports' || slug === 'saved') return <SavedReportsPage />;
   return <OneReportPage slug={slug} />;
 }
 

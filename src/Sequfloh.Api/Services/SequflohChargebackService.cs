@@ -410,7 +410,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("ChargebackReportPrinted", Entity, x.Id, $"Printed the chargeback report for work order {x.WorkOrderNumber}", x.SiteId);
         await db.SaveChangesAsync(ct);
-        return (pdf, $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.WorkOrderNumber)}.pdf");
+        return (pdf, $"Chargeback RPT {Sequfloh.Imports.ImportedFileService.SafeFileName(x.WorkOrderNumber)}.pdf");
     }
 
 
@@ -442,6 +442,6 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         using var ms = new MemoryStream(); wb.SaveAs(ms);
         f.Audit("ChargebackReportExported", Entity, x.Id, $"Exported the chargeback report for work order {x.WorkOrderNumber} to Excel", x.SiteId);
         await db.SaveChangesAsync(ct);
-        return (ms.ToArray(), $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.WorkOrderNumber)}.xlsx");
+        return (ms.ToArray(), $"Chargeback RPT {Sequfloh.Imports.ImportedFileService.SafeFileName(x.WorkOrderNumber)}.xlsx");
     }
 }
