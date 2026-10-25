@@ -64,4 +64,20 @@ public sealed class FixList7Tests(TestApp app)
         }
         finally { await admin.PutAsync(Setting, new { blankFormId = (Guid?)null }); }
     }
+
+    [Fact]
+    public async Task Clocked_create_time_is_saved_as_one_person_time_on_the_work_order()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync(Planner, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var started = DateTimeOffset.UtcNow.AddMinutes(-7);
+        var wo = await (await c.PostOkAsync(T, new { type = "Inspection", siteId = site, number = $"CT-{tag}", createClockStartedAt = started })).JsonAsync();
+        var json = await (await c.Http.GetAsync($"{T}/{wo.Id()}/crew")).Content.ReadAsStringAsync();
+        Assert.Contains("Creating the work order", json);
+        var none = await (await c.PostOkAsync(T, new { type = "Inspection", siteId = site, number = $"CT-{tag}-2" })).JsonAsync();
+        Assert.DoesNotContain("Creating the work order", await (await c.Http.GetAsync($"{T}/{none.Id()}/crew")).Content.ReadAsStringAsync());
+        var old = await c.PostAsync(T, new { type = "Inspection", siteId = site, number = $"CT-{tag}-3", createClockStartedAt = DateTimeOffset.UtcNow.AddHours(-30) });
+        Assert.Equal(HttpStatusCode.BadRequest, old.StatusCode);
+    }
 }
