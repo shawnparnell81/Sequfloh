@@ -11,6 +11,7 @@ test('a work order takes the number typed in, can be renumbered later, and a rep
   await signIn(page);
   const stamp = Date.now().toString(36);
   await page.goto('/sequfloh/tracking/new?type=Inspection');
+  await page.getByTestId('create-clock-no').click();
   await view(page).getByLabel('Site').click(); await page.getByRole('option').first().click();
   await view(page).getByLabel('Inspection sub-type').click(); await page.getByRole('option', { name: 'AQL' }).click();
   await view(page).getByTestId('new-wo-description').fill('Made-up housing check');
@@ -49,6 +50,7 @@ test('Salt Spray Test: its own Work Orders tab, New work order button and type i
   await shot(page, '03-salt-spray-tab');
   await view(page).getByTestId('new-work-order').click();
   await expect(page).toHaveURL(/type=SaltSpray/);
+  await page.getByTestId('create-clock-no').click();
   await view(page).getByLabel('Site').click(); await page.getByRole('option').first().click();
   const n = `SST-${Date.now()}`;
   await view(page).getByTestId('new-wo-number').fill(n);
@@ -101,6 +103,7 @@ test('one Validation / FAI and Repair / Rework in the menus; old links open the 
   await page.goto('/sequfloh/tracking/production');
   await expect(view(page).getByTestId('new-work-order')).toBeVisible(); // Production stays reachable
   await page.goto('/sequfloh/tracking/new');
+  await page.getByTestId('create-clock-no').click();
   await view(page).getByLabel('Work order type').click();
   await expect(page.getByRole('option')).toHaveText(['Validation / FAI', 'Repair / Rework', 'Inspection', 'Warranty', 'Salt Spray Test']);
   await shot(page, '09-new-work-order-type-list');

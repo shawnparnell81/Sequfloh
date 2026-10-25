@@ -14,7 +14,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null);
 public sealed record InspectionResultsInput(int? QtyGood, int? QtyBad, bool? FurtherInspection, bool Quarantine, string? QuarantineReason);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
@@ -247,6 +247,15 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, wi is null ? "Created without a work instruction" : $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
         f.Audit("TrackingRecordCreated", EntityType, rec.Id, wi is null ? $"{rec.Number} ({Label(r.Type)}) created without a work instruction" : $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
             context: new { trackingType = r.Type.ToString(), workInstruction = wi?.Number, revision = wi?.Revision, part = rec.PartNumber });
+        if (r.CreateClockStartedAt is { } clockFrom)
+        {
+            // the optional clock from the New work order screen: the time spent creating the order, saved as one person's time on it
+            var from = clockFrom > now ? now : clockFrom;
+            if (now - from > TimeSpan.FromHours(24)) throw new AppException("The creating clock ran for more than 24 hours. Create the work order without it and enter the time on the work order instead.");
+            db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = rec.Id, TrackingNumber = rec.Number, CrewSize = 1, StartedAt = from, StoppedAt = now,
+                Events = System.Text.Json.JsonSerializer.Serialize(new List<SequflohCrewService.CrewEvent> { new("Start", from), new("Stop", now) }, SequflohJson.Options), Note = "Creating the work order" });
+            f.Audit("CrewTimeCreating", EntityType, rec.Id, $"{rec.Number}: {Math.Round((now - from).TotalMinutes, 1)} min clocked for creating the work order, saved as time for 1 person", rec.SiteId);
+        }
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         await IndexAsync(rec, ct);

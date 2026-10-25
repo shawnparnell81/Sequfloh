@@ -142,6 +142,9 @@ export function NewTrackingPage() {
   const allowed = Object.keys(createPerm).filter((t) => can(createPerm[t]) && (t in builderTypes || t === asked));
   const [type, setType] = useState(asked && allowed.includes(asked) ? asked : allowed[0] ?? '');
   const [familyId, setFamilyId] = useState('');
+  // optional clock for the time spent creating the order; asked once when the screen opens
+  const [clockAsk, setClockAsk] = useState(true);
+  const [clockFrom, setClockFrom] = useState<string | null>(null);
   const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
   const forms = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`), enabled: type === 'Validation' });
   const famForm = forms.data?.families.find((x) => x.id === familyId);
@@ -178,7 +181,7 @@ export function NewTrackingPage() {
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
-        maxBenchmarkMinutes: numOrNull(f.max), reportedCondition: nul(f.reportedCondition) });
+        maxBenchmarkMinutes: numOrNull(f.max), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom });
       nav(`/sequfloh/record/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -187,6 +190,16 @@ export function NewTrackingPage() {
       description="Choose the type, then fill in the work order. A work instruction is optional: when you add one, its steps are copied onto the work order. The drawing for the exact part number is attached automatically.">
       <Paper variant="outlined" sx={{ p: 3, maxWidth: 980 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        {clockFrom && <Alert severity="info" sx={{ mb: 2 }} data-testid="create-clock-running" action={<Button color="inherit" size="small" onClick={() => setClockFrom(null)} data-testid="create-clock-stop">Don't clock</Button>}>
+          Clocking the time to create this work order since {new Date(clockFrom).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. It stops when you click Create and is saved as time on the work order.</Alert>}
+        <Dialog open={clockAsk} onClose={() => setClockAsk(false)} maxWidth="xs" fullWidth>
+          <FormDialogTitle>Clock the time to create this work order?</FormDialogTitle>
+          <DialogContent>The time from now until you click Create is saved as time on the work order for 1 person, so it counts toward the chargeback.</DialogContent>
+          <DialogActions>
+            <Button onClick={() => setClockAsk(false)} data-testid="create-clock-no">No</Button>
+            <Button variant="contained" onClick={() => { setClockFrom(new Date().toISOString()); setClockAsk(false); }} data-testid="create-clock-start">Start clock</Button>
+          </DialogActions>
+        </Dialog>
         <Grid cols={2}>
           <NumberField size="small" value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'new-wo-number', maxLength: 200 }} />
           <TextField select size="small" label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }} inputProps={{ 'data-testid': 'new-wo-type' }}>

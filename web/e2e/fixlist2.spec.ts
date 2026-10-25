@@ -59,6 +59,7 @@ test('validation forms by product, and the work order builder for each type', as
 
   // validation: family attaches a copy of the confirmed form
   await page.goto('/sequfloh/tracking/new?type=Validation');
+  await page.getByTestId('create-clock-no').click();
   await pick(page, 'Site', /./);
   await pick(page, 'Product family', fam);
   await expect(view(page).getByTestId('new-wo-form-note')).toContainText(title);
@@ -70,6 +71,7 @@ test('validation forms by product, and the work order builder for each type', as
 
   // repair: the test results block
   await page.goto('/sequfloh/tracking/new?type=Repair');
+  await page.getByTestId('create-clock-no').click();
   await pick(page, 'Site', /./);
   await view(page).getByLabel('Repairable part', { exact: true }).click();
   await view(page).getByLabel('Repairable part', { exact: true }).pressSequentially('3', { delay: 50 });
@@ -82,6 +84,7 @@ test('validation forms by product, and the work order builder for each type', as
   // inspection and warranty: sub-type, description, results block with quarantine reason
   for (const t of ['Inspection', 'Warranty']) {
     await page.goto(`/sequfloh/tracking/new?type=${t}`);
+    await page.getByTestId('create-clock-no').click();
     await pick(page, 'Site', /./);
     await pick(page, 'Inspection sub-type', 'AQL');
     await view(page).getByTestId('new-wo-description').fill(`Made-up ${t.toLowerCase()} check`);
@@ -115,6 +118,7 @@ test('part dropdowns list nothing until you type, then search every number and s
   expect(p, 'a part with a JH PN').toBeTruthy();
   const jh: string = JSON.parse(p!.attributes!).jhPn;
   await page.goto('/sequfloh/tracking/new?type=Inspection');
+  await page.getByTestId('create-clock-no').click();
   const box = view(page).getByLabel('Part', { exact: true });
   await box.click();
   await expect(page.getByTestId('part-option')).toHaveCount(0);
