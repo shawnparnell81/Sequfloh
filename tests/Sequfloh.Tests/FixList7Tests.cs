@@ -30,6 +30,8 @@ public sealed class FixList7Tests(TestApp app)
             Assert.True((await admin.PutAsync(Setting, new { blankFormId = blank })).IsSuccessStatusCode);
             var a = await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site, number = $"SS-{tag}-1" })).JsonAsync();
             Assert.True(a.GetProperty("validationForm").TryGetProperty("fileId", out _));
+            var first = a.GetProperty("validationForm").GetProperty("fileNumber").GetString()!;
+            Assert.EndsWith("-1", first);
             Assert.False((await c.GetElAsync($"{T}/{a.Id()}")).GetProperty("canAttachForm").GetBoolean());
 
             Assert.True((await admin.PutAsync(Setting, new { blankFormId = (Guid?)null })).IsSuccessStatusCode);
@@ -38,7 +40,7 @@ public sealed class FixList7Tests(TestApp app)
             Assert.True((await admin.PutAsync(Setting, new { blankFormId = blank })).IsSuccessStatusCode);
             Assert.True((await c.GetElAsync($"{T}/{b}")).GetProperty("canAttachForm").GetBoolean());
 
-            var dup = await c.PostAsync($"{T}/{b}/validation-form", new { number = $"SS-{tag}-1" });
+            var dup = await c.PostAsync($"{T}/{b}/validation-form", new { number = first });
             Assert.Equal(HttpStatusCode.BadRequest, dup.StatusCode);
             Assert.Contains("could not be started", await dup.Content.ReadAsStringAsync());
 
@@ -48,6 +50,10 @@ public sealed class FixList7Tests(TestApp app)
             Assert.False(rec.GetProperty("canAttachForm").GetBoolean());
             Assert.Equal($"SS-{tag}-2", rec.GetProperty("record").GetProperty("details").GetProperty("validationForm").GetProperty("fileNumber").GetString());
             Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsync($"{T}/{b}/validation-form", new { number = $"SS-{tag}-9" })).StatusCode);
+
+            var next = await c.PostAsync($"{T}/{cc}/validation-form", new { number = "" });
+            Assert.True(next.IsSuccessStatusCode, await next.Content.ReadAsStringAsync());
+            Assert.Equal(first[..^1] + "2", (await c.GetElAsync($"{T}/{cc}")).GetProperty("record").GetProperty("details").GetProperty("validationForm").GetProperty("fileNumber").GetString());
 
             var ver = (await c.GetElAsync($"{T}/{cc}")).GetProperty("record").GetProperty("stateVersion").GetInt32();
             var cancel = await c.PostAsync($"{T}/{cc}/actions/cancel", new { operationId = Guid.NewGuid(), stateVersion = ver, reason = "Made by mistake" });
