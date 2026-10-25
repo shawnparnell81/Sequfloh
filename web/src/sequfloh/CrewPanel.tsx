@@ -39,7 +39,7 @@ function Big({ label, value, testid, strong }: { label: string; value: string; t
 export function CrewPanel({ recordId }: { recordId: string }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['sqf-crew', recordId], queryFn: () => get<CrewSummary>(`${S}/tracking/${recordId}/crew`), refetchInterval: 30000 });
-  const [crew, setCrew] = useState('3');
+  const [crew, setCrew] = useState('1');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Session | 'new' | null>(null);
@@ -116,7 +116,7 @@ export function CrewPanel({ recordId }: { recordId: string }) {
 }
 
 function SessionDialog({ recordId, session, workerId, workerName, onClose, onSaved }: { recordId: string; session: Session | null; workerId?: string | null; workerName?: string | null; onClose: () => void; onSaved: () => void }) {
-  const [crew, setCrew] = useState(String(session?.crewSize ?? 3));
+  const [crew, setCrew] = useState(String(session?.crewSize ?? 1));
   const [start, setStart] = useState(toInput(session?.startedAt));
   const [stop, setStop] = useState(toInput(session?.stoppedAt));
   const [pauses, setPauses] = useState<{ from: string; to: string }[]>((session?.pauses ?? []).map((p) => ({ from: toInput(p.from), to: toInput(p.to) })));
@@ -156,7 +156,7 @@ function BulkDialog({ recordId, onClose, onSaved }: { recordId: string; onClose:
   const [from, setFrom] = useState(ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 14)));
   const [to, setTo] = useState(ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)));
   const [skip, setSkip] = useState(true);
-  const [crew, setCrew] = useState('3');
+  const [crew, setCrew] = useState('1');
   const [hours, setHours] = useState('8');
   const [startTime, setStartTime] = useState('07:00');
   const [lunch, setLunch] = useState('0');
