@@ -256,6 +256,7 @@ export function TrackingRecordPage() {
   if (q.error) return <SqfPage title="Work order" crumbs={trCrumbs('Not available')}><ErrorState error={q.error} retry={q.refetch} /></SqfPage>;
   if (!doc || !q.data) return null;
   const rec = q.data.record;
+  const closed = rec.status === 'Completed' || rec.status === 'Canceled';
   const upd = (patch: Partial<TrRecord>) => { setDoc({ ...doc, ...patch }); setDirty(true); };
   const refresh = async () => { setDirty(false); await qc.invalidateQueries({ queryKey: ['sqf-tr-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-tr'] }); };
   const save = async (quiet = false) => {
@@ -309,7 +310,7 @@ export function TrackingRecordPage() {
       {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
 
       {tab === 'record' && <Stack gap={2}>
-        <TimePanel recordId={rec.id} />
+        <TimePanel recordId={rec.id} closed={closed} />
         <CrewPanel recordId={rec.id} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
@@ -415,9 +416,9 @@ export function TrackingRecordPage() {
         </Paper>
       </Stack>}
 
-      {tab === 'job' && <JobPanel id={rec.id} canWork={rec.status !== 'Canceled'} />}
-      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} /><CrewPanel recordId={rec.id} /></Stack>}
-      {tab === 'findings' && <FindingsPanel id={rec.id} canWork={rec.status !== 'Canceled'} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
+      {tab === 'job' && <JobPanel id={rec.id} canWork={!closed} />}
+      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} closed={closed} /><CrewPanel recordId={rec.id} /></Stack>}
+      {tab === 'findings' && <FindingsPanel id={rec.id} canWork={!closed} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />
     </SqfPage>
@@ -433,7 +434,7 @@ function InspectionResults({ rec, onSaved }: { rec: TrRecord; onSaved: () => Pro
   const [v, setV] = useState(init);
   const [err, setErr] = useState<string | null>(null); const [ok, setOk] = useState(false); const [busy, setBusy] = useState(false);
   useEffect(() => setV(init()), [rec.stateVersion, rec.qtyGood, rec.qtyBad, rec.quarantine]); // eslint-disable-line react-hooks/exhaustive-deps
-  const locked = rec.status === 'Canceled';
+  const locked = rec.status === 'Canceled' || rec.status === 'Completed';
   const yn = (k: 'further' | 'quarantine', label: string, testid: string) => <TextField select size="small" label={label} value={v[k]} disabled={locked} onChange={(e) => setV({ ...v, [k]: e.target.value })} inputProps={{ 'data-testid': testid }}>
     {k === 'further' && <MenuItem value=""><em>Not recorded</em></MenuItem>}<MenuItem value="yes">Yes</MenuItem><MenuItem value="no">No</MenuItem></TextField>;
   const saveIt = async () => {

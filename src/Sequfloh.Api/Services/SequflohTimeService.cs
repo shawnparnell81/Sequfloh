@@ -24,6 +24,7 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
     public async Task StartAsync(Guid id, CancellationToken ct)
     {
         var rec = await RecordAsync(id, ct);
+        SequflohTrackingService.RequireOpen(rec);
         if (await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == id && e.UserId == UserId && e.StoppedAt == null, ct))
             throw new ConflictException("You are already clocked on this job.");
         var name = await db.Users.Where(u => u.Id == UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? me.UserName ?? "";
@@ -88,6 +89,7 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
 
     public async Task ResumeAsync(Guid id, CancellationToken ct)
     {
+        SequflohTrackingService.RequireOpen(await RecordAsync(id, ct));
         var e = await RunningAsync(id, ct) ?? throw new ConflictException("You are not clocked on this job.");
         if (e.PausedAt is not { } p) throw new ConflictException("This job is not paused.");
         var now = await NowAsync(ct);

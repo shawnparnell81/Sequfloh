@@ -48,7 +48,7 @@ export function AssigneesPanel({ recordId, people, canAssign }: { recordId: stri
 }
 
 /** Job time per person. Anyone signed in can clock on and off a job. Job time only, not a payroll clock. */
-export function TimePanel({ recordId }: { recordId: string }) {
+export function TimePanel({ recordId, closed = false }: { recordId: string; closed?: boolean }) {
   const qc = useQueryClient();
   const key = ['sqf-time', recordId];
   const q = useQuery({ queryKey: key, queryFn: () => get<TimeSummary>(`${S}/tracking/${recordId}/time`), refetchInterval: 30000 });
@@ -74,7 +74,7 @@ export function TimePanel({ recordId }: { recordId: string }) {
         <Typography variant="h3" data-testid="time-total" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(total)}</Typography>
         <Box sx={{ flex: 1 }} />
         {d && d.mineRunning && (d.minePaused
-          ? <Tooltip describeChild title={`Paused for ${(d.minePauseReason ?? 'a break').toLowerCase()}. Clock back on to keep logging time on this job.`}>
+          ? !closed && <Tooltip describeChild title={`Paused for ${(d.minePauseReason ?? 'a break').toLowerCase()}. Clock back on to keep logging time on this job.`}>
             <Button variant="contained" disabled={busy} data-testid="resume-timer" onClick={() => go('resume')}>Clock back on job</Button></Tooltip>
           : <>
             <Tooltip describeChild title="Pause your job time for a break. Paused time is not counted in man hours."><Button variant="outlined" disabled={busy} data-testid="pause-break" onClick={() => go('pause', 'Break')}>Pause job – Break</Button></Tooltip>
@@ -82,7 +82,7 @@ export function TimePanel({ recordId }: { recordId: string }) {
           </>)}
         {d && (d.mineRunning
           ? <Tooltip describeChild title="Stop logging your time on this job."><Button variant="contained" color="error" disabled={busy} data-testid="stop-timer" onClick={() => go('stop')}>Clock off job</Button></Tooltip>
-          : <Tooltip describeChild title="Start logging your time on this job. Job time only, not payroll."><Button variant="contained" color="success" disabled={busy} data-testid="start-timer" onClick={() => go('start')}>Clock on job</Button></Tooltip>)}
+          : !closed && <Tooltip describeChild title="Start logging your time on this job. Job time only, not payroll."><Button variant="contained" color="success" disabled={busy} data-testid="start-timer" onClick={() => go('start')}>Clock on job</Button></Tooltip>)}
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
       {d && (d.people.length === 0 ? <Typography variant="body2" color="text.secondary">No time logged yet. Anyone can clock on this job.</Typography> :

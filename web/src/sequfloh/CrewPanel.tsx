@@ -12,7 +12,7 @@ import { S } from './common';
 interface Pause { from: string; to: string }
 interface Session { id: string; crewSize: number; workerId?: string | null; workerName?: string | null; startedAt: string; stoppedAt?: string | null; entered: boolean; note?: string | null; elapsedSeconds: number; pausedSeconds: number; workedSeconds: number; laborSeconds: number; pauses: Pause[] }
 export interface CrewSummary {
-  serverTime: string; canEdit: boolean; running?: { id: string; crewSize: number; startedAt: string; pausedAt?: string | null; seconds: number; pausedSeconds: number } | null;
+  serverTime: string; canEdit: boolean; canClockOff?: boolean; running?: { id: string; crewSize: number; startedAt: string; pausedAt?: string | null; seconds: number; pausedSeconds: number } | null;
   crewWorkedSeconds: number; crewPausedSeconds: number; crewLaborSeconds: number; userSeconds: number; users: number; totalSeconds: number; personnel: number; maxCrew: number; sessions: Session[];
   dayWorkerSeconds?: number; workers?: Worker[];
 }
@@ -66,6 +66,7 @@ export function CrewPanel({ recordId }: { recordId: string }) {
         <Typography variant="h3">Crew time</Typography>
         <Tooltip title="Workers with no login, such as day labor. One start, pause and stop applies to the whole crew. Registered people still clock on and off with their own buttons."><Typography variant="body2" color="text.secondary">(no names needed)</Typography></Tooltip>
         <Box sx={{ flex: 1 }} />
+        {!d?.canEdit && d?.canClockOff && d.running && <Button variant="contained" color="error" disabled={busy} data-testid="crew-stop" onClick={() => go('stop')}>Stop crew</Button>}
         {d?.canEdit && (d.running
           ? <>
             <Typography variant="body2">Crew of {d.running.crewSize} {d.running.pausedAt ? `paused since ${fmtDateTime(d.running.pausedAt)}` : `on since ${fmtDateTime(d.running.startedAt)}`}</Typography>
@@ -234,6 +235,7 @@ function DayWorkers({ recordId, d, now, onEdit, onAddPast, onError, refresh }: {
             <TableCell><b>{w.name}</b></TableCell>
             <TableCell sx={{ whiteSpace: 'nowrap' }}>
               {w.running ? <Typography component="span" variant="body2" sx={{ mr: 1, fontVariantNumeric: 'tabular-nums' }} data-testid="day-worker-clock">{clock(runSec)}{w.running.pausedAt ? ' (paused)' : ''}</Typography> : null}
+              {!d.canEdit && d.canClockOff && w.running && <Button size="small" color="error" variant="contained" disabled={busy} data-testid="day-worker-stop" onClick={() => go(w, 'stop')}>Stop</Button>}
               {d.canEdit && (w.running
                 ? <>{w.running.pausedAt
                     ? <Button size="small" variant="contained" disabled={busy} data-testid="day-worker-continue" onClick={() => go(w, 'continue')}>Continue</Button>

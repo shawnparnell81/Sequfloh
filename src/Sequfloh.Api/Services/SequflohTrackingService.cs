@@ -67,8 +67,16 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         new("fail", "Fail", [TrackingStatus.InProgress], TrackingStatus.Failed, Permissions.SequflohFailTask, true, "Failure"),
         new("reassign", "Reassign", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], null, Permissions.SequflohReassignTask, false, "Reassignment"),
         new("cancel", "Cancel", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], TrackingStatus.Canceled, Permissions.SequflohCancelTask, true, "Cancellation"),
+        new("reopen", "Reopen", [TrackingStatus.Completed, TrackingStatus.Canceled], TrackingStatus.InProgress, Permissions.SequflohReopenCompleted, true, "Reopen"),
         new("override", "Administrative override", [.. Enum.GetValues<TrackingStatus>()], null, Permissions.SequflohManageSettings, true, "AdministrativeOverride"),
     ];
+
+    /// <summary>True when the work order is Completed or Canceled and nothing on it can be changed until it is reopened.</summary>
+    public static bool IsClosed(SequflohTrackingRecord r) => r.Status is TrackingStatus.Completed or TrackingStatus.Canceled;
+    public static void RequireOpen(SequflohTrackingRecord r)
+    {
+        if (IsClosed(r)) throw new ConflictException($"{r.Number} is {Words(r.Status)} and cannot be changed.");
+    }
 
     // ------------------------------------------------------------------ queries
     public async Task<IQueryable<SequflohTrackingRecord>> QueryAsync(CancellationToken ct) => await m.ScopeAsync(db.SequflohTrackingRecords.AsNoTracking(), Permissions.SequflohAccess, ct);
@@ -233,7 +241,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var rec = await LockAsync(id, ct);
         if (rec.Type is not (TrackingType.Inspection or TrackingType.Warranty)) throw new AppException("Inspection results are kept on inspection and warranty work orders.");
-        if (rec.Status == TrackingStatus.Canceled) throw new ConflictException($"{rec.Number} is canceled and cannot be changed.");
+        RequireOpen(rec);
         if (r.QtyGood is < 0 || r.QtyBad is < 0) throw new AppException("Quantities can't be negative.");
         var reason = T(r.QuarantineReason, 1000);
         if (r.Quarantine && reason is null) throw new AppException("Say why quarantine is required.");
@@ -251,6 +259,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     public async Task SetValidationFormAsync(Guid id, JsonObject info, CancellationToken ct)
     {
         var rec = await db.SequflohTrackingRecords.FirstAsync(x => x.Id == id, ct);
+        RequireOpen(rec);
         var d = JsonNode.Parse(rec.Details)!.AsObject();
         d["validationForm"] = info;
         rec.Details = d.ToJsonString();
@@ -534,6 +543,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
                 break;
             case "fail": rec.FailureReason = reason; if (rec.Type is TrackingType.Production or TrackingType.Inspection || rec.Result != "Fail") rec.Result = "Fail"; break;
             case "cancel": rec.CancelReason = reason; break;
+            case "reopen": rec.ActualCompletion = null; rec.CompletedById = null; break;
             case "override":
                 to = r.TargetStatus ?? throw new AppException("Choose the status to set.");
                 if (to == from) throw new AppException("The task already has that status.");

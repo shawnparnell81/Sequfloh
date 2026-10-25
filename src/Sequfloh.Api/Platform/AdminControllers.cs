@@ -283,6 +283,7 @@ public static class PermissionText
             "sequfloh.manage_drawings" => "Add drawings, revisions and drawing folders",
             "sequfloh.manage_crew_time" => "Clock crew time and add or change past crew time on work orders",
             "sequfloh.manage_chargebacks" => "Create and edit chargeback reports",
+            "sequfloh.reopen_completed" => "Reopen completed or canceled work orders",
             "sequfloh.delete_records" => "Delete records (instructions, work orders, parts, drawings, imported files)",
             _ => char.ToUpperInvariant(words[0]) + words[1..],
         };
