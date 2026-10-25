@@ -67,7 +67,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         new("fail", "Fail", [TrackingStatus.InProgress], TrackingStatus.Failed, Permissions.SequflohFailTask, true, "Failure"),
         new("reassign", "Reassign", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], null, Permissions.SequflohReassignTask, false, "Reassignment"),
         new("cancel", "Cancel", [TrackingStatus.NotStarted, TrackingStatus.Assigned, TrackingStatus.InProgress, TrackingStatus.Paused, TrackingStatus.OnHold], TrackingStatus.Canceled, Permissions.SequflohCancelTask, true, "Cancellation"),
-        new("reopen", "Reopen", [TrackingStatus.Completed, TrackingStatus.Canceled], TrackingStatus.InProgress, Permissions.SequflohReopenCompleted, true, "Reopen"),
+        new("reopen", "Reopen", [TrackingStatus.Completed], TrackingStatus.InProgress, Permissions.SequflohReopenCompleted, true, "Reopen"),
         new("override", "Administrative override", [.. Enum.GetValues<TrackingStatus>()], null, Permissions.SequflohManageSettings, true, "AdministrativeOverride"),
     ];
 

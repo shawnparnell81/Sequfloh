@@ -124,7 +124,7 @@ function TrackingFolder({ folder }: { folder: string }) {
           <TextField size="small" type="date" label="From" value={v('from')} onChange={(e) => set('from', e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
           <TextField size="small" type="date" label="To" value={v('to')} onChange={(e) => set('to', e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
         </>} />
-      <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}`)}
+      <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} locked={(r) => r.status === 'Canceled'}
         empty={sp.toString() ? 'No work orders match these filters.' : 'No work orders in this folder yet.'} cols={trackingCols(extra)} />
     </SqfPage>
   );
@@ -256,6 +256,7 @@ export function TrackingRecordPage() {
   if (q.error) return <SqfPage title="Work order" crumbs={trCrumbs('Not available')}><ErrorState error={q.error} retry={q.refetch} /></SqfPage>;
   if (!doc || !q.data) return null;
   const rec = q.data.record;
+  if (rec.status === 'Canceled') return <SqfPage title={`Work order ${rec.number}`} crumbs={trCrumbs(rec.number)}><Alert severity="info" data-testid="wo-canceled">This work order is canceled and can't be opened.</Alert></SqfPage>;
   const closed = rec.status === 'Completed' || rec.status === 'Canceled';
   const upd = (patch: Partial<TrRecord>) => { setDoc({ ...doc, ...patch }); setDirty(true); };
   const refresh = async () => { setDirty(false); await qc.invalidateQueries({ queryKey: ['sqf-tr-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-tr'] }); };

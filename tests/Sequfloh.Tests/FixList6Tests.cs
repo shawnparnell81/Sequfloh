@@ -60,4 +60,16 @@ public sealed class FixList6Tests(TestApp app)
         var hist = (await mgr.GetElAsync($"{T}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString() ?? "").ToList();
         Assert.Contains(hist, h => h.Contains("reopen"));
     }
+
+    [Fact]
+    public async Task A_canceled_work_order_can_not_be_reopened_or_changed()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync([.. Worker, Permissions.SequflohCancelTask, Permissions.SequflohReopenCompleted], site);
+        var id = (await (await c.PostOkAsync(T, new { type = "Inspection", siteId = site, inspectionSubType = "AQL" })).JsonAsync()).Id();
+        Assert.Equal(HttpStatusCode.OK, await Act(c, id, "cancel", "Made by mistake"));
+        Assert.DoesNotContain((await c.GetElAsync($"{T}/{id}")).GetProperty("actions").EnumerateArray(), a => a.GetProperty("action").GetString() == "reopen");
+        Assert.Equal(HttpStatusCode.Conflict, await Act(c, id, "reopen", "Try"));
+        Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsync($"{T}/{id}/job/quantity", new { completed = 1 })).StatusCode);
+    }
 }
