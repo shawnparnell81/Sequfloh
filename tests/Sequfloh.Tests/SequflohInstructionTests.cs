@@ -45,7 +45,7 @@ public sealed class SequflohInstructionTests(TestApp app)
         foreach (var (type, prefix) in prefixes)
         {
             var c = await PostEl(author, "/api/sequfloh/instructions", new { type, title = $"{type} instruction", siteId = site });
-            Assert.StartsWith(prefix, c.Str("number"));
+            Assert.StartsWith("T-", c.Str("number")); // never a generated prefix
         }
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsync("/api/sequfloh/instructions", new { type = "Fai", title = "x", siteId = site })).StatusCode);
         var repairFolder = await viewer.GetElAsync("/api/sequfloh/instructions?folder=repair&pageSize=100");

@@ -153,7 +153,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("WorkInstructionPrinted", SequflohInstructionService.EntityType, x.Id, $"Printed {x.Number} rev {x.Revision} ({Words(x.Status).ToLowerInvariant()})", x.SiteId);
         await db.SaveChangesAsync(ct);
-        return (pdf, $"{x.Number}-rev-{x.Revision}.pdf");
+        return (pdf, $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.Number)}.pdf");
     }
 
     static string W(object? s) => s is null ? "" : System.Text.RegularExpressions.Regex.Replace(s.ToString()!, "([a-z])([A-Z])", "$1 $2");
@@ -169,7 +169,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         var names = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         string? N(Guid? u) => u is { } g && names.TryGetValue(g, out var n) ? n : null;
         var site = await db.Sites.AsNoTracking().Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefaultAsync(ct);
-        var typeTitle = x.Type switch { TrackingType.Fai => "FAI Tracking Record", TrackingType.Repair => "Repair Tracking Record", TrackingType.Production => "Production Task", _ => "Validation Tracking Record" };
+        var typeTitle = x.Type switch { TrackingType.Fai => "Validation / FAI Tracking Record", TrackingType.SaltSpray => "Salt Spray Test Tracking Record", TrackingType.Inspection => "Inspection Tracking Record", TrackingType.Warranty => "Warranty Tracking Record", TrackingType.Repair => "Repair / Rework Tracking Record", TrackingType.Production => "Production Task", _ => "Validation / FAI Tracking Record" };
         var blocks = new List<PrintBlock>
         {
             new PrintHeading("Record"),
@@ -218,7 +218,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("TrackingRecordPrinted", SequflohTrackingService.EntityType, x.Id, $"Printed {x.Number} ({W(x.Status).ToLowerInvariant()})", x.SiteId);
         await db.SaveChangesAsync(ct);
-        return (pdf, $"{x.Number}.pdf");
+        return (pdf, $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.Number)}.pdf");
     }
 
     /// <summary>Printable audit record summary: the filtered audit events of one view (who, what, when, description), newest first.</summary>

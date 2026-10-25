@@ -20,19 +20,19 @@ test('standard record actions on every record page', async ({ page }) => {
   const rq = page.request;
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
 
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Actions instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Actions instruction ${stamp}`, siteId: site } }))).id as string;
   const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Check' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
-  const draft = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Actions draft ${stamp}`, siteId: site } }))).id as string;
+  const draft = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Actions draft ${stamp}`, siteId: site } }))).id as string;
   await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
-  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-RA${stamp}` } }))).id as string;
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-RA${stamp}` } }))).id as string;
   const cb = (await ok(rq.post('/api/sequfloh/chargebacks', { data: { workOrderNumber: `WO-RA${stamp}`, trackingRecordId: wo, supplier: 'Example Supplier Co' } }))).id as string;
-  const ir = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { siteId: site, partNumber: `RA-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
+  const ir = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, siteId: site, partNumber: `RA-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
   const part = (await ok(rq.post('/api/sequfloh/parts', { data: {
     part: { partNumber: `RA-${stamp}`, name: 'Test spacer', partType: 0, revision: 'A', unitOfMeasure: 'EA', siteId: site, status: 0, hasSpecialCharacteristics: false },
     execution: { productFamily: 'Test', isRepairable: false, isSerialized: false, isLotControlled: false } } }))).id as string;
-  const list = (await ok(rq.post('/api/sequfloh/parts-lists', { data: { title: `Actions list ${stamp}`, parentPartId: part, description: null, listType: 'Standard' } }))).id as string;
+  const list = (await ok(rq.post('/api/sequfloh/parts-lists', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, title: `Actions list ${stamp}`, parentPartId: part, description: null, listType: 'Standard' } }))).id as string;
   const folder = (await ok(rq.post('/api/drawings/folders', { data: { name: `Actions ${stamp}`, siteId: site } }))).id as string;
   const drawing = (await ok(rq.post(`/api/drawings/folders/${folder}/drawings`, { multipart: {
     file: { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% made-up test drawing\n%%EOF\n') }, title: 'Test bracket', drawingNumber: `DWG-RA${stamp}`, revision: 'A' } }))).id as string;
@@ -125,12 +125,12 @@ test('full screen on a record page, a form dialog and the drawing viewer', async
   await signIn(page);
   const rq = page.request;
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `FS instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `FS instruction ${stamp}`, siteId: site } }))).id as string;
   const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Check' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
   await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
-  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-FS${stamp}` } }))).id as string;
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-FS${stamp}` } }))).id as string;
   const cb = (await ok(rq.post('/api/sequfloh/chargebacks', { data: { workOrderNumber: `WO-FS${stamp}`, trackingRecordId: wo, supplier: 'Example Supplier Co' } }))).id as string;
   const folder = (await ok(rq.post('/api/drawings/folders', { data: { name: `FS ${stamp}`, siteId: site } }))).id as string;
   const drawing = (await ok(rq.post(`/api/drawings/folders/${folder}/drawings`, { multipart: {
@@ -221,7 +221,7 @@ test('full screen screenshots (window-filling fallback)', async ({ page }) => {
 });
 
 /**
- * Work orders without a work instruction, one-click drawings, not-applicable part fields, Completed Validation/FAI and named day workers. Made-up records only.
+ * Work orders without a work instruction, one-click drawings, not-applicable part fields, Completed Validation / FAI and named day workers. Made-up records only.
  */
 test('fix list: optional instruction, drawings, hidden part fields, completed forms and day workers', async ({ page }) => {
   test.setTimeout(180_000);
@@ -232,12 +232,12 @@ test('fix list: optional instruction, drawings, hidden part fields, completed fo
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
 
   // a work order made with no instruction; one is added and removed later from the record page
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Optional instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Optional instruction ${stamp}`, siteId: site } }))).id as string;
   const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Check' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
   await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
-  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', siteId: site, workOrder: `WO-FX${stamp}` } }))).id as string;
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', siteId: site, workOrder: `WO-FX${stamp}` } }))).id as string;
   await page.goto(`/sequfloh/record/${wo}`);
   const ref = view(page).getByTestId('wo-instruction').first();
   await expect(ref).toContainText('—');
@@ -302,13 +302,14 @@ test('fix list: optional instruction, drawings, hidden part fields, completed fo
   await view(page).getByTestId('show-hidden-fields').click();
   await expect(view(page).getByText('Made-up steel').first()).toBeVisible();
 
-  // Completed Validation/FAI: a filled copy is saved under a family, listed on that tab, and can be moved to Unassigned from Edit
+  // Completed Validation / FAI: a filled copy is saved under a family, listed on that tab, and can be moved to Unassigned from Edit
   const blank = (await ok(rq.post('/api/imported-files', { multipart: {
     file: { name: `fai-${stamp}.csv`, mimeType: 'text/csv', buffer: Buffer.from('Check,Result\nTorque,\n') }, siteId: site, blankForm: 'true' } }))).id as string;
   const fam = ((await ok(rq.get('/api/sequfloh/reference/product-families'))) as { id: string; label: string; isActive: boolean }[]).find((f) => f.isActive)!;
   await page.goto(`/sequfloh/imported-files/${blank}`);
   await view(page).getByTestId('fill-out').click();
   const cd = page.getByRole('dialog');
+  await cd.getByTestId('copy-number').fill(`FAI-COPY-${stamp}`);
   await cd.getByTestId('copy-title').fill(`FAI copy ${stamp}`);
   await cd.getByLabel('Product family').click();
   await page.getByRole('option', { name: fam.label, exact: true }).click();

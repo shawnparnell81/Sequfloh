@@ -3,7 +3,6 @@ using Sequfloh.Domain.Security;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record ReferenceListDef(string Key, string Label, string Description, string[] Seed, bool NoDefault = false);
-public sealed record NumberingDef(string RecordType, string Label, string Prefix);
 
 /// <summary>Seed content for SEQUFLOH: reference lists, numbering sequences and suggested permission sets. Every value stays editable.</summary>
 public static class SequflohCatalog
@@ -49,24 +48,6 @@ public static class SequflohCatalog
         new("lifecycle-actions", "Lifecycle actions", "Display labels of work instruction actions.", ["Release", "Create revision", "Mark obsolete"]),
         new("document-types", "Document types", "Kinds of referenced documents (drawings, specifications, procedures).", ["Drawing", "Specification", "Procedure", "Test standard", "Protocol", "Engineering document", "Change record"]),
         new("evidence-types", "Evidence types", "Kinds of evidence references.", ["Photo", "Measurement record", "Test report", "Certificate", "Data file"]),
-    ];
-
-    public static readonly NumberingDef[] Numbering =
-    [
-        new("SqfWorkInstruction", "Work instructions (Validation / FAI)", "WI-"),
-        new("SqfValidationInstruction", "Validation instructions", "VWI-"),
-        new("SqfFaiInstruction", "FAI instructions", "FWI-"),
-        new("SqfRepairTestInstruction", "Repair test instructions", "RTI-"),
-        new("SqfRepairWorkInstruction", "Repair work instructions", "RWI-"),
-        new("SqfInspectionInstruction", "Inspection instructions", "IWI-"),
-        new("SqfValidationRecord", "Validation records", "VAL-T-"),
-        new("SqfFaiRecord", "FAI records", "FAI-T-"),
-        new("SqfRepairRecord", "Repair records", "RPR-"),
-        new("SqfProductionTask", "Production tasks", "PT-"),
-        new("SqfPartsList", "Parts lists", "PL-"),
-        new("SqfOperationStep", "Reusable operation steps", "OP-"),
-        new("SqfImportedFile", "Imported files", "IMP-"),
-        new("SqfInspectionRequest", "Inspection requests", "IR-"),
     ];
 
     static string[] P(params string[] caps) => caps.Select(c => "sequfloh." + c).ToArray();

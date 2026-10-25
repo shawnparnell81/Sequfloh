@@ -7,7 +7,7 @@ import { useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Filters, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, qs, useOptions, words, type Col } from './common';
 import { OpenInspectionRequestsPanel } from './InspectionRequests';
-import { LiveClock, TaskActionDialog, newOpId, trackingStatuses, trackingTypes, type TrAction, type TrRow } from './Tracking';
+import { LiveClock, TaskActionDialog, newOpId, trackingStatuses, trackingTypeOptions, trackingTypes, type TrAction, type TrRow } from './Tracking';
 import { RecordDrawings } from './Drawings';
 import { ProblemList } from './Designer';
 
@@ -66,7 +66,7 @@ export function ExecutionQueuePage() {
   const statusOpts = { dispatch: ['NotStarted', 'Assigned'], paused: ['Paused'], completed: ['Completed', 'Failed', 'Canceled'] }[view] ?? trackingStatuses.filter((x) => !['Completed', 'Failed', 'Canceled'].includes(x));
   const filters: { key: string; label: string; options: [string, string][] }[] = [
     ...(statusOpts.length > 1 ? [{ key: 'status', label: 'Status', options: statusOpts.map((x) => [x, words(x)] as [string, string]) }] : []),
-    { key: 'type', label: 'Type', options: Object.entries(trackingTypes) as [string, string][] },
+    { key: 'type', label: 'Type', options: trackingTypeOptions },
     { key: 'priority', label: 'Priority', options: (priorities.data ?? []).map((p) => [p, p]) },
     ...(view === 'mine' ? [] : [{ key: 'assigned', label: 'Assigned user', options: userOpts }]),
     { key: 'department', label: 'Department', options: depts },
@@ -265,7 +265,7 @@ export function WorkHistoryPage() {
       sort: sort.startsWith('createdAt') ? '' : sort, page, pageSize: size })}`) });
   const filters: { key: string; label: string; options: [string, string][] }[] = [
     ...(tab === 'events' ? [{ key: 'eventType', label: 'Event', options: eventTypes.map((e) => [e, words(e)] as [string, string]) }] : []),
-    { key: 'type', label: 'Type', options: Object.entries(trackingTypes) as [string, string][] },
+    { key: 'type', label: 'Type', options: trackingTypeOptions },
     { key: 'user', label: tab === 'events' ? 'User' : 'Assigned user', options: (users.data ?? []).map((u) => [u.id, u.displayName]) },
     { key: 'site', label: 'Site', options: (sites.data ?? []).map((x) => [x.id, x.code]) },
   ];

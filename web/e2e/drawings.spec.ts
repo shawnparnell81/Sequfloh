@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { section, settledShot, signIn, view, choosePartType, choosePartName } from './support';
+import { section, settledShot, signIn, view, choosePartType, choosePartName, fresh } from './support';
 
 /** Made-up drawings, drawn on the fly: nothing here is a real part or a real drawing. */
 const svg = (title: string, rev: string) => `<html><body style="margin:0;background:#fff">
@@ -95,10 +95,11 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
 
   // no work order: fill out a blank form for the part and tick Open drawing
   await section(page, 'Imported Files');
-  await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
+  await page.getByTestId('imported-files-files-input').setInputFiles(fresh(path.resolve(process.env.E2E_CF_XLSX!)));
   await page.getByLabel('Title').fill(`Drawing check blank ${stamp}`);
   await page.getByTestId('bulk-import-start').click();
   await view(page).getByTestId('fill-out').click();
+  await page.getByTestId('copy-number').fill(`DWG-FILL-${Date.now()}`);
   await page.getByTestId('copy-part-number').fill('NOPE-0000');
   await expect(page.getByTestId('no-drawing')).toBeVisible();
   await page.getByTestId('copy-part-number').fill(part);
@@ -125,6 +126,7 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
   await page.getByRole('option', { name: new RegExp(part) }).click();
   await expect(view(page).getByTestId('new-record-drawings')).toContainText('attached to the work order');
   await shot('new-validation-record-part-drawings');
+  await view(page).getByTestId('new-wo-number').fill(`WO-DWG-${Date.now()}`);
   await view(page).getByRole('button', { name: 'Create work order' }).click();
   await expect(view(page).getByTestId('record-drawings')).toContainText('Rev B (attached)');
   await shot('work-order-drawings-attached');

@@ -26,9 +26,8 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     public static readonly SequflohReportInfo[] Catalog =
     [
         new("task-performance", "Task Performance", "Task counts by status with assigned users, parts, operations, planned and actual dates, benchmark ranges, elapsed time and variance.", true, false),
-        new("validation", "Validation Status", "Validation records with instruction revision, part, owner, dates, status, result and deviations.", true, false),
-        new("fai", "FAI Status", "FAI records with FAI type, status, characteristic completion and result.", true, false),
-        new("repair", "Repair Status", "Repair records with category, technician, status, result, test status and disposition.", true, false),
+        new("validation", "Validation / FAI Status", "Validation / FAI work orders with instruction revision, part, owner, dates, status, characteristic completion and deviations.", true, false),
+        new("repair", "Repair / Rework Status", "Repair / Rework records with category, technician, status, result, test status and disposition.", true, false),
         new("work-instructions", "Work Instruction Status", "Work instructions with type, revision, status, owner, who released it, effective date and last update.", true, false),
         new("user-activity", "User Activity", "Who did what in SEQUFLOH and when, with role, record reference and summary.", true, true),
         new("time-variance", "Time Variance", "Finished tasks with benchmark ranges, elapsed time, variance and the recorded reason.", true, false),
@@ -42,9 +41,9 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     static ReportColumn C(string key, string label, string type = "text") => new(key, label, type);
     static string Words(object? s) => s is null ? "" : Regex.Replace(s.ToString()!, "([a-z])([A-Z])", "$1 $2");
     static double? Minutes(long seconds) => Math.Round(seconds / 60.0, 1);
-    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation", [TrackingType.Fai] = "FAI", [TrackingType.Repair] = "Repair", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty" };
-    static readonly Dictionary<WorkInstructionType, string> WiLabel = new() { [WorkInstructionType.Validation] = "Validation", [WorkInstructionType.ValidationFai] = "Validation / FAI", [WorkInstructionType.Fai] = "FAI",
-        [WorkInstructionType.RepairTest] = "Repair Test", [WorkInstructionType.RepairWork] = "Repair Work Instruction", [WorkInstructionType.Inspection] = "Inspection", [WorkInstructionType.Procedure] = "Procedure Instructions" };
+    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation / FAI", [TrackingType.Fai] = "Validation / FAI", [TrackingType.Repair] = "Repair / Rework", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty", [TrackingType.SaltSpray] = "Salt Spray Test" };
+    static readonly Dictionary<WorkInstructionType, string> WiLabel = new() { [WorkInstructionType.Validation] = "Validation / FAI", [WorkInstructionType.ValidationFai] = "Validation / FAI", [WorkInstructionType.Fai] = "Validation / FAI",
+        [WorkInstructionType.RepairTest] = "Repair / Rework Test", [WorkInstructionType.RepairWork] = "Repair / Rework Work Instruction", [WorkInstructionType.Inspection] = "Inspection", [WorkInstructionType.Procedure] = "Procedure Instructions" };
 
     public async Task<IReadOnlyList<SequflohReportInfo>> AvailableAsync(CancellationToken ct)
     {
@@ -75,8 +74,10 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     async Task<List<SequflohTrackingRecord>> TrackingAsync(SequflohReportFilter p, TrackingType? type, int limit, CancellationToken ct)
     {
         var q = await tracking.QueryAsync(ct);
-        if (type is { } t) q = q.Where(x => x.Type == t);
-        else if (Enum.TryParse<TrackingType>(p.Type, true, out var pt)) q = q.Where(x => x.Type == pt);
+        // Validation and FAI are one type to the user: either filter returns both
+        if (type is { } t) q = t is TrackingType.Validation or TrackingType.Fai ? q.Where(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai) : q.Where(x => x.Type == t);
+        else if (Enum.TryParse<TrackingType>(p.Type, true, out var pt))
+            q = pt is TrackingType.Validation or TrackingType.Fai ? q.Where(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai) : q.Where(x => x.Type == pt);
         if (p.SiteId is { } s) q = q.Where(x => x.SiteId == s);
         if (Enum.TryParse<TrackingStatus>(p.Status, true, out var st)) q = q.Where(x => x.Status == st);
         if (p.UserId is { } u) q = q.Where(x => x.AssignedUserId == u || x.OwnerId == u || x.CompletedById == u);
@@ -131,8 +132,12 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
         return q;
     }
 
+    /// <summary>Validation and FAI are one report (Validation / FAI); the old FAI key opens it.</summary>
+    public static string Key(string key) => key == "fai" ? "validation" : key;
+
     public async Task<ReportResult> RunAsync(string key, SequflohReportFilter p, int limit, CancellationToken ct)
     {
+        key = Key(key);
         var info = (await AvailableAsync(ct)).FirstOrDefault(c => c.Key == key) ?? throw new NotFoundException("Report");
         var settings = await f.GetSettingsAsync(ct);
         var title = settings.Export.ReportTitles.TryGetValue(key, out var t) && !string.IsNullOrWhiteSpace(t) ? t : info.Title;
@@ -148,7 +153,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
         {
             case "task-performance" or "production" or "validation" or "fai" or "repair" or "time-variance":
             {
-                TrackingType? type = key switch { "production" => TrackingType.Production, "validation" => TrackingType.Validation, "fai" => TrackingType.Fai, "repair" => TrackingType.Repair, _ => null };
+                TrackingType? type = key switch { "production" => TrackingType.Production, "validation" => TrackingType.Validation, "fai" => TrackingType.Validation, "repair" => TrackingType.Repair, _ => null };
                 var recs = await TrackingAsync(p, type, limit, ct);
                 if (key == "time-variance") recs = recs.Where(r => r.ActualCompletion != null && (r.MinBenchmarkMinutes != null || r.MaxBenchmarkMinutes != null)).ToList();
                 var names = await NamesAsync(recs.SelectMany(r => new[] { r.AssignedUserId, r.OwnerId, r.CompletedById }), ct);
@@ -181,10 +186,8 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                         C("dueAt", "Due", "datetime"), C("actualStart", "Actual start", "datetime"), C("actualCompletion", "Actual completion", "datetime"), C("minBenchmark", "Minimum (min)", "number"),
                         C("maxBenchmark", "Maximum (min)", "number"), C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number")],
                     "validation" => [C("number", "Record"), C("instruction", "Instruction / revision"), C("part", "Part"), C("owner", "Owner"), C("plannedStart", "Planned", "datetime"), C("dueAt", "Due", "datetime"),
-                        C("status", "Status"), C("deviations", "Deviations")],
-                    "fai" => [C("number", "FAI number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("faiType", "FAI type"), C("status", "Status"),
-                        C("characteristics", "Characteristics complete")],
-                    "repair" => [C("number", "Repair number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("category", "Category"), C("technician", "Technician"), C("status", "Status"),
+                        C("status", "Status"), C("characteristics", "Characteristics complete"), C("deviations", "Deviations")],
+                    "repair" => [C("number", "Repair / Rework number"), C("instruction", "Instruction / revision"), C("part", "Part"), C("category", "Category"), C("technician", "Technician"), C("status", "Status"),
                         C("disposition", "Disposition")],
                     "time-variance" => [C("number", "Task"), C("type", "Type"), C("part", "Part"), C("operation", "Operation"), C("minBenchmark", "Minimum (min)", "number"), C("maxBenchmark", "Maximum (min)", "number"),
                         C("elapsedMinutes", "Elapsed (min)", "number"), C("varianceMinutes", "Variance (min)", "number"), C("varianceReason", "Reason")],
@@ -197,7 +200,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                 var q = await instructions.QueryAsync(ct);
                 if (p.SiteId is { } s) q = q.Where(x => x.SiteId == s);
                 if (Enum.TryParse<WorkInstructionStatus>(p.Status, true, out var st)) q = q.Where(x => x.Status == st);
-                if (Enum.TryParse<WorkInstructionType>(p.Type, true, out var ty)) q = q.Where(x => x.Type == ty);
+                if (Enum.TryParse<WorkInstructionType>(p.Type, true, out var ty)) q = ty is WorkInstructionType.Validation or WorkInstructionType.ValidationFai or WorkInstructionType.Fai ? q.Where(x => (x.Type == WorkInstructionType.Validation || x.Type == WorkInstructionType.ValidationFai || x.Type == WorkInstructionType.Fai)) : q.Where(x => x.Type == ty);
                 if (p.UserId is { } u) q = q.Where(x => x.OwnerId == u || x.AuthorId == u || x.ReleasedById == u);
                 if (!string.IsNullOrWhiteSpace(p.Q)) { var like = $"%{p.Q.Trim()}%"; q = q.Where(x => EF.Functions.ILike(x.Number + " " + x.Title + " " + (x.PartNumber ?? ""), like)); }
                 var (from, to) = await RangeAsync(p, ct);
@@ -289,6 +292,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     /// <summary>Workbook for a report: title block (report, organization, generated on and by, filters), then the full filtered table. Audited.</summary>
     public async Task<(byte[] Content, string FileName)> ExportAsync(string key, SequflohReportFilter p, IReadOnlyList<(string, string)> filterLabels, string? fileName, CancellationToken ct)
     {
+        key = Key(key);
         if (!await CanExportAsync(ct)) throw new ForbiddenException();
         var r = await RunAsync(key, p, ExportLimit, ct);
         var settings = await f.GetSettingsAsync(ct);

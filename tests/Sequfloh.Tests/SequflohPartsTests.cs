@@ -63,7 +63,7 @@ public sealed class SequflohPartsTests(TestApp app)
         var partId = (await PostEl(eng, "/api/sequfloh/parts", PartBody(pn, site))).Id();
         var l = await PostEl(eng, "/api/sequfloh/parts-lists", new { title = "Repair kit " + pn, parentPartId = partId, description = "kit", listType = "RepairKit" });
         var id = l.Id();
-        Assert.StartsWith("PL-", l.Str("number"));
+        Assert.StartsWith("T-", l.Str("number"));
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsync("/api/sequfloh/parts-lists", new { title = "x", listType = "Standard" })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await eng.PostAsync($"/api/sequfloh/parts-lists/{id}/items", new { partId = (Guid?)null, partNumber = "", quantity = 0, required = true, traceability = "None" })).StatusCode);
         await PostEl(eng, $"/api/sequfloh/parts-lists/{id}/items", new { partId, quantity = 2, unit = "EA", required = true, traceability = "Serial", notes = "seal" });
@@ -99,7 +99,7 @@ public sealed class SequflohPartsTests(TestApp app)
         Assert.Equal(HttpStatusCode.BadRequest, (await eng.PostAsync("/api/sequfloh/operation-steps", Step("Bad", 9, 2))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsync("/api/sequfloh/operation-steps", Step("No"))).StatusCode);
         var a = await PostEl(eng, "/api/sequfloh/operation-steps", Step("Torque cover " + tag));
-        Assert.StartsWith("OP-", a.Str("number"));
+        Assert.StartsWith("T-", a.Str("number"));
         var b = await PostEl(eng, $"/api/sequfloh/operation-steps/{a.Id()}/duplicate", new { });
         Assert.NotEqual(a.Str("number"), b.Str("number"));
         Assert.Equal(HttpStatusCode.NoContent, (await eng.PostAsync($"/api/sequfloh/operation-steps/{b.Id()}/deactivate", new { })).StatusCode);

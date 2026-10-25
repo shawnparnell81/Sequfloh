@@ -1,7 +1,7 @@
 import { setupOptions } from '../components/SetupLink';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useMemo, useState } from 'react';
-import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
@@ -17,7 +17,7 @@ import { Confirm, Empty, ErrorState, Loading, Mono, S, SqfPage, SqfStatus, useUn
 // ------------------------------------------------------------------ settings
 type FieldType = 'bool' | 'text' | 'multiline' | 'number' | 'csv' | 'lines' | 'site' | 'department' | 'select' | 'permissions';
 interface Field { key: string; label: string; type: FieldType; options?: string[]; helper?: string }
-const sections: Record<string, { title: string; description: string; fields: Field[]; lists?: string[] }> = {
+const sections: Record<string, { title: string; description: string; fields: (Field & { section?: string })[]; lists?: string[]; also?: string }> = {
   general: { title: 'General Settings', description: 'Module identity, landing page, paging, default site and department, recent items and favorites.', fields: [
     { key: 'moduleEnabled', label: 'Module enabled', type: 'bool', helper: 'When off, only SEQUFLOH settings administrators can open the module.' },
     { key: 'displayName', label: 'Module display name', type: 'text' }, { key: 'description', label: 'Module description', type: 'multiline' },
@@ -33,11 +33,10 @@ const sections: Record<string, { title: string; description: string; fields: Fie
     { key: 'defaultMinimumMinutes', label: 'Default minimum time (minutes)', type: 'number' }, { key: 'defaultMaximumMinutes', label: 'Default maximum time (minutes)', type: 'number' },
     { key: 'overdueThresholdHours', label: 'Overdue threshold (hours after due date)', type: 'number' }, { key: 'approachingDueHours', label: 'Approaching due date warning (hours)', type: 'number' },
     { key: 'varianceReasonRequired', label: 'Variance reason required outside the benchmark range', type: 'bool' }] },
-  validation: { title: 'Validation Settings', description: 'Evidence requirements for validation records.', lists: ['validation-types', 'validation-results', 'activity-statuses'], fields: [
-    { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' }] },
-  fai: { title: 'FAI Settings', description: 'Evidence requirements for FAI records.', lists: ['fai-types', 'inspection-results', 'characteristic-results'], fields: [
-    { key: 'evidenceRequiredForFailures', label: 'Evidence required for failed characteristics', type: 'bool' }] },
-  repair: { title: 'Repair Settings', description: 'Dropdowns used on repair work orders.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [] },
+  validation: { title: 'Validation / FAI Settings', description: 'Evidence requirements for Validation / FAI work orders.', also: 'fai', lists: ['validation-types', 'validation-results', 'activity-statuses', 'fai-types', 'inspection-results', 'characteristic-results'], fields: [
+    { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' },
+    { key: 'evidenceRequiredForFailures', label: 'Evidence required for failed characteristics', type: 'bool', section: 'fai' }] },
+  repair: { title: 'Repair / Rework Settings', description: 'Dropdowns used on Repair / Rework work orders.', lists: ['repair-types', 'repair-categories', 'repair-descriptions', 'repair-test-results', 'repair-failure-reasons', 'qualification-labels'], fields: [] },
   notifications: { title: 'Notification Settings', description: 'SEQUFLOH notifications sent through the in-app notification system.', fields: [
     { key: 'assignedWork', label: 'Assigned work', type: 'bool' }, { key: 'overdueWork', label: 'Overdue work', type: 'bool' }, { key: 'failedRecords', label: 'Failed records requiring attention', type: 'bool' },
     { key: 'releasedInstructions', label: 'Released instructions', type: 'bool' }, { key: 'supersededInstructions', label: 'Superseded instructions', type: 'bool' },
@@ -68,6 +67,7 @@ export const useSettings = () => useQuery({ queryKey: ['sqf-settings'], queryFn:
 
 export function SettingsPage() {
   const { section = 'general' } = useParams();
+  if (section === 'fai') return <Navigate to="/sequfloh/settings/validation" replace />;
   if (section === 'numbering') return <NumberingPage />;
   if (section === 'validation-forms') return <ValidationFormsPage />;
   return <SettingsSection key={section} section={section} />;
@@ -85,11 +85,22 @@ function SettingsSection({ section }: { section: string }) {
   const guard = useUnsaved(!!draft);
   const crumbs = [{ label: 'SEQUFLOH Settings' }, { label: def?.title ?? section }];
   if (!def) return <SqfPage title="Settings" crumbs={crumbs}><Alert severity="warning">Unknown settings area.</Alert></SqfPage>;
-  const current = (draft ?? (q.data?.[section] as Obj | undefined)) ?? null;
+  const stored = q.data?.[section] as Obj | undefined;
+  const current = (draft ?? (stored && def?.also ? { ...(q.data?.[def.also] as Obj), ...stored } : stored)) ?? null;
   const set = (k: string, v: unknown) => { setSaved(false); setDraft({ ...(current ?? {}), [k]: v }); };
   const save = async () => {
     setError(null);
-    try { await put(`${S}/settings/${section}`, { value: current, rowVersion: q.data?.rowVersion ?? 0 }); setDraft(null); setSaved(true); await qc.invalidateQueries({ queryKey: ['sqf-settings'] }); qc.invalidateQueries({ queryKey: ['sqf-context'] }); }
+    try {
+      if (def.also && current) {
+        // one page for two stored sections: each field is saved to the section it belongs to
+        const otherKeys = def.fields.filter((x) => x.section).map((x) => x.key);
+        const own = Object.fromEntries(Object.entries(current).filter(([k]) => !otherKeys.includes(k)));
+        const other = Object.fromEntries(Object.entries(current).filter(([k]) => otherKeys.includes(k)));
+        await put(`${S}/settings/${section}`, { value: own, rowVersion: q.data?.rowVersion ?? 0 });
+        const fresh = await get<Settings>(`${S}/settings`);
+        await put(`${S}/settings/${def.also}`, { value: { ...(fresh[def.also] as Obj), ...other }, rowVersion: fresh.rowVersion });
+      } else await put(`${S}/settings/${section}`, { value: current, rowVersion: q.data?.rowVersion ?? 0 });
+      setDraft(null); setSaved(true); await qc.invalidateQueries({ queryKey: ['sqf-settings'] }); qc.invalidateQueries({ queryKey: ['sqf-context'] }); }
     catch (e) { setError((e as Error).message); }
   };
   const siteId = current?.defaultSiteId as string | null;
@@ -153,53 +164,21 @@ function RoleSuggestions({ value, onChange }: { value: Suggestion[]; onChange: (
   );
 }
 
-interface Sequence { recordType: string; label: string; prefix: string; padding: number; pattern: string; nextValue: number; example: string }
 function NumberingPage() {
-  const q = useQuery({ queryKey: ['sqf-numbering'], queryFn: () => get<Sequence[]>(`${S}/numbering`) });
   const st = useSettings();
   const qc = useQueryClient();
-  const [edit, setEdit] = useState<Sequence | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fmt = ((st.data?.numbering as Obj | undefined)?.revisionFormat as string) ?? 'Letters';
   const saveFormat = async (v: string) => { setError(null); try { await put(`${S}/settings/numbering`, { value: { revisionFormat: v }, rowVersion: st.data?.rowVersion ?? 0 }); qc.invalidateQueries({ queryKey: ['sqf-settings'] }); } catch (e) { setError((e as Error).message); } };
   return (
-    <SqfPage title="Numbering Settings" description="Prefixes, sequence padding and numbering pattern of every SEQUFLOH record type (numbers are allocated atomically inside the saving transaction)."
-      crumbs={[{ label: 'SEQUFLOH Settings' }, { label: 'Numbering Settings' }]} permission="sequfloh.manage_settings">
+    <SqfPage title="Revision Settings" description="How revision letters or digits step up on work instructions and parts lists. Record numbers and file names are always your own: you type them on every form and can edit them later."
+      crumbs={[{ label: 'SEQUFLOH Settings' }, { label: 'Revision Settings' }]} permission="sequfloh.manage_settings">
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <Paper variant="outlined" sx={{ p: 2.5, mb: 2 }}>
         <TextField select label="Revision format" value={fmt} onChange={(e) => saveFormat(e.target.value)} sx={{ minWidth: 260 }} helperText="Applies to new work instructions and parts lists. Released revisions are never overwritten.">
           <MenuItem value="Letters">A, B, C</MenuItem><MenuItem value="TwoDigits">00, 01, 02</MenuItem></TextField>
       </Paper>
-      {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> :
-        <TableContainer component={Paper} variant="outlined"><Table size="small">
-          <TableHead><TableRow><TableCell>Record type</TableCell><TableCell>Prefix</TableCell><TableCell>Padding</TableCell><TableCell>Pattern</TableCell><TableCell>Next number</TableCell><TableCell /></TableRow></TableHead>
-          <TableBody>{(q.data ?? []).map((s) => <TableRow key={s.recordType}><TableCell>{s.label}</TableCell><TableCell><Mono>{s.prefix}</Mono></TableCell><TableCell>{s.padding}</TableCell>
-            <TableCell>{s.pattern}</TableCell><TableCell><Mono>{s.example}</Mono></TableCell><TableCell align="right"><Button size="small" onClick={() => setEdit(s)}>Edit</Button></TableCell></TableRow>)}</TableBody>
-        </Table></TableContainer>}
-      <SequenceDialog seq={edit} onClose={() => setEdit(null)} onSaved={() => qc.invalidateQueries({ queryKey: ['sqf-numbering'] })} />
     </SqfPage>
-  );
-}
-
-function SequenceDialog({ seq, onClose, onSaved }: { seq: Sequence | null; onClose: () => void; onSaved: () => void }) {
-  const [v, setV] = useState<Sequence | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setV(seq); setError(null); }, [seq]);
-  if (!v) return null;
-  return (
-    <Dialog open={!!seq} onClose={onClose} fullWidth maxWidth="xs">
-      <FormDialogTitle>{v.label}</FormDialogTitle>
-      <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
-        {error && <Alert severity="error">{error}</Alert>}
-        <TextField label="Prefix" value={v.prefix} onChange={(e) => setV({ ...v, prefix: e.target.value })} />
-        <TextField label="Sequence padding" type="number" value={v.padding} onChange={(e) => setV({ ...v, padding: Number(e.target.value) })} />
-        <TextField select label="Numbering pattern" value={v.pattern} onChange={(e) => setV({ ...v, pattern: e.target.value })}>
-          <MenuItem value="PREFIX-YEAR-SEQUENCE">PREFIX-YEAR-SEQUENCE</MenuItem><MenuItem value="PREFIX-SEQUENCE">PREFIX-SEQUENCE</MenuItem></TextField>
-      </Stack></DialogContent>
-      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={async () => {
-        try { await put(`${S}/numbering`, { recordType: v.recordType, prefix: v.prefix, padding: v.padding, pattern: v.pattern }); onSaved(); onClose(); } catch (e) { setError((e as Error).message); }
-      }}>Save</Button></DialogActions>
-    </Dialog>
   );
 }
 
@@ -402,7 +381,7 @@ export function ConfigurationPage() {
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
   return (
-    <SqfPage title="Application Configuration" description="Module registration, initialization status and the idempotent SEQUFLOH seed. Seeding adds only missing settings, numbering sequences and reference values; administrator changes are never overwritten."
+    <SqfPage title="Application Configuration" description="Module registration, initialization status and the idempotent SEQUFLOH seed. Seeding adds only missing settings and reference values; administrator changes are never overwritten."
       crumbs={[{ label: 'SEQUFLOH Administration' }, { label: 'Application Configuration' }]} permission="sequfloh.manage_settings"
       actions={<Button variant="contained" onClick={async () => { setError(null); try { const r = await post<{ added: number }>(`${S}/seed`); setResult(`${r.added} missing item(s) added.`); qc.invalidateQueries(); } catch (e) { setError((e as Error).message); } }}>Run SEQUFLOH seed</Button>}>
       {result && <Alert severity="success" sx={{ mb: 2 }}>{result}</Alert>}
@@ -454,7 +433,7 @@ function ValidationFormsPage() {
   const crumbs = [{ label: 'SEQUFLOH Settings' }, { label: 'Validation forms by product' }];
   return (
     <SqfPage title="Validation forms by product" crumbs={crumbs} permission="sequfloh.manage_settings"
-      description="Choose the blank form each product family uses for validation. A new Validation/FAI work order for the family gets a copy of the confirmed form to fill out. A suggestion is only used once you save it.">
+      description="Choose the blank form each product family uses for validation. A new Validation / FAI work order for the family gets a copy of the confirmed form to fill out. A suggestion is only used once you save it.">
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : q.data && <Stack gap={2}>
         {msg && <Alert severity={msg.sev} onClose={() => setMsg(null)}>{msg.text}</Alert>}
         {q.data.families.length === 0 ? <Alert severity="info">No product families yet. Add them under Dropdown Management, Product families.</Alert> :

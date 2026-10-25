@@ -26,9 +26,10 @@ internal static class SequflohTrackingQuery
         var overdueCutoff = now.AddHours(-(await f.GetSettingsAsync(ct)).Tracking.OverdueThresholdHours);
         query = (p.Folder ?? "all") switch
         {
-            "validation" => query.Where(x => x.Type == TrackingType.Validation),
+            "validation" => query.Where(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai),
+            "salt-spray" => query.Where(x => x.Type == TrackingType.SaltSpray),
             "validation-fai" => query.Where(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai),
-            "fai" => query.Where(x => x.Type == TrackingType.Fai),
+            "fai" => query.Where(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai),
             "repair" => query.Where(x => x.Type == TrackingType.Repair),
             "production" => query.Where(x => x.Type == TrackingType.Production),
             "inspection" => query.Where(x => x.Type == TrackingType.Inspection),
@@ -47,7 +48,7 @@ internal static class SequflohTrackingQuery
             _ => query
         };
         if (p.Status is not null) query = query.Where(x => x.Status == p.Status);
-        if (p.Type is not null) query = query.Where(x => x.Type == p.Type);
+        if (p.Type is { } pt) query = pt is TrackingType.Validation or TrackingType.Fai ? query.Where(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai) : query.Where(x => x.Type == pt);
         if (p.Owner is not null) query = query.Where(x => x.OwnerId == p.Owner);
         if (p.Assigned is not null) query = query.Where(x => x.AssignedUserId == p.Assigned || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == p.Assigned));
         if (p.Department is not null) query = query.Where(x => x.DepartmentId == p.Department);

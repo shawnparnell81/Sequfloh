@@ -129,7 +129,7 @@ public partial class AppDbContext
             foreach (var u in new[] { nameof(SequflohWorkInstruction.OwnerId), nameof(SequflohWorkInstruction.AuthorId), nameof(SequflohWorkInstruction.ReleasedById),
                          nameof(SequflohWorkInstruction.AssignedEngineerId) })
                 e.HasOne<ApplicationUser>().WithMany().HasForeignKey(u).OnDelete(DeleteBehavior.Restrict);
-            e.Property(x => x.Number).HasMaxLength(40);
+            e.Property(x => x.Number).HasMaxLength(200);
             e.Property(x => x.Title).HasMaxLength(300);
             e.Property(x => x.Revision).HasMaxLength(10);
             foreach (var p in new[] { nameof(SequflohWorkInstruction.PartNumber), nameof(SequflohWorkInstruction.ProductFamily), nameof(SequflohWorkInstruction.Assembly), nameof(SequflohWorkInstruction.Model),
@@ -195,7 +195,7 @@ public partial class AppDbContext
             foreach (var u in new[] { nameof(SequflohTrackingRecord.OwnerId), nameof(SequflohTrackingRecord.AssignedUserId), nameof(SequflohTrackingRecord.ActiveOperatorId), nameof(SequflohTrackingRecord.CompletedById) })
                 e.HasOne<ApplicationUser>().WithMany().HasForeignKey(u).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.Number).HasMaxLength(40);
-            e.Property(x => x.WorkInstructionNumber).HasMaxLength(40);
+            e.Property(x => x.WorkInstructionNumber).HasMaxLength(200);
             e.Property(x => x.WorkInstructionRevision).HasMaxLength(10);
             e.Property(x => x.WorkInstructionTitle).HasMaxLength(300);
             foreach (var p in new[] { nameof(SequflohTrackingRecord.PartNumber), nameof(SequflohTrackingRecord.SerialNumber), nameof(SequflohTrackingRecord.LotNumber), nameof(SequflohTrackingRecord.WorkOrder),

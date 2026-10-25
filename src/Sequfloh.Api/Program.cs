@@ -63,7 +63,7 @@ builder.Services.AddScoped<AuditInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, o) => o.UseNpgsql(ConnectionStrings.Normalize(connection), n => n.MigrationsHistoryTable("__ef_migrations", AppDbContext.Schema))
     .AddInterceptors(sp.GetRequiredService<AuditInterceptor>()));
 builder.Services.AddScoped<IAccessService, AccessService>();
-builder.Services.AddScoped<INumberingService, NumberingService>();
+builder.Services.AddScoped<RecordNumberService>();
 builder.Services.AddScoped<INotifier, Notifier>();
 builder.Services.AddScoped<ModuleSupport>();
 builder.Services.AddScoped<MasterDataService>();

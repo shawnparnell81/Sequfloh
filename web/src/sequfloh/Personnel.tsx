@@ -10,7 +10,7 @@ import { fmtDate, fmtDateTime } from '../components/Status';
 import { ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, nul, qs } from './common';
 import { InstructionsFolderPage } from './Instructions';
 
-const typeLabel: Record<string, string> = { Validation: 'Validation', Fai: 'FAI', Repair: 'Repair', Production: 'Production', Inspection: 'Inspection', ValidationFai: 'Validation / FAI', RepairTest: 'Repair Work Instruction', RepairWork: 'Repair Work Instruction' };
+const typeLabel: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', ValidationFai: 'Validation / FAI', RepairTest: 'Repair / Rework Work Instruction', RepairWork: 'Repair / Rework Work Instruction' };
 const qCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Quality Personnel', to: '/sequfloh/quality' }, { label }];
 const eCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Engineering Personnel', to: '/sequfloh/engineering' }, { label }];
 
@@ -63,7 +63,7 @@ export function QualityDashboardPage() {
   );
 }
 export const QualityValidationPage = () => <InstructionsFolderPage fixedFolder="validation" crumbsOverride={qCrumbs('Validation Work Instructions')} permission="sequfloh.view_quality_folder" />;
-export const QualityRepairPage = () => <InstructionsFolderPage fixedFolder="repair" crumbsOverride={qCrumbs('Repair Work Instructions')} permission="sequfloh.view_quality_folder" />;
+export const QualityRepairPage = () => <InstructionsFolderPage fixedFolder="repair" crumbsOverride={qCrumbs('Repair / Rework Work Instructions')} permission="sequfloh.view_quality_folder" />;
 
 // ------------------------------------------------------------------ engineering
 interface EDash { inDevelopment: number; draftValidation: number; draftRepair: number; openValidationActivities: number; failedValidations: number;
@@ -109,12 +109,12 @@ export function EngineeringValidationPage() {
     { label: 'Released validation instructions', value: 'released' }, { label: 'Revision history', value: 'revisions' }];
   if (tab === 'instructions' || tab === 'plans' || tab === 'released') {
     return <InstructionsFolderPage key={tab} fixedFolder={tab === 'released' ? 'released' : tab === 'plans' ? 'draft' : 'validation'} tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
-      crumbsOverride={eCrumbs('Validation')} titleOverride="Validation" permission="sequfloh.view_engineering_folder"
+      crumbsOverride={eCrumbs('Validation / FAI')} titleOverride="Validation / FAI" permission="sequfloh.view_engineering_folder"
       descriptionOverride={tab === 'plans' ? 'Validation plans being developed: draft instructions.' : tab === 'released' ? 'Released instructions available for validation execution.' : 'Validation and Validation / FAI work instructions.'} />;
   }
   if (tab === 'revisions') return <Navigate to="/sequfloh/revision-history" replace />;
   return (
-    <SqfPage title="Validation" crumbs={eCrumbs('Validation')} permission="sequfloh.view_engineering_folder" tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
+    <SqfPage title="Validation / FAI" crumbs={eCrumbs('Validation / FAI')} permission="sequfloh.view_engineering_folder" tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
       description="Validation activity and results from the validation work orders you can see.">
       <PagedTable q={tr} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/record/${r.id}`)} empty="No validation records here." cols={[
         { key: 'number', label: 'Tracking number', render: (r) => <Mono>{r.number}</Mono> }, { key: 'wi', label: 'Instruction / revision', render: (r) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
@@ -141,7 +141,7 @@ export function DevelopmentPage() {
       description="Draft work instructions in development, with the assigned engineer, target date, project and development status."
       actions={can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to="/sequfloh/instructions/new">New work instruction</Button>}>
       <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ type: v('type') }} onChange={set} onClear={() => { setSp({}); setPage(1); }}
-        filters={[{ key: 'type', label: 'Type', options: Object.entries({ Validation: 'Validation', ValidationFai: 'Validation / FAI', Fai: 'FAI', RepairWork: 'Repair Work Instruction', Inspection: 'Inspection', Procedure: 'Procedure Instructions' }) }]}
+        filters={[{ key: 'type', label: 'Type', options: [['ValidationFai', 'Validation / FAI'], ['RepairWork', 'Repair / Rework Work Instruction'], ['Inspection', 'Inspection'], ['Procedure', 'Procedure Instructions']] as [string, string][] }]}
         extra={<TextField size="small" label="Part number" defaultValue={v('part')} key={'p' + v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 150 }} />} />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/instruction/${r.id}?tab=development`)}
         empty={sp.toString() ? 'No instructions match these filters.' : 'No instructions are in development.'} cols={[

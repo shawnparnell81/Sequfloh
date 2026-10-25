@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { section, settledShot, signIn, view } from './support';
+import { section, settledShot, signIn, view, fresh } from './support';
 
 /** Uses the E2E_CF_XLSX test workbook ("Torque Audit": readings in F5:F8, PASS/FAIL in G5:G8 coloured by conditional formatting). */
 test('a blank form stays blank; filled copies and saved copies are separate files linked to it', async ({ page }) => {
@@ -11,7 +11,7 @@ test('a blank form stays blank; filled copies and saved copies are separate file
   const blankTitle = `Torque audit blank ${stamp}`;
   await signIn(page);
   await section(page, 'Imported Files');
-  await page.getByTestId('imported-files-files-input').setInputFiles(path.resolve(process.env.E2E_CF_XLSX!));
+  await page.getByTestId('imported-files-files-input').setInputFiles(fresh(path.resolve(process.env.E2E_CF_XLSX!)));
   await page.getByLabel('Title').fill(blankTitle);
   await expect(page.getByTestId('import-blank')).toBeChecked();
   await shot('01-import-keep-as-blank.png');
@@ -28,7 +28,9 @@ test('a blank form stays blank; filled copies and saved copies are separate file
 
   // fill out a copy
   await view(page).getByTestId('fill-out').click();
-  await expect(page.getByTestId('copy-title')).toHaveValue(new RegExp(`^${blankTitle} – \\d{4}-\\d{2}-\\d{2}$`));
+  await expect(page.getByTestId('copy-number')).toHaveValue(''); // the number is the user's own, typed in
+  await expect(page.getByTestId('copy-confirm')).toBeDisabled();
+  await page.getByTestId('copy-number').fill(`QF-LINE2-${Date.now()}`);
   await page.getByTestId('copy-title').fill(`${blankTitle} – line 2`);
   await shot('03-fill-out-a-copy.png');
   await page.getByTestId('copy-confirm').click();
@@ -49,6 +51,7 @@ test('a blank form stays blank; filled copies and saved copies are separate file
   await page.keyboard.press('Control+A'); await page.keyboard.type('31.5'); await page.keyboard.press('Enter');
   await expect(view(page).locator('td[data-cell="G5"]')).toHaveAttribute('data-fill', '#FFC7CE');
   await view(page).getByTestId('save-as-copy').click();
+  await page.getByTestId('copy-number').fill(`QF-RETEST-${Date.now()}`);
   await page.getByTestId('copy-title').fill(`${blankTitle} – retest`);
   await shot('05-save-as-new-copy.png');
   await page.getByTestId('copy-confirm').click();

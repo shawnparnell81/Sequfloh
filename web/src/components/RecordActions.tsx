@@ -5,6 +5,7 @@ import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import { Confirm, useDeleteAction } from '../sequfloh/common';
 import type { RecordSurface } from './recordSurfaces';
 import { FullScreenButton } from './FullScreen';
+import { EditNumberDialog, type NumberedKind } from './RecordNumber';
 
 const LEAVE = 'You have unsaved changes. Leave this page without saving them?';
 
@@ -42,18 +43,21 @@ export interface DeleteProps { what: string; url: string; to?: string; perm?: st
  * Rare and destructive actions (Archive, Delete) never sit in the row: they are in the More menu at the end, Delete last and in red, and each
  * still asks for confirmation.
  */
-export function RecordActions({ surface, dirty = false, busy = false, edit, save, cancel, print, importNode, del, more = [], children }: {
+export function RecordActions({ surface, dirty = false, busy = false, edit, save, cancel, print, importNode, del, more = [], children, rename }: {
   surface: RecordSurface; dirty?: boolean; busy?: boolean;
   edit?: { onClick: () => void; label?: string } | false;
   save?: { onClick: () => void; label?: string; disabled?: boolean } | false;
   cancel?: { onClick: () => void; label?: string; always?: boolean } | false;
   print?: { href?: string; onClick?: () => void; disabled?: boolean; testid?: string } | false;
   importNode?: ReactNode; del?: DeleteProps | false; more?: (MoreAction | false | null | undefined)[]; children?: ReactNode;
+  /** Number (and title) editing for the record, through the shared number dialog. */
+  rename?: { kind: NumberedKind; id: string; number: string; title?: string | null; onDone: () => void } | false;
 }) {
   const [ask, setAsk] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const d = useDeleteAction(del || { what: '', url: '', show: false });
-  const items = more.filter((m): m is MoreAction => !!m);
+  const items = [...(rename ? [{ label: rename.title !== undefined && rename.title !== null ? 'Edit number and title' : 'Edit number', onClick: () => setRenaming(true), testid: 'edit-number' }] : []), ...more.filter((m): m is MoreAction => !!m)];
   const hasMore = items.length > 0 || d.allowed;
   const pick = (f: () => void) => () => { setMenu(null); f(); };
   return (
@@ -75,6 +79,7 @@ export function RecordActions({ surface, dirty = false, busy = false, edit, save
         </Menu>
       </span>}
       {d.dialog}
+      {rename && <EditNumberDialog open={renaming} kind={rename.kind} id={rename.id} number={rename.number} title={rename.title} onClose={() => setRenaming(false)} onDone={rename.onDone} />}
       {cancel && <Confirm open={ask} title="Discard unsaved changes?" confirm="Discard changes" danger text="Your changes since the last save will be lost."
         onClose={() => setAsk(false)} onConfirm={async () => { setAsk(false); cancel.onClick(); }} />}
     </Stack>

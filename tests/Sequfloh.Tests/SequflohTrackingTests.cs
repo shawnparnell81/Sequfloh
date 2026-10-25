@@ -88,7 +88,7 @@ public sealed class SequflohTrackingTests(TestApp app)
         Assert.Equal(HttpStatusCode.BadRequest, (await planner.PostAsync(U, new { type = "Validation", workInstructionId = repairWi, siteId = site })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsync(U, new { type = "Validation", workInstructionId = wiId, siteId = site })).StatusCode);
         var created = await PostEl(planner, U, new { type = "Validation", workInstructionId = wiId, siteId = site, assignedUserId = techId, lotNumber = "LOT-7" });
-        Assert.StartsWith("VAL-T-", created.Str("number"));
+        Assert.StartsWith("T-", created.Str("number")); // the number typed on the form
         var id = created.Id();
         // a later change to the instruction does not change the record's copy
         using (var scope = app.Services.CreateScope())
@@ -183,7 +183,7 @@ public sealed class SequflohTrackingTests(TestApp app)
         Assert.Equal(HttpStatusCode.BadRequest, (await planner.PostAsync(U, new { type = "Repair", workInstructionId = wiId, siteId = site, partId = plain, serialNumber = "SN1" })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await planner.PostAsync(U, new { type = "Repair", workInstructionId = wiId, siteId = site })).StatusCode); // serialized part needs a serial
         var created = await PostEl(planner, U, new { type = "Repair", workInstructionId = wiId, siteId = site, serialNumber = "SN-100", repairOrder = "RO-5", customerReturnReference = "RMA-77", reportedCondition = "Leaks at the shaft" });
-        Assert.StartsWith("RPR-", created.Str("number"));
+        Assert.StartsWith("T-", created.Str("number")); // the number typed on the form
         var id = created.Id();
         await Act(tech, id, "start");
         var rec = (await Rec(tech, id)).GetProperty("record");

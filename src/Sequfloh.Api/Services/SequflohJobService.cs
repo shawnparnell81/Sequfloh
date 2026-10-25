@@ -452,7 +452,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("JobReportPrinted", SequflohTrackingService.EntityType, rec.Id, $"Printed the job report for {x.Number}", rec.SiteId);
         await db.SaveChangesAsync(ct);
-        return (pdf, $"{x.Number}-job-report.pdf");
+        return (pdf, $"{Sequfloh.Imports.ImportedFileService.SafeFileName(x.Number)}.pdf");
     }
 
     public static bool HasFindings(JobFindings f) => f with { ErpReference = null } != new JobFindings();

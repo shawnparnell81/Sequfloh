@@ -141,6 +141,12 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/admin/sites" element={<AdminSites />} />
         <Route path="/admin/audit-trail" element={<AdminAudit />} />
         <Route path="/sequfloh" element={<SqfHome />} />
+        {/* the separate Validation and FAI pages are now Validation / FAI */}
+        <Route path="/sequfloh/settings/fai" element={<Navigate to="/sequfloh/settings/validation" replace />} />
+        <Route path="/sequfloh/instructions/fai" element={<Navigate to="/sequfloh/instructions/validation" replace />} />
+        <Route path="/sequfloh/tracking/validation" element={<Navigate to="/sequfloh/tracking/validation-fai" replace />} />
+        <Route path="/sequfloh/tracking/fai" element={<Navigate to="/sequfloh/tracking/validation-fai" replace />} />
+        <Route path="/sequfloh/reports/fai-status" element={<Navigate to="/sequfloh/reports/validation-status" replace />} />
         <Route path="/sequfloh/settings/:section" element={<SqfSettings />} />
         <Route path="/sequfloh/admin/reference" element={<SqfReference />} />
         <Route path="/sequfloh/admin/dropdowns" element={<SqfDropdowns />} />

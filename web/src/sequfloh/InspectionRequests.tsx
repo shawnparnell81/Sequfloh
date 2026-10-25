@@ -12,6 +12,7 @@ import { Facts, useSites } from '../components/Kit';
 import { FilesPanel } from '../components/Files';
 import { fmtDateTime } from '../components/Status';
 import { RecordActions } from '../components/RecordActions';
+import { NumberField } from '../components/RecordNumber';
 import { ViewDrawingButton } from './Drawings';
 import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, words } from './common';
 import { partNo } from './partLabel';
@@ -68,9 +69,9 @@ function RequestForm({ value, onChange }: { value: Form; onChange: (v: Form) => 
     </Stack>
   );
 }
-interface Form { siteId: string; partNumber: string; partId: string | null; partDescription: string; quantity: string; reason: string; requirement: string; wi: WiOpt | null; requestedDate: string; priority: string }
-const blank: Form = { siteId: '', partNumber: '', partId: null, partDescription: '', quantity: '', reason: '', requirement: '', wi: null, requestedDate: '', priority: 'Normal' };
-const body = (f: Form) => ({ siteId: f.siteId, partNumber: f.partNumber.trim() || null, partId: f.partId, partDescription: f.partDescription.trim() || null,
+interface Form { siteId: string; partNumber: string; partId: string | null; partDescription: string; quantity: string; reason: string; requirement: string; wi: WiOpt | null; requestedDate: string; priority: string; number?: string }
+const blank: Form = { number: '', siteId: '', partNumber: '', partId: null, partDescription: '', quantity: '', reason: '', requirement: '', wi: null, requestedDate: '', priority: 'Normal' };
+const body = (f: Form) => ({ number: f.number?.trim() || null, siteId: f.siteId, partNumber: f.partNumber.trim() || null, partId: f.partId, partDescription: f.partDescription.trim() || null,
   quantity: f.quantity === '' ? null : Number(f.quantity), reason: f.reason || null, requirement: f.requirement.trim() || null, workInstructionId: f.wi?.id ?? null,
   requestedDate: f.requestedDate || null, priority: f.priority });
 
@@ -79,6 +80,7 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
   const [f, setF] = useState<Form>(initial ?? blank); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) { setF(initial ?? blank); setErr(null); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
+    if (!id && !f.number?.trim()) return setErr('Enter the number.');
     if (!f.partNumber.trim()) return setErr('Enter a part number.');
     if (!f.siteId) return setErr('Choose a site.');
     setBusy(true); setErr(null);
@@ -91,7 +93,9 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="ir-title">
       <FormDialogTitle>{id ? 'Edit inspection request' : 'New inspection request'}</FormDialogTitle>
-      <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}<RequestForm value={f} onChange={setF} /></DialogContent>
+      <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
+        {!id && <NumberField fullWidth sx={{ mt: 1, mb: 2 }} value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'ir-number', maxLength: 40 }} />}
+        <RequestForm value={f} onChange={setF} /></DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={busy}>{id ? 'Save' : 'Submit request'}</Button></DialogActions>
     </Dialog>
   );
@@ -159,14 +163,16 @@ export function OpenInspectionRequestsPanel() {
 function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boolean; onClose: () => void }) {
   const qc = useQueryClient(); const nav = useNavigate();
   const [type, setType] = useState('Inspection'); const [wi, setWi] = useState<WiOpt | null>(null); const [text, setText] = useState('');
+  const [number, setNumber] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [attach, setAttach] = useState(!!r.workInstructionId);
   const wis = useQuery({ queryKey: ['sqf-tr-wi', type, text], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type, q: text })}`), enabled: open && attach });
   useEffect(() => { if (open && attach && r.workInstructionId && wis.data && !wi) setWi(wis.data.find((w) => w.id === r.workInstructionId) ?? null); }, [open, wis.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = async () => {
+    if (!number.trim()) return setErr('Enter the work order number.');
     if (attach && !wi) return setErr('Choose a released work instruction, or turn off Attach a work instruction.');
     try {
-      const res = await post<{ workOrderId: string }>(`${A}/${r.id}/convert`, { workInstructionId: attach ? wi?.id ?? null : null, type });
+      const res = await post<{ workOrderId: string }>(`${A}/${r.id}/convert`, { workInstructionId: attach ? wi?.id ?? null : null, type, number: number.trim() });
       onClose(); await qc.invalidateQueries({ queryKey: ['sqf-ir'] }); nav(`/sequfloh/record/${res.workOrderId}`);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   };
@@ -177,8 +183,9 @@ function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boole
         <Stack gap={2} sx={{ pt: 1 }}>
           {err && <Alert severity="error">{err}</Alert>}
           <Typography variant="body2" color="text.secondary">Part, quantity, priority, requested date and the inspection requirement carry over. The part's drawings are attached.</Typography>
+          <NumberField label="Work order number" value={number} onChange={(e) => setNumber(e.target.value)} inputProps={{ 'data-testid': 'convert-number', maxLength: 40 }} />
           <TextField select label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }}>
-            {[['Inspection', 'Inspection'], ['Production', 'Production'], ['Fai', 'FAI'], ['Validation', 'Validation'], ['Repair', 'Repair']].map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
+            {[['Inspection', 'Inspection'], ['Production', 'Production'], ['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test']].map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
           <FormControlLabel control={<Switch checked={attach} onChange={(_, c) => { setAttach(c); if (!c) setWi(null); }} inputProps={{ 'data-testid': 'convert-attach-wi' } as object} />}
             label="Attach a work instruction (optional)" />
           {attach && <Autocomplete options={wis.data ?? []} value={wi} onChange={(_, o) => setWi(o)} onInputChange={(_, v, rs) => rs === 'input' && setText(v)}
@@ -205,6 +212,7 @@ export function InspectionRequestPage() {
     <SqfPage title={<>{r.number} <PriorityChip p={r.priority} /></>} crumbs={[crumbs[0], { label: 'Inspection Requests', to: '/sequfloh/inspection-requests' }, { label: r.number }]}
       permission="sequfloh.access" recent={{ label: `${r.number} ${r.partNumber}`, itemType: 'Inspection request', recordId: r.id }}
       actions={<RecordActions surface="inspection-request" edit={!closed && { onClick: () => setEdit(true) }}
+        rename={{ kind: 'inspection-request', id: r.id, number: r.number, onDone: () => { void qc.invalidateQueries({ queryKey: ['sqf-ir'] }); } }}
         del={{ what: `inspection request ${r.number}`, url: `${A}/${r.id}`, to: '/sequfloh/inspection-requests', extra: r.workOrderNumber ? `Work order ${r.workOrderNumber} is kept.` : undefined }}>
         {!r.workOrderId && !closed && <Button variant="contained" onClick={() => setConvert(true)}>Convert to work order</Button>}
         {r.status === 'Open' && <Button onClick={() => status('InProgress')}>Start</Button>}

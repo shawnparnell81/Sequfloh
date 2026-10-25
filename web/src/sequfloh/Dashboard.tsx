@@ -26,9 +26,8 @@ export function Dashboard() {
       <Stat label="Active tasks" value={d.live.active} to="/sequfloh/execution/active" />
       <Stat label="Paused tasks" value={d.live.paused} to="/sequfloh/execution/paused" />
       <Stat label="Overdue tasks" value={d.live.overdue} to="/sequfloh/execution/overdue" />
-      <Stat label="Validation records in progress" value={d.live.validationInProgress} to="/sequfloh/tracking/validation" />
-      <Stat label="FAI records in progress" value={d.live.faiInProgress} to="/sequfloh/tracking/fai" />
-      <Stat label="Repair records in progress" value={d.live.repairInProgress} to="/sequfloh/tracking/repair" />
+      <Stat label="Validation / FAI records in progress" value={d.live.validationInProgress} to="/sequfloh/tracking/validation-fai" />
+      <Stat label="Repair / Rework records in progress" value={d.live.repairInProgress} to="/sequfloh/tracking/repair" />
       <Stat label="Production tasks in progress" value={d.live.productionInProgress} to="/sequfloh/tracking/production" />
       <Stat label="Failed records" value={d.live.failed} to="/sequfloh/execution/completed?status=Failed" />
       <Stat label="Assigned to me" value={d.live.assignedToMe} to="/sequfloh/execution/mine" />

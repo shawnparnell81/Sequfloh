@@ -16,20 +16,20 @@ public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyT
     string? PartClass = null, bool? IsAssembly = null, string? LotControl = null);
 /// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
 public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null, List<string>? HiddenFields = null);
-public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0);
+public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0, string? Number = null);
 public sealed record PartsListItemInput(Guid? PartId, string? PartNumber, string? Description, decimal Quantity, string? Unit, bool Required, string? AlternatePartNumber,
     TraceabilityRequirement Traceability, string? Notes);
 public sealed record ReviseInput(string? Reason);
 public sealed record CopyItemsInput(Guid SourceListId);
 public sealed record OperationStepInput(string Title, string? Category, string DetailedAction, string? DefaultTools, string? DefaultParts, string? Specification, decimal? Target,
     decimal? Minimum, decimal? Maximum, string? Unit, string? SafetyWarning, string? QualityCheckpoint, string? ExpectedResult, string? EvidenceRequirement, string? RequiredRole,
-    string? RequiredQualification, bool IsActive = true, uint RowVersion = 0);
+    string? RequiredQualification, bool IsActive = true, uint RowVersion = 0, string? Number = null);
 
 /// <summary>
 /// SEQUFLOH parts: execution attributes on the shared Part Master (no competing part store), controlled parts lists with revision history,
 /// and reusable operation-step templates. Library records (parts lists, operation steps) are organization-wide; every write re-checks the permission.
 /// </summary>
-public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAccessService access, INumberingService numbers, MasterDataService master, SequflohFoundationService f, Sequfloh.Drawings.DrawingPartMatcher drawingLinks)
+public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAccessService access, MasterDataService master, SequflohFoundationService f, Sequfloh.Drawings.DrawingPartMatcher drawingLinks)
 {
     public const string PartsListType_ = "SqfPartsList";
     static string? T(string? s, int max) { if (string.IsNullOrWhiteSpace(s)) return null; s = s.Trim(); return s.Length > max ? throw new AppException($"A value is limited to {max} characters.") : s; }
@@ -188,9 +188,11 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await RequireAsync(Permissions.SequflohManagePartsLists, ct);
         ModuleSupport.Required(r.Title, "Title", 300);
         await ValidateParentAsync(r.ParentPartId, ct);
+        var number = RecordNumbers.Clean(r.Number, 40, "parts list number");
+        await RecordNumbers.EnsureFreeAsync(db.SequflohPartsLists.Select(o => o.Number), number, "A parts list numbered", ct);
         var settings = await f.GetSettingsAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var l = new SequflohPartsList { Number = await numbers.NextAsync("SqfPartsList", null, ct), Title = r.Title.Trim(), ParentPartId = r.ParentPartId, Description = T(r.Description, 4000),
+        var l = new SequflohPartsList { Number = number, Title = r.Title.Trim(), ParentPartId = r.ParentPartId, Description = T(r.Description, 4000),
             ListType = r.ListType, Status = PartsListStatus.Draft, Revision = SequflohFoundationService.FirstRevision(settings.Numbering.RevisionFormat) };
         db.SequflohPartsLists.Add(l);
         await db.SaveChangesAsync(ct);
@@ -308,11 +310,11 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         return src.Items.Count;
     }
 
-    public async Task<SequflohPartsList> DuplicateListAsync(Guid id, CancellationToken ct)
+    public async Task<SequflohPartsList> DuplicateListAsync(Guid id, string? number, CancellationToken ct)
     {
         await RequireAsync(Permissions.SequflohManagePartsLists, ct);
         var src = await db.SequflohPartsLists.AsNoTracking().Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Parts list");
-        var copy = await CreateListAsync(new PartsListInput($"Copy of {src.Title}".Length > 300 ? src.Title : $"Copy of {src.Title}", src.ParentPartId, src.Description, src.ListType), ct);
+        var copy = await CreateListAsync(new PartsListInput($"Copy of {src.Title}".Length > 300 ? src.Title : $"Copy of {src.Title}", src.ParentPartId, src.Description, src.ListType, Number: number), ct);
         await CopyItemsAsync(copy.Id, new CopyItemsInput(id), ct);
         return copy;
     }
@@ -389,8 +391,10 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await RequireAsync(Permissions.SequflohManageOperationSteps, ct);
         ValidateStep(r);
         await f.RequireOptionAsync("operation-categories", r.Category, "Category", ct);
+        var number = RecordNumbers.Clean(r.Number, 40, "operation step number");
+        await RecordNumbers.EnsureFreeAsync(db.SequflohOperationSteps.Select(o => o.Number), number, "An operation step numbered", ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var s = new SequflohOperationStep { Number = await numbers.NextAsync("SqfOperationStep", null, ct), DisplayOrder = (await db.SequflohOperationSteps.MaxAsync(x => (int?)x.DisplayOrder, ct) ?? 0) + 10 };
+        var s = new SequflohOperationStep { Number = number, DisplayOrder = (await db.SequflohOperationSteps.MaxAsync(x => (int?)x.DisplayOrder, ct) ?? 0) + 10 };
         ApplyStep(s, r);
         db.SequflohOperationSteps.Add(s);
         await db.SaveChangesAsync(ct);
@@ -409,11 +413,11 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<SequflohOperationStep> DuplicateStepAsync(Guid id, CancellationToken ct)
+    public async Task<SequflohOperationStep> DuplicateStepAsync(Guid id, string? number, CancellationToken ct)
     {
         var s = await db.SequflohOperationSteps.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Operation step");
         return await CreateStepAsync(new OperationStepInput($"Copy of {s.Title}".Length > 300 ? s.Title : $"Copy of {s.Title}", s.Category, s.DetailedAction, s.DefaultTools, s.DefaultParts, s.Specification,
-            s.Target, s.Minimum, s.Maximum, s.Unit, s.SafetyWarning, s.QualityCheckpoint, s.ExpectedResult, s.EvidenceRequirement, s.RequiredRole, s.RequiredQualification, s.IsActive), ct);
+            s.Target, s.Minimum, s.Maximum, s.Unit, s.SafetyWarning, s.QualityCheckpoint, s.ExpectedResult, s.EvidenceRequirement, s.RequiredRole, s.RequiredQualification, s.IsActive, Number: number), ct);
     }
 
     public async Task SetStepActiveAsync(Guid id, bool active, CancellationToken ct)

@@ -74,19 +74,19 @@ test('Import folder on every upload page: subfolders included, other types skipp
   await expect(view(page)).toContainText(`third-${stamp}w.txt`);
 
   // inspection request attachments
-  const ir = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { siteId: site, partNumber: `IMP-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
+  const ir = (await ok(rq.post('/api/sequfloh/inspection-requests', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, siteId: site, partNumber: `IMP-${stamp}`, priority: 'Normal', requestedDate: '2026-11-20' } }))).id as string;
   await page.goto(`/sequfloh/inspection-request/${ir}`);
   const irf = tree(stamp + 'i', '.pdf', () => '%PDF-1.4\n% made-up\n');
   await runImport(page, 'inspection-request-files', irf.top, '04-inspection-request-files');
   await expect(view(page)).toContainText(`second-${stamp}i.pdf`);
 
   // work order: tester files, photos and attachments go to the work order only
-  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { type: 'Validation', title: `Import WO instruction ${stamp}`, siteId: site } }))).id as string;
+  const wi = (await ok(rq.post('/api/sequfloh/instructions', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Validation', title: `Import WO instruction ${stamp}`, siteId: site } }))).id as string;
   const doc = (await ok(rq.get(`/api/sequfloh/instructions/${wi}`))).instruction;
   await ok(rq.put(`/api/sequfloh/instructions/${wi}`, { data: { title: doc.title, siteId: site, departmentId: null, ownerId: null, partId: null, effectiveDate: null,
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Check' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
   await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
-  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-I${stamp}` } }))).id as string;
+  const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-I${stamp}` } }))).id as string;
   await page.goto(`/sequfloh/record/${wo}`);
   await view(page).getByRole('tab', { name: 'Job' }).click();
   const tf = tree(stamp + 't', '.csv', () => 'Unit,Outcome\n1,PASS\n2,PASS\n');
