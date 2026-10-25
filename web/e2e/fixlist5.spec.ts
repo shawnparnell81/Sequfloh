@@ -58,5 +58,15 @@ test('the Tests section confirms a Salt Spray Test form and a new Salt Spray Tes
   await page.goto(`/sequfloh/record/${wo.id}`);
   await expect(view(page).getByTestId('wo-validation-form')).toContainText('Salt Spray Test form');
   await shot(page, '05-salt-spray-work-order-form');
+  await page.goto(`/sequfloh/record/${none.id}`);
+  await view(page).getByTestId('wo-attach-form').click();
+  await expect(page.getByTestId('attach-form-number')).toHaveValue(`SS-${stamp}-1`);
+  await page.getByTestId('attach-form-number').fill(`SS-${stamp}-2`);
+  await page.getByTestId('attach-form-go').click();
+  await expect(page.getByTestId('attach-form-error')).toContainText('could not be started');
+  await page.getByTestId('attach-form-number').fill(`SS-${stamp}-1`);
+  await page.getByTestId('attach-form-go').click();
+  await expect(view(page).getByTestId('wo-validation-form')).toContainText(`SS-${stamp}-1`);
+  await expect(view(page).getByTestId('wo-attach-form')).toHaveCount(0);
   await ok(page.request.put('/api/sequfloh/validation-forms/tests/salt-spray', { data: { blankFormId: null } }));
 });

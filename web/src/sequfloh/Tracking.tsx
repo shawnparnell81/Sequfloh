@@ -244,7 +244,7 @@ interface TrRecord extends J { id: string; number: string; type: string; status:
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
-interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string }
+interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
 const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'nonconformanceReferences', 'reportedCondition', 'observedCondition', 'finalDisposition', 'varianceReason', 'result', 'qualityComments',
   'engineeringComments', 'engineeringConclusion'];
@@ -261,6 +261,7 @@ export function TrackingRecordPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
   const [act, setAct] = useState<TrAction | null>(null);
+  const [attach, setAttach] = useState(false);
   useUnsaved(dirty);
   useEffect(() => { if (q.data && !dirty) setDoc(structuredClone(q.data.record)); }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
   if (q.isLoading) return <SqfPage title="Work order" crumbs={trCrumbs('Loading')}><Loading /></SqfPage>;
@@ -330,7 +331,9 @@ export function TrackingRecordPage() {
           <Typography variant="h3" sx={{ mb: 1 }}>{vf.test ? `${vf.test} form` : `Validation form${vf.family ? ` — ${vf.family}` : ''}`}</Typography>
           {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. {vf.test ? '' : 'It is saved under Completed Validation / FAI for this product family.'}</Typography>
             : <Alert severity="warning">{vf.message ?? 'No validation form is confirmed for this product family.'}</Alert>}
+          {q.data.canAttachForm && <Button variant="outlined" sx={{ mt: 1.5 }} disabled={busy || dirty} onClick={() => setAttach(true)} data-testid="wo-attach-form">Attach validation form</Button>}
         </Paper>}
+        {attach && <AttachFormDialog id={rec.id} number={rec.number} onClose={() => setAttach(false)} onDone={() => { setAttach(false); void refresh(); setMsg({ sev: 'success', text: 'The form is attached.' }); }} />}
         {(rec.type === 'Inspection' || rec.type === 'Warranty') && <InspectionResults rec={rec} onSaved={refresh} />}
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Work order">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Work order</Typography>
@@ -441,6 +444,32 @@ const Link = ({ to, children }: { to: string; children: ReactNode }) => <RouterL
 const local = (iso: string) => { if (!iso) return ''; const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 /** Inspection and warranty results: qty good, qty bad (feeds the chargeback report), further inspection and the quarantine flag. Saved on its own and audited. */
+/** Starts the confirmed form copy on a work order that has none yet; the number starts as the work order number and can be changed. */
+function AttachFormDialog({ id, number, onClose, onDone }: { id: string; number: string; onClose: () => void; onDone: () => void }) {
+  const [n, setN] = useState(number);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true); setErr('');
+    try { await post(`${S}/tracking/${id}/validation-form`, { number: n }); onDone(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
+      <FormDialogTitle>Attach validation form</FormDialogTitle>
+      <DialogContent>
+        <Stack gap={2} sx={{ pt: 1 }}>
+          <TextField label="Form number" required value={n} onChange={(e) => setN(e.target.value)} inputProps={{ 'data-testid': 'attach-form-number' }} />
+          {err && <Alert severity="error" data-testid="attach-form-error">{err}</Alert>}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" disabled={busy || !n.trim()} onClick={() => void go()} data-testid="attach-form-go">Attach</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function InspectionResults({ rec, onSaved }: { rec: TrRecord; onSaved: () => Promise<void> }) {
   const init = () => ({ good: s(rec.qtyGood), bad: s(rec.qtyBad), further: rec.furtherInspection == null ? '' : rec.furtherInspection ? 'yes' : 'no', quarantine: rec.quarantine ? 'yes' : 'no', why: s(rec.quarantineReason) });
   const [v, setV] = useState(init);
