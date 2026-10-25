@@ -34,6 +34,11 @@ public sealed class FixList7Tests(TestApp app)
             Assert.EndsWith("-1", first);
             Assert.Contains(first, await (await c.Http.GetAsync("/api/imported-files?kind=filled&family=salt-spray&pageSize=200")).Content.ReadAsStringAsync());
             Assert.DoesNotContain(first, await (await c.Http.GetAsync("/api/imported-files?kind=filled&family=none&pageSize=200")).Content.ReadAsStringAsync());
+            var ssUp = new MultipartFormDataContent { { new ByteArrayContent(Encoding.UTF8.GetBytes("Hours,Result\n96,Pass\n")), "file", $"SS Report {tag}.csv" }, { new StringContent(site.ToString()), "siteId" }, { new StringContent("false"), "blankForm" }, { new StringContent("true"), "completedForm" }, { new StringContent("true"), "saltSpray" } };
+            var ssRes = await c.Http.PostAsync("/api/imported-files", ssUp);
+            Assert.True(ssRes.IsSuccessStatusCode, await ssRes.Content.ReadAsStringAsync());
+            Assert.Contains($"SS Report {tag}", await (await c.Http.GetAsync("/api/imported-files?kind=filled&family=salt-spray&pageSize=200")).Content.ReadAsStringAsync());
+            Assert.DoesNotContain($"SS Report {tag}", await (await c.Http.GetAsync("/api/imported-files?kind=filled&family=none&pageSize=200")).Content.ReadAsStringAsync());
             Assert.False((await c.GetElAsync($"{T}/{a.Id()}")).GetProperty("canAttachForm").GetBoolean());
 
             Assert.True((await admin.PutAsync(Setting, new { blankFormId = (Guid?)null })).IsSuccessStatusCode);

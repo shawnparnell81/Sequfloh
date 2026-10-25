@@ -2255,6 +2255,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<bool>("IsCompletedForm")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsSaltSprayTest")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("Kind")
                         .HasColumnType("integer");
 

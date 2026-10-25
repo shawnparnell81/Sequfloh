@@ -661,13 +661,13 @@ export function CompletedFormsPage() {
   const famLabel = families.find((x) => x.id === tab)?.label;
   const [unFam, setUnFam] = useState('');
   const target = tab === 'none' ? unFam : tab;
-  const importNode = can('sequfloh.import_files') && fams.data && tab !== 'salt-spray' && <ImportButtons surface="completed-forms" accept={COMPLETED_TYPES} maxBytes={20 * 1024 * 1024} what="completed form" variant="contained"
-    settings={<Stack gap={1}>{tab === 'none'
+  const importNode = can('sequfloh.import_files') && fams.data && <ImportButtons surface="completed-forms" accept={COMPLETED_TYPES} maxBytes={20 * 1024 * 1024} what="completed form" variant="contained"
+    settings={<Stack gap={1}>{tab === 'salt-spray' ? <Typography variant="body2" data-testid="completed-import-family">Saved as completed forms in <b>Salt Spray Test</b>.</Typography> : tab === 'none'
       ? <FamilySelect value={unFam} onChange={setUnFam} helperText="Leave empty to save the forms as Unassigned." />
       : <Typography variant="body2" data-testid="completed-import-family">Saved as completed forms in <b>{famLabel}</b>.</Typography>}</Stack>}
     upload={async (file) => {
       const fd = new FormData(); fd.append('file', file); fd.append('title', file.name.replace(/\.[^.]+$/, ''));
-      fd.append('blankForm', 'false'); fd.append('completedForm', 'true'); if (target) fd.append('familyId', target);
+      fd.append('blankForm', 'false'); fd.append('completedForm', 'true'); if (tab === 'salt-spray') fd.append('saltSpray', 'true'); else if (target) fd.append('familyId', target);
       await api('POST', A, fd);
     }}
     onDone={() => qc.invalidateQueries({ queryKey: ['imported-completed'] })} />;
