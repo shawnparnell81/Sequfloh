@@ -172,7 +172,7 @@ export function ActiveStationPage() {
   const d = one.data; const r = d?.record;
   const checkpoints = (r?.steps ?? []).filter((x) => x.qualityCheckpoint || x.visualCheckpoint).map((x) => `${s(x.sequence)} ${s(x.title ?? x.operationStep)}: ${s(x.qualityCheckpoint ?? x.visualCheckpoint)}`);
   const enter = !!d?.canEnter && !busy;
-  const Fact = ({ k, children }: { k: string; children: ReactNode }) => <Box><Typography variant="caption" color="text.secondary" component="div">{k}</Typography><Typography variant="body2" component="div">{children}</Typography></Box>;
+  const Fact = ({ k, children }: { k: string; children: ReactNode }) => <Box sx={{ minWidth: 0 }}><Typography variant="caption" color="text.secondary" component="div">{k}</Typography><Typography variant="body2" component="div" sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word', '& *': { overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' } }}>{children}</Typography></Box>;
   return (
     <SqfPage title="Active Station" crumbs={exCrumbs('Active Station')} permission="sequfloh.view_live_execution"
       description="Your tasks at this station. The clock is calculated from the stored start time and accumulated durations, so refresh, sign-out or closing the browser never resets it.">

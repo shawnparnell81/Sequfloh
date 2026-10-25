@@ -80,6 +80,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 && !await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == x.Id, ct),
             CanPlan = !SequflohTrackingService.Terminal.Contains(x.Status)
                 && (await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct) || await m.CanAsync(Permissions.SequflohDispatchTask, x.SiteId, x.DepartmentId, ct)),
+            CanAttachForm = CanAttachShape(x) && await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct),
             CanQualityComment = x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && await m.CanAsync(Permissions.SequflohEditQualityFolder, x.SiteId, x.DepartmentId, ct),
             CanEngineeringComment = x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && await m.CanAsync(Permissions.SequflohEditEngineeringFolder, x.SiteId, x.DepartmentId, ct),
             Actions = await tracking.AvailableActionsAsync(x, ct),
@@ -92,43 +93,73 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     {
         var x = await tracking.CreateAsync(r, ct);
         object? form = null;
-        if (x.Type == TrackingType.Validation && r.FamilyId is { } fam)
+        if ((x.Type == TrackingType.Validation && r.FamilyId is not null) || x.Type == TrackingType.SaltSpray)
         {
-            // only a form the administrator confirmed for the family is attached; nothing is guessed here. The started form takes the work order's own number.
-            var family = await db.SequflohReferenceValues.AsNoTracking().FirstOrDefaultAsync(v => v.Id == fam && v.ListKey == SequflohCatalog.ProductFamilies, ct);
-            var info = new JsonObject { ["familyId"] = fam.ToString(), ["family"] = family?.Label };
-            if (family?.ValidationFormId is { } blankId && await db.ImportedFiles.AnyAsync(b => b.Id == blankId && b.IsBlankForm && !b.IsArchived, ct))
-            {
-                try
-                {
-                    var copy = JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(await files.FillOutAsync(blankId, x.Number, $"{family.Label} validation {x.Number}", ct, x.PartNumber, fam)))!.AsObject();
-                    info["fileId"] = copy["Id"]?.ToString(); info["fileNumber"] = copy["Number"]?.ToString(); info["fileTitle"] = copy["Title"]?.ToString();
-                }
-                catch (Exception e) when (e is AppException) { info["message"] = $"The validation form for {family.Label} could not be started: {e.Message}"; }
-            }
-            else info["message"] = $"No validation form is confirmed for {family?.Label ?? "this product family"}. An administrator can set one in Settings > Validation forms by product.";
+            var info = await StartFormAsync(x.Type, x.Number, x.PartNumber, r.FamilyId, ct);
             await tracking.SetValidationFormAsync(x.Id, info, ct);
             form = info;
         }
-        if (x.Type == TrackingType.SaltSpray)
+        return new { x.Id, x.Number, ValidationForm = form };
+    }
+    /// <summary>Starts the confirmed form copy for a product family (validation) or Salt Spray Test, named with the given number. Returns what was attached, or why nothing was.</summary>
+    async Task<JsonObject> StartFormAsync(TrackingType type, string number, string? partNumber, Guid? fam, CancellationToken ct)
+    {
+        if (type == TrackingType.SaltSpray)
         {
             // only the form an administrator confirmed for Salt Spray Test is attached, never a suggestion
             var info = new JsonObject { ["test"] = "Salt Spray Test" };
             var blankId = (await db.SequflohSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.SaltSprayFormId;
             if (blankId is { } bid && await db.ImportedFiles.AnyAsync(b => b.Id == bid && b.IsBlankForm && !b.IsArchived, ct))
             {
-                try
-                {
-                    var copy = JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(await files.FillOutAsync(bid, x.Number, $"Salt Spray Test {x.Number}", ct, x.PartNumber, r.FamilyId)))!.AsObject();
-                    info["fileId"] = copy["Id"]?.ToString(); info["fileNumber"] = copy["Number"]?.ToString(); info["fileTitle"] = copy["Title"]?.ToString();
-                }
+                try { Copy(info, await files.FillOutAsync(bid, number, $"Salt Spray Test {number}", ct, partNumber, fam)); }
                 catch (Exception e) when (e is AppException) { info["message"] = $"The Salt Spray Test form could not be started: {e.Message}"; }
             }
             else info["message"] = "No form is confirmed for Salt Spray Test. An administrator can set one in Settings > Validation forms by product.";
-            await tracking.SetValidationFormAsync(x.Id, info, ct);
-            form = info;
+            return info;
         }
-        return new { x.Id, x.Number, ValidationForm = form };
+        {
+            // only a form the administrator confirmed for the family is attached; nothing is guessed here
+            var family = await db.SequflohReferenceValues.AsNoTracking().FirstOrDefaultAsync(v => v.Id == fam && v.ListKey == SequflohCatalog.ProductFamilies, ct);
+            var info = new JsonObject { ["familyId"] = fam?.ToString(), ["family"] = family?.Label };
+            if (family?.ValidationFormId is { } blankId && await db.ImportedFiles.AnyAsync(b => b.Id == blankId && b.IsBlankForm && !b.IsArchived, ct))
+            {
+                try { Copy(info, await files.FillOutAsync(blankId, number, $"{family.Label} validation {number}", ct, partNumber, fam)); }
+                catch (Exception e) when (e is AppException) { info["message"] = $"The validation form for {family.Label} could not be started: {e.Message}"; }
+            }
+            else info["message"] = $"No validation form is confirmed for {family?.Label ?? "this product family"}. An administrator can set one in Settings > Validation forms by product.";
+            return info;
+        }
+    }
+    static void Copy(JsonObject info, object started)
+    {
+        var copy = JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(started))!.AsObject();
+        info["fileId"] = copy["Id"]?.ToString(); info["fileNumber"] = copy["Number"]?.ToString(); info["fileTitle"] = copy["Title"]?.ToString();
+    }
+    static Guid? FormFamily(SequflohTrackingRecord x)
+    {
+        var v = JsonNode.Parse(x.Details)?["validationForm"]?["familyId"]?.ToString();
+        return Guid.TryParse(v, out var g) ? g : null;
+    }
+    static bool HasForm(SequflohTrackingRecord x) => !string.IsNullOrEmpty(JsonNode.Parse(x.Details)?["validationForm"]?["fileId"]?.ToString());
+    bool CanAttachShape(SequflohTrackingRecord x) => x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && !HasForm(x)
+        && (x.Type == TrackingType.SaltSpray || (x.Type is TrackingType.Validation or TrackingType.Fai && FormFamily(x) is not null));
+    public sealed record AttachFormInput(string? Number);
+    /// <summary>Starts the confirmed form copy on a work order that has none yet, for example when the copy at create failed because the number was taken.</summary>
+    [HttpPost("{id:guid}/validation-form")]
+    public async Task<object> AttachForm(Guid id, AttachFormInput r, CancellationToken ct)
+    {
+        var x = await db.SequflohTrackingRecords.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct) ?? throw new NotFoundException("The work order");
+        await m.RequireAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct);
+        SequflohTrackingService.RequireOpen(x);
+        if (HasForm(x)) throw new ConflictException($"{x.Number} already has a form attached.");
+        if (!CanAttachShape(x)) throw new AppException("Only a Validation / FAI work order with a product family, or a Salt Spray Test work order, can have a form attached.");
+        var number = (r.Number ?? "").Trim();
+        if (number.Length == 0) throw new AppException("Enter the form number.");
+        var info = await StartFormAsync(x.Type, number, x.PartNumber, FormFamily(x), ct);
+        if (info["fileId"] is null) throw new AppException(info["message"]?.ToString() ?? "The form could not be started.");
+        f.Audit("ValidationFormAttached", SequflohTrackingService.EntityType, x.Id, $"{x.Number} form {info["fileNumber"]} attached", x.SiteId, context: new { fileId = info["fileId"]?.ToString(), number });
+        await tracking.SetValidationFormAsync(x.Id, info, ct);
+        return info;
     }
     /// <summary>Records qty good and bad, further inspection and the quarantine flag of an inspection or warranty work order.</summary>
     [HttpPut("{id:guid}/inspection-results")]
