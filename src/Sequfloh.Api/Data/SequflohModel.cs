@@ -10,6 +10,8 @@ public partial class AppDbContext
     public DbSet<SequflohSettings> SequflohSettings => Set<SequflohSettings>();
     public DbSet<SequflohReferenceValue> SequflohReferenceValues => Set<SequflohReferenceValue>();
     public DbSet<SequflohUserItem> SequflohUserItems => Set<SequflohUserItem>();
+    public DbSet<SequflohImportLayout> SequflohImportLayouts => Set<SequflohImportLayout>();
+    public DbSet<SequflohHomeLayout> SequflohHomeLayouts => Set<SequflohHomeLayout>();
     public DbSet<SequflohPartsList> SequflohPartsLists => Set<SequflohPartsList>();
     public DbSet<SequflohPartsListItem> SequflohPartsListItems => Set<SequflohPartsListItem>();
     public DbSet<SequflohPartsListRevision> SequflohPartsListRevisions => Set<SequflohPartsListRevision>();
@@ -47,6 +49,20 @@ public partial class AppDbContext
             e.Property(x => x.Code).HasMaxLength(60);
             e.Property(x => x.Label).HasMaxLength(200);
             e.Property(x => x.Description).HasMaxLength(1000);
+        });
+        b.Entity<SequflohImportLayout>(e =>
+        {
+            e.ToTable("sequfloh_import_layouts");
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Layout).HasColumnType("jsonb");
+        });
+        b.Entity<SequflohHomeLayout>(e =>
+        {
+            e.ToTable("sequfloh_home_layouts");
+            e.HasIndex(x => x.UserId).IsUnique();
+            e.Property(x => x.Sections).HasColumnType("jsonb");
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<SequflohUserItem>(e =>
         {

@@ -1,15 +1,21 @@
 import { useState } from 'react';
+import CloseIcon from '@mui/icons-material/Close';
 import { FormDialogTitle } from '../components/FullScreen';
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, ListSubheader, MenuItem, Radio, RadioGroup, Stack, Table, TableBody, TableCell,
+import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, ListSubheader, MenuItem, Radio, RadioGroup, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { get, post } from '../api';
+import { del, get, post, put } from '../api';
 import { useSites } from '../components/Kit';
 import { LOT_CHOICES, S, UNITS } from './common';
 
 interface ImportTable { fileName: string; headers: string[]; rows: string[][]; mapping: Record<string, number>; warnings: string[]; headerRow: number; rowNumbers?: number[]; top?: { row: number; cells: string[] }[] }
 interface PlanRow { row: number; action: 'Add' | 'Update' | 'Skip' | 'Error'; partNumber?: string; name?: string; messages: string[]; repeat?: boolean }
 interface Plan { rows: PlanRow[]; add: number; update: number; skip: number; errors: number }
+interface LayoutData { headerRow?: number; headers?: string[]; columns?: Record<string, { title: string; index: number }>; fixed?: Record<string, string>; updateExisting?: boolean; keepRepeats?: boolean; removed?: string[] }
+interface SavedLayout { id: string; name: string; layout: LayoutData }
+/** Fields that are always imported and cannot be removed from the mapping. */
+const KEEP = ['partNumber', 'name'];
+const norm = (h: string) => h.trim().toLowerCase().replace(/\s+/g, ' ');
 const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'error' } as const;
 
 /** Bulk import into the Part Master: choose a file, check the column mapping, preview, then confirm. */
@@ -31,16 +37,52 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const [busy, setBusy] = useState(false);
   const [fixed, setFixed] = useState<Record<string, string>>({});
   const [keepRepeats, setKeepRepeats] = useState(false);
+  const [removed, setRemoved] = useState<string[]>([]);
+  const [layoutId, setLayoutId] = useState('');
+  const [naming, setNaming] = useState<{ mode: 'save' | 'rename'; name: string } | null>(null);
+  const layouts = useQuery({ queryKey: ['sqf-part-import-layouts'], queryFn: () => get<SavedLayout[]>(`${S}/parts/import/layouts`), enabled: open });
   const site = siteId || sites.data?.[0]?.id || '';
-  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setFixed({}); setKeepRepeats(false); };
+  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setFixed({}); setKeepRepeats(false); setRemoved([]); setLayoutId(''); setNaming(null); };
   const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(''); try { await fn(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
-  const read = (headerRow?: number) => run(async () => {
+  /** Fills the mapping from a saved layout: each column is found by its title, or by its position when no title matches. */
+  const applyLayout = (t: ImportTable, l: LayoutData) => {
+    const titles = t.headers.map(norm); const m: Record<string, number> = {};
+    for (const [key, c] of Object.entries(l.columns ?? {})) {
+      const i = titles.indexOf(norm(c.title));
+      if (i >= 0) m[key] = i; else if (c.index < t.headers.length) m[key] = c.index;
+    }
+    setMapping(m); setFixed({ ...(l.fixed ?? {}) }); setUpdate(!!l.updateExisting); setKeepRepeats(!!l.keepRepeats); setRemoved((l.removed ?? []).filter((k) => !KEEP.includes(k))); setPlan(null);
+  };
+  const read = (headerRow?: number, layout?: LayoutData) => run(async () => {
     const fd = new FormData(); fd.append('file', file!);
     const t = await post<ImportTable>(`${S}/parts/import/read?allTables=${allTables}${headerRow ? `&headerRow=${headerRow}` : ''}`, fd);
-    const { name: _n, ...m } = t.mapping; if (preset) delete m.typeName; setTable(t); setMapping(m); setFixed(preset ? { name: preset, typeName: preset } : {}); setPlan(null);
+    setTable(t);
+    if (layout) { applyLayout(t, layout); return; }
+    const { name: _n, ...m } = t.mapping; if (preset) delete m.typeName; setMapping(m); setFixed(preset ? { name: preset, typeName: preset } : {}); setPlan(null);
   });
-  const body = (upd = update, map = mapping) => ({ fileName: table!.fileName, headers: table!.headers, rows: table!.rows, mapping: map, siteId: site, updateExisting: upd,
-    rowNumbers: table!.rowNumbers, keepRepeats, fixed });
+  const chooseLayout = (id: string) => {
+    setLayoutId(id); const l = layouts.data?.find((x) => x.id === id); if (!l || !table) return;
+    if (l.layout.headerRow && l.layout.headerRow !== table.headerRow && table.top?.some((x) => x.row === l.layout.headerRow)) read(l.layout.headerRow, l.layout); else applyLayout(table, l.layout);
+  };
+  const currentLayout = (): LayoutData => ({
+    headerRow: table!.headerRow, headers: table!.headers, updateExisting: update, keepRepeats, removed,
+    columns: Object.fromEntries(Object.entries(mapping).filter(([k]) => !removed.includes(k)).map(([k, i]) => [k, { title: table!.headers[i] ?? '', index: i }])),
+    fixed: Object.fromEntries(Object.entries(fixed).filter(([k]) => !removed.includes(k))),
+  });
+  const saveName = () => run(async () => {
+    const name = naming!.name.trim(); if (!name) return;
+    const x = naming!.mode === 'save' ? await post<SavedLayout>(`${S}/parts/import/layouts`, { name, layout: currentLayout() })
+      : await put<SavedLayout>(`${S}/parts/import/layouts/${layoutId}/name`, { name });
+    await qc.invalidateQueries({ queryKey: ['sqf-part-import-layouts'] }); setLayoutId(x.id); setNaming(null);
+  });
+  const deleteLayout = () => run(async () => {
+    const l = layouts.data?.find((x) => x.id === layoutId); if (!l || !window.confirm(`Delete the layout ${l.name}?`)) return;
+    await del(`${S}/parts/import/layouts/${layoutId}`); await qc.invalidateQueries({ queryKey: ['sqf-part-import-layouts'] }); setLayoutId('');
+  });
+  const removeField = (key: string) => { setRemoved([...removed, key]); setPlan(null); };
+  const keep = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => !removed.includes(k)));
+  const body = (upd = update, map = mapping) => ({ fileName: table!.fileName, headers: table!.headers, rows: table!.rows, mapping: keep(map), siteId: site, updateExisting: upd,
+    rowNumbers: table!.rowNumbers, keepRepeats, fixed: keep(fixed) });
   const preview = (upd = update, map = mapping) => run(async () => setPlan(await post<Plan>(`${S}/parts/import/preview`, body(upd, map))));
   const confirm = () => run(async () => { setDone(await post<Plan>(`${S}/parts/import`, body())); qc.invalidateQueries({ queryKey: ['sqf-parts'] }); });
   /** A field's dropdown value: '' not imported, 'col:<index>' a file column, 'fix:<choice>' the same choice for all rows. */
@@ -81,14 +123,31 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
               </TextField>
               <Typography variant="body2" color="text.secondary">Rows above the header row are not imported.</Typography>
             </Stack>}
+            <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ mb: 2 }}>
+              <TextField select size="small" label="Layout" value={layoutId} onChange={(e) => chooseLayout(e.target.value)} sx={{ minWidth: 240 }} inputProps={{ 'data-testid': 'import-layout' }}
+                SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}>
+                <MenuItem value=""><em>None</em></MenuItem>
+                {(layouts.data ?? []).map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
+              </TextField>
+              <Button size="small" variant="outlined" disabled={busy} onClick={() => setNaming({ mode: 'save', name: layouts.data?.find((x) => x.id === layoutId)?.name ?? '' })}>Save layout</Button>
+              <Button size="small" disabled={busy || !layoutId} onClick={() => setNaming({ mode: 'rename', name: layouts.data?.find((x) => x.id === layoutId)?.name ?? '' })}>Rename</Button>
+              <Button size="small" color="error" disabled={busy || !layoutId} onClick={deleteLayout}>Delete</Button>
+              {naming && <>
+                <TextField size="small" autoFocus label={naming.mode === 'save' ? 'Layout name' : 'New name'} placeholder="Fuel Injector list" value={naming.name}
+                  onChange={(e) => setNaming({ ...naming, name: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') saveName(); }} inputProps={{ maxLength: 200 }} />
+                <Button size="small" variant="contained" disabled={busy || !naming.name.trim()} onClick={saveName}>{naming.mode === 'save' ? 'Save' : 'Rename'}</Button>
+                <Button size="small" onClick={() => setNaming(null)}>Cancel</Button>
+              </>}
+            </Stack>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Column mapping · {table.rows.length} rows found</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
               For each field, pick the column in your file that fills it. Name is picked here for every row and never comes from the file. Fields with set choices (Product family, Part class, Unit of measure, Assembly, Repairable, Lot controlled)
               can also use one choice for every row. Values from a column must match a choice; rows that do not are listed as errors in the preview.
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 1.5 }}>
-              {(fields.data ?? []).map((f) => (
-                <TextField key={f.key} select size="small" label={f.key === 'name' ? 'Name (required, same for all rows)' : f.label} error={f.key === 'name' && !fixed.name} value={valueOf(f.key)} onChange={(e) => setMap(f.key, e.target.value)} inputProps={{ 'data-field': f.key }}
+              {(fields.data ?? []).filter((f) => !removed.includes(f.key)).map((f) => (
+                <Stack key={f.key} direction="row" alignItems="center" gap={0.5}>
+                <TextField fullWidth select size="small" label={f.key === 'name' ? 'Name (required, same for all rows)' : f.label} error={f.key === 'name' && !fixed.name} value={valueOf(f.key)} onChange={(e) => setMap(f.key, e.target.value)} inputProps={{ 'data-field': f.key }}
                   SelectProps={{ renderValue: (v) => { const x = String(v); return x.startsWith('fix:') ? `All rows: ${x.slice(4)}` : x.startsWith('col:') ? `Column: ${table.headers[Number(x.slice(4))] || `Column ${Number(x.slice(4)) + 1}`}` : f.key === 'name' ? 'Choose a name' : 'Not imported'; }, displayEmpty: true }}
                   InputLabelProps={{ shrink: true }}>
                   {f.key !== 'name' && <MenuItem value=""><em>Not imported</em></MenuItem>}
@@ -98,8 +157,14 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
                     ...(f.key === 'name' ? [] : [<ListSubheader key="h2">From file column</ListSubheader>, ...columnItems(f.key)]),
                   ] : columnItems(f.key)}
                 </TextField>
+                {!KEEP.includes(f.key) && <IconButton size="small" aria-label={`Remove ${f.label}`} title="Remove this field; it is not imported" onClick={() => removeField(f.key)}><CloseIcon fontSize="small" /></IconButton>}
+                </Stack>
               ))}
             </Box>
+            {removed.length > 0 && <TextField select size="small" label="Add field" value="" onChange={(e) => { setRemoved(removed.filter((k) => k !== e.target.value)); setPlan(null); }} sx={{ mt: 1.5, minWidth: 230 }}
+              SelectProps={{ displayEmpty: true, renderValue: () => 'Bring back a removed field' }} InputLabelProps={{ shrink: true }}>
+              {(fields.data ?? []).filter((f) => removed.includes(f.key)).map((f) => <MenuItem key={f.key} value={f.key}>{f.label}</MenuItem>)}
+            </TextField>}
             <Stack direction="row" gap={2} alignItems="center" sx={{ mt: 2 }}>
               <Typography variant="body2">Parts already in the Part Master:</Typography>
               <RadioGroup row value={update ? 'update' : 'skip'} onChange={(e) => { const u = e.target.value === 'update'; setUpdate(u); if (plan) preview(u); }}>

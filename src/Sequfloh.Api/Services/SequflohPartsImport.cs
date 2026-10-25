@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
 using Sequfloh.Application.Abstractions;
 using Sequfloh.Domain.Audit;
+using Sequfloh.Domain.Execution;
 using Sequfloh.Domain.MasterData;
 using Sequfloh.Domain.Security;
 using Sequfloh.Imports;
@@ -20,6 +21,8 @@ public sealed record PartsImportRequest(string FileName, List<string> Headers, L
     List<int>? RowNumbers = null, Guid? DefaultTypeId = null, bool KeepRepeats = false, Dictionary<string, string>? Fixed = null);
 /// <summary>Repeat is true for an added row whose OR # is already used by another row or part but whose values differ.</summary>
 public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages, bool Repeat = false);
+public sealed record ImportLayoutInput(string Name, System.Text.Json.JsonElement Layout);
+public sealed record ImportLayoutView(Guid Id, string Name, System.Text.Json.JsonElement Layout);
 public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Update, int Skip, int Errors);
 
 /// <summary>
@@ -374,4 +377,61 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         await drawingLinks.LinkPartsAsync(saved, ct); // drawings already named with a new or changed number link to these parts
         return plan;
     }
+
+    // ------------------------------------------------------------------ saved column layouts
+    public async Task<List<ImportLayoutView>> LayoutsAsync(CancellationToken ct)
+    {
+        await RequireCanImportAsync(ct);
+        var rows = await db.SequflohImportLayouts.AsNoTracking().OrderBy(x => x.Name).ToListAsync(ct);
+        return rows.Select(View).ToList();
+    }
+
+    public async Task<ImportLayoutView> SaveLayoutAsync(ImportLayoutInput r, CancellationToken ct)
+    {
+        await RequireCanImportAsync(ct);
+        var name = CheckLayout(r);
+        var x = await db.SequflohImportLayouts.FirstOrDefaultAsync(l => l.Name.ToLower() == name.ToLower(), ct);
+        var action = x is null ? "Create" : "Update";
+        if (x is null) { x = new SequflohImportLayout { Name = name }; db.SequflohImportLayouts.Add(x); }
+        x.Layout = r.Layout.GetRawText();
+        LayoutAudit(action, x.Id, action == "Create" ? $"Saved import layout {name}." : $"Replaced import layout {name}.");
+        await db.SaveChangesAsync(ct);
+        return View(x);
+    }
+
+    public async Task<ImportLayoutView> RenameLayoutAsync(Guid id, string newName, CancellationToken ct)
+    {
+        await RequireCanImportAsync(ct);
+        var x = await db.SequflohImportLayouts.FirstOrDefaultAsync(l => l.Id == id, ct) ?? throw new NotFoundException("Import layout");
+        ModuleSupport.Required(newName, "Name", 200); var name = newName.Trim();
+        if (await db.SequflohImportLayouts.AnyAsync(l => l.Id != id && l.Name.ToLower() == name.ToLower(), ct)) throw new AppException($"A layout named {name} already exists.");
+        LayoutAudit("Rename", x.Id, $"Renamed import layout {x.Name} to {name}.");
+        x.Name = name;
+        await db.SaveChangesAsync(ct);
+        return View(x);
+    }
+
+    public async Task DeleteLayoutAsync(Guid id, CancellationToken ct)
+    {
+        await RequireCanImportAsync(ct);
+        var x = await db.SequflohImportLayouts.FirstOrDefaultAsync(l => l.Id == id, ct) ?? throw new NotFoundException("Import layout");
+        db.SequflohImportLayouts.Remove(x);
+        LayoutAudit("Delete", x.Id, $"Deleted import layout {x.Name}.");
+        await db.SaveChangesAsync(ct);
+    }
+
+    static string CheckLayout(ImportLayoutInput r)
+    {
+        ModuleSupport.Required(r.Name, "Name", 200); var name = r.Name.Trim();
+        if (r.Layout.ValueKind != System.Text.Json.JsonValueKind.Object) throw new AppException("The layout is missing.");
+        if (r.Layout.GetRawText().Length > 200_000) throw new AppException("The layout is too large.");
+        return name;
+    }
+
+    static ImportLayoutView View(SequflohImportLayout x) => new(x.Id, x.Name, System.Text.Json.JsonDocument.Parse(x.Layout).RootElement.Clone());
+
+    void LayoutAudit(string action, Guid id, string description) => db.AuditEntries.Add(new AuditEntry
+    {
+        OccurredAt = m.Now, UserId = m.UserId, UserName = m.Current.UserName, Action = action, EntityType = "ImportLayout", EntityId = id, Description = description,
+    });
 }

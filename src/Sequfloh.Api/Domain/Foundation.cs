@@ -60,3 +60,17 @@ public class SequflohUserItem : Entity
     public string Label { get; set; } = "";
     public DateTimeOffset LastOpenedAt { get; set; }
 }
+
+/// <summary>A saved column layout for the parts import, shared across the company. Layout is the saved choices as JSON.</summary>
+public class SequflohImportLayout : Entity
+{
+    public string Name { get; set; } = "";
+    public string Layout { get; set; } = "{}";
+}
+
+/// <summary>A user's own SEQUFLOH Home layout: Sections is the section order as JSON, each with whether it is shown.</summary>
+public class SequflohHomeLayout : Entity
+{
+    public Guid UserId { get; set; }
+    public string Sections { get; set; } = "[]";
+}

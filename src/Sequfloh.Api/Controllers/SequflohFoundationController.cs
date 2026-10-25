@@ -88,5 +88,8 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     // recent and pinned items of the current user
     [HttpGet("my-items")] public Task<object> MyItems(CancellationToken ct) => f.UserItemsAsync(ct);
     [HttpPost("my-items")] public async Task<IActionResult> Touch(UserItemInput r, CancellationToken ct) { await f.TouchAsync(r, ct); return NoContent(); }
+    [HttpGet("my-home")] public async Task<object> MyHome(CancellationToken ct) => new { Sections = await f.HomeLayoutAsync(ct) };
+    [HttpPut("my-home")] public async Task<IActionResult> SaveHome(List<HomeSection> r, CancellationToken ct) { await f.SaveHomeLayoutAsync(r, ct); return NoContent(); }
+    [HttpDelete("my-home")] public async Task<IActionResult> ResetHome(CancellationToken ct) { await f.ResetHomeLayoutAsync(ct); return NoContent(); }
     [HttpDelete("my-items/favorites/{id:guid}")] public async Task<IActionResult> Unpin(Guid id, CancellationToken ct) { await f.RemoveFavoriteAsync(id, ct); return NoContent(); }
 }
