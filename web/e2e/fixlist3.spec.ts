@@ -24,7 +24,7 @@ test('completed validation/FAI: import on a family tab lands in that family; rec
   await expect(row).toBeVisible();
 
   // the completed form: shared record actions, Edit moves families, Archive and Delete under More
-  await row.getByTestId('completed-open').click();
+  await page.goto(`/sequfloh/imported-files/${await row.getByTestId('completed-open').getAttribute('data-id')}`);
   const fb = view(page).locator('[data-record-actions="completed-form"]');
   for (const a of ['edit', 'print', 'fullscreen']) await expect(fb.locator(`[data-action="${a}"]`).first()).toBeVisible();
   await fb.getByTestId('more-actions').click();
@@ -131,7 +131,7 @@ test('completed validation/FAI: a PDF imported on a family tab is kept as upload
   await dlg.getByRole('button', { name: 'Close' }).click();
   const row = view(page).getByRole('row').filter({ hasText: `Final FAI ${stamp}` });
   await expect(row).toBeVisible();
-  await row.getByTestId('completed-open').click();
+  await page.goto(`/sequfloh/imported-files/${await row.getByTestId('completed-open').getAttribute('data-id')}`);
   await expect(view(page).getByTestId('completed-pdf-frame')).toBeVisible();
   const fb = view(page).locator('[data-record-actions="completed-form"]');
   for (const a of ['print', 'fullscreen']) await expect(fb.locator(`[data-action="${a}"]`).first()).toBeVisible();

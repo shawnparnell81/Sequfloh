@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, Chip, Link, Dialog, DialogActions, DialogContent, FormControlLabel, Menu, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, GlobalStyles, Button, Checkbox, Chip, Link, Dialog, DialogActions, DialogContent, FormControlLabel, Menu, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +9,7 @@ import { ApiError, api, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
-import { Confirm, Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, S, SqfPage, qs, useUnsaved } from './common';
+import { Confirm, DeleteButton, Empty, ErrorState, Filters, Loading, Mono, Paged, PagedTable, S, SqfPage, qs, useUnsaved } from './common';
 import { PartDrawingLinks } from './Drawings';
 import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
@@ -195,7 +195,7 @@ export function ImportedFilePage() {
       recent={d ? { label: `${d.number} ${d.title}`, itemType: 'ImportedFile', recordId: d.id } : null}
       tabs={pdf ? [{ label: 'PDF', value: 'file' }] : [{ label: d?.kind === 'document' ? 'Document' : 'Sheet', value: 'file' }, { label: `Versions${d ? ` (${d.versions.length})` : ''}`, value: 'versions' },
         ...(d?.isBlankForm ? [{ label: `Filled copies (${d.copies?.length ?? 0})`, value: 'copies' }] : [])]} tab={tab} onTab={setTab}
-      actions={d && <RecordActions surface={filled ? 'completed-form' : 'imported-file'} print={{ onClick: () => (pdf ? window.open(`${A}/${d.id}/download?view=true`, '_blank', 'noopener') : window.print()) }}
+      actions={d && <RecordActions surface={filled ? 'completed-form' : 'imported-file'} print={{ onClick: () => (pdf ? window.open(`${A}/${d.id}/download?view=true`, '_blank', 'noopener') : openFormPrint(d.id)) }}
         rename={d.canEdit && { kind: 'file', id: d.id, number: d.number, title: d.title, asEdit: true, onDone: refresh }}
         more={[d.canEdit && filled && !pdf && { label: 'Change product family', testid: 'change-family', onClick: () => setFamOpen(true) }, d.canEdit && { label: 'Archive', testid: 'archive-file', onClick: () => setArchiveOpen(true) }]}
         importNode={d.canEdit && !pdf && (!d.isBlankForm || editBlank) && <Button component="label" startIcon={<UploadFileOutlined />} disabled={upBusy} data-testid="upload-version">{upBusy ? 'Uploading…' : 'Upload new version'}
@@ -264,6 +264,19 @@ interface FormViewState { full: boolean; mode: 'fit' | number; fit: number; setF
 const FormViewCtx = createContext<FormViewState>({ full: false, mode: 'fit', fit: 1, setFit: () => {} });
 const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 2];
 export const openFormWindow = (id: string) => window.open(`/forms/fill/${id}`, `sqf-form-${id}`, 'popup=yes,width=1400,height=900');
+/** Opens the form by itself in its own window and prints only the form. */
+export const openFormPrint = (id: string) => window.open(`/forms/fill/${id}?print=1`, `sqf-print-${id}`, 'popup=yes,width=1400,height=900');
+/** Print rules for a form window: only the form, without the toolbar, headings or blank cells past the last filled row and column. */
+const formPrintCss = <GlobalStyles styles={{ '@media print': {
+  '@page': { margin: '10mm' }, body: { background: '#fff' },
+  '.sqf-noprint': { display: 'none !important' }, 'col.sqf-noprint': { display: 'none !important', visibility: 'collapse' },
+  '[data-testid="form-window"]': { padding: '0 !important', minHeight: '0 !important' },
+  '[data-testid="sheet-scroll"]': { overflow: 'visible !important', maxHeight: 'none !important', minHeight: '0 !important', border: '0 !important' },
+  '[data-testid="sheet-grid"] th, [data-testid="sheet-grid"] thead': { display: 'none !important' },
+  '[data-testid="document-scroll"]': { overflow: 'visible !important', maxHeight: 'none !important', padding: '0 !important', background: '#fff !important' },
+  '[data-testid="document-page"]': { boxShadow: 'none !important' },
+  '[data-testid="sheet-grid"] td': { outline: 'none !important', cursor: 'default' },
+} }} />;
 
 /** Scales a form so its whole width shows without scrolling sideways (fit to width), or to the zoom the user picked. Saving is the same at any zoom. */
 function ZoomBox({ natural, children }: { natural: number; children: ReactNode }) {
@@ -296,7 +309,7 @@ function FormView({ fileId, standalone, children }: { fileId: string; standalone
   return (
     <FormViewCtx.Provider value={ctx}>
       <Box data-testid="form-view" data-full={full || undefined} sx={full ? { position: 'fixed', inset: 0, zIndex: 1400, bgcolor: 'background.default', p: 1.5, overflow: 'auto' } : undefined}>
-        <Stack direction="row" gap={0.5} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap">
+        <Stack direction="row" gap={0.5} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" className="sqf-noprint">
           <Button size="small" variant="outlined" onClick={() => step(-1)} aria-label="Zoom out" data-testid="zoom-out" sx={{ minWidth: 36 }}>−</Button>
           <Typography variant="body2" sx={{ width: 52, textAlign: 'center' }} data-testid="zoom-level">{Math.round(cur * 100)}%</Typography>
           <Button size="small" variant="outlined" onClick={() => step(1)} aria-label="Zoom in" data-testid="zoom-in" sx={{ minWidth: 36 }}>+</Button>
@@ -317,18 +330,22 @@ export function FormFillWindow() {
   const id = loc.pathname.split('/').filter(Boolean)[2] ?? '';
   const q = useQuery({ queryKey: ['imported-file', id], queryFn: () => get<Detail>(`${A}/${id}`), enabled: !!id });
   const d = q.data;
+  const printing = new URLSearchParams(loc.search).has('print');
   useEffect(() => { if (d) document.title = `${d.number} ${d.title}`; }, [d]);
+  useEffect(() => { if (d && printing && d.kind !== 'pdf') { const t = setTimeout(() => window.print(), 1500); return () => clearTimeout(t); } }, [d?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Box sx={{ p: 1.5, minHeight: '100vh', bgcolor: 'background.default' }} data-testid="form-window">
+      {formPrintCss}
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
-        <Stack direction="row" gap={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap">
+        <Stack direction="row" gap={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" className="sqf-noprint">
           <Typography variant="h3"><Mono>{d.number}</Mono> · {d.title}</Typography>
           <Chip size="small" color="primary" variant="outlined" label={`Version ${d.currentVersion}`} />
           {d.isBlankForm && <Chip size="small" color="primary" label="Blank form (view only here)" />}
         </Stack>
-        <FormView fileId={d.id} standalone>{d.kind === 'spreadsheet'
+        {d.kind === 'pdf' ? <Box component="iframe" title={d.title} src={`${A}/${d.id}/download?view=true`} sx={{ width: '100%', height: 'calc(100vh - 80px)', border: 0 }} data-testid="completed-pdf-frame" />
+        : <FormView fileId={d.id} standalone>{d.kind === 'spreadsheet'
           ? <SheetEditor key={d.id} file={d} version={d.currentVersion} editable={d.canEdit && !d.isBlankForm} editBlank={false} onSaved={() => q.refetch()} />
-          : <DocumentEditor key={d.id} file={d} version={d.currentVersion} editable={d.canEdit && !d.isBlankForm} editBlank={false} onSaved={() => q.refetch()} />}</FormView>
+          : <DocumentEditor key={d.id} file={d} version={d.currentVersion} editable={d.canEdit && !d.isBlankForm} editBlank={false} onSaved={() => q.refetch()} />}</FormView>}
       </>}
     </Box>
   );
@@ -435,6 +452,14 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
   if (!g) return null;
   const selCell = sel ? cells.get(key(sel.r, sel.c)) : undefined;
   const selInfo = sel ? fInfo.get(key(sel.r, sel.c)) : undefined;
+  // the last row and column that hold a value or a bordered form cell; anything after them is left off the printout
+  let lastR = g.r1, lastC = g.c1;
+  for (const x of g.cells) {
+    const st = x.style;
+    if ((x.text ?? '') !== '' || x.formula || pend[key(x.r, x.c)] || st?.borderTop || st?.borderRight || st?.borderBottom || st?.borderLeft) {
+      lastR = Math.max(lastR, x.r + x.rowSpan - 1); lastC = Math.max(lastC, x.c + x.colSpan - 1);
+    }
+  }
   const rows: ReactNode[] = [];
   for (let r = g.r1; r <= g.r2; r++) {
     const tds: ReactNode[] = [<th key="h" style={{ ...headCss, position: 'sticky', left: 0, zIndex: 2, minWidth: 40 }}>{r}</th>];
@@ -450,7 +475,7 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
       const look = looks.get(k);
       const isFormula = !!(p !== undefined ? p.startsWith('=') : x?.formula);
       const info = fInfo.get(k);
-      tds.push(<td key={k} rowSpan={x?.rowSpan ?? 1} colSpan={x?.colSpan ?? 1} data-cell={`${letters(c)}${r}`} data-formula={x?.formula ?? undefined} data-fill={look?.fill ?? undefined}
+      tds.push(<td key={k} className={c > lastC ? 'sqf-noprint' : undefined} rowSpan={x?.rowSpan ?? 1} colSpan={x?.colSpan ?? 1} data-cell={`${letters(c)}${r}`} data-formula={x?.formula ?? undefined} data-fill={look?.fill ?? undefined}
         onClick={() => select(r, c)} onDoubleClick={() => { if (editable) { select(r, c); setEditing(k); } }}
         title={info?.warning ?? (x?.formula ? `${x.formula}` : x?.comment ?? undefined)}
         style={{ ...baseCell, ...cellCss(x?.style), height: pt(g.heights[r - g.r1] ?? 15), outline: isSel ? '2px solid #1257C4' : undefined, outlineOffset: -2,
@@ -464,12 +489,12 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
         {isFormula && !showFormulas && <span aria-hidden style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, borderTop: `6px solid ${GREEN}`, borderRight: '6px solid transparent' }} />}
       </td>);
     }
-    rows.push(<tr key={r}>{tds}</tr>);
+    rows.push(<tr key={r} className={r > lastR ? 'sqf-noprint' : undefined}>{tds}</tr>);
   }
   return (
     <Stack gap={1}>
-      {msg && <Alert severity={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Alert>}
-      <Paper variant="outlined" sx={{ p: 1 }}>
+      {msg && <Alert className="sqf-noprint" severity={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      <Paper variant="outlined" sx={{ p: 1 }} className="sqf-noprint">
         <Stack direction="row" gap={1} alignItems="center">
           <Box sx={{ width: 70, fontFamily: faces.mono, fontWeight: 600, textAlign: 'center' }} data-testid="cell-address">{sel ? `${letters(sel.c)}${sel.r}` : ''}</Box>
           <Typography sx={{ fontStyle: 'italic', color: GREEN, fontWeight: 700, px: 0.5 }}>fx</Typography>
@@ -487,15 +512,15 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
       <Paper variant="outlined" sx={{ overflow: 'auto', maxHeight: view.full ? 'calc(100vh - 190px)' : 'calc(100vh - 330px)', minHeight: 300 }} data-testid="sheet-scroll">
         <ZoomBox natural={40 + g.widths.reduce((n, w) => n + pt(w), 0) + 2}>
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }} data-testid="sheet-grid">
-          <colgroup><col style={{ width: 40 }} />{g.widths.map((w, i) => <col key={i} style={{ width: pt(w) }} />)}</colgroup>
+          <colgroup><col style={{ width: 40 }} />{g.widths.map((w, i) => <col key={i} className={g.c1 + i > lastC ? 'sqf-noprint' : undefined} style={{ width: pt(w) }} />)}</colgroup>
           <thead><tr><th style={{ ...headCss, position: 'sticky', top: 0, left: 0, zIndex: 3 }} />{g.widths.map((_, i) => <th key={i} style={{ ...headCss, position: 'sticky', top: 0, zIndex: 1 }}>{letters(g.c1 + i)}</th>)}</tr></thead>
           <tbody>{rows}</tbody>
         </table>
         </ZoomBox>
       </Paper>
-      {g.truncated && <Typography variant="caption" color="text.secondary">Only the first rows and columns are shown here; download the file to see all of it.</Typography>}
+      {g.truncated && <Typography variant="caption" color="text.secondary" className="sqf-noprint">Only the first rows and columns are shown here; download the file to see all of it.</Typography>}
       {copy.dialog(() => setEdits({}))}
-      {g.sheets.length > 1 && <Tabs value={g.sheet} onChange={(_, v) => { setSheet(v); setSel(null); }} variant="scrollable" sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, textTransform: 'none' } }}>
+      {g.sheets.length > 1 && <Tabs className="sqf-noprint" value={g.sheet} onChange={(_, v) => { setSheet(v); setSel(null); }} variant="scrollable" sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, textTransform: 'none' } }}>
         {g.sheets.map((s) => <Tab key={s} value={s} label={`${s}${Object.keys(edits[s] ?? {}).length ? ' •' : ''}`} />)}
       </Tabs>}
     </Stack>
@@ -598,8 +623,8 @@ function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file:
   const fs = d.finalSection;
   return (
     <Stack gap={1}>
-      {msg && <Alert severity={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Alert>}
-      {editable && <Paper variant="outlined" sx={{ p: 1 }}><Stack direction="row" gap={1} alignItems="center">
+      {msg && <Alert className="sqf-noprint" severity={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      {editable && <Paper variant="outlined" sx={{ p: 1 }} className="sqf-noprint"><Stack direction="row" gap={1} alignItems="center">
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1, px: 1 }}>Click a paragraph or table cell to change its text. Fields, form controls and pictures stay as they are in the file.</Typography>
         {count > 0 && <Button onClick={() => { setEdits({}); setEditing(null); }} disabled={busy} sx={{ flexShrink: 0 }}>Discard</Button>}
         {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
@@ -644,12 +669,12 @@ function FamilyDialog({ open, file, onClose, onSaved }: { open: boolean; file: D
   </Dialog>;
 }
 
-interface CompletedRow { id: string; number: string; title: string; partNumber?: string | null; updatedAt: string }
+interface CompletedRow { id: string; number: string; title: string; kind?: string; partNumber?: string | null; updatedAt: string }
 /** Completed Validation / FAI: the filled forms made from blank forms, one tab per product family plus Unassigned. */
 export function CompletedFormsPage() {
   const fams = useFamilies();
   const [sp, setSp] = useSearchParams();
-  const nav = useNavigate();
+  const openCompleted = (id: string) => window.open(`/forms/fill/${id}`, '_blank', 'noopener');
   const families = (fams.data ?? []).filter((f) => f.isActive);
   const tab = sp.get('family') ?? families[0]?.id ?? 'none';
   const [page, setPage] = useState(1); const [size, setSize] = useState(50);
@@ -680,12 +705,13 @@ export function CompletedFormsPage() {
         <Tab value="salt-spray" label="Salt Spray Test" data-testid="completed-salt-spray" />
         <Tab value="none" label="Unassigned" data-testid="completed-unassigned" />
       </Tabs>
-      {fams.isLoading ? <Loading /> : <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty={tab === 'salt-spray' ? 'No Salt Spray Test forms yet.' : 'No filled forms in this family yet.'}
+      {fams.isLoading ? <Loading /> : <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => openCompleted(r.id)} empty={tab === 'salt-spray' ? 'No Salt Spray Test forms yet.' : 'No filled forms in this family yet.'}
         cols={[{ key: 'title', label: 'Title', render: (r: CompletedRow) => <><Mono>{r.number}</Mono> {r.title}</> }, { key: 'partNumber', label: 'Part number', render: (r: CompletedRow) => r.partNumber ? <Mono>{r.partNumber}</Mono> : '—' },
           { key: 'updatedAt', label: 'Saved', render: (r: CompletedRow) => fmtDateTime(r.updatedAt) },
           { key: 'actions', label: '', render: (r: CompletedRow) => <Stack direction="row" gap={1} onClick={(e) => e.stopPropagation()}>
-            <Button size="small" component={RouterLink} to={`/sequfloh/imported-files/${r.id}`} data-testid="completed-open">Open</Button>
-            <Button size="small" component={RouterLink} to={`/sequfloh/imported-files/${r.id}?print=1`} data-testid="completed-print">Print</Button></Stack> }]} />}
+            <Button size="small" component="a" href={`/forms/fill/${r.id}`} target="_blank" rel="noopener" data-id={r.id} data-testid="completed-open">Open</Button>
+            <Button size="small" onClick={() => (r.kind === 'pdf' ? window.open(`${A}/${r.id}/download?view=true`, '_blank', 'noopener') : openFormPrint(r.id))} data-id={r.id} data-testid="completed-print">Print</Button>
+            <DeleteButton size="small" what={`${r.number} ${r.title}`} url={`${A}/${r.id}`} extra="All versions and stored files are removed." onDone={() => qc.invalidateQueries({ queryKey: ['imported-completed'] })} /></Stack> }]} />}
     </SqfPage>
   );
 }
