@@ -170,7 +170,14 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     [HttpPut("{id:guid}")]
     public async Task<object> Save(Guid id, TrackingSaveInput r, CancellationToken ct) { var x = await tracking.SaveAsync(id, r, ct); return new { x.Id, x.StateVersion, x.Result }; }
     [HttpPost("{id:guid}/actions/{name}")]
-    public async Task<object> Act(Guid id, string name, TaskActionInput r, CancellationToken ct) { var x = await tracking.ActAsync(id, name, r, ct); return new { x.Id, x.Status, x.StateVersion }; }
+    public async Task<object> Act(Guid id, string name, TaskActionInput r, CancellationToken ct, [FromServices] SequflohJobService? jobs = null)
+    {
+        var was = await db.SequflohTrackingRecords.AsNoTracking().Where(e => e.Id == id).Select(e => (TrackingStatus?)e.Status).FirstOrDefaultAsync(ct);
+        var x = await tracking.ActAsync(id, name, r, ct);
+        // completing a work order saves its job report to Reports; a reopened order completed again gets a new one
+        if (jobs is not null && was != TrackingStatus.Completed && x.Status == TrackingStatus.Completed) await jobs.SaveReportAsync(x.Id, "Completed", print, ct);
+        return new { x.Id, x.Status, x.StateVersion };
+    }
     [HttpGet("{id:guid}/history")] [RequirePermission(Permissions.SequflohViewAuditTrail)]
     public async Task<object> History(Guid id, CancellationToken ct)
     {

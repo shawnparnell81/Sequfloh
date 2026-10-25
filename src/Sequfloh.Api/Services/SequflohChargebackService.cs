@@ -110,8 +110,12 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             query = query.Where(x => EF.Functions.ILike(x.WorkOrderNumber, like) || (x.PartNumber != null && EF.Functions.ILike(x.PartNumber, like)) || (x.Supplier != null && EF.Functions.ILike(x.Supplier, like)));
         }
         var rows = await query.OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync(ct);
+        var ids = rows.Where(x => x.TrackingRecordId != null).Select(x => x.TrackingRecordId!.Value).Distinct().ToList();
+        var closed = ids.Count == 0 || await m.CanAnyAsync(Permissions.SequflohReopenCompleted, ct) ? [] : (await db.SequflohTrackingRecords.AsNoTracking()
+            .Where(r => ids.Contains(r.Id) && (r.Status == TrackingStatus.Completed || r.Status == TrackingStatus.Canceled)).Select(r => r.Id).ToListAsync(ct)).ToHashSet();
         return rows.Select(x => new
         {
+            Locked = x.TrackingRecordId is { } t && closed.Contains(t),
             x.Id, x.WorkOrderNumber, x.TrackingNumber, x.Supplier, x.PartNumber, x.Result, x.QtyInspected, x.QtyBad, x.TotalPersonnel, x.TotalHours, x.DateFrom, x.DateTo,
             Total = Total(x), x.CreatedAt, x.CreatedByName,
         });
@@ -129,7 +133,9 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
     {
         await RequireViewAsync(ct);
         var x = await db.SequflohChargebackReports.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, ct) ?? throw new NotFoundException("Chargeback report");
-        return Dto(x);
+        var d = JsonSerializer.SerializeToNode(Dto(x), SequflohJson.Options)!.AsObject();
+        d["locked"] = await LockedAsync(x, ct);
+        return d;
     }
 
     static object Dto(SequflohChargebackReport x) => new
@@ -199,10 +205,23 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         return Dto(x);
     }
 
+    /// <summary>True when the report belongs to a Completed or Canceled work order and the user can't reopen completed work orders.</summary>
+    async Task<bool> LockedAsync(SequflohChargebackReport x, CancellationToken ct)
+    {
+        if (x.TrackingRecordId is not { } tid) return false;
+        var r = await db.SequflohTrackingRecords.AsNoTracking().FirstOrDefaultAsync(e => e.Id == tid, ct);
+        return r is not null && SequflohTrackingService.IsClosed(r) && !await m.CanAnyAsync(Permissions.SequflohReopenCompleted, ct);
+    }
+    async Task RequireUnlockedAsync(SequflohChargebackReport x, CancellationToken ct)
+    {
+        if (await LockedAsync(x, ct)) throw new ConflictException($"Work order {x.TrackingNumber ?? x.WorkOrderNumber} is closed, so its chargeback report is locked.");
+    }
+
     public async Task<object> UpdateAsync(Guid id, ChargebackInput i, CancellationToken ct)
     {
         await RequireEditAsync(ct);
         var x = await db.SequflohChargebackReports.FirstOrDefaultAsync(e => e.Id == id, ct) ?? throw new NotFoundException("Chargeback report");
+        await RequireUnlockedAsync(x, ct);
         var before = Snapshot(x);
         await FillAsync(x, i, ct);
         f.Audit("ChargebackReportUpdated", Entity, x.Id, $"Chargeback report for work order {x.WorkOrderNumber} updated", x.SiteId, context: new { before, after = Snapshot(x) });
@@ -214,6 +233,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
     {
         await RequireEditAsync(ct);
         var x = await db.SequflohChargebackReports.FirstOrDefaultAsync(e => e.Id == id, ct) ?? throw new NotFoundException("Chargeback report");
+        await RequireUnlockedAsync(x, ct);
         f.Audit("ChargebackReportDeleted", Entity, x.Id, $"Chargeback report for work order {x.WorkOrderNumber} deleted", x.SiteId, context: new { before = Snapshot(x), after = (string?)null });
         db.SequflohChargebackReports.Remove(x);
         await db.SaveChangesAsync(ct);

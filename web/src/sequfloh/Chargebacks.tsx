@@ -19,7 +19,7 @@ interface PartOpt { id: string; partNumber: string; name?: string | null; descri
 interface WoOpt { id: string; number: string; workOrder?: string | null; partNumber?: string | null; workInstructionTitle?: string | null }
 interface Line { description: string; amount: string }
 interface PartLine { partNumber: string; description: string; quantity: string; unitCost: string }
-interface Report {
+interface Report { locked?: boolean;
   id: string; workOrderNumber: string; trackingRecordId?: string | null; trackingNumber?: string | null; supplier?: string | null; supplierReference?: string | null; partId?: string | null;
   partNumber?: string | null; partDescription?: string | null; taskDescription?: string | null; result?: string | null; qtyInspected?: number | null; qtyBad?: number | null;
   totalPersonnel?: number | null; totalHours?: number | null; crewHours?: number | null; userHours?: number | null; dateFrom?: string | null; dateTo?: string | null; hourlyRate?: number | null;
@@ -50,11 +50,12 @@ export function ChargebackListPage() {
     {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : !q.data?.length ? <Empty text="No chargeback reports yet." /> :
       <Paper variant="outlined"><Table size="small" data-testid="chargeback-list">
         <TableHead><TableRow><TableCell>Work order #</TableCell><TableCell>Supplier</TableCell><TableCell>Part number</TableCell><TableCell>Result</TableCell><TableCell align="right">Qty</TableCell>
-          <TableCell align="right">Qty bad</TableCell><TableCell align="right">Personnel</TableCell><TableCell align="right">Hours</TableCell><TableCell align="right">Total</TableCell><TableCell>Created</TableCell></TableRow></TableHead>
-        <TableBody>{q.data.map((r) => <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => nav(`/sequfloh/chargebacks/${r.id}`)}>
+          <TableCell align="right">Qty bad</TableCell><TableCell align="right">Personnel</TableCell><TableCell align="right">Hours</TableCell><TableCell align="right">Total</TableCell><TableCell>Created</TableCell><TableCell /></TableRow></TableHead>
+        <TableBody>{q.data.map((r) => <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => openChargebackPdf(r.id)}>
           <TableCell><Mono>{r.workOrderNumber}</Mono></TableCell><TableCell>{r.supplier ?? '—'}</TableCell><TableCell><Mono>{r.partNumber ?? '—'}</Mono></TableCell><TableCell>{r.result ?? '—'}</TableCell>
           <TableCell align="right">{num(r.qtyInspected)}</TableCell><TableCell align="right">{num(r.qtyBad)}</TableCell><TableCell align="right">{num(r.totalPersonnel)}</TableCell>
           <TableCell align="right">{num(r.totalHours, 2)}</TableCell><TableCell align="right">{money(r.total)}</TableCell><TableCell>{fmtDateTime(r.createdAt)} · {r.createdByName}</TableCell>
+          <TableCell onClick={(e) => e.stopPropagation()}>{canEdit && !r.locked && <Button size="small" onClick={() => nav(`/sequfloh/chargebacks/${r.id}`)} data-testid="cb-row-edit">Edit</Button>}</TableCell>
         </TableRow>)}</TableBody>
       </Table></Paper>}
   </SqfPage>;
@@ -277,14 +278,17 @@ export function ChargebackViewPage() {
   if (q.error || !q.data) return <ErrorState error={q.error} />;
   const r = q.data;
   return <SqfPage title={`Chargeback report ${r.workOrderNumber}`} crumbs={crumbs(r.workOrderNumber)} permission="sequfloh.view_reports"
-    actions={<RecordActions surface="chargeback-report" edit={canEdit && { onClick: () => nav(`/sequfloh/chargebacks/${r.id}`) }}
+    actions={<RecordActions surface="chargeback-report" edit={canEdit && !r.locked && { onClick: () => nav(`/sequfloh/chargebacks/${r.id}`) }}
       print={{ href: `${S}/chargebacks/${r.id}/pdf`, testid: 'cb-pdf' }}
-      del={{ what: `chargeback report for work order ${r.workOrderNumber}`, url: `${S}/chargebacks/${r.id}`, to: '/sequfloh/chargebacks', perm: 'sequfloh.manage_chargebacks', show: canEdit }}>
+      del={{ what: `chargeback report for work order ${r.workOrderNumber}`, url: `${S}/chargebacks/${r.id}`, to: '/sequfloh/chargebacks', perm: 'sequfloh.manage_chargebacks', show: canEdit && !r.locked }}>
       <Button variant="outlined" href={`${S}/chargebacks/${r.id}/xlsx`} data-testid="cb-xlsx">Export Excel</Button>
     </RecordActions>}>
     <ReportBlocks id={r.id} title={`Chargeback Report: ${r.partNumber ?? r.workOrderNumber}`} supplier={r.supplier} />
   </SqfPage>;
 }
+
+/** Opens the saved chargeback report's PDF in a new browser tab. */
+export const openChargebackPdf = (id: string) => window.open(`${S}/chargebacks/${id}/pdf`, '_blank', 'noopener');
 
 /** The saved report on screen, in the same order and look as its PDF: blue section bars, label / value rows and tables. */
 function ReportBlocks({ id, title, supplier }: { id: string; title: string; supplier?: string | null }) {

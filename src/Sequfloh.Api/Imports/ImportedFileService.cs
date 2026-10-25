@@ -41,6 +41,30 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         return f;
     }
 
+    /// <summary>
+    /// The form copy of a Completed or Canceled work order can't be changed, renamed, moved, archived or deleted
+    /// unless the user may reopen completed work orders at that work order's site.
+    /// </summary>
+    public static async Task GuardClosedWorkOrderAsync(AppDbContext db, IAccessService access, Guid userId, ImportedFile f, CancellationToken ct)
+    {
+        var closed = await ClosedWorkOrderOfAsync(db, f.Id, ct);
+        if (closed is null) return;
+        if (await access.CanAccessAsync(userId, Permissions.SequflohReopenCompleted, closed.SiteId, closed.DepartmentId, ct)) return;
+        throw new ConflictException($"This form belongs to work order {closed.Number}, which is {(closed.Status == Sequfloh.Domain.Execution.TrackingStatus.Completed ? "completed" : "canceled")}. It is locked and can't be changed.");
+    }
+
+    /// <summary>The Completed or Canceled work order this file is the attached form copy of, or null.</summary>
+    public static async Task<Sequfloh.Domain.Execution.SequflohTrackingRecord?> ClosedWorkOrderOfAsync(AppDbContext db, Guid fileId, CancellationToken ct)
+    {
+        var id = fileId.ToString();
+        var match = $"{{\"validationForm\":{{\"fileId\":\"{id}\"}}}}";
+        return await db.SequflohTrackingRecords.AsNoTracking()
+            .Where(r => (r.Status == Sequfloh.Domain.Execution.TrackingStatus.Completed || r.Status == Sequfloh.Domain.Execution.TrackingStatus.Canceled) && EF.Functions.JsonContains(r.Details, match))
+            .FirstOrDefaultAsync(ct);
+    }
+
+    Task GuardClosedAsync(ImportedFile f, CancellationToken ct) => GuardClosedWorkOrderAsync(db, access, UserId, f, ct);
+
     public async Task<object> ListAsync(string? q, string? kind, int page, int pageSize, CancellationToken ct, string? family = null)
     {
         var scope = await access.GetScopeAsync(UserId, Permissions.SequflohViewImportedFiles, ct);
@@ -77,13 +101,16 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var versions = await db.ImportedFileVersions.AsNoTracking().Where(v => v.ImportedFileId == id).OrderByDescending(v => v.Version)
             .Select(v => new { v.Version, v.FileName, v.SizeBytes, v.Note, v.CreatedAt }).ToListAsync(ct);
         var canEdit = await access.CanAccessAsync(UserId, Permissions.SequflohImportFiles, f.SiteId, f.DepartmentId, ct);
+        var closedOrder = await ClosedWorkOrderOfAsync(db, f.Id, ct);
+        string? lockedNote = closedOrder is null ? null : $"Locked: work order {closedOrder.Number} is {(closedOrder.Status == Sequfloh.Domain.Execution.TrackingStatus.Completed ? "completed" : "canceled")}.";
+        if (closedOrder is not null && !await access.CanAccessAsync(UserId, Permissions.SequflohReopenCompleted, closedOrder.SiteId, closedOrder.DepartmentId, ct)) canEdit = false;
         var blank = f.BlankFormId is null ? null : await db.ImportedFiles.AsNoTracking().Where(b => b.Id == f.BlankFormId)
             .Select(b => new { b.Id, b.Number, b.Title, Version = f.BlankFormVersion }).FirstOrDefaultAsync(ct);
         var copies = !f.IsBlankForm ? null : await db.ImportedFiles.AsNoTracking().Where(c => c.BlankFormId == f.Id && !c.IsArchived).OrderByDescending(c => c.CreatedAt)
             .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.PartNumber, c.CreatedAt, c.UpdatedAt })
             .Take(500).ToListAsync(ct);
         return new { f.Id, f.Number, f.Title, Kind = KindName(f.Kind), f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
-            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, f.IsCompletedForm, BlankForm = blank, Copies = copies, f.PartNumber, f.FamilyId };
+            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, LockedNote = lockedNote, f.IsBlankForm, f.IsCompletedForm, BlankForm = blank, Copies = copies, f.PartNumber, f.FamilyId };
     }
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
@@ -225,6 +252,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task<object> UploadVersionAsync(Guid id, Stream content, string fileName, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
         if (f.IsArchived) throw new AppException("This imported file is archived.");
         var (name, _, _, kind, working, workingExt, workingType, _) = await PrepareAsync(content, fileName, ct);
         if (kind != f.Kind) throw new AppException(f.Kind == ImportedFileKind.Spreadsheet ? "Upload a spreadsheet to replace this spreadsheet." : "Upload a Word document to replace this document.");
@@ -381,6 +409,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task<object> SaveCellsAsync(Guid id, int baseVersion, IReadOnlyList<CellEdit> edits, CancellationToken ct, bool editBlank = false)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
         GuardBlank(f, editBlank);
         if (f.Kind != ImportedFileKind.Spreadsheet) throw new AppException("This imported file is a document.");
         if (f.IsArchived) throw new AppException("This imported file is archived.");
@@ -464,6 +493,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task<object> SaveDocumentAsync(Guid id, int baseVersion, IReadOnlyList<ParagraphEdit> edits, CancellationToken ct, bool editBlank = false)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
         GuardBlank(f, editBlank);
         if (f.Kind != ImportedFileKind.Document) throw new AppException("This imported file is a spreadsheet.");
         if (f.IsArchived) throw new AppException("This imported file is archived.");
@@ -617,6 +647,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task RenameAsync(Guid id, string title, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
         if (string.IsNullOrWhiteSpace(title)) throw new AppException("Enter a title.");
         f.Title = title.Trim().Length > 300 ? title.Trim()[..300] : title.Trim();
         await db.SaveChangesAsync(ct);
@@ -626,6 +657,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task SetPartNumberAsync(Guid id, string? partNumber, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
         if (f.IsBlankForm) throw new AppException("A blank form has no part number. Fill out a copy and enter it there.");
         var n = string.IsNullOrWhiteSpace(partNumber) ? null : partNumber.Trim();
         if (n is { Length: > 100 }) throw new AppException("Keep the part number to 100 characters.");
@@ -646,6 +678,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task SetFamilyAsync(Guid id, Guid? familyId, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
         if (f.BlankFormId is null && !f.IsCompletedForm) throw new AppException("Only a filled form has a product family.");
         await CheckFamilyAsync(familyId, ct);
         if (f.FamilyId == familyId) return;
@@ -659,6 +692,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task ArchiveAsync(Guid id, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
         if (f.IsArchived) return;
         f.IsArchived = true; f.ArchivedAt = DateTimeOffset.UtcNow;
         db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Archived", EntityType = nameof(ImportedFile),

@@ -165,6 +165,7 @@ export function JobReportPage() {
   const [supplier, setSupplier] = useState(''); const [reference, setReference] = useState(''); const [rate, setRate] = useState('');
   const [opts, setOpts] = useState<Opts | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const r = q.data;
   const o = opts ?? r?.options ?? NONE;
   const choose = async (next: Opts) => {
@@ -181,7 +182,8 @@ export function JobReportPage() {
   const opt = (pairs: [string, unknown][]) => pairs.filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)] as [string, string]);
   return <SqfPage title={r ? `Job report · ${r.number}` : 'Job report'} crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work orders', to: '/sequfloh/tracking' }, { label: r?.number ?? '…', to: `/sequfloh/record/${id}` }, { label: 'Job report' }]}
     actions={<Stack direction="row" gap={1} className="no-print"><Button component={RouterLink} to={`/sequfloh/record/${id}`}>Back</Button>
-      <Button variant="outlined" onClick={() => window.print()}>Print</Button><Button variant="contained" href={pdf}>Download PDF</Button></Stack>}>
+      <Button variant="outlined" onClick={() => window.print()}>Print</Button>
+      <Button variant="outlined" data-testid="save-job-report" onClick={async () => { setErr(null); setSaved(false); try { await post(`${S}/tracking/${id}/job/report/save`, {}); setSaved(true); } catch (e) { setErr((e as Error).message); } }}>Save to Reports</Button><Button variant="contained" href={pdf}>Download PDF</Button></Stack>}>
     <style>{'@media print { .no-print, header, nav, .MuiDrawer-root, .MuiAppBar-root { display: none !important; } .job-report { border: none !important; } }'}</style>
     <Paper variant="outlined" className="no-print" sx={{ p: 2, mb: 2 }}><Stack direction="row" gap={1} flexWrap="wrap">
       <TextField size="small" label="Supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder={fd.supplier ?? undefined} />
@@ -201,7 +203,8 @@ export function JobReportPage() {
         </RadioGroup>
       </FormControl>
       <Typography variant="caption" color="text.secondary" component="div">Your choices are remembered for this work order. Sections with nothing in them are left out. Full detail and Summary only keep the Yes / No answer above.</Typography>
-      {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}</Paper>
+      {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}
+      {saved && <Alert severity="success" sx={{ mt: 1 }} onClose={() => setSaved(false)}>Saved to Reports.</Alert>}</Paper>
     {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : r && <Paper variant="outlined" className="job-report" sx={{ p: 3 }} data-testid="job-report">
       <Typography variant="h5" sx={{ color: '#1257C4' }}>Chargeback job report</Typography>
       <Typography variant="body2" color="text.secondary" gutterBottom>Generated {fmtDateTime(r.generatedAt)}</Typography>
