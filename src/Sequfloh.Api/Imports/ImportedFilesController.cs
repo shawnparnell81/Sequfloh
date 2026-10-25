@@ -49,7 +49,7 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
     {
         var (content, type, name) = await files.DownloadAsync(id, version, original, ct);
         Response.Headers["X-Content-Type-Options"] = "nosniff";
-        if (view && type == "application/pdf") { Response.Headers.ContentDisposition = $"inline; filename=\"{name.Replace("\"", "")}\""; return File(content, type); }
+        if (view && type == "application/pdf") { Response.Headers["X-Frame-Options"] = "SAMEORIGIN"; Response.Headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; object-src 'self'; frame-ancestors 'self'"; Response.Headers.ContentDisposition = $"inline; filename=\"{name.Replace("\"", "")}\""; return File(content, type); }
         return File(content, type, name);
     }
 
