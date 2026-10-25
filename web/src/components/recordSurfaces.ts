@@ -11,6 +11,8 @@ export const RECORD_SURFACES = {
   'chargeback-report-edit': { label: 'Chargeback report (editing)', actions: ['save', 'cancel', 'fullscreen'] },
   'drawing': { label: 'Drawing', actions: ['edit', 'print', 'import', 'delete', 'fullscreen'] },
   'drawing-folder': { label: 'Drawing folder', actions: ['edit', 'import', 'delete', 'fullscreen'] },
+  'completed-forms': { label: 'Completed Validation/FAI (a product family tab)', actions: ['print', 'import', 'fullscreen'] },
+  'completed-form': { label: 'Completed form', actions: ['edit', 'print', 'import', 'delete', 'fullscreen'] },
   'imported-file': { label: 'Imported file / template', actions: ['print', 'import', 'delete', 'fullscreen'] },
   'inspection-request': { label: 'Inspection request', actions: ['edit', 'delete', 'fullscreen'] },
   'part': { label: 'Part', actions: ['edit', 'delete', 'fullscreen'] },

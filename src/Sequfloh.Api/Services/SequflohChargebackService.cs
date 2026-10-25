@@ -14,9 +14,9 @@ using Sequfloh.Tracking;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record ChargebackPart(string PartNumber, string? Description, decimal Quantity, decimal? UnitCost);
-public sealed record ChargebackInput(string WorkOrderNumber, Guid? TrackingRecordId, string? Supplier, string? SupplierReference, Guid? PartId, string? PartNumber, string? PartDescription,
+public sealed record ChargebackInput(string? WorkOrderNumber, Guid? TrackingRecordId, string? Supplier, string? SupplierReference, Guid? PartId, string? PartNumber, string? PartDescription,
     string? TaskDescription, string? Result, int? QtyInspected, int? QtyBad, int? TotalPersonnel, decimal? TotalHours, DateOnly? DateFrom, DateOnly? DateTo, decimal? HourlyRate,
-    string? DiscoveryMethod, string? SupplierPartNumber, string? LotDateCodes, string? RootCause, string? CorrectiveAction, List<ChargebackPart>? Parts, List<CostLine>? CostLines, string? Notes, List<string>? Sections = null);
+    string? DiscoveryMethod, string? SupplierPartNumber, string? LotDateCodes, string? RootCause, string? CorrectiveAction, List<ChargebackPart>? Parts, List<CostLine>? CostLines, string? Notes, List<string>? Sections = null, ReportPeriod? Period = null);
 
 /// <summary>
 /// Saved supplier chargeback reports, laid out like the work order chargeback job report: chargeback, job, labor (crew and registered people
@@ -50,12 +50,27 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         new("notes", "Notes", true),
         new("cost", "Chargeback summary (rate and costs)", true),
         new("signoff", "Sign-off and signatures", true),
+        new("sumHours", "Period: total hours", false),
+        new("sumByType", "Period: hours by work order type", false),
+        new("sumBySubType", "Period: hours by inspection sub-type", false),
+        new("sumByFamily", "Period: hours by product family", false),
+        new("sumByPerson", "Period: hours by person (signed-in people, day workers and crew)", false),
+        new("sumCounts", "Period: work order counts (opened, completed, still open, overdue)", false),
+        new("sumQuality", "Period: good and bad quantities, quarantines and further inspection", false),
+        new("sumChargebacks", "Period: chargeback totals", false),
+        new("sumPauses", "Period: pause and hold time with reasons", false),
+        new("sumDetail", "Period: detail of every work order", false),
+        new("sumCharts", "Period: charts of where the time went", false),
     ];
     public static List<string> SectionsOf(string? json)
     {
         var saved = string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<List<string>>(json, SequflohJson.Options);
         return saved ?? [.. SectionOptions.Where(o => o.Default).Select(o => o.Key)];
     }
+    /// <summary>Names for the person filter, scoped to the work order and/or the period with its filters.</summary>
+    public async Task<List<string>> PeopleAsync(Guid? workOrderId, ReportPeriod? period, CancellationToken ct) =>
+        await SequflohPeriodSummary.PeopleAsync(db, db.SequflohTrackingRecords.AsNoTracking(), workOrderId, period, await m.ZoneAsync(null, ct), ct);
+    public static ReportPeriod? PeriodOf(string? json) => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<ReportPeriod>(json, SequflohJson.Options);
     static List<ChargebackPart> PartsOf(string json) => JsonSerializer.Deserialize<List<ChargebackPart>>(json, SequflohJson.Options) ?? [];
     static List<CostLine> LinesOf(string json) => JsonSerializer.Deserialize<List<CostLine>>(json, SequflohJson.Options) ?? [];
     static string? T(string? s, int max) => string.IsNullOrWhiteSpace(s) ? null : s.Trim()[..Math.Min(s.Trim().Length, max)];
@@ -102,6 +117,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         });
     }
 
+    public static decimal? TotalOf(SequflohChargebackReport x) => Total(x);
     static decimal? Total(SequflohChargebackReport x)
     {
         var labor = LaborCost(x.TotalHours, x.HourlyRate);
@@ -121,14 +137,22 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         x.Id, x.WorkOrderNumber, x.TrackingRecordId, x.TrackingNumber, x.Supplier, x.SupplierReference, x.PartId, x.PartNumber, x.PartDescription, x.TaskDescription, x.Result,
         x.QtyInspected, x.QtyBad, x.TotalPersonnel, x.TotalHours, x.CrewHours, x.UserHours, x.DateFrom, x.DateTo, x.HourlyRate, LaborCost = LaborCost(x.TotalHours, x.HourlyRate),
         x.DiscoveryMethod, x.SupplierPartNumber, x.LotDateCodes, x.RootCause, x.CorrectiveAction, Parts = PartsOf(x.Parts), CostLines = LinesOf(x.CostLines), x.Notes,
-        Sections = SectionsOf(x.Sections), PartsCost = PartsCost(PartsOf(x.Parts)), OtherCost = LinesOf(x.CostLines).Sum(l => l.Amount), Total = Total(x), x.CreatedAt, x.CreatedByName,
+        Sections = SectionsOf(x.Sections), Period = PeriodOf(x.Period), PartsCost = PartsCost(PartsOf(x.Parts)), OtherCost = LinesOf(x.CostLines).Sum(l => l.Amount), Total = Total(x), x.CreatedAt, x.CreatedByName,
     };
 
     string Snapshot(SequflohChargebackReport x) => JsonSerializer.Serialize(Dto(x), SequflohJson.Options);
 
     async Task FillAsync(SequflohChargebackReport x, ChargebackInput i, CancellationToken ct)
     {
-        x.WorkOrderNumber = T(i.WorkOrderNumber, 100) ?? throw new AppException("Enter the work order number.");
+        if (i.Period is { } per)
+        {
+            per.Range();
+            if (!string.IsNullOrWhiteSpace(per.Type) && !Enum.TryParse<TrackingType>(per.Type, true, out _)) throw new AppException("Unknown work order type.");
+            if (per.SiteId is { } ps && !await db.Sites.AnyAsync(x2 => x2.Id == ps, ct)) throw new AppException("Unknown site.");
+            x.Period = JsonSerializer.Serialize(per with { Person = T(per.Person, 200), SubType = T(per.SubType, 100) }, SequflohJson.Options);
+        }
+        else x.Period = null;
+        x.WorkOrderNumber = T(i.WorkOrderNumber, 100) ?? (i.Period is { } pp ? $"{pp.Kind} {pp.Label()}" : throw new AppException("Enter the work order number."));
         if (i.QtyInspected is < 0 || i.QtyBad is < 0 || i.TotalPersonnel is < 0 || i.TotalHours is < 0 || i.HourlyRate is < 0) throw new AppException("Numbers can't be negative.");
         if (i.QtyBad is { } b && i.QtyInspected is { } q && b > q) throw new AppException("Qty bad can't be more than the quantity inspected / reworked.");
         if (i.DateFrom is { } df && i.DateTo is { } dt && dt < df) throw new AppException("The end date must be on or after the start date.");
@@ -321,6 +345,8 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             blocks.Add(new("cost", "", [("Labor", labor is { } l2 ? Money(l2) : "____ (computed when a rate is entered)"), ("Parts", pc == 0 ? null : Money(pc)), ("Other costs", oc == 0 ? null : Money(oc)),
                 ("Total chargeback", labor is null && total == 0 ? "____" : Money(total) + (labor is null ? " (labor not included: no rate entered)" : ""))]));
         }
+        if (PeriodOf(x.Period) is { } period)
+            blocks.AddRange(await SequflohPeriodSummary.BlocksAsync(db, db.SequflohTrackingRecords.AsNoTracking(), period, on, await m.ZoneAsync(x.SiteId, ct), local, now, ct));
         if (on.Contains("signoff")) blocks.Add(new("signoff", "Sign-off", [("Prepared by", "________________"), ("Date", "________"), ("Supplier acknowledgement", "________________")]));
         return (x, blocks, local, printed);
     }

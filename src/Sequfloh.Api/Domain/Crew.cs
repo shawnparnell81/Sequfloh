@@ -71,6 +71,8 @@ public class SequflohChargebackReport : Entity, IAudited
     public string? Notes { get; set; }
     /// <summary>The report sections ticked to appear in the PDF, Excel file and on screen (JSON array of keys). Null means the defaults.</summary>
     public string? Sections { get; set; }
+    /// <summary>The period and filters (JSON ReportPeriod) when the report covers a day, week, month or custom range; null for a single work order report.</summary>
+    public string? Period { get; set; }
     public string CreatedByName { get; set; } = "";
     public string AuditLabel => $"chargeback report {WorkOrderNumber}";
 }

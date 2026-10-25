@@ -9,6 +9,11 @@ import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, useSqf, u
 import { RecordActions } from '../components/RecordActions';
 import { otherNumbers, usePartSearch } from './partSearch';
 import { partNo } from './partLabel';
+import { useFamilies } from './Imports';
+import { useSites } from '../components/Kit';
+
+interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null }
+const WO_TYPES = ['Validation', 'Fai', 'Repair', 'Inspection', 'Warranty', 'Production'];
 
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null; attributes?: string | null }
 interface WoOpt { id: string; number: string; workOrder?: string | null; partNumber?: string | null; workInstructionTitle?: string | null }
@@ -20,7 +25,7 @@ interface Report {
   totalPersonnel?: number | null; totalHours?: number | null; crewHours?: number | null; userHours?: number | null; dateFrom?: string | null; dateTo?: string | null; hourlyRate?: number | null;
   laborCost?: number | null; discoveryMethod?: string | null; supplierPartNumber?: string | null; lotDateCodes?: string | null; rootCause?: string | null; correctiveAction?: string | null;
   parts: { partNumber: string; description?: string | null; quantity: number; unitCost?: number | null }[]; costLines: { description: string; amount: number }[]; notes?: string | null;
-  sections: string[]; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string;
+  sections: string[]; period?: Period | null; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string;
 }
 type Form = Record<string, string>;
 interface SectionOpt { key: string; label: string; default: boolean }
@@ -83,6 +88,20 @@ export function ChargebackEditPage() {
   const [busy, setBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [sections, setSections] = useState<string[] | null>(null);
+  const [period, setPeriod] = useState<Period | null>(null);
+  const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
+  // the person list follows the linked work order, or the period with its filters
+  const peopleArgs = { trackingRecordId: wo?.id, kind: period?.kind && period.from ? period.kind : undefined, from: period?.from || undefined,
+    to: period?.kind === 'Custom' ? period.to || undefined : undefined, type: period?.type || undefined, subType: period?.subType || undefined, familyId: period?.familyId || undefined, siteId: period?.siteId || undefined };
+  const sites = useSites();
+  const peopleReady = !!peopleArgs.trackingRecordId || (!!peopleArgs.kind && (period?.kind !== 'Custom' || !!peopleArgs.to));
+  const people = useQuery({ queryKey: ['sqf-cb-people', peopleArgs], queryFn: () => get<string[]>(`${S}/chargebacks/people?${qs(peopleArgs)}`), enabled: peopleReady, staleTime: 15_000 });
+  const peopleList = peopleReady ? people.data : [];
+  useEffect(() => {
+    const cur = period?.person; if (!cur || !peopleList || (peopleReady && people.isFetching)) return;
+    if (!peopleList.some((n) => n.toLowerCase() === cur.toLowerCase())) setPeriod((p) => (p ? { ...p, person: null } : p));
+  }, [peopleList, people.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setP = (v: Partial<Period>) => setPeriod({ ...(period ?? { kind: 'Day' }), ...v });
   const sectionOpts = useSectionOptions();
   const picked = sections ?? (sectionOpts.data ?? []).filter((o) => o.default).map((o) => o.key);
   const results = useOptions('validation-results');
@@ -109,9 +128,9 @@ export function ChargebackEditPage() {
     setParts(r.parts.map((p) => ({ partNumber: p.partNumber, description: p.description ?? '', quantity: String(p.quantity), unitCost: p.unitCost === null || p.unitCost === undefined ? '' : String(p.unitCost) })));
     setLines(r.costLines.map((l) => ({ description: l.description, amount: String(l.amount) })));
     if (r.trackingRecordId) setWo({ id: r.trackingRecordId, number: r.trackingNumber ?? '' });
-    setSections(r.sections); setBase(null); setHydrated(true);
+    setSections(r.sections); setPeriod(r.period ?? null); setBase(null); setHydrated(true);
   }, [existing.data]);
-  const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections]);
+  const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections, period]);
   const [base, setBase] = useState<string | null>(null);
   useEffect(() => { if (base === null && (isNew || hydrated)) setBase(snap); }, [snap, base, isNew, hydrated]);
   const dirty = base !== null && snap !== base;
@@ -124,6 +143,7 @@ export function ChargebackEditPage() {
       partDescription: t(f.partDescription), taskDescription: t(f.taskDescription), result: t(f.result), qtyInspected: n(f.qtyInspected), qtyBad: n(f.qtyBad), totalPersonnel: n(f.totalPersonnel),
       totalHours: n(f.totalHours), dateFrom: t(f.dateFrom), dateTo: t(f.dateTo), hourlyRate: n(f.hourlyRate), discoveryMethod: t(f.discoveryMethod), supplierPartNumber: t(f.supplierPartNumber),
       lotDateCodes: t(f.lotDateCodes), rootCause: t(f.rootCause), correctiveAction: t(f.correctiveAction), notes: t(f.notes), sections: picked,
+      period: period && period.kind ? { kind: period.kind, from: period.from || null, to: period.kind === 'Custom' ? period.to || null : null, person: period.person || null, type: period.type || null, subType: period.subType || null, familyId: period.familyId || null, siteId: period.siteId || null } : null,
       parts: parts.filter((p) => p.partNumber.trim()).map((p) => ({ partNumber: p.partNumber, description: p.description || null, quantity: Number(p.quantity || 0), unitCost: n(p.unitCost) })),
       costLines: lines.filter((l) => l.description.trim()).map((l) => ({ description: l.description, amount: Number(l.amount || 0) })),
     };
@@ -144,7 +164,7 @@ export function ChargebackEditPage() {
       {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
       <Section title="Job">
         {row(
-          <TextField key="wo" label="Work order #" required value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText="Your own work order number" inputProps={{ 'data-testid': 'cb-wo' }} />,
+          <TextField key="wo" label="Work order #" required={!period} value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText={period ? "Optional for a period report; the period is used when empty" : "Your own work order number"} inputProps={{ 'data-testid': 'cb-wo' }} />,
           <Autocomplete key="link" fullWidth options={wos.data?.items ?? []} value={wo} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number}${o.workOrder ? ` · ${o.workOrder}` : ''}${o.partNumber ? ` · ${o.partNumber}` : ''}`}
             onInputChange={(_, v, r) => r === 'input' && setWoText(v)}
@@ -196,6 +216,35 @@ export function ChargebackEditPage() {
           <TextField size="small" type="number" label="Amount" value={l.amount} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} sx={{ width: 140 }} />
           <IconButton aria-label="Remove cost" onClick={() => setLines(lines.filter((_, j) => j !== i))}><DeleteOutline /></IconButton></Stack>)}
         <Box><Button size="small" onClick={() => setLines([...lines, { description: '', amount: '' }])}>Add cost line</Button></Box>
+      </Section>
+      <Section title="Period">
+        <Typography variant="body2" color="text.secondary">Choose a period to add the period sections below (hours, counts, results, pauses and the work order detail). Leave it off for a report on one work order.</Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2 }} data-testid="cb-period">
+          <TextField select label="Period" value={period?.kind ?? ''} onChange={(e) => setPeriod(e.target.value ? { ...(period ?? {}), kind: e.target.value } : null)} inputProps={{ 'data-testid': 'cb-period-kind' }}>
+            <MenuItem value="">No period</MenuItem>
+            <MenuItem value="Day">Single day</MenuItem><MenuItem value="Week">Week</MenuItem><MenuItem value="Month">Month</MenuItem><MenuItem value="Custom">Custom range</MenuItem>
+          </TextField>
+          {period && <TextField type="date" label={period.kind === 'Custom' ? 'From' : period.kind === 'Day' ? 'Day' : `A day in the ${period.kind.toLowerCase()}`} InputLabelProps={{ shrink: true }}
+            value={period.from ?? ''} onChange={(e) => setP({ from: e.target.value })} inputProps={{ 'data-testid': 'cb-period-from' }} />}
+          {period?.kind === 'Custom' && <TextField type="date" label="To" InputLabelProps={{ shrink: true }} value={period.to ?? ''} onChange={(e) => setP({ to: e.target.value })} inputProps={{ 'data-testid': 'cb-period-to' }} />}
+        </Box>
+        {period && <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2 }} data-testid="cb-filters">
+          <TextField select label="Site (optional)" SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }} value={period.siteId ?? ''} onChange={(e) => setP({ siteId: e.target.value })} inputProps={{ 'data-testid': 'cb-filter-site' }}>
+            <MenuItem value="">All sites</MenuItem>{(sites.data ?? []).map((x) => <MenuItem key={x.id} value={x.id}>{x.name}</MenuItem>)}
+          </TextField>
+          <TextField select label="Person (optional)" SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }} value={period.person ?? ''} onChange={(e) => setP({ person: e.target.value })} helperText="People with recorded time on the linked work order or in the period, including day workers" inputProps={{ 'data-testid': 'cb-filter-person' }}>
+            <MenuItem value="">All people</MenuItem>{[...(peopleList ?? []), ...(period.person && !(peopleList ?? []).some((n) => n.toLowerCase() === period.person!.toLowerCase()) ? [period.person] : [])].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}
+          </TextField>
+          <TextField select label="Type (optional)" value={period.type ?? ''} onChange={(e) => setP({ type: e.target.value })} inputProps={{ 'data-testid': 'cb-filter-type' }}>
+            <MenuItem value="">All types</MenuItem>{WO_TYPES.map((x) => <MenuItem key={x} value={x}>{x === 'Fai' ? 'FAI' : x}</MenuItem>)}
+          </TextField>
+          <TextField select label="Sub-type (optional)" value={period.subType ?? ''} onChange={(e) => setP({ subType: e.target.value })} inputProps={{ 'data-testid': 'cb-filter-subtype' }}>
+            <MenuItem value="">All sub-types</MenuItem>{(subTypes.data ?? []).map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}
+          </TextField>
+          <TextField select label="Product family (optional)" value={period.familyId ?? ''} onChange={(e) => setP({ familyId: e.target.value })} inputProps={{ 'data-testid': 'cb-filter-family' }}>
+            <MenuItem value="">All families</MenuItem>{(families.data ?? []).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}
+          </TextField>
+        </Box>}
       </Section>
       <Section title="What goes in the report">
         <Typography variant="body2" color="text.secondary">Tick what appears in the PDF, the Excel file and on screen. Sections with nothing in them are left out.</Typography>
@@ -253,7 +302,8 @@ function ReportBlocks({ id, title, supplier }: { id: string; title: string; supp
           <Typography key={`${f.label}-v`} variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{f.value}</Typography>])}
       </Box>}
       {b.columns && <Table size="small"><TableHead><TableRow>{b.columns.map((c) => <TableCell key={c} sx={{ fontWeight: 600 }}>{c}</TableCell>)}</TableRow></TableHead>
-        <TableBody>{(b.rows ?? []).map((r, j) => <TableRow key={j}>{r.map((c, k) => <TableCell key={k} sx={r[0] === 'Total' ? { fontWeight: 600 } : undefined}>{c}</TableCell>)}</TableRow>)}</TableBody></Table>}
+        <TableBody>{(b.rows ?? []).map((r, j) => <TableRow key={j}>{r.map((c, k) => <TableCell key={k} sx={r[0] === 'Total' ? { fontWeight: 600 } : undefined}>
+          {b.columns?.[k] === 'Chart' ? <Box data-testid="chart-bar" sx={{ height: 12, bgcolor: 'primary.main', borderRadius: 0.5, width: `${(c ?? '').length * 5}%` }} /> : c}</TableCell>)}</TableRow>)}</TableBody></Table>}
       {b.photos?.map((p) => <Typography key={p} variant="body2" sx={{ px: 1 }}>Photo: {p}</Typography>)}
     </Box>)}
   </Paper>;

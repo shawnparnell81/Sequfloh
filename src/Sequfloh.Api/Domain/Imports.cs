@@ -2,7 +2,8 @@ using Sequfloh.Domain.Common;
 
 namespace Sequfloh.Domain.Imports;
 
-public enum ImportedFileKind { Spreadsheet = 0, Document = 1 }
+/// <summary>Pdf is a completed form kept exactly as uploaded; it opens in the PDF viewer and is never parsed or edited.</summary>
+public enum ImportedFileKind { Spreadsheet = 0, Document = 1, Pdf = 2 }
 
 /// <summary>
 /// An Excel, CSV or Word file brought into the app. The working copy (xlsx or docx) is opened and edited in the browser; every save is a new
@@ -27,6 +28,8 @@ public class ImportedFile : Entity, IAudited, IArchivable, ISiteScoped
     public DateTimeOffset? ArchivedAt { get; set; }
     /// <summary>A blank form: kept empty and protected from edits; people fill out copies of it.</summary>
     public bool IsBlankForm { get; set; }
+    /// <summary>A completed (filled) form imported straight into Completed Validation/FAI, not made from a blank form here.</summary>
+    public bool IsCompletedForm { get; set; }
     /// <summary>For a filled copy: the blank form it came from and the version of that blank it started from.</summary>
     public Guid? BlankFormId { get; set; }
     public int? BlankFormVersion { get; set; }

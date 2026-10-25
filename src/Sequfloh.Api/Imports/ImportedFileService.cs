@@ -55,7 +55,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (kind == "spreadsheet") query = query.Where(f => f.Kind == ImportedFileKind.Spreadsheet);
         if (kind == "document") query = query.Where(f => f.Kind == ImportedFileKind.Document);
         if (kind == "blank") query = query.Where(f => f.IsBlankForm);
-        if (kind == "filled") query = query.Where(f => f.BlankFormId != null);
+        if (kind == "filled") query = query.Where(f => f.BlankFormId != null || f.IsCompletedForm);
         if (family == "none") query = query.Where(f => f.FamilyId == null);
         else if (Guid.TryParse(family, out var fam)) query = query.Where(f => f.FamilyId == fam);
         var rows = await query.OrderByDescending(f => f.UpdatedAt)
@@ -64,7 +64,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             .ToListAsync(ct);
         var allowed = rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).ToList();
         pageSize = Math.Clamp(pageSize, 1, 200); page = Math.Max(1, page);
-        return new { total = allowed.Count, items = allowed.Skip((page - 1) * pageSize).Take(pageSize).Select(r => new { r.Id, r.Number, r.Title, Kind = r.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document",
+        return new { total = allowed.Count, items = allowed.Skip((page - 1) * pageSize).Take(pageSize).Select(r => new { r.Id, r.Number, r.Title, Kind = KindName(r.Kind),
             r.SourceFormat, r.OriginalFileName, r.CurrentVersion, r.CreatedAt, r.UpdatedAt, r.IsBlankForm, r.BlankForm, r.PartNumber, r.FamilyId }) };
     }
 
@@ -79,15 +79,19 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var copies = !f.IsBlankForm ? null : await db.ImportedFiles.AsNoTracking().Where(c => c.BlankFormId == f.Id && !c.IsArchived).OrderByDescending(c => c.CreatedAt)
             .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.PartNumber, c.CreatedAt, c.UpdatedAt })
             .Take(500).ToListAsync(ct);
-        return new { f.Id, f.Number, f.Title, Kind = f.Kind == ImportedFileKind.Spreadsheet ? "spreadsheet" : "document", f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
-            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, BlankForm = blank, Copies = copies, f.PartNumber, f.FamilyId };
+        return new { f.Id, f.Number, f.Title, Kind = KindName(f.Kind), f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
+            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, f.IsBlankForm, f.IsCompletedForm, BlankForm = blank, Copies = copies, f.PartNumber, f.FamilyId };
     }
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
 
-    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false)
+    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false, bool completedForm = false, Guid? familyId = null)
     {
-        var (name, ext, original, kind, working, workingExt, workingType, summary) = await PrepareAsync(content, fileName, ct);
+        if (completedForm && blankForm) throw new AppException("A completed form cannot also be a blank form.");
+        if (!completedForm && familyId is not null) throw new AppException("Only a completed form has a product family.");
+        if (completedForm) await CheckFamilyAsync(familyId, ct);
+        var isPdf = completedForm && Path.GetExtension(fileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase);
+        var (name, ext, original, kind, working, workingExt, workingType, summary) = isPdf ? await PreparePdfAsync(content, fileName, ct) : await PrepareAsync(content, fileName, ct);
         var storedExt = Path.GetExtension(name).ToLowerInvariant();
 
         var site = siteId ?? await db.Users.Where(u => u.Id == UserId).Select(u => u.DefaultSiteId).FirstOrDefaultAsync(ct) ?? await db.Sites.Select(s => (Guid?)s.Id).FirstOrDefaultAsync(ct)
@@ -100,6 +104,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             Number = await numbers.NextAsync("SqfImportedFile", site, ct),
             Title = string.IsNullOrWhiteSpace(title) ? DefaultTitle(name) : title.Trim(),
             Kind = kind, SourceFormat = ext.TrimStart('.'), OriginalFileName = name, SiteId = site, DepartmentId = departmentId, Summary = summary, IsBlankForm = blankForm,
+            IsCompletedForm = completedForm, FamilyId = completedForm ? familyId : null,
         };
         if (f.Title.Length > 300) f.Title = f.Title[..300];
         f.OriginalStorageKey = $"imports/{f.Id:N}/original{storedExt}";
@@ -107,16 +112,35 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         await storage.PutAsync(f.OriginalStorageKey, original, ContentTypeOf(ext), ct);
         db.ImportedFiles.Add(f);
         db.ImportedFileVersions.Add(await StoreVersionAsync(f, 1, working, workingExt, workingType, ConvertedNote(ext), ct));
+        if (completedForm)
+            db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Imported completed form", EntityType = nameof(ImportedFile),
+                EntityId = f.Id, SiteId = f.SiteId, Description = $"Imported {f.Number} {f.Title} as a completed form into {await FamilyLabelAsync(familyId, ct)}" });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return f;
     }
 
+    /// <summary>A completed form saved as PDF: checked to be a PDF and stored exactly as uploaded, with no working copy to parse or edit.</summary>
+    static async Task<(string, string, MemoryStream, ImportedFileKind, byte[], string, string, string)> PreparePdfAsync(Stream content, string fileName, CancellationToken ct)
+    {
+        var name = Path.GetFileName(fileName);
+        var original = new MemoryStream();
+        await content.CopyToAsync(original, ct);
+        if (original.Length == 0) throw new AppException("The file is empty.");
+        if (original.Length > MaxBytes) throw new AppException("Files are limited to 20 MB.");
+        var head = new byte[5]; original.Position = 0; _ = await original.ReadAsync(head, ct);
+        if (System.Text.Encoding.ASCII.GetString(head) != "%PDF-") throw new AppException("This file is named .pdf but is not a PDF.");
+        original.Position = 0;
+        return (name, ".pdf", original, ImportedFileKind.Pdf, original.ToArray(), ".pdf", PdfType, "{}");
+    }
+    const string PdfType = "application/pdf";
+    static string KindName(ImportedFileKind k) => k switch { ImportedFileKind.Spreadsheet => "spreadsheet", ImportedFileKind.Pdf => "pdf", _ => "document" };
+
     /// <summary>File name without its extension; a doubled extension such as "Report.doc.doc" is removed too.</summary>
     public static string DefaultTitle(string name)
     {
         var t = Path.GetFileName(name);
-        while (Accepted.Contains(Path.GetExtension(t).ToLowerInvariant()) && Path.GetFileNameWithoutExtension(t).Length > 0) t = Path.GetFileNameWithoutExtension(t);
+        while ((Accepted.Contains(Path.GetExtension(t).ToLowerInvariant()) || Path.GetExtension(t).Equals(".pdf", StringComparison.OrdinalIgnoreCase)) && Path.GetFileNameWithoutExtension(t).Length > 0) t = Path.GetFileNameWithoutExtension(t);
         return t.Trim();
     }
 
@@ -203,7 +227,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     static string ContentTypeOf(string ext) => ext switch
     {
-        ".xlsx" => XlsxType, ".xlsm" => XlsmType, ".xls" => "application/vnd.ms-excel", ".csv" => "text/csv", ".docx" => DocxType, ".doc" => "application/msword", ".rtf" => "application/rtf", ".html" => "text/html", ".mht" => "multipart/related", _ => "application/octet-stream",
+        ".xlsx" => XlsxType, ".xlsm" => XlsmType, ".xls" => "application/vnd.ms-excel", ".csv" => "text/csv", ".docx" => DocxType, ".doc" => "application/msword", ".rtf" => "application/rtf", ".html" => "text/html", ".mht" => "multipart/related", ".pdf" => PdfType, _ => "application/octet-stream",
     };
 
     async Task<ImportedFileVersion> StoreVersionAsync(ImportedFile f, int version, byte[] bytes, string ext, string type, string? note, CancellationToken ct)
@@ -503,6 +527,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     async Task<ImportedFile> CreateCopyAsync(ImportedFile from, ImportedFileVersion v, byte[] bytes, string? title, Guid? blankId, int? blankVersion, string note, CancellationToken ct,
         Func<ImportedFile, (string Action, string Text)> audit, string? partNumber = null, Guid? familyId = null)
     {
+        if (from.Kind == ImportedFileKind.Pdf) throw new AppException("A PDF completed form is kept as uploaded and can't be copied.");
         var ext = Path.GetExtension(v.FileName).ToLowerInvariant();
         var t = string.IsNullOrWhiteSpace(title) ? $"{from.Title} – {DateTimeOffset.UtcNow:yyyy-MM-dd}" : title.Trim();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -592,7 +617,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task SetFamilyAsync(Guid id, Guid? familyId, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
-        if (f.BlankFormId is null) throw new AppException("Only a filled form has a product family.");
+        if (f.BlankFormId is null && !f.IsCompletedForm) throw new AppException("Only a filled form has a product family.");
         await CheckFamilyAsync(familyId, ct);
         if (f.FamilyId == familyId) return;
         var before = await FamilyLabelAsync(f.FamilyId, ct); var after = await FamilyLabelAsync(familyId, ct);
@@ -605,7 +630,10 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task ArchiveAsync(Guid id, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        if (f.IsArchived) return;
         f.IsArchived = true; f.ArchivedAt = DateTimeOffset.UtcNow;
+        db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Archived", EntityType = nameof(ImportedFile),
+            EntityId = f.Id, SiteId = f.SiteId, Description = $"Archived {f.Number} {f.Title}" });
         await db.SaveChangesAsync(ct);
     }
 }

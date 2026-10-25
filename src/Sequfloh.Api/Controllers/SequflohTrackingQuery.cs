@@ -27,6 +27,7 @@ internal static class SequflohTrackingQuery
         query = (p.Folder ?? "all") switch
         {
             "validation" => query.Where(x => x.Type == TrackingType.Validation),
+            "validation-fai" => query.Where(x => x.Type == TrackingType.Validation || x.Type == TrackingType.Fai),
             "fai" => query.Where(x => x.Type == TrackingType.Fai),
             "repair" => query.Where(x => x.Type == TrackingType.Repair),
             "production" => query.Where(x => x.Type == TrackingType.Production),
