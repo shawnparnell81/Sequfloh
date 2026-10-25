@@ -43,6 +43,8 @@ public class SequflohReferenceValue : Entity, IAudited
     public string? HiddenFields { get; set; }
     /// <summary>Product families only: the blank form an administrator confirmed as this family's validation form. Null until confirmed.</summary>
     public Guid? ValidationFormId { get; set; }
+    /// <summary>Product families only: the code used in automatic work order numbers, typed by an administrator. Blank means no automatic number.</summary>
+    public string? NumberCode { get; set; }
     public string AuditLabel => $"SEQUFLOH {ListKey} value {Code}";
 }
 

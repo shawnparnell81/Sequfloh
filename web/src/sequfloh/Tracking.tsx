@@ -154,6 +154,16 @@ export function NewTrackingPage() {
   const [siteId, setSiteId] = useState(''); const [departmentId, setDepartmentId] = useState(''); const [assigned, setAssigned] = useState('');
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
+  // automatic number when the type and the product family both have a code; it stays editable
+  const famForNumber = type === 'Validation' ? familyId : '';
+  const next = useQuery({ queryKey: ['sqf-tr-next', type, famForNumber, part?.id, siteId], enabled: !!type && !!siteId,
+    queryFn: () => get<{ number: string | null }>(`${S}/tracking/next-number?${qs({ type, familyId: famForNumber || undefined, partId: famForNumber ? undefined : part?.id, siteId })}`) });
+  const [suggested, setSuggested] = useState('');
+  useEffect(() => {
+    const n = next.data?.number ?? '';
+    setF((cur) => (!cur.number || cur.number === suggested ? { ...cur, number: n } : cur));
+    setSuggested(n);
+  }, [next.data?.number]); // eslint-disable-line react-hooks/exhaustive-deps
   const wis = useQuery({ queryKey: ['sqf-tr-wi', type, wiText], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type, q: wiText })}`), enabled: !!type });
   const site = sites.data?.find((s) => s.id === siteId);
   const fld = (k: string, label: string, props: Record<string, unknown> = {}) => <TextField size="small" label={label} value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} {...props} />;
@@ -162,8 +172,9 @@ export function NewTrackingPage() {
     setBusy(true); setErr(null);
     try {
       if (!f.number?.trim()) throw new Error('Enter the number.');
+      const auto = !!suggested && f.number.trim() === suggested;
       if (isInsp && !f.subType) throw new Error('Choose the inspection sub-type.');
-      const r = await post<{ id: string }>(`${S}/tracking`, { number: f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' ? nul(familyId) : null,
+      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' ? nul(familyId) : null,
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),

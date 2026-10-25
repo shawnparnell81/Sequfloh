@@ -72,4 +72,30 @@ public sealed class FixList6Tests(TestApp app)
         Assert.Equal(HttpStatusCode.Conflict, await Act(c, id, "reopen", "Try"));
         Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsync($"{T}/{id}/job/quantity", new { completed = 1 })).StatusCode);
     }
+
+    [Fact]
+    public async Task Work_orders_get_an_automatic_number_only_when_type_and_family_have_codes()
+    {
+        var site = await app.CreateSiteAsync();
+        var admin = await app.AdminAsync();
+        var tag = Guid.NewGuid().ToString("N")[..5].ToUpperInvariant();
+        var fam = (await (await admin.PostOkAsync("/api/sequfloh/reference/product-families", new { code = $"T{tag}", label = $"Test family {tag}", description = (string?)null })).JsonAsync()).Id();
+        var blank = (await (await admin.PostOkAsync("/api/sequfloh/reference/product-families", new { code = $"B{tag}", label = $"Blank family {tag}", description = (string?)null })).JsonAsync()).Id();
+        Assert.True((await admin.PutAsync($"/api/sequfloh/reference/values/{fam}/number-code", new { code = $"f{tag}" })).IsSuccessStatusCode);
+        var (_, c) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohCreateValidationRecord], site);
+        var yy = (DateTime.Now.Year % 100).ToString("00");
+        var next = (await c.GetElAsync($"{T}/next-number?type=Validation&familyId={fam}&siteId={site}")).GetProperty("number").GetString();
+        Assert.Equal($"WO-VAL-F{tag}{yy}-001", next);
+        async Task<string> Create(object body) { var id = (await (await c.PostOkAsync(T, body)).JsonAsync()).Id(); return (await c.GetElAsync($"{T}/{id}")).GetProperty("record").GetProperty("number").GetString()!; }
+        Assert.Equal($"WO-VAL-F{tag}{yy}-001", await Create(new { type = "Validation", siteId = site, familyId = fam, number = (string?)null }));
+        Assert.Equal($"WO-VAL-F{tag}{yy}-002", await Create(new { type = "Validation", siteId = site, familyId = fam, number = (string?)null }));
+        // other years count on their own
+        Assert.Equal($"WO-VAL-F{tag}{(DateTime.Now.Year % 100 + 1):00}-009", await Create(new { type = "Validation", siteId = site, familyId = fam, number = $"WO-VAL-F{tag}{(DateTime.Now.Year % 100 + 1):00}-009" }));
+        Assert.Equal($"WO-VAL-F{tag}{yy}-003", (await c.GetElAsync($"{T}/next-number?type=Validation&familyId={fam}&siteId={site}")).GetProperty("number").GetString());
+        // the suggestion is editable: a typed number is kept as typed
+        Assert.Equal($"OWN-{tag}", await Create(new { type = "Validation", siteId = site, familyId = fam, number = $"OWN-{tag}" }));
+        // a family with no code: no automatic number, the number must be typed
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, (await c.GetElAsync($"{T}/next-number?type=Validation&familyId={blank}&siteId={site}")).GetProperty("number").ValueKind);
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsync(T, new { type = "Validation", siteId = site, familyId = blank, number = (string?)null })).StatusCode);
+    }
 }

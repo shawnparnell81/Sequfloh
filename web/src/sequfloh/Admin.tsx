@@ -32,7 +32,10 @@ const sections: Record<string, { title: string; description: string; fields: (Fi
     { key: 'varianceWarningPercent', label: 'Variance warning threshold (%)', type: 'number' }, { key: 'varianceCriticalPercent', label: 'Variance critical threshold (%)', type: 'number' },
     { key: 'defaultMinimumMinutes', label: 'Default minimum time (minutes)', type: 'number' }, { key: 'defaultMaximumMinutes', label: 'Default maximum time (minutes)', type: 'number' },
     { key: 'overdueThresholdHours', label: 'Overdue threshold (hours after due date)', type: 'number' }, { key: 'approachingDueHours', label: 'Approaching due date warning (hours)', type: 'number' },
-    { key: 'varianceReasonRequired', label: 'Variance reason required outside the benchmark range', type: 'bool' }] },
+    { key: 'varianceReasonRequired', label: 'Variance reason required outside the benchmark range', type: 'bool' },
+    { key: 'validationNumberCode', label: 'Work order number code: Validation / FAI', type: 'text' }, { key: 'repairNumberCode', label: 'Work order number code: Repair / Rework', type: 'text' },
+    { key: 'inspectionNumberCode', label: 'Work order number code: Inspection', type: 'text' }, { key: 'warrantyNumberCode', label: 'Work order number code: Warranty', type: 'text' },
+    { key: 'saltSprayNumberCode', label: 'Work order number code: Salt Spray Test', type: 'text' }] },
   validation: { title: 'Validation / FAI Settings', description: 'Evidence requirements for Validation / FAI work orders.', also: 'fai', lists: ['validation-types', 'validation-results', 'activity-statuses', 'fai-types', 'inspection-results', 'characteristic-results'], fields: [
     { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' },
     { key: 'evidenceRequiredForFailures', label: 'Evidence required for failed characteristics', type: 'bool', section: 'fai' }] },
@@ -184,7 +187,7 @@ function NumberingPage() {
 
 // ------------------------------------------------------------------ reference data
 interface ListInfo { key: string; label: string; description: string; total: number; active: number }
-interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null }
+interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null; numberCode?: string | null }
 const useLists = () => useQuery({ queryKey: ['sqf-lists'], queryFn: () => get<ListInfo[]>(`${S}/reference`) });
 
 export function ReferenceDataPage() {
@@ -216,6 +219,7 @@ export function DropdownsPage() {
   const [edit, setEdit] = useState<RefValue | 'new' | null>(null);
   const [history, setHistory] = useState<RefValue | null>(null);
   const [naFor, setNaFor] = useState<RefValue | null>(null);
+  const [codeFor, setCodeFor] = useState<RefValue | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; text: string; run: () => Promise<unknown> } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-values', key] }); qc.invalidateQueries({ queryKey: ['sqf-lists'] }); qc.invalidateQueries({ queryKey: ['sqf-options', key] }); };
@@ -256,10 +260,12 @@ export function DropdownsPage() {
               {v.isActive ? <Button size="small" color="warning" onClick={() => setConfirm({ title: 'Deactivate value', text: `Deactivate "${v.label}"? It stays on records that already use it but is no longer offered.`, run: () => post(`${S}/reference/values/${v.id}/deactivate`) })}>Deactivate</Button>
                 : <Button size="small" onClick={() => act(() => post(`${S}/reference/values/${v.id}/activate`))}>Activate</Button>}
               {key === 'product-families' && <Button size="small" data-testid="family-na-fields" onClick={() => setNaFor(v)}>Not applicable fields</Button>}
+              {key === 'product-families' && <Button size="small" data-testid="family-number-code" onClick={() => setCodeFor(v)}>Number code{v.numberCode ? `: ${v.numberCode}` : ''}</Button>}
               <Button size="small" onClick={() => setHistory(v)}>History</Button>
             </TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
       <ValueDialog listKey={key} value={edit} onClose={() => setEdit(null)} onSaved={refresh} />
+      <FamilyCodeDialog value={codeFor} onClose={() => setCodeFor(null)} onSaved={() => { setCodeFor(null); refresh(); }} />
       <HistoryDialog value={history} onClose={() => setHistory(null)} />
       <FamilyFieldsDialog value={naFor} onClose={() => setNaFor(null)} onSaved={() => { setNaFor(null); refresh(); }} />
       <Confirm open={!!confirm} title={confirm?.title ?? ''} text={confirm?.text ?? ''} confirm="Confirm" danger onClose={() => setConfirm(null)} onConfirm={async () => { await confirm!.run(); refresh(); }} />
@@ -401,6 +407,20 @@ export function ConfigurationPage() {
         procedures, security, deployment, training, implementation, and organizational use.</Alert>
     </SqfPage>
   );
+}
+
+/** The code a product family uses in automatic work order numbers, for example CSA in WO-VAL-CSA26-001. Blank: no automatic number. */
+function FamilyCodeDialog({ value, onClose, onSaved }: { value: RefValue | null; onClose: () => void; onSaved: () => void }) {
+  const [code, setCode] = useState(''); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setCode(value?.numberCode ?? ''); setErr(null); }, [value]);
+  const save = async () => { try { await put(`${S}/reference/values/${value!.id}/number-code`, { code }); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  return <Dialog open={!!value} onClose={onClose} fullWidth maxWidth="xs">
+    <FormDialogTitle>Work order number code · {value?.label}</FormDialogTitle>
+    <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Used in automatic work order numbers. Leave blank for no automatic number.</Typography>
+      <TextField size="small" fullWidth label="Code" value={code} onChange={(e) => setCode(e.target.value)} inputProps={{ 'data-testid': 'family-number-code-input', maxLength: 10 }} /></DialogContent>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Save</Button></DialogActions>
+  </Dialog>;
 }
 
 /** The fields hidden as not applicable on new parts of a product family (and on imported parts that have no own setting). */

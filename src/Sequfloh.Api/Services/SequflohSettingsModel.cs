@@ -44,6 +44,12 @@ public sealed class TrackingSettings
     public int OverdueThresholdHours { get; set; }
     public int ApproachingDueHours { get; set; } = 24;
     public bool VarianceReasonRequired { get; set; } = true;
+    /// <summary>Type codes used in automatic work order numbers. Blank means no automatic number for that type.</summary>
+    public string? ValidationNumberCode { get; set; } = "VAL";
+    public string? RepairNumberCode { get; set; }
+    public string? InspectionNumberCode { get; set; }
+    public string? WarrantyNumberCode { get; set; }
+    public string? SaltSprayNumberCode { get; set; }
 }
 
 public sealed class ValidationSettings
