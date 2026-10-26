@@ -290,4 +290,47 @@ public sealed class PartsImportTests(TestApp app)
         Assert.Equal("/", or[$"NP{k}3"]);
         Assert.DoesNotContain(parts, p => (p.HiddenFields ?? "").Contains("orNumber"));
     }
+
+    [Fact]
+    public async Task Part_number_can_be_removed_and_imports_like_unmapped_and_a_layout_without_it_applies()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var k = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var csv = $"Part Number,OR PN,NAPA PN\nPN{k}1,OR{k}1,NP{k}1\n,/,NP{k}2\n";
+        var t = await Read(eng, "pn.csv", Encoding.UTF8.GetBytes(csv));
+        var suggested = t.GetProperty("mapping").EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetInt32());
+        Assert.Equal(0, suggested["partNumber"]);
+        object Req(Dictionary<string, int> map, bool update = false) => new { fileName = "pn.csv", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = map, siteId = site, updateExisting = update, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump" } };
+        var removed = suggested.Where(kv => kv.Key != "partNumber").ToDictionary();
+        var notImported = removed.Append(new("partNumber", -1)).ToDictionary();
+        string Rows(JsonElement p) => string.Join("|", p.GetProperty("rows").EnumerateArray().Select(r => $"{r.GetProperty("action")}:{r.GetProperty("partNumber")}:{string.Join(" ", r.GetProperty("messages").EnumerateArray())}"));
+        var a = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Req(removed))).JsonAsync();
+        var b = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Req(notImported))).JsonAsync();
+        Assert.Equal($"Add:OR{k}1:|Add:NP{k}2:", Rows(a));
+        Assert.Equal(Rows(a), Rows(b));
+        Assert.Equal(0, a.GetProperty("errors").GetInt32());
+
+        // no number column at all: one clear message
+        var none = await eng.Http.PostAsJsonAsync("/api/sequfloh/parts/import/preview", Req(new Dictionary<string, int> { ["partNumber"] = -1 }));
+        Assert.Equal(HttpStatusCode.BadRequest, none.StatusCode);
+        Assert.Contains("Map at least one number column", await none.Content.ReadAsStringAsync());
+
+        // import without Part number, then update: existing parts keep their part numbers
+        await eng.PostOkAsync("/api/sequfloh/parts/import", Req(removed));
+        var upd = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Req(removed, true))).JsonAsync();
+        Assert.Equal(2, upd.GetProperty("update").GetInt32());
+        Assert.Equal($"Update:OR{k}1:|Update:NP{k}2:", Rows(upd));
+
+        // a layout with Part number removed saves and reads back as is
+        var layout = new { name = $"No part number {k}", layout = new { headerRow = 1, headers = new[] { "Part Number", "OR PN", "NAPA PN" },
+            columns = new Dictionary<string, object> { ["attr:orNumber"] = new { title = "OR PN", index = 1 }, ["attr:napaPn"] = new { title = "NAPA PN", index = 2 } },
+            @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump" }, updateExisting = true, keepRepeats = false, removed = new[] { "partNumber" } } };
+        var id = (await (await eng.PostOkAsync("/api/sequfloh/parts/import/layouts", layout)).JsonAsync()).GetProperty("id").GetGuid();
+        var back = (await eng.GetElAsync("/api/sequfloh/parts/import/layouts")).EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == id).GetProperty("layout");
+        Assert.Equal("partNumber", back.GetProperty("removed")[0].GetString());
+        Assert.False(back.GetProperty("columns").TryGetProperty("partNumber", out _));
+        var fields = (await eng.GetElAsync("/api/sequfloh/parts/import/fields")).EnumerateArray().ToDictionary(x => x.GetProperty("key").GetString()!, x => x.GetProperty("isNumber").GetBoolean());
+        Assert.True(fields["partNumber"]); Assert.True(fields["attr:orNumber"]); Assert.False(fields["description"]);
+    }
 }

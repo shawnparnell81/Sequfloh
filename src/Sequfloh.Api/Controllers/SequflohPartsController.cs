@@ -24,7 +24,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     }
 
     [HttpGet("parts/import/fields")]
-    public object ImportFields() => SequflohPartsImport.Fields.Select(x => new { x.Key, x.Label, Choices = SequflohPartsImport.ChoiceKind(x.Key) });
+    public object ImportFields() => SequflohPartsImport.Fields.Select(x => new { x.Key, x.Label, Choices = SequflohPartsImport.ChoiceKind(x.Key), IsNumber = SequflohPartsImport.IsNumberKey(x.Key) });
 
     /// <summary>The fixed choices of the part form; Name, Product family and Part class come from the product families list.</summary>
     [HttpGet("parts/choices")]
