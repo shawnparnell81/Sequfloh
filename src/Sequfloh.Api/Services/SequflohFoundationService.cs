@@ -296,6 +296,30 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Permanently removes a value. Blocked while anything points at the value by its id (product families: parts and imported files);
+    /// records that only keep the label as text keep their text. A deleted seeded value is remembered so seeding does not add it back.
+    /// </summary>
+    public async Task DeleteValueAsync(Guid id, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
+        var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Reference value");
+        var uses = new List<string>();
+        var parts = await db.Parts.IgnoreQueryFilters().CountAsync(p => p.TypeId == id, ct);
+        if (parts > 0) uses.Add($"{parts} part{(parts == 1 ? "" : "s")}");
+        var files = await db.ImportedFiles.IgnoreQueryFilters().CountAsync(f => f.FamilyId == id, ct);
+        if (files > 0) uses.Add($"{files} file{(files == 1 ? "" : "s")}");
+        if (uses.Count > 0) throw new ConflictException($"\"{v.Label}\" is used by {string.Join(", ", uses)}. Deactivate it instead.");
+        if (v.IsDefault) throw new AppException("Choose another default before deleting the default value.");
+        if (v.IsSeeded || SequflohCatalog.Lists.FirstOrDefault(l => l.Key == v.ListKey)?.Seed.Any(x => CodeOf(x) == v.Code) == true)
+            if (!await db.SequflohDeletedSeedValues.AnyAsync(x => x.ListKey == v.ListKey && x.Code == v.Code, ct))
+                db.SequflohDeletedSeedValues.Add(new SequflohDeletedSeedValue { ListKey = v.ListKey, Code = v.Code });
+        var list = SequflohCatalog.Lists.FirstOrDefault(l => l.Key == v.ListKey)?.Label ?? v.ListKey;
+        db.SequflohReferenceValues.Remove(v);
+        Audit("ReferenceValueDeleted", nameof(SequflohReferenceValue), v.Id, $"Deleted \"{v.Label}\" from {list}", context: new { list = v.ListKey, v.Code });
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task SetDefaultAsync(Guid id, CancellationToken ct)
     {
         await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
@@ -332,10 +356,12 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         if (!confirmed) throw new AppException("Confirm the reset: seeded labels and order of this list will be restored.");
         var def = Def(key);
         var values = await db.SequflohReferenceValues.Where(x => x.ListKey == key).ToListAsync(ct);
+        var deleted = await db.SequflohDeletedSeedValues.Where(x => x.ListKey == key).Select(x => x.Code).ToListAsync(ct);
         var changed = 0;
         for (var i = 0; i < def.Seed.Length; i++)
         {
             var code = CodeOf(def.Seed[i]);
+            if (deleted.Contains(code)) continue;
             var v = values.FirstOrDefault(x => x.Code == code);
             if (v is null) { db.SequflohReferenceValues.Add(new SequflohReferenceValue { ListKey = key, Code = code, Label = def.Seed[i], SortOrder = (i + 1) * 10, IsSeeded = true, IsDefault = i == 0 && !def.NoDefault && values.All(x => !x.IsDefault) }); changed++; continue; }
             if (v.Label != def.Seed[i] || v.SortOrder != (i + 1) * 10 || !v.IsActive) { v.Label = def.Seed[i]; v.SortOrder = (i + 1) * 10; v.IsActive = true; changed++; }
@@ -494,6 +520,7 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
             added++;
         }
         var existing = await db.SequflohReferenceValues.Select(v => new { v.ListKey, v.Code }).ToListAsync(ct);
+        existing.AddRange(await db.SequflohDeletedSeedValues.Select(v => new { v.ListKey, v.Code }).ToListAsync(ct));
         foreach (var l in SequflohCatalog.Lists)
             for (var i = 0; i < l.Seed.Length; i++)
             {

@@ -625,6 +625,47 @@ namespace Sequfloh.Data.Migrations
                     b.ToTable("sequfloh_day_workers", "sqf");
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDeletedSeedValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ListKey")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ListKey", "Code")
+                        .IsUnique();
+
+                    b.ToTable("sequfloh_deleted_seed_values", "sqf");
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohHomeLayout", b =>
                 {
                     b.Property<Guid>("Id")
