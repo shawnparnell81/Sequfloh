@@ -15,6 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record InspectionRequestInput(Guid SiteId, string? PartNumber = null, Guid? PartId = null, string? PartDescription = null, decimal? Quantity = null, string? Reason = null,
     string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null, string? Number = null);
+public sealed record InspectionAssignInput(Guid? UserId);
 public sealed record InspectionConvertInput(Guid? WorkInstructionId = null, TrackingType Type = TrackingType.Inspection, string? Number = null);
 
 /// <summary>
@@ -60,7 +61,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
     static object Dto(SequflohInspectionRequest x, DateOnly today) => new
     {
         x.Id, x.Number, x.SiteId, x.PartId, x.PartNumber, x.PartDescription, x.Quantity, x.Reason, x.Requirement, x.WorkInstructionId, x.WorkInstructionLabel, x.RequestedDate,
-        x.Priority, x.Status, x.RequestedByName, x.CreatedAt, x.WorkOrderId, x.WorkOrderNumber,
+        x.Priority, x.Status, x.RequestedByName, x.CreatedAt, x.WorkOrderId, x.WorkOrderNumber, x.AssignedUserId, x.AssignedUserName,
         Overdue = x.RequestedDate is { } d && d < today && x.Status is InspectionRequestStatus.Open or InspectionRequestStatus.InProgress,
     };
 
@@ -166,6 +167,29 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
         return Dto(r, await m.TodayAsync(null, ct));
     }
 
+    /// <summary>Assigns the request to a user, or clears it when no user is given. Needs the same permission as assigning or reassigning a task.</summary>
+    public async Task<object> AssignAsync(Guid id, Guid? userId, CancellationToken ct)
+    {
+        var r = await LoadAsync(id, ct);
+        if (r.Status is InspectionRequestStatus.Done or InspectionRequestStatus.Cancelled) throw new AppException($"{r.Number} is closed.");
+        var perm = r.AssignedUserId is null ? Permissions.SequflohDispatchTask : Permissions.SequflohReassignTask;
+        if (!await m.CanAsync(perm, r.SiteId, r.DepartmentId, ct)) throw new ForbiddenException("You do not have permission to assign inspection requests.");
+        if (userId == r.AssignedUserId) return Dto(r, await m.TodayAsync(null, ct));
+        string? name = null;
+        if (userId is { } u)
+        {
+            await m.RequireActiveUserAsync(u, "assigned user", ct);
+            if (!await m.UserCanAsync(u, Permissions.SequflohAccess, r.SiteId, r.DepartmentId, ct)) throw new AppException("That user cannot open SEQUFLOH at this site.");
+            name = await db.Users.Where(x => x.Id == u).Select(x => x.DisplayName).FirstOrDefaultAsync(ct) ?? "";
+        }
+        var desc = name is null ? $"Unassigned {r.Number} from {r.AssignedUserName}"
+            : r.AssignedUserId is null ? $"Assigned {r.Number} to {name}" : $"Reassigned {r.Number} from {r.AssignedUserName} to {name}";
+        f.Audit(r.AssignedUserId is null ? "InspectionRequestAssigned" : "InspectionRequestReassigned", EntityType, r.Id, desc, r.SiteId);
+        r.AssignedUserId = userId; r.AssignedUserName = name;
+        await db.SaveChangesAsync(ct);
+        return Dto(r, await m.TodayAsync(null, ct));
+    }
+
     /// <summary>Makes a work order from the request. The part's drawings are attached as they are now.</summary>
     public async Task<object> ConvertAsync(Guid id, InspectionConvertInput x, CancellationToken ct)
     {
@@ -182,7 +206,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
             due = end;
         }
         var cond = string.Join("\n", new[] { $"Inspection request {r.Number}", r.Reason is null ? null : $"Reason: {r.Reason}", r.Requirement is null ? null : $"Requirement: {r.Requirement}" }.Where(s => s is not null));
-        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond, Number: x.Number), ct);
+        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond, Number: x.Number, AssignedUserId: r.AssignedUserId), ct);
         var tracked = await db.SequflohTrackingRecords.FirstAsync(e => e.Id == rec.Id, ct);
         if (r.Quantity is { } q) tracked.QuantityTarget = (int)Math.Round(q);
         if (x.Type != TrackingType.Validation && rec.PartId is { } part && !await db.TrackingRecordDrawings.AnyAsync(e => e.TrackingRecordId == rec.Id, ct))

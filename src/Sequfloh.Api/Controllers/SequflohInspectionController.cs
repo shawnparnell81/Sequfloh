@@ -19,5 +19,6 @@ public sealed class SequflohInspectionController(SequflohInspectionService s) : 
     [HttpPost] public Task<object> Create(InspectionRequestInput r, CancellationToken ct) => s.CreateAsync(r, ct);
     [HttpPut("{id:guid}")] public Task<object> Update(Guid id, InspectionRequestInput r, CancellationToken ct) => s.UpdateAsync(id, r, ct);
     [HttpPost("{id:guid}/status")] public Task<object> Status(Guid id, StatusInput r, CancellationToken ct) => s.SetStatusAsync(id, r.Status, ct);
+    [HttpPost("{id:guid}/assign")] public Task<object> Assign(Guid id, InspectionAssignInput r, CancellationToken ct) => s.AssignAsync(id, r.UserId, ct);
     [HttpPost("{id:guid}/convert")] public Task<object> Convert(Guid id, InspectionConvertInput r, CancellationToken ct) => s.ConvertAsync(id, r, ct);
 }

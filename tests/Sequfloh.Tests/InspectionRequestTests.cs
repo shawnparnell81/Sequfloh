@@ -91,4 +91,32 @@ public sealed class InspectionRequestTests(TestApp app)
         Assert.Contains(wo2.ToString(), (await planner.GetElAsync("/api/sequfloh/tracking?folder=inspection")).GetRawText());
         Assert.DoesNotContain(wo2.ToString(), (await planner.GetElAsync("/api/sequfloh/tracking?folder=production")).GetRawText());
     }
+
+    [Fact]
+    public async Task A_request_can_be_assigned_reassigned_and_cancelled_from_the_queue()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, plain) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
+        var (_, lead) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohDispatchTask, Permissions.SequflohReassignTask, Permissions.SequflohCreateProductionTask], site);
+        var (a, _) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
+        var (b, _) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
+        var (part, _, _) = await SetupAsync(site);
+        var id = (await (await plain.PostOkAsync(U, new { siteId = site, partId = part, priority = "High", number = "IRA-" + Guid.NewGuid().ToString("N")[..6] })).JsonAsync()).Id();
+        Assert.Equal(HttpStatusCode.Forbidden, (await plain.PostAsync($"{U}/{id}/assign", new { userId = a })).StatusCode);
+        Assert.Equal(a, (await (await lead.PostOkAsync($"{U}/{id}/assign", new { userId = a })).JsonAsync()).GetProperty("assignedUserId").GetGuid());
+        var one = await plain.GetElAsync($"{U}/{id}");
+        Assert.Equal(a, one.GetProperty("assignedUserId").GetGuid());
+        await lead.PostOkAsync($"{U}/{id}/assign", new { userId = b });
+        Assert.Equal(b, (await plain.GetElAsync($"{U}/{id}")).GetProperty("assignedUserId").GetGuid());
+        var wo = (await (await lead.PostOkAsync($"{U}/{id}/convert", new { type = "Inspection", number = "WO-IRA-" + Guid.NewGuid().ToString("N")[..6] })).JsonAsync()).GetProperty("workOrderId").GetGuid();
+        using (var scope = app.Services.CreateScope())
+            Assert.Equal(b, (await scope.ServiceProvider.GetRequiredService<AppDbContext>().SequflohTrackingRecords.FirstAsync(x => x.Id == wo)).AssignedUserId);
+        await plain.PostOkAsync($"{U}/{id}/status", new { status = "Cancelled" });
+        Assert.Equal("Cancelled", (await plain.GetElAsync($"{U}/{id}")).GetProperty("status").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync($"{U}/{id}/assign", new { userId = a })).StatusCode);
+        var hist = (await (await app.AdminAsync()).GetElAsync($"{U}/{id}/history")).EnumerateArray().Select(h => h.GetProperty("description").GetString()).ToList();
+        Assert.Contains(hist, h => h!.StartsWith("Assigned ") && h.Contains(" to "));
+        Assert.Contains(hist, h => h!.StartsWith("Reassigned "));
+        Assert.Contains(hist, h => h!.Contains("→ Cancelled"));
+    }
 }

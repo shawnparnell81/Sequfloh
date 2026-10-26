@@ -27,5 +27,7 @@ public class SequflohInspectionRequest : Entity, IAudited, ISiteScoped
     public string RequestedByName { get; set; } = "";
     public Guid? WorkOrderId { get; set; }
     public string? WorkOrderNumber { get; set; }
+    public Guid? AssignedUserId { get; set; }
+    public string? AssignedUserName { get; set; }
     public string AuditLabel => $"inspection request {Number}";
 }
