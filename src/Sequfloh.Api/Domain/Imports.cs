@@ -32,6 +32,8 @@ public class ImportedFile : Entity, IAudited, IArchivable, ISiteScoped
     public bool IsCompletedForm { get; set; }
     /// <summary>A completed Salt Spray Test report imported into the Salt Spray Test tab of Completed Validation/FAI (a test, not a product family).</summary>
     public bool IsSaltSprayTest { get; set; }
+    /// <summary>A development file imported under Engineering, Development: the product line it is filed under (see DevelopmentLines); null when it is not a development file.</summary>
+    public string? DevelopmentLine { get; set; }
     /// <summary>For a filled copy: the blank form it came from and the version of that blank it started from.</summary>
     public Guid? BlankFormId { get; set; }
     public int? BlankFormVersion { get; set; }
@@ -55,4 +57,15 @@ public class ImportedFileVersion : Entity
     public string Sha256 { get; set; } = "";
     public string? Note { get; set; }
     public string CreatedByName { get; set; } = "";
+}
+
+/// <summary>The Engineering, Development product lines, by key and label.</summary>
+public static class DevelopmentLines
+{
+    public static readonly IReadOnlyDictionary<string, string> All = new Dictionary<string, string>
+    {
+        ["air-suspension"] = "Air Suspension Development", ["bws"] = "BWS Development", ["coil-spring"] = "Coil Spring Development", ["csa"] = "CSA Development",
+        ["fuel-injector"] = "Fuel Injector Development", ["fuel-pump"] = "Fuel Pump Development", ["gas-lift"] = "Gas Lift Development", ["hd-shock"] = "HD Shock Development",
+        ["shock"] = "Shock Development", ["legacy"] = "Legacy",
+    };
 }

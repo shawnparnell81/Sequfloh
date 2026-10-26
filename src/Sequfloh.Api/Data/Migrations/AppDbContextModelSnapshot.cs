@@ -2387,6 +2387,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DevelopmentLine")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("FamilyId")
                         .HasColumnType("uuid");
 

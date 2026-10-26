@@ -43,6 +43,7 @@ test('every upload page shows Import file and Import folder', async ({ page }) =
     'imported-files': async () => { await page.goto('/sequfloh/imported-files'); },
     'parts-drawings': async () => { await page.goto('/sequfloh/drawings'); },
     'completed-forms': async () => { const fam = (await ok(rq.get('/api/sequfloh/validation-forms'))).families[0].id as string; await page.goto(`/sequfloh/completed-forms?family=${fam}`); },
+    'development-files': async () => { await page.goto('/sequfloh/engineering/development?line=fuel-pump'); },
     'work-instructions': async () => { await page.goto('/sequfloh/instructions/validation'); },
     'work-instruction-files': async () => { await page.goto(`/sequfloh/instruction/${draft}`); await view(page).getByRole('tab', { name: 'Layout' }).click(); },
     'inspection-request-files': async () => { await page.goto(`/sequfloh/inspection-request/${ir}`); },
