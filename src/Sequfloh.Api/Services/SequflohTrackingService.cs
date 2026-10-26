@@ -15,7 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null, string? DevelopmentLine = null);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null, string? DevelopmentLine = null, Guid? ProjectId = null);
 public sealed record InspectionResultsInput(int? QtyGood, int? QtyBad, bool? FurtherInspection, bool Quarantine, string? QuarantineReason);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
@@ -184,6 +184,14 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         _ => "No action required."
     };
 
+    /// <summary>A project picked on a work order or inspection request: it must exist and be open.</summary>
+    public async Task<SequflohProject?> OpenProjectAsync(Guid? id, CancellationToken ct)
+    {
+        if (id is not { } pid) return null;
+        var p = await db.SequflohProjects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == pid, ct) ?? throw new AppException("The project does not exist.");
+        return p.Status == ProjectStatus.Open ? p : throw new AppException($"Project {p.Number} is closed.");
+    }
+
     // ------------------------------------------------------------------ create
     public async Task<SequflohTrackingRecord> CreateAsync(TrackingCreateInput r, CancellationToken ct)
     {
@@ -215,6 +223,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         var subType = T(r.InspectionSubType, 100);
         if (r.Type is TrackingType.Inspection or TrackingType.Warranty && subType is not null) await f.RequireOptionAsync(SequflohCatalog.InspectionSubTypes, subType, "Inspection sub-type", ct);
         if (r.Type == TrackingType.Repair && partId is null) throw new AppException("Choose the repairable part.");
+        var project = await OpenProjectAsync(r.ProjectId, ct);
         // a blank number takes the next automatic one when the type and the family both have a code; otherwise the number is typed as before
         var prefix = string.IsNullOrWhiteSpace(r.Number) ? await NumberPrefixAsync(r.Type, r.FamilyId, partId, r.SiteId, ct) : null;
         string number = "";
@@ -234,6 +243,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             SerialNumber = T(r.SerialNumber, 100), LotNumber = T(r.LotNumber, 100), WorkOrder = T(r.WorkOrder, 100), RepairOrder = T(r.RepairOrder, 100),
             CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi?.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
             Status = r.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned, CurrentStateStartedAt = now, LastTransitionAt = now,
+            ProjectId = project?.Id,
             QuantityTarget = r.Quantity, DevelopmentLine = devLine, InspectionSubType = r.Type is TrackingType.Inspection or TrackingType.Warranty ? subType : null,
             InspectionDescription = r.Type is TrackingType.Inspection or TrackingType.Warranty ? T(r.InspectionDescription, 4000) : null,
             ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi?.RepairDescription, FaiType = wi?.FaiType,
@@ -263,6 +273,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, wi is null ? "Created without a work instruction" : $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
         f.Audit("TrackingRecordCreated", EntityType, rec.Id, wi is null ? $"{rec.Number} ({Label(r.Type)}) created without a work instruction" : $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
             context: new { trackingType = r.Type.ToString(), workInstruction = wi?.Number, revision = wi?.Revision, part = rec.PartNumber });
+        if (project is not null) f.Audit("ProjectLinked", EntityType, rec.Id, $"Work order {rec.Number} linked to project {project.Number}", rec.SiteId);
         if (r.CreateClockStartedAt is { } clockFrom)
         {
             // the optional clock from the New work order screen: the time spent creating the order, saved as one person's time on it

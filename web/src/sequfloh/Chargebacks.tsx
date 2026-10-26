@@ -11,8 +11,9 @@ import { otherNumbers, usePartSearch } from './partSearch';
 import { partNo } from './partLabel';
 import { useFamilies } from './Imports';
 import { useSites } from '../components/Kit';
+import { useProjects } from './Projects';
 
-interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null }
+interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null; projectId?: string | null }
 const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Production', 'Production']];
 
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null; attributes?: string | null }
@@ -89,10 +90,11 @@ export function ChargebackEditPage() {
   const [busy, setBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [sections, setSections] = useState<string[] | null>(null);
-  const [period, setPeriod] = useState<Period | null>(null);
+  const [period, setPeriod] = useState<Period | null>(() => sp.get('project') ? { kind: 'Project', projectId: sp.get('project') } : null);
+  const projects = useProjects();
   const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
   // the person list follows the linked work order, or the period with its filters
-  const peopleArgs = { trackingRecordId: wo?.id, kind: period?.kind && period.from ? period.kind : undefined, from: period?.from || undefined,
+  const peopleArgs = { trackingRecordId: wo?.id, projectId: period?.kind === 'Project' ? period.projectId || undefined : undefined, kind: period?.kind === 'Project' ? (period.projectId ? 'Project' : undefined) : period?.kind && period.from ? period.kind : undefined, from: period?.from || undefined,
     to: period?.kind === 'Custom' ? period.to || undefined : undefined, type: period?.type || undefined, subType: period?.subType || undefined, familyId: period?.familyId || undefined, siteId: period?.siteId || undefined };
   const sites = useSites();
   const peopleReady = !!peopleArgs.trackingRecordId || (!!peopleArgs.kind && (period?.kind !== 'Custom' || !!peopleArgs.to));
@@ -144,7 +146,7 @@ export function ChargebackEditPage() {
       partDescription: t(f.partDescription), taskDescription: t(f.taskDescription), result: t(f.result), qtyInspected: n(f.qtyInspected), qtyBad: n(f.qtyBad), totalPersonnel: n(f.totalPersonnel),
       totalHours: n(f.totalHours), dateFrom: t(f.dateFrom), dateTo: t(f.dateTo), hourlyRate: n(f.hourlyRate), discoveryMethod: t(f.discoveryMethod), supplierPartNumber: t(f.supplierPartNumber),
       lotDateCodes: t(f.lotDateCodes), rootCause: t(f.rootCause), correctiveAction: t(f.correctiveAction), notes: t(f.notes), sections: picked,
-      period: period && period.kind ? { kind: period.kind, from: period.from || null, to: period.kind === 'Custom' ? period.to || null : null, person: period.person || null, type: period.type || null, subType: period.subType || null, familyId: period.familyId || null, siteId: period.siteId || null } : null,
+      period: period && period.kind ? { kind: period.kind, from: period.from || null, to: period.kind === 'Custom' ? period.to || null : null, person: period.person || null, type: period.type || null, subType: period.subType || null, familyId: period.familyId || null, siteId: period.siteId || null, projectId: period.kind === 'Project' ? period.projectId || null : null } : null,
       parts: parts.filter((p) => p.partNumber.trim()).map((p) => ({ partNumber: p.partNumber, description: p.description || null, quantity: Number(p.quantity || 0), unitCost: n(p.unitCost) })),
       costLines: lines.filter((l) => l.description.trim()).map((l) => ({ description: l.description, amount: Number(l.amount || 0) })),
     };
@@ -165,7 +167,7 @@ export function ChargebackEditPage() {
       {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
       <Section title="Job">
         {row(
-          <TextField key="wo" label={period ? 'Report number' : 'Work order #'} required value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText={period ? 'Your own number for this report, exactly as your company writes it' : 'Your own work order number'} inputProps={{ 'data-testid': 'cb-wo' }} />,
+          <TextField key="wo" label={period ? 'Report number' : 'Work order #'} required={period?.kind !== 'Project'} value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText={period ? 'Your own number for this report, exactly as your company writes it' : 'Your own work order number'} inputProps={{ 'data-testid': 'cb-wo' }} />,
           <Autocomplete key="link" fullWidth options={wos.data?.items ?? []} value={wo} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number}${o.workOrder ? ` · ${o.workOrder}` : ''}${o.partNumber ? ` · ${o.partNumber}` : ''}`}
             onInputChange={(_, v, r) => r === 'input' && setWoText(v)}
@@ -223,9 +225,11 @@ export function ChargebackEditPage() {
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2 }} data-testid="cb-period">
           <TextField select label="Period" value={period?.kind ?? ''} onChange={(e) => setPeriod(e.target.value ? { ...(period ?? {}), kind: e.target.value } : null)} inputProps={{ 'data-testid': 'cb-period-kind' }}>
             <MenuItem value="">No period</MenuItem>
-            <MenuItem value="Day">Single day</MenuItem><MenuItem value="Week">Week</MenuItem><MenuItem value="Month">Month</MenuItem><MenuItem value="Custom">Custom range</MenuItem>
+            <MenuItem value="Day">Single day</MenuItem><MenuItem value="Week">Week</MenuItem><MenuItem value="Month">Month</MenuItem><MenuItem value="Custom">Custom range</MenuItem><MenuItem value="Project">Project</MenuItem>
           </TextField>
-          {period && <TextField type="date" label={period.kind === 'Custom' ? 'From' : period.kind === 'Day' ? 'Day' : `A day in the ${period.kind.toLowerCase()}`} InputLabelProps={{ shrink: true }}
+          {period?.kind === 'Project' && <TextField select label="Project" value={period.projectId ?? ''} onChange={(e) => setP({ projectId: e.target.value })} helperText="Totals every work order and inspection in the project" inputProps={{ 'data-testid': 'cb-period-project' }}>
+            {(projects.data ?? []).map((x) => <MenuItem key={x.id} value={x.id}>{x.number} {x.name}{x.status === 'Closed' ? ' (closed)' : ''}</MenuItem>)}</TextField>}
+          {period && period.kind !== 'Project' && <TextField type="date" label={period.kind === 'Custom' ? 'From' : period.kind === 'Day' ? 'Day' : `A day in the ${period.kind.toLowerCase()}`} InputLabelProps={{ shrink: true }}
             value={period.from ?? ''} onChange={(e) => setP({ from: e.target.value })} inputProps={{ 'data-testid': 'cb-period-from' }} />}
           {period?.kind === 'Custom' && <TextField type="date" label="To" InputLabelProps={{ shrink: true }} value={period.to ?? ''} onChange={(e) => setP({ to: e.target.value })} inputProps={{ 'data-testid': 'cb-period-to' }} />}
         </Box>

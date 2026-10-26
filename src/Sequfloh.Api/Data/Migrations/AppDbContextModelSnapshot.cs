@@ -786,6 +786,9 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal?>("Quantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
@@ -845,6 +848,8 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("Number")
                         .IsUnique();
+
+                    b.HasIndex("ProjectId");
 
                     b.HasIndex("Status", "RequestedDate");
 
@@ -1218,6 +1223,57 @@ namespace Sequfloh.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("sequfloh_parts_list_revisions", "sqf");
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohProject", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid?>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Number")
+                        .IsUnique();
+
+                    b.ToTable("sequfloh_projects", "sqf");
                 });
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohReferenceValue", b =>
@@ -1897,6 +1953,9 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid");
+
                     b.Property<int?>("QtyBad")
                         .HasColumnType("integer");
 
@@ -2038,6 +2097,8 @@ namespace Sequfloh.Data.Migrations
                     b.HasIndex("OwnerId");
 
                     b.HasIndex("PartId");
+
+                    b.HasIndex("ProjectId");
 
                     b.HasIndex("WorkInstructionId");
 
@@ -3330,6 +3391,14 @@ namespace Sequfloh.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohInspectionRequest", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohInstructionTemplate", b =>
                 {
                     b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
@@ -3475,6 +3544,11 @@ namespace Sequfloh.Data.Migrations
                     b.HasOne("Sequfloh.Domain.MasterData.Part", null)
                         .WithMany()
                         .HasForeignKey("PartId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohProject", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Sequfloh.Domain.Organization.Site", null)

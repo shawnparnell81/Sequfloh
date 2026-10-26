@@ -54,6 +54,8 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string? RepairOrder { get; set; }
     public string? CustomerReturnReference { get; set; }
     public string? Project { get; set; }
+    /// <summary>The project this work order belongs to, or null. The free-text Project above is kept as it was.</summary>
+    public Guid? ProjectId { get; set; }
     public string? Operation { get; set; }
     public Guid? OwnerId { get; set; }
     public Guid? AssignedUserId { get; set; }

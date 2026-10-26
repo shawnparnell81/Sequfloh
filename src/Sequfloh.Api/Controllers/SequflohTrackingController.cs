@@ -73,6 +73,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 Owner = Name(x.OwnerId), AssignedUser = Name(x.AssignedUserId),
                 Assignees = db.SequflohTaskAssignees.Where(a => a.TrackingRecordId == x.Id).OrderBy(a => a.AddedAt).Join(db.Users, a => a.UserId, u => u.Id, (a, u) => new { u.Id, u.DisplayName }).ToList(), ActiveOperator = Name(x.ActiveOperatorId), CompletedBy = Name(x.CompletedById),
                 CreatedBy = Name(x.CreatedById), UpdatedBy = Name(x.UpdatedById),
+                x.ProjectId, ProjectLabel = db.SequflohProjects.Where(p => p.Id == x.ProjectId).Select(p => p.Number + " " + p.Name).FirstOrDefault(),
                 Site = db.Sites.Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefault(),
                 Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
             },

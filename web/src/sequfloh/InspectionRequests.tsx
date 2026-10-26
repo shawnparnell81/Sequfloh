@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ProjectName, ProjectPicker } from './Projects';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
@@ -21,7 +22,7 @@ const A = `${S}/inspection-requests`;
 export interface InspectionRequest {
   id: string; number: string; siteId: string; partId?: string | null; partNumber: string; partDescription?: string | null; quantity?: number | null; reason?: string | null;
   requirement?: string | null; workInstructionId?: string | null; workInstructionLabel?: string | null; requestedDate?: string | null; priority: string; status: string;
-  requestedByName?: string | null; createdAt: string; workOrderId?: string | null; workOrderNumber?: string | null; overdue: boolean;
+  requestedByName?: string | null; createdAt: string; projectId?: string | null; workOrderId?: string | null; workOrderNumber?: string | null; overdue: boolean;
   assignedUserId?: string | null; assignedUserName?: string | null;
 }
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null ; attributes?: string | null }
@@ -70,11 +71,11 @@ function RequestForm({ value, onChange }: { value: Form; onChange: (v: Form) => 
     </Stack>
   );
 }
-interface Form { siteId: string; partNumber: string; partId: string | null; partDescription: string; quantity: string; reason: string; requirement: string; wi: WiOpt | null; requestedDate: string; priority: string; number?: string }
+interface Form { siteId: string; partNumber: string; partId: string | null; partDescription: string; quantity: string; reason: string; requirement: string; wi: WiOpt | null; requestedDate: string; priority: string; number?: string; projectId?: string }
 const blank: Form = { number: '', siteId: '', partNumber: '', partId: null, partDescription: '', quantity: '', reason: '', requirement: '', wi: null, requestedDate: '', priority: 'Normal' };
 const body = (f: Form) => ({ number: f.number?.trim() || null, siteId: f.siteId, partNumber: f.partNumber.trim() || null, partId: f.partId, partDescription: f.partDescription.trim() || null,
   quantity: f.quantity === '' ? null : Number(f.quantity), reason: f.reason || null, requirement: f.requirement.trim() || null, workInstructionId: f.wi?.id ?? null,
-  requestedDate: f.requestedDate || null, priority: f.priority });
+  requestedDate: f.requestedDate || null, priority: f.priority, projectId: f.projectId || null });
 
 export function InspectionRequestDialog({ open, onClose, initial, id }: { open: boolean; onClose: () => void; initial?: Form; id?: string }) {
   const qc = useQueryClient(); const nav = useNavigate();
@@ -107,7 +108,8 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
       <FormDialogTitle>{id ? 'Edit inspection request' : 'New inspection request'}</FormDialogTitle>
       <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
         {!id && <NumberField fullWidth sx={{ mt: 1, mb: 2 }} value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'ir-number', maxLength: 40 }} />}
-        <RequestForm value={f} onChange={setF} /></DialogContent>
+        <RequestForm value={f} onChange={setF} />
+        <Box sx={{ mt: 2 }}><ProjectPicker value={f.projectId ?? ''} onChange={(v) => setF({ ...f, projectId: v })} testId="ir-project" /></Box></DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={busy}>{id ? 'Save' : 'Submit request'}</Button></DialogActions>
     </Dialog>
   );
@@ -263,7 +265,7 @@ export function InspectionRequestPage() {
   const r = q.data; const closed = r.status === 'Done' || r.status === 'Cancelled';
   const status = async (s: string) => { setErr(null); try { await post(`${A}/${id}/status`, { status: s }); await qc.invalidateQueries({ queryKey: ['sqf-ir'] }); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } };
   const initial: Form = { siteId: r.siteId, partNumber: r.partNumber, partId: r.partId ?? null, partDescription: r.partDescription ?? '', quantity: r.quantity?.toString() ?? '', reason: r.reason ?? '',
-    requirement: r.requirement ?? '', wi: r.workInstructionId ? { id: r.workInstructionId, number: r.workInstructionLabel ?? '', revision: '', title: '' } : null, requestedDate: r.requestedDate ?? '', priority: r.priority };
+    requirement: r.requirement ?? '', wi: r.workInstructionId ? { id: r.workInstructionId, number: r.workInstructionLabel ?? '', revision: '', title: '' } : null, requestedDate: r.requestedDate ?? '', priority: r.priority, projectId: r.projectId ?? '' };
   return (
     <SqfPage title={<>{r.number} <PriorityChip p={r.priority} /></>} crumbs={[crumbs[0], { label: 'Inspection Requests', to: '/sequfloh/inspection-requests' }, { label: r.number }]}
       permission="sequfloh.access" recent={{ label: `${r.number} ${r.partNumber}`, itemType: 'Inspection request', recordId: r.id }}
@@ -282,7 +284,7 @@ export function InspectionRequestPage() {
         <Facts items={[['Status', <StatusChip key="s" s={r.status} />], ['Part number', <span key="p"><Mono>{r.partNumber}</Mono><ViewDrawingButton partId={r.partId} partNumber={r.partNumber} /></span>], ['Part description', r.partDescription ?? '—'],
           ['Qty (per NetSuite)', r.quantity ?? '—'], ['Reason', r.reason ?? '—'], ['Requested completion date', fmtDate(r.requestedDate)], ['Priority', r.priority],
           ['Work instruction', r.workInstructionId ? <RouterLink key="w" to={`/sequfloh/instruction/${r.workInstructionId}`}>{r.workInstructionLabel}</RouterLink> : '—'],
-          ['Assigned', r.assignedUserName ?? '—'],
+          ['Assigned', r.assignedUserName ?? '—'], ['Project', <ProjectName key="pj" id={r.projectId} />],
           ['Work order', r.workOrderId ? <RouterLink key="o" to={`/sequfloh/record/${r.workOrderId}`}>{r.workOrderNumber}</RouterLink> : '—'],
           ['Submitted', `${r.requestedByName ?? '—'} · ${fmtDateTime(r.createdAt)}`]]} />
         <Paper sx={{ p: 2 }}><Typography variant="subtitle2" gutterBottom>Inspection requirement</Typography>
