@@ -151,7 +151,7 @@ export function NewTrackingPage() {
   const [clockAsk, setClockAsk] = useState(true);
   const [clockFrom, setClockFrom] = useState<string | null>(null);
   const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
-  const forms = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`), enabled: type === 'Validation' });
+  const forms = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`), enabled: type === 'Validation' || type === 'SaltSpray' });
   const famForm = forms.data?.families.find((x) => x.id === familyId);
   const famBlank = famForm?.blankFormId ? forms.data?.blanks.find((b) => b.id === famForm.blankFormId) : undefined;
   const isInsp = type === 'Inspection' || type === 'Warranty';
@@ -193,7 +193,7 @@ export function NewTrackingPage() {
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
-        maxBenchmarkMinutes: numOrNull(f.max), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId) });
+        maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId) });
       nav(`/sequfloh/record/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -231,8 +231,10 @@ export function NewTrackingPage() {
             helperText="The confirmed validation form for this family is attached as a copy to fill out.">
             <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
           {type === 'Validation' && familyId && forms.data && <Box sx={{ gridColumn: '1 / -1' }}>
-            {famBlank ? <Alert severity="success" data-testid="new-wo-form-note">A copy of {famBlank.number} {famBlank.title} will be attached to fill out.</Alert>
+            {famBlank ? <Stack gap={1}><Alert severity="success" data-testid="new-wo-form-note">A copy of {famBlank.number} {famBlank.title} is attached to fill out once you type its number and file name. You can also attach it later on the work order.</Alert>
+              {fld('formNumber', 'Validation form number and file name', { inputProps: { 'data-testid': 'new-wo-form-number', maxLength: 300 } })}</Stack>
               : <Alert severity="warning" data-testid="new-wo-form-note">No validation form is confirmed for this product family. An administrator can set one in Settings, Validation forms by product.</Alert>}</Box>}
+          {type === 'SaltSpray' && fld('formNumber', 'Validation form number and file name', { helperText: 'Optional. The Salt Spray Test form is attached under this number; leave it blank to attach it later.', inputProps: { 'data-testid': 'new-wo-form-number', maxLength: 300 } })}
           {isInsp && <TextField select size="small" label="Inspection sub-type" value={subTypes.data ? f.subType ?? '' : ''} onChange={(e) => setF({ ...f, subType: e.target.value })} inputProps={{ 'data-testid': 'new-wo-subtype' }}>
             {(subTypes.data ?? []).map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}</TextField>}
           {isInsp && <Box sx={{ gridColumn: '1 / -1' }}>{fld('inspectionDescription', 'Description of the inspection', { multiline: true, minRows: 2, fullWidth: true, inputProps: { 'data-testid': 'new-wo-description' } })}</Box>}
@@ -323,7 +325,7 @@ export function TrackingRecordPage() {
   const plan = q.data.canPlan && !busy;
   const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
-  const vf = (rec.details as unknown as { validationForm?: { family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
+  const vf = (rec.details as unknown as { validationForm?: { familyId?: string; family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
     { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
@@ -359,14 +361,15 @@ export function TrackingRecordPage() {
         <CrewPanel recordId={rec.id} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
-        {vf && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
-          <Typography variant="h3" sx={{ mb: 1 }}>{vf.test ? `${vf.test} form` : `Validation form${vf.family ? ` — ${vf.family}` : ''}`}</Typography>
-          {vf.fileId && closed && <Alert severity="info" sx={{ mb: 1 }} data-testid="wo-form-locked">This work order is closed, so its form is locked and can't be changed.</Alert>}
-          {vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. {vf.test ? '' : 'It is saved under Completed Validation / FAI for this product family.'}</Typography>
+        {(vf || q.data.canAttachForm) && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
+          <Typography variant="h3" sx={{ mb: 1 }}>{vf?.test ? `${vf.test} form` : `Validation form${vf?.family ? ` — ${vf.family}` : ''}`}</Typography>
+          {!vf && <Typography variant="body2" color="text.secondary">No validation form is attached to this work order yet.</Typography>}
+          {vf?.fileId && closed && <Alert severity="info" sx={{ mb: 1 }} data-testid="wo-form-locked">This work order is closed, so its form is locked and can't be changed.</Alert>}
+          {!vf ? null : vf.fileId ? <Typography variant="body2">Fill out <RouterLink to={`/sequfloh/imported-files/${vf.fileId}`}>{vf.fileNumber} {vf.fileTitle}</RouterLink>. {vf.test ? '' : 'It is saved under Completed Validation / FAI for this product family.'}</Typography>
             : <Alert severity="warning">{vf.message ?? 'No validation form is confirmed for this product family.'}</Alert>}
           {q.data.canAttachForm && <Button variant="outlined" sx={{ mt: 1.5 }} disabled={busy || dirty} onClick={() => setAttach(true)} data-testid="wo-attach-form">Attach validation form</Button>}
         </Paper>}
-        {attach && <AttachFormDialog id={rec.id} onClose={() => setAttach(false)} onDone={() => { setAttach(false); void refresh(); setMsg({ sev: 'success', text: 'The form is attached.' }); }} />}
+        {attach && <AttachFormDialog id={rec.id} familyId={vf?.familyId} saltSpray={rec.type === 'SaltSpray'} onClose={() => setAttach(false)} onDone={() => { setAttach(false); void refresh(); setMsg({ sev: 'success', text: 'The form is attached.' }); }} />}
         {(rec.type === 'Inspection' || rec.type === 'Warranty') && <InspectionResults rec={rec} onSaved={refresh} />}
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Work order">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Work order</Typography>
@@ -478,27 +481,35 @@ const Link = ({ to, children }: { to: string; children: ReactNode }) => <RouterL
 const local = (iso: string) => { if (!iso) return ''; const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 /** Inspection and warranty results: qty good, qty bad (feeds the chargeback report), further inspection and the quarantine flag. Saved on its own and audited. */
-/** Starts the confirmed form copy on a work order that has none yet; the number starts as the work order number and can be changed. */
-function AttachFormDialog({ id, onClose, onDone }: { id: string; onClose: () => void; onDone: () => void }) {
+/** Starts a copy of the product family's validation form (or the Salt Spray Test form) on a work order of any type; the user types its number and file name. */
+function AttachFormDialog({ id, familyId, saltSpray, onClose, onDone }: { id: string; familyId?: string; saltSpray?: boolean; onClose: () => void; onDone: () => void }) {
   const [n, setN] = useState('');
+  const [fam, setFam] = useState(familyId ?? '');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const families = useFamilies();
   const go = async () => {
-    setBusy(true); setErr('');
-    try { await post(`${S}/tracking/${id}/validation-form`, { number: n }); onDone(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+    setErr('');
+    if (!n.trim()) { setErr('Type the number and file name of the form.'); return; }
+    if (!fam && !saltSpray) { setErr('Choose the product family whose validation form to attach.'); return; }
+    setBusy(true);
+    try { await post(`${S}/tracking/${id}/validation-form`, { number: n.trim(), familyId: fam || null }); onDone(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
       <FormDialogTitle>Attach validation form</FormDialogTitle>
       <DialogContent>
         <Stack gap={2} sx={{ pt: 1 }}>
-          <TextField label="Form number" helperText="Leave blank to use the next number, e.g. FRM-VAL-001-1" value={n} onChange={(e) => setN(e.target.value)} inputProps={{ 'data-testid': 'attach-form-number' }} />
+          <TextField required label="Number and file name" value={n} onChange={(e) => setN(e.target.value)} inputProps={{ 'data-testid': 'attach-form-number', maxLength: 300 }} />
+          <TextField select size="small" label="Product family" value={families.data ? fam : ''} onChange={(e) => setFam(e.target.value)} inputProps={{ 'data-testid': 'attach-form-family' }}
+            helperText={saltSpray ? 'Leave as None to attach the Salt Spray Test form.' : 'The validation form confirmed for this family is copied.'}>
+            <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false || x.id === fam).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>
           {err && <Alert severity="error" data-testid="attach-form-error">{err}</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={busy} onClick={() => void go()} data-testid="attach-form-go">Attach</Button>
+        <Button variant="contained" disabled={busy || !n.trim()} onClick={() => void go()} data-testid="attach-form-go">Attach</Button>
       </DialogActions>
     </Dialog>
   );

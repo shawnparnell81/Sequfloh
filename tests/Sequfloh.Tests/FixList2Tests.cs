@@ -53,7 +53,7 @@ public sealed class FixList2Tests(TestApp app)
         row = (await c.GetElAsync("/api/sequfloh/validation-forms")).GetProperty("families").EnumerateArray().First(f => f.GetProperty("id").GetGuid() == famId);
         Assert.Equal(blank, row.GetProperty("blankFormId").GetGuid());
 
-        var r2 = await (await c.PostOkAsync(T, new { type = "Validation", siteId = site, familyId = famId })).JsonAsync();
+        var r2 = await (await c.PostOkAsync(T, new { type = "Validation", siteId = site, familyId = famId, formNumber = $"GZ-FORM-{tag}" })).JsonAsync();
         var fileId = Guid.Parse(r2.GetProperty("validationForm").GetProperty("fileId").GetString()!);
         var file = await c.GetElAsync($"/api/imported-files/{fileId}");
         Assert.False(file.GetProperty("isBlankForm").GetBoolean());

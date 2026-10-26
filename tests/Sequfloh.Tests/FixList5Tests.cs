@@ -73,7 +73,7 @@ public sealed class FixList5Tests(TestApp app)
         Assert.True((await admin.PutAsync("/api/sequfloh/validation-forms/tests/salt-spray", new { blankFormId = blank })).IsSuccessStatusCode);
         Assert.Equal(blank, (await c.GetElAsync("/api/sequfloh/validation-forms")).GetProperty("tests")[0].GetProperty("blankFormId").GetGuid());
 
-        var r2 = await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site })).JsonAsync();
+        var r2 = await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site, formNumber = "SS-FORM-" + Guid.NewGuid().ToString("N")[..8] })).JsonAsync();
         var fileId = Guid.Parse(r2.GetProperty("validationForm").GetProperty("fileId").GetString()!);
         var file = await c.GetElAsync($"/api/imported-files/{fileId}");
         Assert.False(file.GetProperty("isBlankForm").GetBoolean());
