@@ -80,7 +80,7 @@ public sealed class ImportLayoutTests(TestApp app)
         var put = await a.Http.PutAsJsonAsync("/api/sequfloh/my-home", order);
         Assert.True(put.IsSuccessStatusCode, await put.Content.ReadAsStringAsync());
         var mine = (await a.GetElAsync("/api/sequfloh/my-home")).GetProperty("sections");
-        Assert.Equal(["recent", "dashboard", "quick", "pinned"], mine.EnumerateArray().Select(x => x.GetProperty("key").GetString()).ToList());
+        Assert.Equal(["recent", "dashboard", "quick", "pinned", "projects"], mine.EnumerateArray().Select(x => x.GetProperty("key").GetString()).ToList());
         Assert.False(mine[1].GetProperty("visible").GetBoolean());
         Assert.Equal(JsonValueKind.Null, (await b.GetElAsync("/api/sequfloh/my-home")).GetProperty("sections").ValueKind);
 

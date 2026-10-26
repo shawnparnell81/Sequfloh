@@ -13,6 +13,7 @@ public sealed class SequflohProjectsController(SequflohProjectService svc) : Con
 {
     [HttpGet] public Task<object> List([FromQuery] string? status, [FromQuery] string? q, CancellationToken ct) => svc.ListAsync(status, q, ct);
     [HttpGet("{id:guid}")] public Task<object> Get(Guid id, CancellationToken ct) => svc.GetAsync(id, ct);
+    [HttpGet("open-summary")] public Task<object> OpenSummary(CancellationToken ct) => svc.OpenSummaryAsync(ct);
     [HttpPost] public Task<object> Create(ProjectInput r, CancellationToken ct) => svc.CreateAsync(r, ct);
     [HttpPut("{id:guid}")] public async Task<IActionResult> Update(Guid id, ProjectInput r, CancellationToken ct) { await svc.UpdateAsync(id, r, ct); return NoContent(); }
     [HttpPost("{id:guid}/close")] public async Task<IActionResult> Close(Guid id, CancellationToken ct) { await svc.SetStatusAsync(id, ProjectStatus.Closed, ct); return NoContent(); }

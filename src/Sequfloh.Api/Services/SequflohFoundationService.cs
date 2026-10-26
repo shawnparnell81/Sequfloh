@@ -438,20 +438,25 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
     }
 
     // ------------------------------------------------------------------ the user's own Home layout
-    public static readonly string[] HomeSections = ["quick", "dashboard", "pinned", "recent"];
+    public static readonly string[] HomeSections = ["quick", "dashboard", "pinned", "recent", "projects"];
 
     /// <summary>The user's saved Home sections in order, or null when the user keeps the default.</summary>
     public async Task<List<HomeSection>?> HomeLayoutAsync(CancellationToken ct)
     {
         var uid = m.UserId;
         var x = await db.SequflohHomeLayouts.AsNoTracking().FirstOrDefaultAsync(h => h.UserId == uid, ct);
-        return x is null ? null : System.Text.Json.JsonSerializer.Deserialize<List<HomeSection>>(x.Sections, System.Text.Json.JsonSerializerOptions.Web);
+        return x is null ? null : WithMissing(System.Text.Json.JsonSerializer.Deserialize<List<HomeSection>>(x.Sections, System.Text.Json.JsonSerializerOptions.Web) ?? []);
     }
+
+    /// <summary>Sections added after a layout was saved are appended, shown.</summary>
+    static List<HomeSection> WithMissing(List<HomeSection> sections) =>
+        [.. sections.Where(s => HomeSections.Contains(s.Key)), .. HomeSections.Where(k => sections.All(s => s.Key != k)).Select(k => new HomeSection(k, true))];
 
     public async Task SaveHomeLayoutAsync(List<HomeSection> sections, CancellationToken ct)
     {
-        if (sections.Count != HomeSections.Length || sections.Select(s => s.Key).Distinct().Count() != HomeSections.Length || sections.Any(s => !HomeSections.Contains(s.Key)))
+        if (sections.Select(s => s.Key).Distinct().Count() != sections.Count || sections.Any(s => !HomeSections.Contains(s.Key)))
             throw new AppException("Every Home section must be listed once.");
+        sections = WithMissing(sections);
         var uid = m.UserId;
         var x = await db.SequflohHomeLayouts.FirstOrDefaultAsync(h => h.UserId == uid, ct);
         if (x is null) { x = new SequflohHomeLayout { UserId = uid }; db.SequflohHomeLayouts.Add(x); }
