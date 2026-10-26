@@ -22,6 +22,8 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     [System.ComponentModel.DataAnnotations.MaxLength(300)]
     public string? StatusNote { get; set; }
     public Guid FamilyId { get; set; }
+    /// <summary>True when imported in Engineering › Validation / FAI › Validation instructions. Those are listed only there and in Released validation instructions.</summary>
+    public bool ValidationFolder { get; set; }
     public Guid? PreviousRevisionId { get; set; }
     public string Number { get; set; } = "";
     public WorkInstructionType Type { get; set; }

@@ -8,7 +8,7 @@ export const UPLOAD_SURFACES = {
   'completed-forms': 'Completed Validation / FAI (completed forms into the product family tab)',
   'development-files': 'Engineering, Development (files into the product line tab)',
   'parts-drawings': 'Drawings',
-  'work-instructions': 'Work Instructions list',
+  'work-instructions': 'WI / Procedures list',
   'work-instruction-files': 'Work instruction files',
   'inspection-request-files': 'Inspection request attachments',
   'work-order-tester-files': 'Work order tester files',

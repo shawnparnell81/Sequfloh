@@ -81,7 +81,7 @@ export function EngineeringDashboardPage() {
           <Stat label="Draft validation instructions" value={d?.draftValidation} to="/sequfloh/engineering/development" />
           <Stat label="Draft repair instructions" value={d?.draftRepair} to="/sequfloh/engineering/development" />
           <Stat label="Open validation activities" value={d?.openValidationActivities} to="/sequfloh/engineering/validation?tab=open" />
-          <Stat label="Released validation instructions" value={d?.releasedValidationInstructions} to="/sequfloh/instructions/released" />
+          <Stat label="Released validation instructions" value={d?.releasedValidationInstructions} to="/sequfloh/engineering/validation?tab=released" />
         </Stats>
         <Two>
           <MiniList title="My development work" rows={d?.myDevelopment} empty="No instructions in development are assigned to you." kind="instruction" />
@@ -109,9 +109,9 @@ export function EngineeringValidationPage() {
     { label: 'Validation results', value: 'results' }, { label: 'Failed validation records', value: 'failed' },
     { label: 'Released validation instructions', value: 'released' }, { label: 'Revision history', value: 'revisions' }];
   if (tab === 'instructions' || tab === 'plans' || tab === 'released') {
-    return <InstructionsFolderPage key={tab} fixedFolder={tab === 'released' ? 'released' : tab === 'plans' ? 'draft' : 'validation'} tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
+    return <InstructionsFolderPage key={tab} fixedFolder={tab === 'released' ? 'releasedValidation' : tab === 'plans' ? 'draft' : 'validationFolder'} tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
       crumbsOverride={eCrumbs('Validation / FAI')} titleOverride="Validation / FAI" permission="sequfloh.view_engineering_folder"
-      descriptionOverride={tab === 'plans' ? 'Validation plans being developed: draft instructions.' : tab === 'released' ? 'Released instructions available for validation execution.' : 'Validation and Validation / FAI work instructions.'} />;
+      descriptionOverride={tab === 'plans' ? 'Validation plans being developed: draft instructions.' : tab === 'released' ? 'Released validation instructions imported in Validation instructions.' : 'Validation instructions imported here. Use Import file / folder to add them.'} />;
   }
   if (tab === 'revisions') return <Navigate to="/sequfloh/revision-history" replace />;
   return (

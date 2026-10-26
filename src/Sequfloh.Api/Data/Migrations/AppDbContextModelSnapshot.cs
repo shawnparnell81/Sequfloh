@@ -2257,6 +2257,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("ValidationFolder")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("ValidationType")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
