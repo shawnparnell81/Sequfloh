@@ -6,6 +6,7 @@ import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogConten
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
+import DragIndicator from '@mui/icons-material/DragIndicator';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { useAuth } from '../auth';
@@ -232,6 +233,17 @@ export function DropdownsPage() {
     [ids[from], ids[to]] = [ids[to], ids[from]];
     await post(`${S}/reference/${key}/reorder`, { ids });
   });
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const canDrag = !search && !active;
+  const drop = (to: number) => {
+    const from = dragFrom; setDragFrom(null); setDragOver(null);
+    if (from === null || from === to) return;
+    act(async () => {
+      const ids = rows.map((x) => x.id); const [m] = ids.splice(from, 1); ids.splice(to, 0, m);
+      await post(`${S}/reference/${key}/reorder`, { ids });
+    });
+  };
   const info = lists.data?.find((l) => l.key === key);
   return (
     <SqfPage title="Dropdown Management" description={info?.description ?? 'Administer the values of a SEQUFLOH dropdown.'} crumbs={[{ label: 'SEQUFLOH Administration' }, { label: 'Dropdown Management' }]} permission="sequfloh.manage_dropdowns"
@@ -249,8 +261,14 @@ export function DropdownsPage() {
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : rows.length === 0 ? <Empty text="No values match." /> :
         <TableContainer component={Paper} variant="outlined"><Table size="small">
           <TableHead><TableRow><TableCell>Order</TableCell><TableCell>Label</TableCell><TableCell>Code</TableCell><TableCell>Status</TableCell><TableCell>Default</TableCell><TableCell>Origin</TableCell><TableCell /></TableRow></TableHead>
-          <TableBody>{rows.map((v, i) => <TableRow key={v.id}>
-            <TableCell sx={{ whiteSpace: 'nowrap' }}><Tooltip title="Move up"><span><IconButton size="small" aria-label={`Move ${v.label} up`} disabled={i === 0 || !!search || !!active} onClick={() => move(i, -1)}><ArrowUpward fontSize="small" /></IconButton></span></Tooltip>
+          <TableBody>{rows.map((v, i) => <TableRow key={v.id} data-testid="dropdown-row" draggable={canDrag}
+            onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', v.id); }}
+            onDragOver={(e) => { if (dragFrom === null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOver !== i) setDragOver(i); }}
+            onDrop={(e) => { e.preventDefault(); drop(i); }}
+            onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+            sx={{ opacity: dragFrom === i ? 0.5 : 1, ...(dragOver === i && dragFrom !== null && dragFrom !== i ? { [dragFrom < i ? 'borderBottom' : 'borderTop']: '2px solid', borderColor: 'primary.main' } : {}) }}>
+            <TableCell sx={{ whiteSpace: 'nowrap' }}><Tooltip title={canDrag ? 'Drag to reorder' : 'Clear filters to reorder'}><DragIndicator fontSize="small" aria-label={`Drag ${v.label}`} sx={{ verticalAlign: 'middle', cursor: canDrag ? 'grab' : 'not-allowed', color: canDrag ? 'text.secondary' : 'action.disabled' }} /></Tooltip>
+              <Tooltip title="Move up"><span><IconButton size="small" aria-label={`Move ${v.label} up`} disabled={i === 0 || !!search || !!active} onClick={() => move(i, -1)}><ArrowUpward fontSize="small" /></IconButton></span></Tooltip>
               <Tooltip title="Move down"><span><IconButton size="small" aria-label={`Move ${v.label} down`} disabled={i === rows.length - 1 || !!search || !!active} onClick={() => move(i, 1)}><ArrowDownward fontSize="small" /></IconButton></span></Tooltip></TableCell>
             <TableCell>{v.label}{v.description && <Typography variant="caption" display="block" color="text.secondary">{v.description}</Typography>}</TableCell>
             <TableCell><Mono>{v.code}</Mono></TableCell><TableCell><SqfStatus status={v.isActive ? 'Active' : 'Inactive'} /></TableCell>
