@@ -3,7 +3,8 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
-import { post } from '../api';
+import { useQuery } from '@tanstack/react-query';
+import { get, post } from '../api';
 import { useAuth, useBranding } from '../auth';
 
 function Frame({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
@@ -35,8 +36,9 @@ function Frame({ title, subtitle, children }: { title: string; subtitle: string;
 }
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginRemembered } = useAuth();
   const branding = useBranding();
+  const remembered = useQuery({ queryKey: ['remembered'], queryFn: () => get<{ remembered: boolean; displayName: string | null; email: string | null }>('/api/auth/remembered'), staleTime: 0 });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
@@ -46,8 +48,26 @@ export function LoginPage() {
     e.preventDefault(); setError(null); setBusy(true);
     try { await login(email, password, remember); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
   };
+  const subtitle = branding.data?.organizationName ? `${branding.data.organizationName} job tracking` : 'Sign in with the email address your administrator set up for you.';
+  if (remembered.data?.remembered) {
+    const signInAs = async () => {
+      setError(null); setBusy(true);
+      try { await loginRemembered(); } catch (x) { setError((x as Error).message); await remembered.refetch(); } finally { setBusy(false); }
+    };
+    const different = async () => { await post('/api/auth/forget').catch(() => {}); await remembered.refetch(); };
+    return (
+      <Frame title="Sign in" subtitle={subtitle}>
+        <Stack gap={2}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Typography variant="body2" color="text.secondary">{remembered.data.email}</Typography>
+          <Button data-testid="sign-in-remembered" variant="contained" size="large" disabled={busy} onClick={signInAs} autoFocus>{busy ? 'Signing in…' : `Sign in as ${remembered.data.displayName}`}</Button>
+          <Button data-testid="use-different-account" onClick={different} disabled={busy}>Use a different account</Button>
+        </Stack>
+      </Frame>
+    );
+  }
   return (
-    <Frame title="Sign in" subtitle={branding.data?.organizationName ? `${branding.data.organizationName} job tracking` : 'Sign in with the email address your administrator set up for you.'}>
+    <Frame title="Sign in" subtitle={subtitle}>
       <Stack component="form" gap={2} onSubmit={submit}>
         {error && <Alert severity="error">{error}</Alert>}
         <TextField label="Email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />

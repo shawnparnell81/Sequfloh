@@ -46,28 +46,86 @@ public sealed class AuthTests(TestApp app)
         Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
     }
 
+    static string? CookieValue(HttpResponseMessage r, string name) =>
+        r.Headers.TryGetValues("Set-Cookie", out var all) ? all.Where(c => c.StartsWith(name + "=")).Select(c => c[(name.Length + 1)..].Split(';')[0]).LastOrDefault() : null;
+
+    static HttpRequestMessage WithCookie(HttpMethod m, string url, string name, string value)
+    {
+        var req = new HttpRequestMessage(m, url);
+        req.Headers.Add("Cookie", $"{name}={value}");
+        return req;
+    }
+
     [Fact]
-    public async Task Remember_me_keeps_the_sign_in_for_30_days_and_is_audited()
+    public async Task Remember_me_still_uses_a_session_cookie_and_is_audited()
     {
         var raw = app.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
         var r = await raw.PostAsJsonAsync("/api/auth/login", new { email = TestApp.AdminEmail, password = TestApp.AdminPassword, rememberMe = true });
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        var cookie = r.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(AuthSettings.CookieName + "="));
-        var m = System.Text.RegularExpressions.Regex.Match(cookie, "expires=([^;]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        Assert.True(m.Success);
-        var days = (DateTimeOffset.Parse(m.Groups[1].Value) - DateTimeOffset.UtcNow).TotalDays;
-        Assert.InRange(days, 29.9, 30.1);
+        var cookies = r.Headers.GetValues("Set-Cookie").ToList();
+        var session = cookies.Single(c => c.StartsWith(AuthSettings.CookieName + "="));
+        Assert.DoesNotContain("expires=", session, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("max-age=", session, StringComparison.OrdinalIgnoreCase);
         var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken((await r.JsonAsync()).Str("token"));
-        Assert.InRange((token.ValidTo - DateTime.UtcNow).TotalDays, 29.9, 30.1);
+        Assert.InRange((token.ValidTo - DateTime.UtcNow).TotalHours, 11.9, 12.1);
+        var remember = cookies.Single(c => c.StartsWith(AuthSettings.RememberCookieName + "="));
+        Assert.Contains("httponly", remember, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=strict", remember, StringComparison.OrdinalIgnoreCase);
+        var m = System.Text.RegularExpressions.Regex.Match(remember, "expires=([^;]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        Assert.InRange((DateTimeOffset.Parse(m.Groups[1].Value) - DateTimeOffset.UtcNow).TotalDays, 29.9, 30.1);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var entry = await db.AuditEntries.Where(a => a.Action == "SignedIn").OrderByDescending(a => a.OccurredAt).FirstAsync();
         Assert.Contains("Remember me", entry.Description);
         Assert.NotNull(entry.UserId);
+    }
 
-        // unticked stays a session cookie with the short token
-        var plain = await raw.PostAsJsonAsync("/api/auth/login", new { email = TestApp.AdminEmail, password = TestApp.AdminPassword, rememberMe = false });
-        Assert.DoesNotContain("expires=", plain.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(AuthSettings.CookieName + "=")), StringComparison.OrdinalIgnoreCase);
+    [Fact]
+    public async Task A_remember_token_alone_cannot_call_the_api()
+    {
+        var raw = app.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        var r = await raw.PostAsJsonAsync("/api/auth/login", new { email = TestApp.AdminEmail, password = TestApp.AdminPassword, rememberMe = true });
+        var rem = CookieValue(r, AuthSettings.RememberCookieName)!;
+        Assert.Equal(HttpStatusCode.Unauthorized, (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/admin/users", AuthSettings.CookieName, rem))).StatusCode);
+        var bearer = new HttpRequestMessage(HttpMethod.Get, "/api/admin/users");
+        bearer.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rem);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await raw.SendAsync(bearer)).StatusCode);
+        var s = await (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/auth/session", AuthSettings.RememberCookieName, rem))).JsonAsync();
+        Assert.False(s.GetProperty("authenticated").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Sign_in_as_the_remembered_person_works_is_audited_and_ends_when_the_token_version_changes()
+    {
+        var admin = await app.AdminAsync();
+        var email = $"rem{Guid.NewGuid():N}@test.local";
+        var id = (await (await admin.PostOkAsync("/api/admin/users", new { email, displayName = "Remy Made Up", password = "long-enough-password", mustChangePassword = false })).JsonAsync()).GetString()!;
+        var raw = app.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        var r = await raw.PostAsJsonAsync("/api/auth/login", new { email, password = "long-enough-password", rememberMe = true });
+        var rem = CookieValue(r, AuthSettings.RememberCookieName)!;
+
+        var who = await (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/auth/remembered", AuthSettings.RememberCookieName, rem))).JsonAsync();
+        Assert.True(who.GetProperty("remembered").GetBoolean());
+        Assert.Equal("Remy Made Up", who.Str("displayName"));
+
+        var signIn = await raw.SendAsync(WithCookie(HttpMethod.Post, "/api/auth/remembered", AuthSettings.RememberCookieName, rem));
+        Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);
+        var session = signIn.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(AuthSettings.CookieName + "="));
+        Assert.DoesNotContain("expires=", session, StringComparison.OrdinalIgnoreCase);
+        var me = await (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/auth/session", AuthSettings.CookieName, CookieValue(signIn, AuthSettings.CookieName)!))).JsonAsync();
+        Assert.True(me.GetProperty("authenticated").GetBoolean());
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entry = await db.AuditEntries.Where(a => a.Action == "SignedIn" && a.UserId == Guid.Parse(id)).OrderByDescending(a => a.OccurredAt).FirstAsync();
+            Assert.Equal("Remy Made Up signed in with Remember me", entry.Description);
+            var u = await db.Users.FirstAsync(x => x.Id == Guid.Parse(id));
+            u.TokenVersion++; // what a password change, deactivation or admin reset does
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized, (await raw.SendAsync(WithCookie(HttpMethod.Post, "/api/auth/remembered", AuthSettings.RememberCookieName, rem))).StatusCode);
+        var gone = await (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/auth/remembered", AuthSettings.RememberCookieName, rem))).JsonAsync();
+        Assert.False(gone.GetProperty("remembered").GetBoolean());
     }
 
     [Fact]
