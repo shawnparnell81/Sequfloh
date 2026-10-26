@@ -13,7 +13,7 @@ import { useFamilies } from './Imports';
 import { useSites } from '../components/Kit';
 
 interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null }
-const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Production', 'Production']];
+const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Production', 'Production']];
 
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null; attributes?: string | null }
 interface WoOpt { id: string; number: string; workOrder?: string | null; partNumber?: string | null; workInstructionTitle?: string | null }

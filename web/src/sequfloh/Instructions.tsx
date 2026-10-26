@@ -54,7 +54,7 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
  * Import file / Import folder on the work instruction lists: each file becomes its own new draft work instruction of the chosen type, titled with the
  * file name, with the file attached to it. Work instructions only: nothing is created on work orders.
  */
-function ImportInstructionsButtons({ newType, validationFolder }: { newType?: string; validationFolder?: boolean }) {
+function ImportInstructionsButtons({ newType, validationFolder, developmentLine }: { newType?: string; validationFolder?: boolean; developmentLine?: string }) {
   const qc = useQueryClient();
   const sites = useSites();
   const [type, setType] = useState(newType ?? '');
@@ -69,8 +69,28 @@ function ImportInstructionsButtons({ newType, validationFolder }: { newType?: st
         {(sites.data?.length ?? 0) > 1 && <TextField select size="small" label="Site" value={siteId} onChange={(e) => setSiteId(e.target.value)} sx={{ minWidth: 200 }}>
           {sites.data!.map((x) => <MenuItem key={x.id} value={x.id}>{x.name}</MenuItem>)}</TextField>}
       </Stack></Stack>}
-    upload={(f) => { const fd = new FormData(); fd.append('file', f); fd.append('type', type); fd.append('siteId', siteId); if (validationFolder) fd.append('validationFolder', 'true'); return api('POST', `${S}/instructions/import`, fd); }}
+    upload={(f) => { const fd = new FormData(); fd.append('file', f); fd.append('type', type); fd.append('siteId', siteId); if (validationFolder) fd.append('validationFolder', 'true'); if (developmentLine) fd.append('developmentLine', developmentLine); return api('POST', `${S}/instructions/import`, fd); }}
     onDone={() => qc.invalidateQueries({ queryKey: ['sqf-wi'] })} />;
+}
+
+/** Procedure / WI of one Engineering, Development product line: imported or created there, listed only there, and used on Development work orders of that line. */
+export function DevelopmentProcedures({ line }: { line: string }) {
+  const { can } = useAuth();
+  const nav = useNavigate();
+  const [page, setPage] = useState(1); const [size, setSize] = useState(25);
+  useEffect(() => setPage(1), [line]);
+  const q = useQuery({ queryKey: ['sqf-wi', 'development-line', line, page, size], queryFn: () => get<Paged<WiRow>>(`${S}/instructions?${qs({ folder: 'all', developmentLine: line, page, pageSize: size })}`) });
+  return <Box sx={{ mb: 3 }} data-testid="development-procedures">
+    <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ mb: 1 }}>
+      <Typography variant="h6" sx={{ flexGrow: 1 }}>Procedure / WI</Typography>
+      {can('sequfloh.create_work_instruction') && <ImportInstructionsButtons newType="Procedure" developmentLine={line} />}
+      {can('sequfloh.create_work_instruction') && <Button variant="outlined" component={RouterLink} to={`/sequfloh/instructions/new?type=Procedure&line=${line}`} data-testid="development-new-procedure">New procedure / WI</Button>}
+    </Stack>
+    <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/instruction/${r.id}`)} empty="No procedures or work instructions in this line yet."
+      cols={[{ key: 'number', label: 'Instruction number', render: (r: WiRow) => <Mono>{r.number}</Mono> }, { key: 'title', label: 'Title' },
+        { key: 'type', label: 'Type', render: (r: WiRow) => typeLabels[r.type] ?? r.type }, { key: 'revision', label: 'Rev' },
+        { key: 'status', label: 'Status', render: (r: WiRow) => <SqfStatus status={r.status} /> }, { key: 'updatedAt', label: 'Last updated', render: (r: WiRow) => fmtDateTime(r.updatedAt) }]} />
+  </Box>;
 }
 
 export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverride, descriptionOverride, permission, tabs, tab, onTab }: {
@@ -201,7 +221,7 @@ export function NewInstructionPage() {
   const create = async () => {
     setBusy(true); setErr(null);
     try {
-      const r = await post<{ id: string }>(`${S}/instructions`, { number: number.trim(), type, title, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, templateId: nul(templateId) });
+      const r = await post<{ id: string }>(`${S}/instructions`, { number: number.trim(), type, title, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, templateId: nul(templateId), developmentLine: sp.get('line') || null });
       nav(`/sequfloh/instruction/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };

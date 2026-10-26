@@ -5,6 +5,7 @@ using Sequfloh.Application.Abstractions;
 using Sequfloh.Application.Security;
 using Sequfloh.Domain.Security;
 using Sequfloh.Domain.Execution;
+using Sequfloh.Domain.Imports;
 using Sequfloh.Infrastructure.Modules.Quality;
 using Sequfloh.Infrastructure.Persistence;
 using Sequfloh.Infrastructure.Services;
@@ -14,7 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null, string? DevelopmentLine = null);
 public sealed record InspectionResultsInput(int? QtyGood, int? QtyBad, bool? FurtherInspection, bool Quarantine, string? QuarantineReason);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
@@ -50,8 +51,13 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         // Validation and FAI are one kind of work order; work instructions and procedures are one kind of instruction
         TrackingType.Validation or TrackingType.Fai => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.Procedure],
         TrackingType.Repair => [WorkInstructionType.RepairWork, WorkInstructionType.Procedure],
+        TrackingType.Development => [WorkInstructionType.Procedure],
         _ => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.RepairTest, WorkInstructionType.RepairWork, WorkInstructionType.Inspection, WorkInstructionType.Procedure]
     };
+
+    /// <summary>Whether a work order of this type and development line can use the instruction: instructions of a development line go only on Development work orders of that line.</summary>
+    public static bool Accepts(TrackingType t, string? line, SequflohWorkInstruction wi) =>
+        wi.DevelopmentLine is { } l ? t == TrackingType.Development && l == line : InstructionTypes(t).Contains(wi.Type);
 
     /// <summary>Task transitions: allowed source states, target (null keeps the state), permission, reason rule, event type.</summary>
     public sealed record TaskRule(string Action, string Label, TrackingStatus[] From, TrackingStatus? To, string Permission, bool ReasonRequired, string EventType);
@@ -94,7 +100,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         var typeCode = CleanCodeOrNull(type switch
         {
             TrackingType.Validation or TrackingType.Fai => t.Tracking.ValidationNumberCode, TrackingType.Repair => t.Tracking.RepairNumberCode, TrackingType.Inspection => t.Tracking.InspectionNumberCode,
-            TrackingType.Warranty => t.Tracking.WarrantyNumberCode, TrackingType.SaltSpray => t.Tracking.SaltSprayNumberCode, _ => null,
+            TrackingType.Warranty => t.Tracking.WarrantyNumberCode, TrackingType.SaltSpray => t.Tracking.SaltSprayNumberCode,
+            TrackingType.Development => t.Tracking.DevelopmentNumberCode, _ => null,
         });
         if (typeCode is null) return null;
         var fam = familyId ?? (partId is { } p ? await db.Parts.AsNoTracking().Where(x => x.Id == p).Select(x => x.TypeId).FirstOrDefaultAsync(ct) : null);
@@ -175,10 +182,12 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     {
         await m.RequireAsync(CreatePermission(r.Type), r.SiteId, r.DepartmentId, ct);
         await m.ValidateLocationAsync(r.SiteId, r.DepartmentId, ct);
+        var devLine = r.Type == TrackingType.Development ? T(r.DevelopmentLine, 40) : null;
+        if (devLine is not null && !DevelopmentLines.All.ContainsKey(devLine)) throw new AppException("Choose a development product line.");
         // the work order is the task; a work instruction is an optional reference with how-to steps. Without one the order has no steps.
         SequflohWorkInstruction? wi = r.WorkInstructionId is { } wid ? await db.SequflohWorkInstructions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == wid, ct) ?? throw new AppException("The work instruction does not exist.") : null;
         if (wi is not null && wi.Status != WorkInstructionStatus.Released) throw new AppException($"{wi.Number} rev {wi.Revision} is not released. Only a released revision can be executed.");
-        if (wi is not null && !InstructionTypes(r.Type).Contains(wi.Type)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(r.Type)} record can use.");
+        if (wi is not null && !Accepts(r.Type, devLine, wi)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(r.Type)} record can use.");
         if (r.AssignedUserId is { } au)
         {
             await m.RequireActiveUserAsync(au, "assigned user", ct);
@@ -218,7 +227,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             SerialNumber = T(r.SerialNumber, 100), LotNumber = T(r.LotNumber, 100), WorkOrder = T(r.WorkOrder, 100), RepairOrder = T(r.RepairOrder, 100),
             CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi?.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
             Status = r.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned, CurrentStateStartedAt = now, LastTransitionAt = now,
-            QuantityTarget = r.Quantity, InspectionSubType = r.Type is TrackingType.Inspection or TrackingType.Warranty ? subType : null,
+            QuantityTarget = r.Quantity, DevelopmentLine = devLine, InspectionSubType = r.Type is TrackingType.Inspection or TrackingType.Warranty ? subType : null,
             InspectionDescription = r.Type is TrackingType.Inspection or TrackingType.Warranty ? T(r.InspectionDescription, 4000) : null,
             ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi?.RepairDescription, FaiType = wi?.FaiType,
             MinBenchmarkMinutes = r.MinBenchmarkMinutes ?? (r.Type is TrackingType.Production or TrackingType.Inspection or TrackingType.Warranty ? settings.Tracking.DefaultMinimumMinutes : null),
@@ -278,7 +287,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         {
             wi = await db.SequflohWorkInstructions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == wid, ct) ?? throw new AppException("The work instruction does not exist.");
             if (wi.Status != WorkInstructionStatus.Released) throw new AppException($"{wi.Number} rev {wi.Revision} is not released.");
-            if (!InstructionTypes(rec.Type).Contains(wi.Type)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(rec.Type)} record can use.");
+            if (!Accepts(rec.Type, rec.DevelopmentLine, wi)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(rec.Type)} record can use.");
         }
         var before = rec.WorkInstructionId is null ? "none" : $"{rec.WorkInstructionNumber} rev {rec.WorkInstructionRevision}";
         rec.WorkInstructionId = wi?.Id; rec.WorkInstructionNumber = wi?.Number ?? ""; rec.WorkInstructionRevision = wi?.Revision ?? ""; rec.WorkInstructionTitle = wi?.Title ?? "";
@@ -729,7 +738,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     }
 
     async Task<string> NameAsync(Guid? id, CancellationToken ct) => id is null ? "nobody" : await db.Users.Where(u => u.Id == id).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "unknown";
-    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI", TrackingType.Validation => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray Test", TrackingType.Repair => "Repair / Rework", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", _ => "production" };
+    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI", TrackingType.Validation => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray Test", TrackingType.Repair => "Repair / Rework", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", TrackingType.Development => "Development", _ => "production" };
     public static string Words(TrackingStatus s) => SequflohInstructionService.Words(s.ToString());
     static string Words(string s) => SequflohInstructionService.Words(s);
     static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];

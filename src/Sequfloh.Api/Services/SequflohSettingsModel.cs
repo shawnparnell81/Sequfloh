@@ -50,6 +50,7 @@ public sealed class TrackingSettings
     public string? InspectionNumberCode { get; set; }
     public string? WarrantyNumberCode { get; set; }
     public string? SaltSprayNumberCode { get; set; }
+    public string? DevelopmentNumberCode { get; set; } = "DEV";
 }
 
 public sealed class ValidationSettings

@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sequfloh.Api.Auth;
+using Sequfloh.Application.Abstractions;
 using Sequfloh.Domain.Security;
 using Sequfloh.Domain.Execution;
+using Sequfloh.Domain.Imports;
 using Sequfloh.Infrastructure.Modules.Quality;
 using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
@@ -21,7 +23,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
     /// <summary>Folder listing. folder: validation | repair | all | current | drafts | released | superseded | obsolete | type key.</summary>
     [HttpGet]
     public async Task<object> List([FromQuery] string? folder, [FromQuery] string? q, [FromQuery] WorkInstructionStatus? status, [FromQuery] WorkInstructionType? type, [FromQuery] string? part,
-        [FromQuery] string? repairCategory, [FromQuery] string? repairType, [FromQuery] string? validationType, [FromQuery] string? resultStatus, [FromQuery] string? sort, [FromQuery] string? tag,
+        [FromQuery] string? repairCategory, [FromQuery] string? repairType, [FromQuery] string? validationType, [FromQuery] string? resultStatus, [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? developmentLine,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
         var query = await wi.QueryAsync(ct);
@@ -51,6 +53,8 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         };
         // instructions imported in the Validation instructions folder stay out of the Work Instructions lists
         if (folder is not ("validation-folder" or "released-validation")) query = query.Where(x => !x.ValidationFolder);
+        // instructions of an Engineering, Development product line are listed only in that line
+        query = string.IsNullOrWhiteSpace(developmentLine) ? query.Where(x => x.DevelopmentLine == null) : query.Where(x => x.DevelopmentLine == developmentLine);
         if (status is not null) query = query.Where(x => x.Status == status);
         if (type is WorkInstructionType.Validation or WorkInstructionType.ValidationFai or WorkInstructionType.Fai) query = query.Where(x => (x.Type == WorkInstructionType.Validation || x.Type == WorkInstructionType.ValidationFai || x.Type == WorkInstructionType.Fai));
         else if (type is not null) query = query.Where(x => x.Type == type);
@@ -117,14 +121,16 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
 
     /// <summary>Imports one file as a new draft work instruction: the title is the file name and the file is attached to the draft (same file rules as attachments).</summary>
     [HttpPost("import"), RequirePermission(Permissions.SequflohCreateWorkInstruction), RequestSizeLimit(global::Sequfloh.Platform.FilesController.MaxBytes + 64 * 1024)]
-    public async Task<object> Import(IFormFile file, [FromForm] WorkInstructionType type, [FromForm] Guid siteId, [FromForm] Guid? departmentId, CancellationToken ct, [FromForm] string? number = null, [FromForm] bool validationFolder = false)
+    public async Task<object> Import(IFormFile file, [FromForm] WorkInstructionType type, [FromForm] Guid siteId, [FromForm] Guid? departmentId, CancellationToken ct, [FromForm] string? number = null, [FromForm] bool validationFolder = false, [FromForm] string? developmentLine = null)
     {
         global::Sequfloh.Platform.FilesController.Check(file);
+        developmentLine = string.IsNullOrWhiteSpace(developmentLine) ? null : developmentLine.Trim();
+        if (developmentLine is not null && !DevelopmentLines.All.ContainsKey(developmentLine)) throw new AppException("Choose a development product line.");
         // the number and title are the file name as it was saved, without its extension
         var title = Path.GetFileNameWithoutExtension(Path.GetFileName(file.FileName)).Trim();
         if (title.Length > 200) title = title[..200];
         // a Procedure Instruction imported again under the same title is revised: a released one gets a new draft revision, which then carries the new file
-        if (type == WorkInstructionType.Procedure && await wi.ProcedureToReviseAsync(title, siteId, ct) is { } current)
+        if (type == WorkInstructionType.Procedure && await wi.ProcedureToReviseAsync(title, siteId, ct, developmentLine) is { } current)
         {
             var target = current.Status == WorkInstructionStatus.Released ? await wi.ReviseAsync(current.Id, new ReviseInput("New file imported"), ct) : current;
             await wi.ArchiveFilesAsync(target.Id, ct);
@@ -132,7 +138,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             return new { target.Id, target.Number, Title = title, Revised = true };
         }
         // the file was checked above; creating the draft runs in its own transaction, so a failed attach takes the new draft away again
-        var x = await wi.CreateAsync(new InstructionCreateInput(type, title, siteId, departmentId, null, Number: string.IsNullOrWhiteSpace(number) ? title : number), ct);
+        var x = await wi.CreateAsync(new InstructionCreateInput(type, title, siteId, departmentId, null, Number: string.IsNullOrWhiteSpace(number) ? title : number, DevelopmentLine: developmentLine), ct);
         try { await global::Sequfloh.Platform.FilesController.AttachAsync(db, storage, "SequflohWorkInstruction", x.Id, x.SiteId, file, ct); }
         catch
         {
@@ -141,7 +147,12 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             if (made is not null) { db.SequflohWorkInstructions.Remove(made); await db.SaveChangesAsync(CancellationToken.None); }
             throw;
         }
-        if (validationFolder)
+        if (developmentLine is not null)
+        {
+            f.Audit("WorkInstructionImportedToDevelopment", "SequflohWorkInstruction", x.Id, $"{x.Number} rev {x.Revision} imported from {file.FileName} into {DevelopmentLines.All[developmentLine]}", x.SiteId);
+            await db.SaveChangesAsync(ct);
+        }
+        else if (validationFolder)
         {
             x.ValidationFolder = true;
             f.Audit("WorkInstructionImportedToValidation", "SequflohWorkInstruction", x.Id, $"{x.Number} rev {x.Revision} imported from {file.FileName} into Engineering Validation instructions", x.SiteId);

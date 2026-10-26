@@ -24,6 +24,9 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     public Guid FamilyId { get; set; }
     /// <summary>True when imported in Engineering › Validation / FAI › Validation instructions. Those are listed only there and in Released validation instructions.</summary>
     public bool ValidationFolder { get; set; }
+    /// <summary>The Engineering, Development product line it was imported or created in (see DevelopmentLines). Those are listed only in that line and used on Development work orders.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(40)]
+    public string? DevelopmentLine { get; set; }
     public Guid? PreviousRevisionId { get; set; }
     public string Number { get; set; } = "";
     public WorkInstructionType Type { get; set; }

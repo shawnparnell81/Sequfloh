@@ -5,6 +5,7 @@ using Sequfloh.Application.Abstractions;
 using Sequfloh.Application.Security;
 using Sequfloh.Domain.Security;
 using Sequfloh.Domain.Execution;
+using Sequfloh.Domain.Imports;
 using Sequfloh.Infrastructure.Modules.Quality;
 using Sequfloh.Infrastructure.Persistence;
 using Sequfloh.Infrastructure.Services;
@@ -12,7 +13,7 @@ using Sequfloh.Infrastructure.Services;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record DevelopmentInput(Guid? AssignedEngineerId = null, DateOnly? TargetCompletionDate = null, string? Project = null, string? EngineeringNotes = null, string? DevelopmentStatus = null);
-public sealed record InstructionCreateInput(WorkInstructionType Type, string Title, Guid SiteId, Guid? DepartmentId, Guid? PartId, Guid? TemplateId = null, string? Number = null);
+public sealed record InstructionCreateInput(WorkInstructionType Type, string Title, Guid SiteId, Guid? DepartmentId, Guid? PartId, Guid? TemplateId = null, string? Number = null, string? DevelopmentLine = null);
 public sealed record InstructionSaveInput(string Title, Guid SiteId, Guid? DepartmentId, Guid? OwnerId, Guid? PartId, string? ProductFamily, string? Assembly,
     string? Model, string? Variant, string? Process, string? Operation, string? Workstation, string? Location, string? ValidationType, string? FaiType, string? RepairCategory, string? RepairType,
     string? RepairDescription, string? ResultStatus, DateOnly? EffectiveDate, JsonObject? Content, JsonArray? Steps, JsonArray? Characteristics, JsonArray? PartsRows, uint RowVersion = 0, JsonArray? Blocks = null);
@@ -79,11 +80,11 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
 
     // ------------------------------------------------------------------ Procedure Instructions and type changes
     /// <summary>The newest draft or released Procedure Instruction with this title at the site, which a new import of the same file revises.</summary>
-    public async Task<SequflohWorkInstruction?> ProcedureToReviseAsync(string title, Guid siteId, CancellationToken ct)
+    public async Task<SequflohWorkInstruction?> ProcedureToReviseAsync(string title, Guid siteId, CancellationToken ct, string? developmentLine = null)
     {
         var t = title.Trim();
         var hit = await db.SequflohWorkInstructions.AsNoTracking()
-            .Where(x => x.Type == WorkInstructionType.Procedure && x.SiteId == siteId && x.Title == t && (x.Status == WorkInstructionStatus.Draft || x.Status == WorkInstructionStatus.Released))
+            .Where(x => x.Type == WorkInstructionType.Procedure && x.SiteId == siteId && x.Title == t && x.DevelopmentLine == developmentLine && (x.Status == WorkInstructionStatus.Draft || x.Status == WorkInstructionStatus.Released))
             .OrderByDescending(x => x.Status == WorkInstructionStatus.Draft).ThenByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct);
         if (hit is not null) await m.RequireAsync(Permissions.SequflohCreateWorkInstruction, hit.SiteId, hit.DepartmentId, ct);
         return hit;
@@ -120,6 +121,8 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         await m.ValidateLocationAsync(r.SiteId, r.DepartmentId, ct);
         ModuleSupport.Required(r.Title, "Title", 300);
         if (!SequflohDesigner.Schemas.TryGetValue(r.Type, out var schema)) throw new AppException("Choose the work instruction type.");
+        var devLine = string.IsNullOrWhiteSpace(r.DevelopmentLine) ? null : r.DevelopmentLine.Trim();
+        if (devLine is not null && !DevelopmentLines.All.ContainsKey(devLine)) throw new AppException("Choose a development product line.");
         var number = RecordNumbers.Clean(r.Number, 200, "work instruction number");
         await RecordNumbers.EnsureFreeAsync(db.SequflohWorkInstructions.IgnoreQueryFilters().Select(o => o.Number), number, "A work instruction numbered", ct);
         var settings = await f.GetSettingsAsync(ct);
@@ -127,7 +130,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         var wi = new SequflohWorkInstruction
         {
             Type = r.Type, Title = r.Title.Trim(), SiteId = r.SiteId, DepartmentId = r.DepartmentId, Status = WorkInstructionStatus.Draft, OwnerId = m.UserId, AuthorId = m.UserId,
-            Revision = SequflohFoundationService.FirstRevision(settings.Numbering.RevisionFormat), Number = number
+            Revision = SequflohFoundationService.FirstRevision(settings.Numbering.RevisionFormat), Number = number, DevelopmentLine = devLine
         };
         wi.FamilyId = wi.Id;
         await ApplyPartAsync(wi, r.PartId, ct);
@@ -450,7 +453,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
 
     SequflohWorkInstruction Copy(SequflohWorkInstruction s) => new()
     {
-        Type = s.Type, ValidationFolder = s.ValidationFolder, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId,
+        Type = s.Type, ValidationFolder = s.ValidationFolder, DevelopmentLine = s.DevelopmentLine, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId,
         PartId = s.PartId, PartNumber = s.PartNumber, PartDescription = s.PartDescription, ProductFamily = s.ProductFamily, Assembly = s.Assembly, Model = s.Model,
         Variant = s.Variant, Process = s.Process, Operation = s.Operation, Workstation = s.Workstation, Location = s.Location, ValidationType = s.ValidationType, FaiType = s.FaiType,
         RepairCategory = s.RepairCategory, RepairType = s.RepairType, RepairDescription = s.RepairDescription, SourcePartsListId = s.SourcePartsListId,

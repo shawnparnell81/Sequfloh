@@ -718,12 +718,12 @@ export function CompletedFormsPage() {
 
 /** Engineering, Development: the product lines development files are filed under. Legacy has no "Development" after it. */
 export const DEVELOPMENT_LINES: [string, string][] = [['air-suspension', 'Air Suspension Development'], ['bws', 'BWS Development'], ['coil-spring', 'Coil Spring Development'],
-  ['csa', 'CSA Development'], ['fuel-injector', 'Fuel Injector Development'], ['fuel-pump', 'Fuel Pump Development'], ['gas-lift', 'Gas Lift Development'],
+  ['csa', 'CSA Development'], ['fuel-injector', 'Fuel Injector Development'], ['fuel-pump', 'Fuel Pump Development'], ['gas-lift', 'Gas Lift Development'], ['gdi', 'GDI Development'],
   ['hd-shock', 'HD Shock Development'], ['shock', 'Shock Development'], ['legacy', 'Legacy']];
 
 interface DevFileRow { id: string; number: string; title: string; kind?: string; originalFileName?: string; updatedAt: string }
 /** The files imported into one development product line, with Import file and Import folder saving straight into that line. */
-export function DevelopmentFiles({ line, page: pageProps }: { line: string; page: { title: string; crumbs: { label: string; to?: string }[]; tabs: { label: string; value: string }[]; onTab: (v: string) => void } }) {
+export function DevelopmentFiles({ line, page: pageProps, before, extraActions }: { line: string; before?: ReactNode; extraActions?: ReactNode; page: { title: string; crumbs: { label: string; to?: string }[]; tabs: { label: string; value: string }[]; onTab: (v: string) => void } }) {
   const { can } = useAuth();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -740,7 +740,9 @@ export function DevelopmentFiles({ line, page: pageProps }: { line: string; page
     onDone={() => qc.invalidateQueries({ queryKey: ['imported-development'] })} />;
   return <SqfPage title={pageProps.title} crumbs={pageProps.crumbs} permission="sequfloh.view_engineering_folder" tabs={pageProps.tabs} tab={line} onTab={pageProps.onTab}
     description="Development files for this product line. Import file or Import folder saves the files straight into this line under their own names."
-    actions={<RecordActions surface="development-files" print={{ onClick: () => window.print() }} importNode={importNode} />}>
+    actions={<Stack direction="row" gap={1} flexWrap="wrap">{extraActions}<RecordActions surface="development-files" print={{ onClick: () => window.print() }} importNode={importNode} /></Stack>}>
+    {before}
+    <Typography variant="h6" sx={{ mb: 1 }}>Development Form or Documentation</Typography>
     <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty={`No files in ${label} yet.`}
       cols={[{ key: 'title', label: 'Title', render: (r: DevFileRow) => <><Mono>{r.number}</Mono> {r.title}</> }, { key: 'originalFileName', label: 'File', render: (r: DevFileRow) => r.originalFileName ?? '—' },
         { key: 'updatedAt', label: 'Saved', render: (r: DevFileRow) => fmtDateTime(r.updatedAt) },

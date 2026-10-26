@@ -65,7 +65,7 @@ public static class DevelopmentLines
     public static readonly IReadOnlyDictionary<string, string> All = new Dictionary<string, string>
     {
         ["air-suspension"] = "Air Suspension Development", ["bws"] = "BWS Development", ["coil-spring"] = "Coil Spring Development", ["csa"] = "CSA Development",
-        ["fuel-injector"] = "Fuel Injector Development", ["fuel-pump"] = "Fuel Pump Development", ["gas-lift"] = "Gas Lift Development", ["hd-shock"] = "HD Shock Development",
+        ["fuel-injector"] = "Fuel Injector Development", ["fuel-pump"] = "Fuel Pump Development", ["gas-lift"] = "Gas Lift Development", ["gdi"] = "GDI Development", ["hd-shock"] = "HD Shock Development",
         ["shock"] = "Shock Development", ["legacy"] = "Legacy",
     };
 }

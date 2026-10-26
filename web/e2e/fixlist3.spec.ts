@@ -47,7 +47,7 @@ test('completed validation/FAI: import on a family tab lands in that family; rec
 test('work orders section: pages in order, no "Tracking" labels, New work order on each', async ({ page }) => {
   await signIn(page);
   await section(page, 'Work Orders');
-  const labels = ['Open Work Orders', 'Validation / FAI', 'Repair / Rework', 'Inspection', 'Warranty', 'Salt Spray Test', 'Production', 'Completed Work Orders'];
+  const labels = ['Open Work Orders', 'Validation / FAI', 'Repair / Rework', 'Inspection', 'Warranty', 'Salt Spray Test', 'Development', 'Production', 'Completed Work Orders'];
   await expect(view(page).getByTestId('section-page')).toHaveText(labels);
   await shot(page, 'work-orders-section');
   for (const l of labels) {

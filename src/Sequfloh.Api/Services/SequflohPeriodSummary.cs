@@ -44,7 +44,7 @@ public static class SequflohPeriodSummary
     static string H(long s) => (s / 3600m).ToString("0.00", CultureInfo.InvariantCulture);
     static string I(int v) => v.ToString(CultureInfo.InvariantCulture);
     static string Bar(long part, long max) => max <= 0 ? "" : new string('█', (int)Math.Round(20.0 * part / max));
-    static readonly Dictionary<TrackingType, string> TypeNames = new() { [TrackingType.Validation] = "Validation / FAI", [TrackingType.Fai] = "Validation / FAI", [TrackingType.Repair] = "Repair / Rework", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty", [TrackingType.SaltSpray] = "Salt Spray Test" };
+    static readonly Dictionary<TrackingType, string> TypeNames = new() { [TrackingType.Validation] = "Validation / FAI", [TrackingType.Fai] = "Validation / FAI", [TrackingType.Repair] = "Repair / Rework", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty", [TrackingType.SaltSpray] = "Salt Spray Test", [TrackingType.Development] = "Development" };
     public static string TypeName(TrackingType t) => TypeNames.TryGetValue(t, out var n) ? n : t.ToString();
 
     /// <summary>
