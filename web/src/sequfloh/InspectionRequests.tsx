@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { otherNumbers, usePartSearch } from './partSearch';
 import { useAuth } from '../auth';
-import { Facts, useSites } from '../components/Kit';
+import { Facts, useSites, useUsers } from '../components/Kit';
 import { FilesPanel } from '../components/Files';
 import { fmtDateTime } from '../components/Status';
 import { RecordActions } from '../components/RecordActions';
@@ -22,6 +22,7 @@ export interface InspectionRequest {
   id: string; number: string; siteId: string; partId?: string | null; partNumber: string; partDescription?: string | null; quantity?: number | null; reason?: string | null;
   requirement?: string | null; workInstructionId?: string | null; workInstructionLabel?: string | null; requestedDate?: string | null; priority: string; status: string;
   requestedByName?: string | null; createdAt: string; workOrderId?: string | null; workOrderNumber?: string | null; overdue: boolean;
+  assignedUserId?: string | null; assignedUserName?: string | null;
 }
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null ; attributes?: string | null }
 interface WiOpt { id: string; number: string; revision: string; title: string; type?: string }
@@ -120,21 +121,65 @@ export function NewInspectionRequestButton({ variant = 'contained' }: { variant?
     <InspectionRequestDialog open={open} onClose={() => setOpen(false)} /></>;
 }
 
-function RequestTable({ rows, compact }: { rows: InspectionRequest[]; compact?: boolean }) {
-  const nav = useNavigate();
+function RequestTable({ rows, compact, actions }: { rows: InspectionRequest[]; compact?: boolean; actions?: boolean }) {
+  const nav = useNavigate(); const { can } = useAuth(); const qc = useQueryClient();
+  const [assign, setAssign] = useState<InspectionRequest | null>(null); const [start, setStart] = useState<InspectionRequest | null>(null);
+  const [cancel, setCancel] = useState<InspectionRequest | null>(null); const [err, setErr] = useState<string | null>(null);
+  const doCancel = async () => {
+    try { await post(`${A}/${cancel!.id}/status`, { status: 'Cancelled' }); setCancel(null); await qc.invalidateQueries({ queryKey: ['sqf-ir'] }); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
   return (
+    <>
+    {err && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setErr(null)}>{err}</Alert>}
     <TableContainer component={Paper}><Table size="small" aria-label="Inspection requests">
       <TableHead><TableRow><TableCell>Number</TableCell><TableCell>Priority</TableCell><TableCell>Requested by date</TableCell><TableCell>Part</TableCell>
-        {!compact && <TableCell>Qty</TableCell>}<TableCell>Reason</TableCell><TableCell>Status</TableCell>{!compact && <TableCell>Work order</TableCell>}{!compact && <TableCell>Submitted by</TableCell>}</TableRow></TableHead>
+        {!compact && <TableCell>Qty</TableCell>}<TableCell>Reason</TableCell>{actions && <TableCell>Assigned</TableCell>}<TableCell>Status</TableCell>{!compact && <TableCell>Work order</TableCell>}{!compact && <TableCell>Submitted by</TableCell>}
+        {actions && <TableCell>Actions</TableCell>}</TableRow></TableHead>
       <TableBody>{rows.map((r) => (
         <TableRow key={r.id} hover onClick={() => nav(`/sequfloh/inspection-request/${r.id}`)} sx={{ cursor: 'pointer', ...(r.overdue ? { bgcolor: 'rgba(211,47,47,0.08)', '& td:first-of-type': { borderLeft: '4px solid #d32f2f' } } : {}) }}>
           <TableCell><Mono>{r.number}</Mono></TableCell><TableCell><PriorityChip p={r.priority} /></TableCell>
           <TableCell>{fmtDate(r.requestedDate)}{r.overdue && <Chip size="small" color="error" label="Overdue" sx={{ ml: 1 }} />}</TableCell>
           <TableCell><Mono>{r.partNumber}</Mono><Typography variant="caption" display="block" color="text.secondary">{r.partDescription}</Typography></TableCell>
-          {!compact && <TableCell>{r.quantity ?? '—'}</TableCell>}<TableCell>{r.reason ?? '—'}</TableCell><TableCell><StatusChip s={r.status} /></TableCell>
+          {!compact && <TableCell>{r.quantity ?? '—'}</TableCell>}<TableCell>{r.reason ?? '—'}</TableCell>{actions && <TableCell>{r.assignedUserName ?? '—'}</TableCell>}<TableCell><StatusChip s={r.status} /></TableCell>
           {!compact && <TableCell>{r.workOrderNumber ? <Mono>{r.workOrderNumber}</Mono> : '—'}</TableCell>}{!compact && <TableCell>{r.requestedByName ?? '—'}</TableCell>}
+          {actions && <TableCell><Stack direction="row" gap={0.5} onClick={(e) => e.stopPropagation()}>
+            {!r.assignedUserId && can('sequfloh.dispatch_task') && <Button size="small" variant="outlined" onClick={() => setAssign(r)} aria-label={`Assign ${r.number}`}>Assign</Button>}
+            {!r.workOrderId && can('sequfloh.create_production_task') && <Button size="small" variant="outlined" onClick={() => setStart(r)} aria-label={`Start ${r.number}`}>Start</Button>}
+            {r.assignedUserId && can('sequfloh.reassign_task') && <Button size="small" variant="outlined" onClick={() => setAssign(r)} aria-label={`Reassign ${r.number}`}>Reassign</Button>}
+            <Button size="small" variant="outlined" color="error" onClick={() => setCancel(r)} aria-label={`Cancel ${r.number}`}>Cancel</Button>
+          </Stack></TableCell>}
         </TableRow>))}</TableBody>
     </Table></TableContainer>
+    {assign && <AssignDialog r={assign} onClose={() => setAssign(null)} />}
+    {start && <ConvertDialog r={start} open onClose={() => setStart(null)} />}
+    <Dialog open={!!cancel} onClose={() => setCancel(null)}>
+      <FormDialogTitle>Cancel {cancel?.number}?</FormDialogTitle>
+      <DialogContent><Typography variant="body2">The request is marked cancelled. You can reopen it from the request page.</Typography></DialogContent>
+      <DialogActions><Button onClick={() => setCancel(null)}>Keep it</Button><Button color="error" variant="contained" onClick={doCancel}>Cancel request</Button></DialogActions>
+    </Dialog>
+    </>
+  );
+}
+
+function AssignDialog({ r, onClose }: { r: InspectionRequest; onClose: () => void }) {
+  const qc = useQueryClient(); const users = useUsers();
+  const [user, setUser] = useState(''); const [err, setErr] = useState<string | null>(null);
+  const go = async () => {
+    if (!user) return setErr('Choose the user to assign.');
+    try { await post(`${A}/${r.id}/assign`, { userId: user }); onClose(); await qc.invalidateQueries({ queryKey: ['sqf-ir'] }); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="xs">
+      <FormDialogTitle>{r.assignedUserId ? 'Reassign' : 'Assign'} {r.number}</FormDialogTitle>
+      <DialogContent><Stack gap={2} sx={{ pt: 1 }}>{err && <Alert severity="error">{err}</Alert>}
+        {r.assignedUserName && <Typography variant="body2">Assigned now: {r.assignedUserName}</Typography>}
+        <TextField select label="Assign to" value={user} onChange={(e) => setUser(e.target.value)} inputProps={{ 'data-testid': 'ir-assign-user' }}>
+          {(users.data ?? []).filter((u) => u.id !== r.assignedUserId).map((u) => <MenuItem key={u.id} value={u.id}>{u.displayName}</MenuItem>)}</TextField>
+      </Stack></DialogContent>
+      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={go}>{r.assignedUserId ? 'Reassign' : 'Assign'}</Button></DialogActions>
+    </Dialog>
   );
 }
 
@@ -166,7 +211,7 @@ export function OpenInspectionRequestsPanel() {
     <Box sx={{ mb: 3 }}>
       <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 1 }}><Typography variant="h6">Open inspection requests</Typography>
         <Button size="small" component={RouterLink} to="/sequfloh/inspection-requests">View all</Button></Stack>
-      <RequestTable rows={rows.slice(0, 10)} compact />
+      <RequestTable rows={rows.slice(0, 10)} compact actions />
     </Box>
   );
 }
@@ -237,6 +282,7 @@ export function InspectionRequestPage() {
         <Facts items={[['Status', <StatusChip key="s" s={r.status} />], ['Part number', <span key="p"><Mono>{r.partNumber}</Mono><ViewDrawingButton partId={r.partId} partNumber={r.partNumber} /></span>], ['Part description', r.partDescription ?? '—'],
           ['Qty (per NetSuite)', r.quantity ?? '—'], ['Reason', r.reason ?? '—'], ['Requested completion date', fmtDate(r.requestedDate)], ['Priority', r.priority],
           ['Work instruction', r.workInstructionId ? <RouterLink key="w" to={`/sequfloh/instruction/${r.workInstructionId}`}>{r.workInstructionLabel}</RouterLink> : '—'],
+          ['Assigned', r.assignedUserName ?? '—'],
           ['Work order', r.workOrderId ? <RouterLink key="o" to={`/sequfloh/record/${r.workOrderId}`}>{r.workOrderNumber}</RouterLink> : '—'],
           ['Submitted', `${r.requestedByName ?? '—'} · ${fmtDateTime(r.createdAt)}`]]} />
         <Paper sx={{ p: 2 }}><Typography variant="subtitle2" gutterBottom>Inspection requirement</Typography>
