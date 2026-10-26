@@ -35,7 +35,8 @@ const sections: Record<string, { title: string; description: string; fields: (Fi
     { key: 'varianceReasonRequired', label: 'Variance reason required outside the benchmark range', type: 'bool' },
     { key: 'validationNumberCode', label: 'Work order number code: Validation / FAI', type: 'text' }, { key: 'repairNumberCode', label: 'Work order number code: Repair / Rework', type: 'text' },
     { key: 'inspectionNumberCode', label: 'Work order number code: Inspection', type: 'text' }, { key: 'warrantyNumberCode', label: 'Work order number code: Warranty', type: 'text' },
-    { key: 'saltSprayNumberCode', label: 'Work order number code: Salt Spray Test', type: 'text' }, { key: 'developmentNumberCode', label: 'Work order number code: Development', type: 'text' }] },
+    { key: 'saltSprayNumberCode', label: 'Work order number code: Salt Spray Test', type: 'text' }, { key: 'developmentNumberCode', label: 'Work order number code: Development', type: 'text' },
+    { key: 'inspectionRequestNumberCode', label: 'Inspection request number code', type: 'text' }] },
   validation: { title: 'Validation / FAI Settings', description: 'Evidence requirements for Validation / FAI work orders.', also: 'fai', lists: ['validation-types', 'validation-results', 'activity-statuses', 'fai-types', 'inspection-results', 'characteristic-results'], fields: [
     { key: 'evidenceRequired', label: 'Evidence required for each result', type: 'bool' },
     { key: 'evidenceRequiredForFailures', label: 'Evidence required for failed characteristics', type: 'bool', section: 'fai' }] },

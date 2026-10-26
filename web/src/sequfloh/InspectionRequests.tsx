@@ -79,6 +79,17 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
   const qc = useQueryClient(); const nav = useNavigate();
   const [f, setF] = useState<Form>(initial ?? blank); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) { setF(initial ?? blank); setErr(null); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [auto, setAuto] = useState('');
+  useEffect(() => {
+    if (id || !open || !f.siteId || (!f.partId && !f.partNumber.trim())) return;
+    let live = true;
+    get<{ number: string | null }>(`${A}/next-number?${qs({ siteId: f.siteId, partId: f.partId ?? undefined, partNumber: f.partId ? undefined : f.partNumber.trim() })}`).then((r) => {
+      if (!live) return;
+      // fill only while the number is blank or still the one filled in before
+      setF((cur) => (!cur.number?.trim() || cur.number === auto ? { ...cur, number: r.number ?? '' } : cur)); setAuto(r.number ?? '');
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [id, open, f.siteId, f.partId, f.partNumber]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
     if (!id && !f.number?.trim()) return setErr('Enter the number.');
     if (!f.partNumber.trim()) return setErr('Enter a part number.');
