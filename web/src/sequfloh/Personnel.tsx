@@ -8,7 +8,7 @@ import { useAuth } from '../auth';
 import { PanelHead, Readout, useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
 import { ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, nul, qs } from './common';
-import { InstructionsFolderPage } from './Instructions';
+import { DevelopmentProcedures, InstructionsFolderPage } from './Instructions';
 import { DEVELOPMENT_LINES, DevelopmentFiles } from './Imports';
 
 const typeLabel: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', ValidationFai: 'Validation / FAI', RepairTest: 'Repair / Rework Work Instruction', RepairWork: 'Repair / Rework Work Instruction' };
@@ -141,7 +141,8 @@ export function DevelopmentPage() {
   const q = useQuery({ queryKey: ['sqf-wi', 'development', sp.toString(), page, size, sort], enabled: !line,
     queryFn: () => get<{ items: DevRow[]; total: number }>(`${S}/instructions?${qs({ folder: 'development', q: v('q'), type: v('type'), part: v('part'), sort, page, pageSize: size })}`) });
   return (
-    line ? <DevelopmentFiles line={line} page={{ title: 'Development', crumbs: eCrumbs('Development'), tabs, onTab }} /> :
+    line ? <DevelopmentFiles line={line} before={<DevelopmentProcedures line={line} />}
+      extraActions={can('sequfloh.create_production_task') && <Button variant="contained" component={RouterLink} to={`/sequfloh/tracking/new?type=Development&line=${line}`} data-testid="development-create-wo">Create work order</Button>} page={{ title: 'Development', crumbs: eCrumbs('Development'), tabs, onTab }} /> :
     <SqfPage title="Development" crumbs={eCrumbs('Development')} permission="sequfloh.view_engineering_folder" tabs={tabs} tab={line} onTab={onTab}
       description="Draft work instructions in development, with the assigned engineer, target date, project and development status."
       actions={can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to="/sequfloh/instructions/new">New work instruction</Button>}>

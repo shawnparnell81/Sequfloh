@@ -30,7 +30,7 @@ test('inspection work order type: offered in the dropdown and the default on con
   await expect(typeField).toContainText('Inspection');
   await typeField.click();
   const opts = page.getByRole('listbox').getByRole('option');
-  await expect(opts).toHaveText(['Inspection', 'Production', 'Validation / FAI', 'Repair / Rework', 'Warranty', 'Salt Spray Test']);
+  await expect(opts).toHaveText(['Inspection', 'Production', 'Validation / FAI', 'Repair / Rework', 'Warranty', 'Salt Spray Test', 'Development']);
   await shot('01-work-order-type-dropdown');
   await page.getByRole('option', { name: 'Inspection' }).click();
   await cd.getByRole('switch', { name: /Attach a work instruction/ }).check();

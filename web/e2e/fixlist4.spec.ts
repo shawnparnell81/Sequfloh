@@ -80,7 +80,7 @@ test('Salt Spray Test: its own Work Orders tab, New work order button and type i
 
 test('one Validation / FAI and Repair / Rework in the menus; old links open the combined pages', async ({ page }) => {
   await signIn(page);
-  await section(page, 'Work Instructions');
+  await section(page, 'WI / Procedures');
   const pages = view(page).getByTestId('section-page');
   await expect(pages.filter({ hasText: /^Validation \/ FAI Work Instructions$/ })).toHaveCount(1);
   await expect(pages.filter({ hasText: /^Repair \/ Rework Work Instructions$/ })).toHaveCount(1);
@@ -105,7 +105,7 @@ test('one Validation / FAI and Repair / Rework in the menus; old links open the 
   await page.goto('/sequfloh/tracking/new');
   await page.getByTestId('create-clock-no').click();
   await view(page).getByLabel('Work order type').click();
-  await expect(page.getByRole('option')).toHaveText(['Validation / FAI', 'Repair / Rework', 'Inspection', 'Warranty', 'Salt Spray Test']);
+  await expect(page.getByRole('option')).toHaveText(['Validation / FAI', 'Repair / Rework', 'Inspection', 'Warranty', 'Salt Spray Test', 'Development']);
   await shot(page, '09-new-work-order-type-list');
   await page.keyboard.press('Escape');
   await page.goto('/sequfloh/settings/numbering');

@@ -2,7 +2,7 @@ import { expect, test, type Browser } from '@playwright/test';
 import { signIn, view } from './support';
 
 const LINES = ['Air Suspension Development', 'BWS Development', 'Coil Spring Development', 'CSA Development', 'Fuel Injector Development', 'Fuel Pump Development',
-  'Gas Lift Development', 'HD Shock Development', 'Shock Development', 'Legacy'];
+  'Gas Lift Development', 'GDI Development', 'HD Shock Development', 'Shock Development', 'Legacy'];
 
 /** Engineering, Development: one tab per product line, import into the line, listing per line, audit, and the import permission. Made-up data only. */
 test('development files: product line tabs, import into a line, per-line listing and permissions', async ({ page, browser }) => {

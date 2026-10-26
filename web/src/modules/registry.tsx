@@ -49,6 +49,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Inspection', path: '/sequfloh/tracking/inspection' },
         { label: 'Warranty', path: '/sequfloh/tracking/warranty' },
         { label: 'Salt Spray Test', path: '/sequfloh/tracking/salt-spray' },
+        { label: 'Development', path: '/sequfloh/tracking/development' },
         { label: 'Production', path: '/sequfloh/tracking/production' },
         { label: 'Completed Work Orders', path: '/sequfloh/tracking/completed' },
       ] },

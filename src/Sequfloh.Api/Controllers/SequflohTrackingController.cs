@@ -32,10 +32,13 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         return new { Number = prefix is null ? null : await tracking.NextNumberAsync(prefix, false, ct) };
     }
     [HttpGet("instructions")]
-    public async Task<object> Instructions([FromQuery] TrackingType type, [FromQuery] string? q, [FromQuery] Guid? part, CancellationToken ct)
+    public async Task<object> Instructions([FromQuery] TrackingType type, [FromQuery] string? q, [FromQuery] Guid? part, CancellationToken ct, [FromQuery] string? line = null)
     {
         var types = SequflohTrackingService.InstructionTypes(type);
-        var query = (await m.ScopeAsync(db.SequflohWorkInstructions.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(x => x.Status == WorkInstructionStatus.Released && types.Contains(x.Type));
+        var devLine = type == TrackingType.Development && !string.IsNullOrWhiteSpace(line) ? line.Trim() : null;
+        // instructions of a development line are offered only on Development work orders of that line
+        var query = (await m.ScopeAsync(db.SequflohWorkInstructions.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(x => x.Status == WorkInstructionStatus.Released
+            && (x.DevelopmentLine == null ? types.Contains(x.Type) : x.DevelopmentLine == devLine));
         if (part is not null) query = query.Where(x => x.PartId == part || x.PartId == null);
         if (!string.IsNullOrWhiteSpace(q)) { var like = $"%{q.Trim()}%"; query = query.Where(x => EF.Functions.ILike(x.Number + " " + x.Title + " " + (x.PartNumber ?? ""), like)); }
         return await query.OrderBy(x => x.Number).Take(50).Select(x => new { x.Id, x.Number, x.Revision, x.Title, x.Type, x.PartId, x.PartNumber, x.PartDescription, x.Operation, x.RepairDescription, x.SiteId, x.DepartmentId }).ToListAsync(ct);
@@ -64,7 +67,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 x.VarianceReason, x.Result, x.EngineeringConclusion,
                 x.EvidenceReferences, x.TechnicianComments, x.QualityComments, x.EngineeringComments, x.Deviations, x.NonconformanceReferences, x.PauseReason, x.HoldReason, x.CancelReason,
                 x.FailureReason, x.ReportedCondition, x.ObservedCondition, x.RepairDescription, x.FinalDisposition, x.FaiType, x.CreatedAt, x.UpdatedAt,
-                x.QuantityTarget, x.InspectionSubType, x.InspectionDescription, x.QtyGood, x.QtyBad, x.FurtherInspection, x.Quarantine, x.QuarantineReason,
+                x.QuantityTarget, x.DevelopmentLine, x.InspectionSubType, x.InspectionDescription, x.QtyGood, x.QtyBad, x.FurtherInspection, x.Quarantine, x.QuarantineReason,
                 Details = JsonNode.Parse(x.Details), Steps = JsonNode.Parse(x.Steps), Characteristics = JsonNode.Parse(x.Characteristics), PartsRows = JsonNode.Parse(x.PartsRows),
                 ElapsedSeconds = active, PausedSeconds = paused, HoldSeconds = hold,
                 Owner = Name(x.OwnerId), AssignedUser = Name(x.AssignedUserId),
