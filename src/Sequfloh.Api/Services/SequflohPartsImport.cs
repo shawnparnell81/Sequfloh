@@ -34,6 +34,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
 {
     public static readonly string[] Accepted = [".xlsx", ".xlsm", ".xls", ".csv", ".docx", ".doc"];
     public const int MaxRows = 5000;
+    public const string NoNumberColumn = "Map at least one number column (Part number, OR #, DWG # or a cross-reference number such as NAPA) so each part gets a part number.";
 
     /// <summary>Importable fields and the header words that suggest them.</summary>
     public static readonly (string Key, string Label, string[] Words)[] Fields =
@@ -204,7 +205,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null);
 
     /// <summary>Attribute fields that hold a number used to find the same part again; descriptive fields are left out.</summary>
-    static bool IsNumberKey(string key) => key is "partNumber" or "drawingNumber" || (key.StartsWith("attr:", StringComparison.Ordinal) && PartAttributes.Find(key[5..]) is { } d && IsNumber(d));
+    public static bool IsNumberKey(string key) => key is "partNumber" or "drawingNumber" || (key.StartsWith("attr:", StringComparison.Ordinal) && PartAttributes.Find(key[5..]) is { } d && IsNumber(d));
 
     static bool IsNumber(PartAttributeDef a) => a.Key is not ("keyApplication" or "position" or "boxSize");
 
@@ -225,7 +226,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         // the name is always chosen in the dialog, never read from the file
         if (r.Mapping.ContainsKey("name")) throw new AppException("Name cannot come from a file column. Choose the Name for all rows.");
         if (string.IsNullOrWhiteSpace(r.Fixed?.GetValueOrDefault("name"))) throw new AppException("Choose the Name for all rows before you preview or import.");
-        if (!r.Mapping.Keys.Any(IsNumberKey)) throw new AppException("Choose the column that holds the part number, or at least one number column.");
+        // Part number may be removed or not imported: the part number then comes from the other number columns
+        if (!r.Mapping.Any(kv => IsNumberKey(kv.Key) && kv.Value >= 0)) throw new AppException(NoNumberColumn);
         if (r.Rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
         var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive).Select(v => new { v.Id, v.Code, v.Label }).ToListAsync(ct);
         var familyHidden = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.HiddenFields != null).ToDictionaryAsync(v => v.Id, v => v.HiddenFields, ct);

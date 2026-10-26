@@ -13,8 +13,8 @@ interface PlanRow { row: number; action: 'Add' | 'Update' | 'Skip' | 'Error'; pa
 interface Plan { rows: PlanRow[]; add: number; update: number; skip: number; errors: number }
 interface LayoutData { headerRow?: number; headers?: string[]; columns?: Record<string, { title: string; index: number }>; fixed?: Record<string, string>; updateExisting?: boolean; keepRepeats?: boolean; removed?: string[] }
 interface SavedLayout { id: string; name: string; layout: LayoutData }
-/** Fields that are always imported and cannot be removed from the mapping. */
-const KEEP = ['partNumber', 'name'];
+/** Fields that are always imported and cannot be removed from the mapping. Part number can be removed: the part number then comes from the other number columns. */
+const KEEP = ['name'];
 const norm = (h: string) => h.trim().toLowerCase().replace(/\s+/g, ' ');
 const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'error' } as const;
 
@@ -23,7 +23,7 @@ const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'e
 export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; onClose: () => void; preset?: string }) {
   const sites = useSites();
   const types = useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/product-families`), enabled: open });
-  const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'units' | 'yesNo' | 'lot' | null }[]>(`${S}/parts/import/fields`), enabled: open });
+  const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'units' | 'yesNo' | 'lot' | null; isNumber?: boolean }[]>(`${S}/parts/import/fields`), enabled: open });
   const qc = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [allTables, setAllTables] = useState(false);
@@ -95,6 +95,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const choiceList = (kind?: string | null): string[] => kind === 'families' ? (types.data ?? []).filter((t) => t.isActive).map((t) => t.label)
     : kind === 'units' ? UNITS : kind === 'yesNo' ? ['Yes', 'No'] : kind === 'lot' ? LOT_CHOICES : [];
   const columnItems = (key: string) => table!.headers.map((h, i) => <MenuItem key={`${key}-c${i}`} value={`col:${i}`} sx={{ pl: 4 }}>{h || `Column ${i + 1}`}</MenuItem>);
+  const noNumbers = !!fields.data && !(fields.data ?? []).some((f) => f.isNumber && !removed.includes(f.key) && mapping[f.key] !== undefined);
   const isDocx = /\.docx?$/i.test(file?.name ?? '');
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" TransitionProps={{ onEnter: reset }}>
@@ -173,8 +174,9 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
               </RadioGroup>
               <FormControlLabel control={<Checkbox size="small" checked={keepRepeats} data-testid="keep-repeats" onChange={(e) => { setKeepRepeats(e.target.checked); setPlan(null); }} />}
                 label="Keep rows that repeat a Part number but differ" title="A row with the same Part number as another row but other values (for example another Position) is added as its own part. Exact duplicate rows are always skipped." />
-              <Button variant="outlined" disabled={busy || !fixed.name} onClick={() => preview()}>Preview</Button>
+              <Button variant="outlined" disabled={busy || !fixed.name || noNumbers} onClick={() => preview()}>Preview</Button>
             </Stack>
+            {noNumbers && <Alert severity="warning" sx={{ mt: 2 }} data-testid="number-required">Map at least one number column (Part number, OR #, DWG # or a cross-reference number such as NAPA) so each part gets a part number.</Alert>}
             {!fixed.name && <Alert severity="warning" sx={{ mt: 2 }} data-testid="name-required">Choose the Name for all rows before you preview or import. The name is never taken from the file.</Alert>}
           </Box>}
           {plan && <Box sx={{ mt: 2 }}>
