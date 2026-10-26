@@ -8,7 +8,7 @@ import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
 import DragIndicator from '@mui/icons-material/DragIndicator';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { get, post, put } from '../api';
+import { del, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
@@ -281,6 +281,7 @@ export function DropdownsPage() {
               {key === 'product-families' && <Button size="small" data-testid="family-na-fields" onClick={() => setNaFor(v)}>Not applicable fields</Button>}
               {key === 'product-families' && <Button size="small" data-testid="family-number-code" onClick={() => setCodeFor(v)}>Number code{v.numberCode ? `: ${v.numberCode}` : ''}</Button>}
               <Button size="small" onClick={() => setHistory(v)}>History</Button>
+              <Button size="small" color="error" data-testid="reference-delete" onClick={() => setConfirm({ title: 'Delete value', text: `Delete "${v.label}" permanently? This can't be undone.`, run: () => del(`${S}/reference/values/${v.id}`) })}>Delete</Button>
             </TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
       <ValueDialog listKey={key} value={edit} onClose={() => setEdit(null)} onSaved={refresh} />

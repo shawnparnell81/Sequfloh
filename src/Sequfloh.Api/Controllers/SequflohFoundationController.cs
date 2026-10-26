@@ -70,6 +70,8 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     public async Task<IActionResult> Activate(Guid id, CancellationToken ct) { await f.SetActiveAsync(id, true, ct); return NoContent(); }
     [HttpPost("reference/values/{id:guid}/deactivate")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> Deactivate(Guid id, CancellationToken ct) { await f.SetActiveAsync(id, false, ct); return NoContent(); }
+    [HttpDelete("reference/values/{id:guid}")] [RequirePermission(Permissions.SequflohManageDropdowns)]
+    public async Task<IActionResult> DeleteValue(Guid id, CancellationToken ct) { await f.DeleteValueAsync(id, ct); return NoContent(); }
     [HttpPost("reference/values/{id:guid}/default")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> Default(Guid id, CancellationToken ct) { await f.SetDefaultAsync(id, ct); return NoContent(); }
     [HttpGet("reference/values/{id:guid}/history")] public Task<object> History(Guid id, CancellationToken ct) => f.ValueHistoryAsync(id, ct);

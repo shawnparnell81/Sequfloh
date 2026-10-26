@@ -9,6 +9,7 @@ public partial class AppDbContext
 {
     public DbSet<SequflohSettings> SequflohSettings => Set<SequflohSettings>();
     public DbSet<SequflohReferenceValue> SequflohReferenceValues => Set<SequflohReferenceValue>();
+    public DbSet<SequflohDeletedSeedValue> SequflohDeletedSeedValues => Set<SequflohDeletedSeedValue>();
     public DbSet<SequflohUserItem> SequflohUserItems => Set<SequflohUserItem>();
     public DbSet<SequflohImportLayout> SequflohImportLayouts => Set<SequflohImportLayout>();
     public DbSet<SequflohHomeLayout> SequflohHomeLayouts => Set<SequflohHomeLayout>();
@@ -49,6 +50,13 @@ public partial class AppDbContext
             e.Property(x => x.Code).HasMaxLength(60);
             e.Property(x => x.Label).HasMaxLength(200);
             e.Property(x => x.Description).HasMaxLength(1000);
+        });
+        b.Entity<SequflohDeletedSeedValue>(e =>
+        {
+            e.ToTable("sequfloh_deleted_seed_values");
+            e.HasIndex(x => new { x.ListKey, x.Code }).IsUnique();
+            e.Property(x => x.ListKey).HasMaxLength(60);
+            e.Property(x => x.Code).HasMaxLength(60);
         });
         b.Entity<SequflohImportLayout>(e =>
         {

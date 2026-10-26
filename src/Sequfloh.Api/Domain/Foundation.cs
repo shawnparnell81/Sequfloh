@@ -48,6 +48,13 @@ public class SequflohReferenceValue : Entity, IAudited
     public string AuditLabel => $"SEQUFLOH {ListKey} value {Code}";
 }
 
+/// <summary>A seeded reference value an administrator deleted, so seeding and resets do not add it back.</summary>
+public class SequflohDeletedSeedValue : Entity
+{
+    public string ListKey { get; set; } = "";
+    public string Code { get; set; } = "";
+}
+
 /// <summary>Recently opened and pinned SEQUFLOH records and pages of a user (no shared recent-items service exists).</summary>
 public class SequflohUserItem : Entity
 {
