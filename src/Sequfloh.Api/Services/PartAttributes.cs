@@ -7,11 +7,12 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 /// One cross-reference number or other attribute of a part. Types lists the part type codes the field belongs to (null means every type); NotTypes lists codes it is not shown for.
 /// Words are the column headings that suggest the field in Parts import.
 /// </summary>
+/// Verbatim fields keep a placeholder such as "/" as written; it is shown as is and is still never a match key.
 /// DrawingNumber marks the field that holds the drawing number for the part types it belongs to, so drawings named with that number link to the part.
-public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null, string[]? NotTypes = null, bool DrawingNumber = false);
+public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null, string[]? NotTypes = null, bool DrawingNumber = false, bool Verbatim = false);
 
 /// <summary>
-/// The attribute fields of a part. The OR # is the part number and the SENSEN # is the drawing number, so neither is an attribute.
+/// The attribute fields of a part. The SENSEN # is the drawing number, so it is not an attribute.
 ///  Values are stored together as JSON on the part, so a new field is one line here: it then appears on the part form,
 /// details, list columns, search, CSV export and Parts import without a database change.
 /// </summary>
@@ -23,16 +24,18 @@ public static class PartAttributes
 
     public static readonly PartAttributeDef[] All =
     [
+        // the O'Reilly's customer part number, kept exactly as written: "/" means O'Reilly's does not carry the part
+        new("orNumber", "OR #", ["or pn", "or #", "or#", "or no", "or number", "or part number", "or part #", "oreilly", "oreillys", "oreilly #", "oreilly pn", "oreilly part number", "oreillys #", "oreillys pn", "oreillys part number"], Verbatim: true),
         new("nissanVa", "Nissan VA #", ["nissan va", "nissan va #", "nissan va no", "nissan va number", "nissan va part number"], NotTypes: FuelPump),
         new("napaUs", "NAPA US #", ["napa us", "napa us #", "napa us no", "napa us number", "napa usa"], NotTypes: FuelPump),
         new("napaCa", "NAPA CA #", ["napa ca", "napa ca #", "napa ca no", "napa ca number", "napa canada"], NotTypes: FuelPump),
         new("keyApplication", "Key Application", ["key application", "key applications", "key app", "application", "applications"], 1000, NotTypes: FuelPump),
         new("position", "Position", ["position", "pos", "location on vehicle", "mounting position"], NotTypes: FuelPump),
-        // the columns of the fuel pump sheet: OR PN is the part number, the rest are these fields
+        // the columns of the fuel pump sheet besides OR PN
         new("napaPn", "NAPA PN", ["napa pn"], Types: FuelPump),
         new("dmaPn", "DMA PN", ["dma pn"], Types: FuelPump),
         new("cross", "Cross", ["cross"], Types: FuelPump),
-        // the JH PN is the drawing of the fuel pump; many OR PNs share one
+        // the JH PN is the drawing of the fuel pump; many parts share one
         new("jhPn", "JH PN", ["jh pn"], Types: FuelPumpAndInjector, DrawingNumber: true),
         new("boxSize", "Individual Box Size", ["individual box size"], Types: FuelPump),
     ];

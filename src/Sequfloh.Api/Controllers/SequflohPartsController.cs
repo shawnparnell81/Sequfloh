@@ -117,7 +117,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         return s.IndexOfAny([',', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
     }
 
-    /// <summary>Number of distinct OR # part numbers per product family (parts that share an OR # count once); parts without a family are counted under a null id.</summary>
+    /// <summary>Number of distinct part numbers per product family (parts that share a part number count once); parts without a family are counted under a null id.</summary>
     [HttpGet("parts/family-counts")]
     public async Task<object> FamilyCounts(CancellationToken ct) =>
         await (await parts.PartsQueryAsync(null, null, null, null, null, ct, null)).GroupBy(p => p.TypeId).Select(g => new { TypeId = g.Key, Count = g.Select(p => p.PartNumber).Distinct().Count() }).ToListAsync(ct);

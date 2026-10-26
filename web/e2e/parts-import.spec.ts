@@ -51,7 +51,7 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await dlg.getByLabel('Update existing').check();
   await expect(counts).toContainText('Update 4');
   await shot('04-update-existing');
-  // keeping the repeated OR # row adds it as its own part with the same number
+  // keeping the repeated Part number row adds it as its own part with the same number
   await dlg.getByLabel('Skip existing').check();
   await dlg.getByLabel('Keep rows that repeat a Part number but differ').check();
   await dlg.getByRole('button', { name: 'Preview' }).click();

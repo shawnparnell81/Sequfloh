@@ -2,8 +2,8 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { choosePartName, choosePartType, settledShot, signIn, view } from './support';
 
-/** Parts have no revision; notes, editable OR #, Fuel Pump fields (JH part #, Box size) and part-number counts. */
-test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ page }) => {
+/** Parts have no revision; notes, editable Part number, OR # column, Fuel Pump fields (JH part #, Box size) and part-number counts. */
+test('parts: no revision, notes, editable part number, OR # column and fuel pump fields', async ({ page }) => {
   const shots = process.env.E2E_NR_SHOTS;
   const shot = async (name: string) => { if (shots) await settledShot(page, path.join(shots, `${name}.png`)); };
   const k = Date.now().toString(36).toUpperCase();
@@ -20,7 +20,7 @@ test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ p
     `NR-${k}-2,NU-${k}-2,DMA-${k}-2,CR-${k}-2,JH-${k}-3,12 x 10 x 8 in`].join('\n');
   await dlg.getByTestId('import-file').setInputFiles({ name: 'example-fuel-pumps.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await dlg.getByRole('button', { name: 'Read file' }).click();
-  const cols = { partNumber: 0, 'attr:napaPn': 1, 'attr:dmaPn': 2, 'attr:cross': 3, 'attr:jhPn': 4, 'attr:boxSize': 5 };
+  const cols = { 'attr:orNumber': 0, 'attr:napaPn': 1, 'attr:dmaPn': 2, 'attr:cross': 3, 'attr:jhPn': 4, 'attr:boxSize': 5 };
   for (const [f, i] of Object.entries(cols)) await expect(dlg.locator(`input[data-field="${f}"]`)).toHaveValue(`col:${i}`);
   await expect(dlg.locator('input[data-field="revision"]')).toHaveCount(0);
   await dlg.getByRole('combobox', { name: /^Name/ }).click();
@@ -41,11 +41,11 @@ test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ p
   await expect(v.getByRole('columnheader', { name: 'JH PN', exact: true })).toBeVisible();
   await expect(v.getByRole('columnheader', { name: 'Individual Box Size' })).toBeVisible();
   // the first column is the tick boxes; poll because the table can re-render right after the search
-  await expect.poll(async () => (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase()).filter(Boolean)).toEqual(['or pn', 'napa pn', 'dma pn', 'cross', 'jh pn', 'individual box size']);
+  await expect.poll(async () => (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase()).filter(Boolean)).toEqual(['part number', 'or #', 'napa pn', 'dma pn', 'cross', 'jh pn', 'individual box size']);
   await expect(v.getByRole('columnheader', { name: 'Rev', exact: true })).toHaveCount(0);
   await shot('03-fuel-pump-list');
 
-  // edit the OR # and add notes after import
+  // edit the Part number and add notes after import
   await v.getByText(`NR-${k}-2`).click();
   await expect(v.getByRole('tab', { name: 'Revisions' })).toHaveCount(0);
   await v.getByRole('button', { name: 'Edit' }).click();

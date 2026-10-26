@@ -46,8 +46,8 @@ const usePartFields = () => useQuery({ queryKey: ['sqf-part-fields'], queryFn: (
 const useAttrDefs = () => useQuery({ queryKey: ['sqf-part-attrs'], queryFn: () => get<AttrDef[]>(`${S}/parts/attributes`), staleTime: 300_000 });
 const attrsOf = (json?: string | null): Record<string, string> => { try { return json ? JSON.parse(json) : {}; } catch { return {}; } };
 const COLS_KEY = 'sqf-parts-hidden-cols';
-/** The Fuel Pump list shows these six columns by default, in this order. */
-const FP_COLS = ['partNumber', 'attr:napaPn', 'attr:dmaPn', 'attr:cross', 'attr:jhPn', 'attr:boxSize'];
+/** The Fuel Pump list shows these seven columns by default, in this order. */
+const FP_COLS = ['partNumber', 'attr:orNumber', 'attr:napaPn', 'attr:dmaPn', 'attr:cross', 'attr:jhPn', 'attr:boxSize'];
 const defaultHidden = ['attr:keyApplication'];
 /** The choices plus the current value when it is not one of them, so an older value is shown rather than lost. */
 const withCurrent = (list: string[], current?: string) => (current && !list.some((x) => x.toLowerCase() === current.toLowerCase()) ? [...list, current] : list);
@@ -79,7 +79,14 @@ export function PartMasterPage() {
   const [hidden, setHidden] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(COLS_KEY) ?? 'null') ?? defaultHidden; } catch { return defaultHidden; } });
   const [colsAnchor, setColsAnchor] = useState<HTMLElement | null>(null);
   const FP_KEY = `${COLS_KEY}:fuel-pump-shown`;
-  const [fpShown, setFpShown] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(FP_KEY) ?? 'null') ?? FP_COLS; } catch { return FP_COLS; } });
+  const [fpShown, setFpShown] = useState<string[]>(() => {
+    try {
+      const saved: string[] | null = JSON.parse(localStorage.getItem(FP_KEY) ?? 'null');
+      // a column choice saved before the OR # column existed still shows it
+      if (saved && !localStorage.getItem(`${FP_KEY}:or`)) { localStorage.setItem(`${FP_KEY}:or`, '1'); if (!saved.includes('attr:orNumber')) saved.push('attr:orNumber'); }
+      return saved ?? FP_COLS;
+    } catch { return FP_COLS; }
+  });
   const toggleCol = (k: string) => {
     if (fp) { const n = fpShown.includes(k) ? fpShown.filter((x) => x !== k) : [...fpShown, k]; setFpShown(n); localStorage.setItem(FP_KEY, JSON.stringify(n)); return; }
     const n = hidden.includes(k) ? hidden.filter((x) => x !== k) : [...hidden, k]; setHidden(n); localStorage.setItem(COLS_KEY, JSON.stringify(n));
@@ -106,7 +113,7 @@ export function PartMasterPage() {
           { key: 'status', label: 'Status', render: (r) => <SqfStatus status={r.status} /> },
           { key: 'updatedAt', label: 'Updated', sort: true, render: (r) => fmtDateTime(r.updatedAt) }];
   // the Fuel Pump list leads with the numbers of the fuel pump sheet
-  const lead = familyCode === FUEL_PUMP ? FP_COLS : ['partNumber'];
+  const lead = familyCode === FUEL_PUMP ? FP_COLS : ['partNumber', 'attr:orNumber'];
   const isHidden = (k: string) => (fp ? !fpShown.includes(k) && k !== 'partNumber' : hidden.includes(k));
   const allCols = [...lead.map((k) => baseCols.find((c) => c.key === k)!).filter(Boolean), ...baseCols.filter((c) => !lead.includes(c.key))];
   const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
