@@ -32,14 +32,27 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         if (password.Length > 200) throw new AppException("Passwords are limited to 200 characters.");
     }
 
-    // Without "Remember me" this is a session cookie (no Expires): closing the browser signs the person out and the token still expires after SessionHours.
-    // With "Remember me" the cookie and the token both last RememberDays.
-    void SetCookie(string token, DateTimeOffset expires, bool remember = false) =>
-        Response.Cookies.Append(AuthSettings.CookieName, token, new CookieOptions
-        {
-            HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = !env.IsDevelopment() && !env.IsEnvironment("Testing") && Request.IsHttps, Path = "/",
-            Expires = remember ? expires : null
-        });
+    bool SecureCookie => !env.IsDevelopment() && !env.IsEnvironment("Testing") && Request.IsHttps;
+
+    // Always a session cookie (no Expires): closing the browser signs the person out, and the token expires after SessionHours.
+    void SetCookie(string token) =>
+        Response.Cookies.Append(AuthSettings.CookieName, token, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = SecureCookie, Path = "/" });
+
+    // "Remember me": lasts RememberDays and only lets the sign-in page offer "Sign in as"; the API never accepts it as a session.
+    void SetRememberCookie(ApplicationUser u)
+    {
+        var (token, expires) = tokens.IssueRemember(u);
+        Response.Cookies.Append(AuthSettings.RememberCookieName, token, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = SecureCookie, Path = "/api/auth", Expires = expires });
+    }
+
+    void ClearRememberCookie() => Response.Cookies.Delete(AuthSettings.RememberCookieName, new CookieOptions { Path = "/api/auth" });
+
+    async Task<ApplicationUser?> RememberedUserAsync(CancellationToken ct)
+    {
+        if (tokens.ReadRemember(Request.Cookies[AuthSettings.RememberCookieName]) is not { } r) return null;
+        var u = await db.Users.FirstOrDefaultAsync(x => x.Id == r.UserId, ct);
+        return u is { IsActive: true } && u.TokenVersion.ToString() == r.TokenVersion ? u : null;
+    }
 
     /// <summary>True until the first administrator has been created.</summary>
     [HttpGet("setup"), AllowAnonymous]
@@ -66,7 +79,7 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         var (token, expires) = tokens.Issue(u);
-        SetCookie(token, expires);
+        SetCookie(token);
         return Ok(new { token, expires });
     }
 
@@ -95,13 +108,51 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         }
         if (result == PasswordVerificationResult.SuccessRehashNeeded) u.PasswordHash = hasher.HashPassword(u, r.Password!);
         u.FailedSignIns = 0; u.LockedUntil = null; u.LastSignInAt = now;
-        Audit(u.Id, u.DisplayName, "SignedIn", r.RememberMe ? $"{u.DisplayName} signed in with Remember me (stays signed in for {authSettings.RememberDays} days)" : $"{u.DisplayName} signed in");
+        Audit(u.Id, u.DisplayName, "SignedIn", r.RememberMe ? $"{u.DisplayName} signed in and ticked Remember me (no password needed for {authSettings.RememberDays} days on this device)" : $"{u.DisplayName} signed in");
         await db.SaveChangesAsync(ct);
-        var (token, expires) = tokens.Issue(u, r.RememberMe);
-        SetCookie(token, expires, r.RememberMe);
+        var (token, expires) = tokens.Issue(u);
+        SetCookie(token);
+        if (r.RememberMe) SetRememberCookie(u); else ClearRememberCookie();
         return Ok(new { token, expires, mustChangePassword = u.MustChangePassword });
     }
 
+    /// <summary>Who "Remember me" remembers on this device, for the "Sign in as" button; never signs anyone in.</summary>
+    [HttpGet("remembered"), AllowAnonymous]
+    public async Task<object> Remembered(CancellationToken ct)
+    {
+        var u = await RememberedUserAsync(ct);
+        if (u is null) { if (Request.Cookies.ContainsKey(AuthSettings.RememberCookieName)) ClearRememberCookie(); return new { remembered = false, displayName = (string?)null, email = (string?)null }; }
+        return new { remembered = true, displayName = u.DisplayName, email = u.Email };
+    }
+
+    /// <summary>"Sign in as": a session from the remember cookie, without the password.</summary>
+    [HttpPost("remembered"), AllowAnonymous, EnableRateLimiting("login")]
+    public async Task<IActionResult> SignInRemembered(CancellationToken ct)
+    {
+        var u = await RememberedUserAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        if (u is null || u.LockedUntil is { } until && until > now)
+        {
+            ClearRememberCookie();
+            return Unauthorized(new { title = "Sign in with your email and password." });
+        }
+        u.LastSignInAt = now;
+        Audit(u.Id, u.DisplayName, "SignedIn", $"{u.DisplayName} signed in with Remember me");
+        await db.SaveChangesAsync(ct);
+        var (token, expires) = tokens.Issue(u);
+        SetCookie(token);
+        return Ok(new { token, expires, mustChangePassword = u.MustChangePassword });
+    }
+
+    /// <summary>"Use a different account": forgets the remembered person on this device.</summary>
+    [HttpPost("forget"), AllowAnonymous]
+    public IActionResult Forget()
+    {
+        ClearRememberCookie();
+        return NoContent();
+    }
+
+    /// <summary>Ends the session; a "Remember me" cookie stays so the next sign-in can use "Sign in as".</summary>
     [HttpPost("logout"), AllowAnonymous]
     public IActionResult Logout()
     {
@@ -132,9 +183,9 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         u.PasswordHash = hasher.HashPassword(u, r.NewPassword); u.MustChangePassword = false; u.PasswordChangedAt = DateTimeOffset.UtcNow; u.TokenVersion++;
         Audit(u.Id, u.DisplayName, "PasswordChanged", $"{u.DisplayName} changed their password");
         await db.SaveChangesAsync(ct);
-        var remember = User.FindFirst("rem")?.Value == "1"; // keep the Remember me choice made at sign-in
-        var (token, expires) = tokens.Issue(u, remember);
-        SetCookie(token, expires, remember);
+        var (token, expires) = tokens.Issue(u);
+        SetCookie(token);
+        if (tokens.ReadRemember(Request.Cookies[AuthSettings.RememberCookieName]) is { } rem && rem.UserId == u.Id) SetRememberCookie(u); // keep Remember me after the version bump
         return Ok(new { token, expires });
     }
 }

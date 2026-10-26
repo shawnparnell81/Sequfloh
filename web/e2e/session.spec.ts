@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { section, settledShot, signIn, tabs } from './support';
+import { account, section, settledShot, signIn, tabs } from './support';
 
 const shots = process.env.E2E_SESSION_SHOTS;
 
@@ -33,4 +33,42 @@ test('closing the browser ends the session and signing in starts with Home only'
   await signIn(page);
   await expect(tabs(page)).toHaveCount(1);
   if (shots) await settledShot(page, `${shots}/03-sign-in-home-only.png`);
+});
+
+test('a browser that brings the session back still shows sign-in, and Remember me offers Sign in as', async ({ page, browser }) => {
+  const { email, password } = account();
+  await page.goto('/');
+  await page.fill('input[type=email]', email);
+  await page.fill('input[type=password]', password);
+  await page.getByLabel(/Remember me/).check();
+  await page.click('button[type=submit]');
+  await expect(page.getByTestId('tab-strip')).toBeVisible();
+  // a reload and a new tab in the same browser stay signed in
+  await page.reload();
+  await expect(page.getByTestId('tab-strip')).toBeVisible();
+  const second = await page.context().newPage();
+  await second.goto('/');
+  await expect(second.getByTestId('tab-strip')).toBeVisible();
+  await second.close();
+
+  // the remember cookie is lasting; the session cookie is not
+  const cookies = await page.context().cookies();
+  expect(cookies.find((c) => c.name === 'sqf.session')?.expires).toBe(-1);
+  expect(cookies.find((c) => c.name === 'sqf.remember')!.expires).toBeGreaterThan(0);
+
+  // "Continue where you left off": every cookie comes back, but the browser was closed
+  const restored = await browser.newContext({ storageState: { cookies, origins: [] } });
+  const again = await restored.newPage();
+  await again.goto('/');
+  await expect(again.getByTestId('sign-in-remembered')).toBeVisible();
+  await again.getByTestId('sign-in-remembered').click();
+  await expect(again.getByTestId('tab-strip')).toBeVisible();
+
+  // signing out keeps Remember me; "Use a different account" forgets it
+  await again.getByTestId('user-menu').click();
+  await again.getByRole('menuitem', { name: 'Sign out' }).click();
+  await expect(again.getByTestId('sign-in-remembered')).toBeVisible();
+  await again.getByTestId('use-different-account').click();
+  await expect(again.locator('input[type=password]')).toBeVisible();
+  await restored.close();
 });
