@@ -172,7 +172,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
                 <FormControlLabel value="update" control={<Radio size="small" />} label="Update existing" />
               </RadioGroup>
               <FormControlLabel control={<Checkbox size="small" checked={keepRepeats} data-testid="keep-repeats" onChange={(e) => { setKeepRepeats(e.target.checked); setPlan(null); }} />}
-                label="Keep rows that repeat an OR # but differ" title="A row with the same OR # as another row but other values (for example another Position) is added as its own part. Exact duplicate rows are always skipped." />
+                label="Keep rows that repeat a Part number but differ" title="A row with the same Part number as another row but other values (for example another Position) is added as its own part. Exact duplicate rows are always skipped." />
               <Button variant="outlined" disabled={busy || !fixed.name} onClick={() => preview()}>Preview</Button>
             </Stack>
             {!fixed.name && <Alert severity="warning" sx={{ mt: 2 }} data-testid="name-required">Choose the Name for all rows before you preview or import. The name is never taken from the file.</Alert>}
@@ -182,9 +182,9 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
               <Chip color="success" label={`Add ${plan.add}`} /><Chip color="info" label={`Update ${plan.update}`} /><Chip label={`Skip ${plan.skip}`} /><Chip color="error" label={`Errors ${plan.errors}`} />
             </Stack>
             <TableContainer sx={{ maxHeight: 340 }}><Table size="small" stickyHeader>
-              <TableHead><TableRow><TableCell>Row</TableCell><TableCell>Action</TableCell><TableCell>OR # (Part number)</TableCell><TableCell>Name</TableCell><TableCell>Notes</TableCell></TableRow></TableHead>
+              <TableHead><TableRow><TableCell>Row</TableCell><TableCell>Action</TableCell><TableCell>Part number</TableCell><TableCell>Name</TableCell><TableCell>Notes</TableCell></TableRow></TableHead>
               <TableBody>{plan.rows.map((r) => (
-                <TableRow key={r.row}><TableCell>{r.row}</TableCell><TableCell><Chip size="small" color={actionColor[r.action]} label={r.repeat ? 'Add (repeat OR #, different values)' : r.action} /></TableCell>
+                <TableRow key={r.row}><TableCell>{r.row}</TableCell><TableCell><Chip size="small" color={actionColor[r.action]} label={r.repeat ? 'Add (repeat Part number, different values)' : r.action} /></TableCell>
                   <TableCell>{r.partNumber}</TableCell><TableCell>{r.name}</TableCell><TableCell>{r.messages.join(' ')}</TableCell></TableRow>))}
               </TableBody></Table></TableContainer>
           </Box>}

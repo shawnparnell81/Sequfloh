@@ -25,7 +25,7 @@ export function usePartSearch<T>(text: string, extra: Record<string, string | un
     queryFn: () => get<{ items: T[]; total: number }>(`${S}/parts?${qs({ ...extra, q: q || undefined, pageSize: PART_SEARCH_PAGE, sort: 'partNumber:asc' })}`),
   });
   const total = q ? r.data?.total ?? 0 : 0, items = q ? r.data?.items ?? [] : [];
-  const hint = total > items.length ? `Showing ${items.length} of ${total.toLocaleString('en-US')} parts. Type an OR #, DWG #, NAPA, DMA or JH PN to find any part.` : undefined;
+  const hint = total > items.length ? `Showing ${items.length} of ${total.toLocaleString('en-US')} parts. Type a part number, DWG #, NAPA, DMA or JH PN to find any part.` : undefined;
   return { items, total, loading: q.length > 0 && r.isLoading, hint };
 }
 

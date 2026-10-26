@@ -65,7 +65,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
             var pos = (r.Attributes is not null ? r.Attributes.GetValueOrDefault("position") : PartAttributes.Read(part.Attributes).GetValueOrDefault("position"))?.Trim() ?? "";
             var others = await db.Parts.AsNoTracking().Where(x => x.PartNumber == number && x.Id != id).Select(x => x.Attributes).ToListAsync(ct);
             if (others.Any(a => string.Equals(PartAttributes.Read(a).GetValueOrDefault("position")?.Trim() ?? "", pos, StringComparison.OrdinalIgnoreCase)))
-                throw new ConflictException(pos.Length > 0 ? $"A part with this OR # and Position {pos} already exists." : "A part with this OR # already exists. Give the part a Position that differs from the others.");
+                throw new ConflictException(pos.Length > 0 ? $"A part with this part number and Position {pos} already exists." : "A part with this part number already exists. Give the part a Position that differs from the others.");
         }
         await master.SavePartAsync(id, r.Part, ct, numberChecked: true);
         await ApplyExecutionAsync(id, r.Execution with { RowVersion = 0 }, ct);

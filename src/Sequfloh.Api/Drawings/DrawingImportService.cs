@@ -272,7 +272,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             db.AuditEntries.Add(new AuditEntry
             {
                 OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Linked drawing to parts", EntityType = nameof(Drawing), EntityId = id, SiteId = site,
-                CorrelationId = me.CorrelationId, Description = AuditText.Fit($"Relink drawings: drawing {title} linked to {n} more part{(n == 1 ? "" : "s")} with a matching OR #, SENSEN # or drawing number field"),
+                CorrelationId = me.CorrelationId, Description = AuditText.Fit($"Relink drawings: drawing {title} linked to {n} more part{(n == 1 ? "" : "s")} with a matching part number, SENSEN # or drawing number field"),
             });
         db.AuditEntries.Add(new AuditEntry
         {

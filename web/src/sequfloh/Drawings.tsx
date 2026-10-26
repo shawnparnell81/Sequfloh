@@ -118,7 +118,7 @@ export function PartsPicker({ value, onChange, label: l = 'Link to part number(s
   return <Autocomplete multiple options={opts} value={value} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => o.label} loading={q.loading}
     renderOption={(props, o) => <li {...props} key={o.id}><Box><Typography variant="body2">{o.label}</Typography>{o.extra && <Typography variant="caption" color="text.secondary">{o.extra}</Typography>}</Box></li>}
     noOptionsText={text ? 'No part matches' : 'Type a part number'}
-    onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label={l} placeholder="Search by OR #, DWG #, NAPA, DMA or JH PN" helperText={q.hint} />} />;
+    onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, v) => onChange(v)} renderInput={(p) => <TextField {...p} label={l} placeholder="Search by part number, DWG #, NAPA, DMA or JH PN" helperText={q.hint} />} />;
 }
 
 /** The file, title, number, revision and notes of a new drawing (also used inline from a part). */
@@ -416,8 +416,8 @@ function RelinkDialog({ open, onClose }: { open: boolean; onClose: () => void })
   return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setRes(null); setErr(null); } }}>
     <FormDialogTitle>Relink drawings</FormDialogTitle>
     <DialogContent><Stack gap={2}>
-      <Typography variant="body2">Checks every drawing against the parts and links each drawing to every part whose OR #, DWG # or drawing number field matches the drawing title or its folder name
-        (for fuel pumps the JH PN, so one drawing links to all the OR PNs that share it). Case, spaces, dashes and underscores are ignored. Links that are already there, including ones made by hand, are kept.</Typography>
+      <Typography variant="body2">Checks every drawing against the parts and links each drawing to every part whose part number, DWG # or drawing number field matches the drawing title or its folder name
+        (for fuel pumps the JH PN, so one drawing links to all the parts that share it). Case, spaces, dashes and underscores are ignored. Links that are already there, including ones made by hand, are kept.</Typography>
       {busy && <LinearProgress />}
       {err && <Alert severity="error">{err}</Alert>}
       {res && <Alert severity="success" data-testid="relink-result">Checked {res.checked.toLocaleString('en-US')} drawings. Added {res.added.toLocaleString('en-US')} part link{res.added === 1 ? '' : 's'}
