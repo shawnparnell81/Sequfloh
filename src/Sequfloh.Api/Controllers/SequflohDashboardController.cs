@@ -113,7 +113,7 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
             DraftRepair = await dev.CountAsync(x => RepairTypes.Contains(x.Type), ct),
             OpenValidationActivities = await tr.CountAsync(x => x.Type == TrackingType.Validation && SequflohTrackingService.Open.Contains(x.Status), ct),
             FailedValidations = await Failed(tr, TrackingType.Validation).CountAsync(ct),
-            ReleasedValidationInstructions = await wis.CountAsync(x => ValidationTypes.Contains(x.Type) && x.Status == WorkInstructionStatus.Released, ct),
+            ReleasedValidationInstructions = await wis.CountAsync(x => x.ValidationFolder && x.Status == WorkInstructionStatus.Released, ct),
             MyDevelopment = await WiRows(dev.Where(x => x.AssignedEngineerId == m.UserId || (x.AssignedEngineerId == null && x.AuthorId == m.UserId)), ct),
             OpenValidationRows = await Rows(tr.Where(x => x.Type == TrackingType.Validation && SequflohTrackingService.Open.Contains(x.Status)), ct),
         };

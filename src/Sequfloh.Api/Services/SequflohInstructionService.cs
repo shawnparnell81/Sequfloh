@@ -450,7 +450,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
 
     SequflohWorkInstruction Copy(SequflohWorkInstruction s) => new()
     {
-        Type = s.Type, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId,
+        Type = s.Type, ValidationFolder = s.ValidationFolder, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId,
         PartId = s.PartId, PartNumber = s.PartNumber, PartDescription = s.PartDescription, ProductFamily = s.ProductFamily, Assembly = s.Assembly, Model = s.Model,
         Variant = s.Variant, Process = s.Process, Operation = s.Operation, Workstation = s.Workstation, Location = s.Location, ValidationType = s.ValidationType, FaiType = s.FaiType,
         RepairCategory = s.RepairCategory, RepairType = s.RepairType, RepairDescription = s.RepairDescription, SourcePartsListId = s.SourcePartsListId,

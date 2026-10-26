@@ -109,9 +109,9 @@ export function EngineeringValidationPage() {
     { label: 'Validation results', value: 'results' }, { label: 'Failed validation records', value: 'failed' },
     { label: 'Released validation instructions', value: 'released' }, { label: 'Revision history', value: 'revisions' }];
   if (tab === 'instructions' || tab === 'plans' || tab === 'released') {
-    return <InstructionsFolderPage key={tab} fixedFolder={tab === 'released' ? 'releasedValidation' : tab === 'plans' ? 'draft' : 'validation'} tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
+    return <InstructionsFolderPage key={tab} fixedFolder={tab === 'released' ? 'releasedValidation' : tab === 'plans' ? 'draft' : 'validationFolder'} tabs={tabs} tab={tab} onTab={(t) => setSp({ tab: t })}
       crumbsOverride={eCrumbs('Validation / FAI')} titleOverride="Validation / FAI" permission="sequfloh.view_engineering_folder"
-      descriptionOverride={tab === 'plans' ? 'Validation plans being developed: draft instructions.' : tab === 'released' ? 'Released Validation / FAI instructions available for validation execution.' : 'Validation and Validation / FAI work instructions.'} />;
+      descriptionOverride={tab === 'plans' ? 'Validation plans being developed: draft instructions.' : tab === 'released' ? 'Released validation instructions imported in Validation instructions.' : 'Validation instructions imported here. Use Import file / folder to add them.'} />;
   }
   if (tab === 'revisions') return <Navigate to="/sequfloh/revision-history" replace />;
   return (

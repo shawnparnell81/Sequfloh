@@ -45,7 +45,8 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
   procedure: { api: 'procedure', title: 'Procedure Instructions', kind: 'generic', newType: 'Procedure', description: 'Imported PDF instructions that apply to every part of a product family. The file is the instruction: to change one, update the file and import it again, which revises it.' },
   draft: { api: 'drafts', title: 'Draft Instructions', kind: 'generic', description: 'Instructions that can still be edited. Release one when it is ready.' },
   released: { api: 'released', title: 'Released Instructions', kind: 'generic', description: 'Current released revisions. Released revisions are read-only; changes go through a new revision.' },
-  releasedValidation: { api: 'released-validation', title: 'Released Validation Instructions', kind: 'validation', description: 'Current released Validation / FAI revisions.' },
+  validationFolder: { api: 'validation-folder', title: 'Validation Instructions', kind: 'validation', newType: 'ValidationFai', description: 'Validation instructions imported here. Once released they move to Released validation instructions.' },
+  releasedValidation: { api: 'released-validation', title: 'Released Validation Instructions', kind: 'validation', newType: 'ValidationFai', description: 'Released validation instructions imported in Validation instructions.' },
   obsolete: { api: 'obsolete', title: 'Obsolete Instructions', kind: 'generic', description: 'Instructions marked obsolete. They stay on file and cannot be used for new work.' },
 };
 
@@ -53,7 +54,7 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
  * Import file / Import folder on the work instruction lists: each file becomes its own new draft work instruction of the chosen type, titled with the
  * file name, with the file attached to it. Work instructions only: nothing is created on work orders.
  */
-function ImportInstructionsButtons({ newType }: { newType?: string }) {
+function ImportInstructionsButtons({ newType, validationFolder }: { newType?: string; validationFolder?: boolean }) {
   const qc = useQueryClient();
   const sites = useSites();
   const [type, setType] = useState(newType ?? '');
@@ -68,7 +69,7 @@ function ImportInstructionsButtons({ newType }: { newType?: string }) {
         {(sites.data?.length ?? 0) > 1 && <TextField select size="small" label="Site" value={siteId} onChange={(e) => setSiteId(e.target.value)} sx={{ minWidth: 200 }}>
           {sites.data!.map((x) => <MenuItem key={x.id} value={x.id}>{x.name}</MenuItem>)}</TextField>}
       </Stack></Stack>}
-    upload={(f) => { const fd = new FormData(); fd.append('file', f); fd.append('type', type); fd.append('siteId', siteId); return api('POST', `${S}/instructions/import`, fd); }}
+    upload={(f) => { const fd = new FormData(); fd.append('file', f); fd.append('type', type); fd.append('siteId', siteId); if (validationFolder) fd.append('validationFolder', 'true'); return api('POST', `${S}/instructions/import`, fd); }}
     onDone={() => qc.invalidateQueries({ queryKey: ['sqf-wi'] })} />;
 }
 
@@ -78,6 +79,7 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
   const params = useParams();
   const folderKey = fixedFolder ?? (params.folder === 'fai' ? 'validation' : params.folder) ?? 'all';
   const cfg = folders[folderKey] ?? folders.all;
+  const inValidationFolder = folderKey === 'validationFolder' || folderKey === 'releasedValidation';
   const { can } = useAuth();
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
@@ -118,7 +120,7 @@ export function InstructionsFolderPage({ fixedFolder, crumbsOverride, titleOverr
         { key: 'status', label: 'Status', sort: true, render: (r: WiRow) => <SqfStatus status={r.status} /> }, people[0], ...tail, actions];
   return (
     <SqfPage title={title} crumbs={crumbsOverride ?? wiCrumbs(title)} description={descriptionOverride ?? cfg.description} permission={permission} tabs={tabs} tab={tab} onTab={onTab}
-      actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" />{can('sequfloh.create_work_instruction') && <ImportInstructionsButtons newType={cfg.newType} />}{can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to={`/sequfloh/instructions/new${cfg.newType ? `?type=${cfg.newType}` : ''}`}>New instruction</Button>}</Stack>}>
+      actions={<Stack direction="row" gap={1} flexWrap="wrap"><NewInspectionRequestButton variant="outlined" />{can('sequfloh.create_work_instruction') && <ImportInstructionsButtons newType={cfg.newType} validationFolder={inValidationFolder} />}{can('sequfloh.create_work_instruction') && !inValidationFolder && <Button variant="contained" component={RouterLink} to={`/sequfloh/instructions/new${cfg.newType ? `?type=${cfg.newType}` : ''}`}>New instruction</Button>}</Stack>}>
       <Filters search={v('q')} onSearch={(s) => set('q', s)} values={Object.fromEntries(filters.map((f) => [f.key, v(f.key)]))} onChange={set} onClear={() => { setSp({}); setPage(1); }} filters={filters}
         extra={cfg.kind === 'repair' && <TextField size="small" label="Part number" defaultValue={v('part')} key={v('part')} onBlur={(e) => set('part', e.target.value.trim())} sx={{ width: 160 }} />} />
       <InventoryNote />

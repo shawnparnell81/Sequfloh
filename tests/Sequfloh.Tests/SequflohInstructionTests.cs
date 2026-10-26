@@ -53,26 +53,42 @@ public sealed class SequflohInstructionTests(TestApp app)
     }
 
     [Fact]
-    public async Task Released_validation_folder_lists_only_validation_instructions()
+    public async Task Validation_folders_list_only_instructions_imported_there()
     {
         var site = await app.CreateSiteAsync();
         var (_, author) = await app.CreateUserAsync(AuthorPerms, site);
         var (_, releaser) = await app.CreateUserAsync(ReleaserPerms, site);
-        var ids = new Dictionary<string, Guid>();
-        foreach (var type in new[] { "Validation", "Inspection" })
+        var tag = Guid.NewGuid().ToString("N")[..8];
+        async Task<Guid> Import(string name, bool validationFolder)
         {
-            var id = (await PostEl(author, "/api/sequfloh/instructions", new { type, title = $"Folder check {type}", siteId = site })).Id();
+            var form = new MultipartFormDataContent { { new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes("Step 1\n")), "file", $"{name} {tag}.txt" },
+                { new StringContent("Validation"), "type" }, { new StringContent(site.ToString()), "siteId" }, { new StringContent(validationFolder ? "true" : "false"), "validationFolder" } };
+            var r = await author.Http.PostAsync("/api/sequfloh/instructions/import", form);
+            Assert.True(r.IsSuccessStatusCode, await r.Content.ReadAsStringAsync());
+            return (await r.JsonAsync()).Id();
+        }
+        async Task Release(Guid id)
+        {
             var url = $"/api/sequfloh/instructions/{id}";
             await PutOk(author, url, Save(await author.GetElAsync(url), site, new { validationAcceptance = new { overallAcceptanceCriteria = "No leak" } }, [new { sequence = 10, title = "Check" }]));
             await releaser.PostOkAsync($"{url}/actions/release", new { effectiveDate = "2026-11-01" });
-            ids[type] = id;
         }
-        var all = (await author.GetElAsync("/api/sequfloh/instructions?folder=released&pageSize=500")).GetProperty("items").EnumerateArray().Select(i => i.Id()).ToList();
-        var val = (await author.GetElAsync("/api/sequfloh/instructions?folder=released-validation&pageSize=500")).GetProperty("items").EnumerateArray().ToList();
-        Assert.All(ids.Values, id => Assert.Contains(id, all));
-        Assert.Contains(val, i => i.Id() == ids["Validation"]);
-        Assert.DoesNotContain(val, i => i.Id() == ids["Inspection"]);
-        Assert.All(val, i => Assert.Contains(i.Str("type"), new[] { "Validation", "ValidationFai", "Fai" }));
+        async Task<List<Guid>> Folder(string f) => (await author.GetElAsync($"/api/sequfloh/instructions?folder={f}&q={tag}&pageSize=500")).GetProperty("items").EnumerateArray().Select(i => i.Id()).ToList();
+        var val = await Import("Seal validation", true);
+        var work = await Import("Seal work", false);
+        var created = (await PostEl(author, "/api/sequfloh/instructions", new { type = "Validation", title = $"Created {tag}", siteId = site })).Id();
+        Assert.Equal([val], await Folder("validation-folder"));
+        Assert.Empty(await Folder("released-validation"));
+        await Release(val); await Release(work); await Release(created);
+        Assert.Equal([val], await Folder("released-validation"));
+        var released = await Folder("released");
+        Assert.Contains(work, released); Assert.Contains(created, released); Assert.DoesNotContain(val, released);
+        Assert.DoesNotContain(val, await Folder("all"));
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var audit = await db.AuditEntries.AsNoTracking().SingleAsync(a => a.EntityId == val && a.Action == "WorkInstructionImportedToValidation");
+        Assert.False(string.IsNullOrWhiteSpace(audit.UserName));
+        Assert.Contains("Validation instructions", audit.Description);
     }
 
     [Fact]
