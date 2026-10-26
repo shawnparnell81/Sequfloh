@@ -33,7 +33,7 @@ public sealed class WorkOrderLockReportsTests(TestApp app)
         try
         {
             Assert.True((await admin.PutAsync(Setting, new { blankFormId = blank })).IsSuccessStatusCode);
-            var a = await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site, number = $"LK-{tag}-1" })).JsonAsync();
+            var a = await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site, number = $"LK-{tag}-1", formNumber = $"LKF-{tag}-1" })).JsonAsync();
             var copy = Guid.Parse(a.GetProperty("validationForm").GetProperty("fileId").GetString()!);
             var open = await c.PutAsync($"/api/imported-files/{copy}/title", new { title = $"Open {tag}" }); Assert.True(open.IsSuccessStatusCode, $"{open.StatusCode} {await open.Content.ReadAsStringAsync()}");
             Assert.Equal(HttpStatusCode.OK, await Act(c, a.Id(), "cancel", "Not needed"));

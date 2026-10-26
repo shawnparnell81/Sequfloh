@@ -2575,6 +2575,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("WorkOrderId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BlankFormId");

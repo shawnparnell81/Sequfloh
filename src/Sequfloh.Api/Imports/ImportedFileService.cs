@@ -56,6 +56,12 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     /// <summary>The Completed or Canceled work order this file is the attached form copy of, or null.</summary>
     public static async Task<Sequfloh.Domain.Execution.SequflohTrackingRecord?> ClosedWorkOrderOfAsync(AppDbContext db, Guid fileId, CancellationToken ct)
     {
+        var wo = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(o => o.Id == fileId).Select(o => o.WorkOrderId).FirstOrDefaultAsync(ct);
+        if (wo is { } woId)
+        {
+            var linked = await db.SequflohTrackingRecords.AsNoTracking().FirstOrDefaultAsync(r => r.Id == woId, ct);
+            if (linked is { Status: Sequfloh.Domain.Execution.TrackingStatus.Completed or Sequfloh.Domain.Execution.TrackingStatus.Canceled }) return linked;
+        }
         var id = fileId.ToString();
         var match = $"{{\"validationForm\":{{\"fileId\":\"{id}\"}}}}";
         return await db.SequflohTrackingRecords.AsNoTracking()
@@ -526,16 +532,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     }
 
     /// <summary>Starts a filled copy of a blank form from its current version and returns the new file.</summary>
-    /// <summary>The blank form's number with the next count after it, e.g. FRM-VAL-001-1, then FRM-VAL-001-2.</summary>
-    public async Task<string> NextCopyNumberAsync(Guid blankId, CancellationToken ct)
-    {
-        var baseNo = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(b => b.Id == blankId).Select(b => b.Number).FirstAsync(ct);
-        var prefix = baseNo + "-";
-        var used = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(o => o.Number.StartsWith(prefix)).Select(o => o.Number).ToListAsync(ct);
-        var max = used.Select(u => int.TryParse(u[prefix.Length..], out var k) ? k : 0).DefaultIfEmpty(0).Max();
-        return prefix + (max + 1);
-    }
-    public async Task<object> FillOutAsync(Guid id, string? number, string? title, CancellationToken ct, string? partNumber = null, Guid? familyId = null)
+    public async Task<object> FillOutAsync(Guid id, string? number, string? title, CancellationToken ct, string? partNumber = null, Guid? familyId = null, Guid? workOrderId = null)
     {
         await CheckFamilyAsync(familyId, ct);
         var blank = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
@@ -544,7 +541,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var (v, bytes) = await CurrentAsync(blank, null, ct);
         var copy = await CreateCopyAsync(blank, v, bytes, number, title, blank.Id, blank.CurrentVersion, $"Started from blank form {blank.Number} version {blank.CurrentVersion}", ct,
             c => ("Created from blank form", $"Created {c.Number} {c.Title} from blank form {blank.Number} {blank.Title} (version {blank.CurrentVersion}){(c.PartNumber is null ? "" : $" for part {c.PartNumber}")}"),
-            partNumber, familyId);
+            partNumber, familyId, workOrderId);
         return new { copy.Id, copy.Number, copy.Title };
     }
 
@@ -572,12 +569,12 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var blankId = f.IsBlankForm ? f.Id : f.BlankFormId;
         var blankVersion = f.IsBlankForm ? f.CurrentVersion : f.BlankFormVersion;
         var copy = await CreateCopyAsync(f, v, bytes, number, title, blankId, blankVersion, $"Saved as a copy of {f.Number} version {f.CurrentVersion}. {note}", ct,
-            c => ("Saved as copy", $"Saved {c.Number} {c.Title} as a new copy of {f.Number} {f.Title} (version {f.CurrentVersion}); {f.Number} was left as it is. {note}"), null, familyId ?? f.FamilyId);
+            c => ("Saved as copy", $"Saved {c.Number} {c.Title} as a new copy of {f.Number} {f.Title} (version {f.CurrentVersion}); {f.Number} was left as it is. {note}"), null, familyId ?? f.FamilyId, f.WorkOrderId);
         return new { copy.Id, copy.Number, copy.Title };
     }
 
     async Task<ImportedFile> CreateCopyAsync(ImportedFile from, ImportedFileVersion v, byte[] bytes, string? number, string? title, Guid? blankId, int? blankVersion, string note, CancellationToken ct,
-        Func<ImportedFile, (string Action, string Text)> audit, string? partNumber = null, Guid? familyId = null)
+        Func<ImportedFile, (string Action, string Text)> audit, string? partNumber = null, Guid? familyId = null, Guid? workOrderId = null)
     {
         if (from.Kind == ImportedFileKind.Pdf) throw new AppException("A PDF completed form is kept as uploaded and can't be copied.");
         var ext = Path.GetExtension(v.FileName).ToLowerInvariant();
@@ -590,7 +587,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         {
             Number = n, Title = t.Length > 300 ? t[..300] : t, Kind = from.Kind, SourceFormat = ext.TrimStart('.'),
             OriginalFileName = SafeFileName(n) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = Summarize(from.Kind, bytes, ext),
-            BlankFormId = blankId, BlankFormVersion = blankVersion, FamilyId = blankId is null ? null : familyId,
+            BlankFormId = blankId, BlankFormVersion = blankVersion, FamilyId = blankId is null ? null : familyId, WorkOrderId = workOrderId,
             PartNumber = string.IsNullOrWhiteSpace(partNumber) ? (from.IsBlankForm ? null : from.PartNumber) : partNumber.Trim().Length > 100 ? partNumber.Trim()[..100] : partNumber.Trim(),
         };
         copy.OriginalStorageKey = $"imports/{copy.Id:N}/original{ext}";

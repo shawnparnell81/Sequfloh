@@ -82,7 +82,7 @@ function CopyPartNumber({ d, onSaved }: { d: Detail; onSaved: () => void }) {
   </Stack>;
 }
 
-/** "Save as new copy": saves the pending edits into a new file and opens it; the file being edited stays as it is. */
+/** "Save as new copy": saves the file, with any pending edits, into a new file and opens it; the file being edited stays as it is. */
 function useSaveAsCopy(file: Detail, body: () => object) {
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
@@ -503,7 +503,7 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
             onChange={(e) => setBar(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && sel) commit(sel.r, sel.c, bar); }} onBlur={() => { if (sel && editable && bar !== raw(sel.r, sel.c)) commit(sel.r, sel.c, bar); }} />
           <FormControlLabel sx={{ whiteSpace: 'nowrap', ml: 1, flexShrink: 0 }} control={<Switch size="small" checked={showFormulas} onChange={(e) => setShowFormulas(e.target.checked)} />} label="Show formulas" />
           {editable && <Button variant="contained" disabled={!pendingCount || busy} onClick={save} data-testid="save-cells" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{busy ? 'Saving…' : pendingCount ? `Save ${pendingCount} change${pendingCount === 1 ? '' : 's'}` : 'Saved'}</Button>}
-          {editable && pendingCount > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
+          {editable && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
           {pendingCount > 0 && <Button onClick={() => setEdits({})} disabled={busy} sx={{ flexShrink: 0 }}>Discard</Button>}
         </Stack>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5, ml: 1, minHeight: 20 }}>
@@ -627,7 +627,7 @@ function DocumentEditor({ file, version, editable, editBlank, onSaved }: { file:
       {editable && <Paper variant="outlined" sx={{ p: 1 }} className="sqf-noprint"><Stack direction="row" gap={1} alignItems="center">
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1, px: 1 }}>Click a paragraph or table cell to change its text. Fields, form controls and pictures stay as they are in the file.</Typography>
         {count > 0 && <Button onClick={() => { setEdits({}); setEditing(null); }} disabled={busy} sx={{ flexShrink: 0 }}>Discard</Button>}
-        {count > 0 && <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>}
+        <Button variant="outlined" onClick={copy.open} disabled={busy} data-testid="save-doc-as-copy" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Save as new copy</Button>
         <Button variant="contained" disabled={!count || busy} onClick={save} data-testid="save-document" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{busy ? 'Saving…' : count ? `Save ${count} change${count === 1 ? '' : 's'}` : 'Saved'}</Button>
       </Stack></Paper>}
       <Box sx={{ bgcolor: '#E9EDF2', p: { xs: 1, md: 2 }, borderRadius: 1, overflow: 'auto', maxHeight: view.full ? 'calc(100vh - 160px)' : 'calc(100vh - 300px)', '& .sqf-editable:hover': { background: '#EEF4FD' } }} data-testid="document-scroll">

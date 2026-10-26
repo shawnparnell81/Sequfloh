@@ -28,7 +28,7 @@ public sealed class FixList7Tests(TestApp app)
         try
         {
             Assert.True((await admin.PutAsync(Setting, new { blankFormId = blank })).IsSuccessStatusCode);
-            var a = await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site, number = $"SS-{tag}-1" })).JsonAsync();
+            var a = await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site, number = $"SS-{tag}-1", formNumber = $"SSF-{tag}-1" })).JsonAsync();
             Assert.True(a.GetProperty("validationForm").TryGetProperty("fileId", out _));
             var first = a.GetProperty("validationForm").GetProperty("fileNumber").GetString()!;
             Assert.EndsWith("-1", first);
@@ -59,8 +59,10 @@ public sealed class FixList7Tests(TestApp app)
             Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsync($"{T}/{b}/validation-form", new { number = $"SS-{tag}-9" })).StatusCode);
 
             var next = await c.PostAsync($"{T}/{cc}/validation-form", new { number = "" });
-            Assert.True(next.IsSuccessStatusCode, await next.Content.ReadAsStringAsync());
-            Assert.Equal(first[..^1] + "2", (await c.GetElAsync($"{T}/{cc}")).GetProperty("record").GetProperty("details").GetProperty("validationForm").GetProperty("fileNumber").GetString());
+            Assert.Equal(HttpStatusCode.BadRequest, next.StatusCode); // no number is ever made up
+            Assert.Contains("Type the number", await next.Content.ReadAsStringAsync());
+            Assert.True((await c.PostAsync($"{T}/{cc}/validation-form", new { number = $"SSF-{tag}-3" })).IsSuccessStatusCode);
+            Assert.Equal($"SSF-{tag}-3", (await c.GetElAsync($"{T}/{cc}")).GetProperty("record").GetProperty("details").GetProperty("validationForm").GetProperty("fileNumber").GetString());
 
             var ver = (await c.GetElAsync($"{T}/{cc}")).GetProperty("record").GetProperty("stateVersion").GetInt32();
             var cancel = await c.PostAsync($"{T}/{cc}/actions/cancel", new { operationId = Guid.NewGuid(), stateVersion = ver, reason = "Made by mistake" });
