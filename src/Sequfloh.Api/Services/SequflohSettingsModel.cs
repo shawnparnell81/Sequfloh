@@ -51,6 +51,7 @@ public sealed class TrackingSettings
     public string? WarrantyNumberCode { get; set; }
     public string? SaltSprayNumberCode { get; set; }
     public string? DevelopmentNumberCode { get; set; } = "DEV";
+    public string? ReboxNumberCode { get; set; } = "RBX";
     /// <summary>Code used in automatic inspection request numbers, "{code}-{family}{yy}-001". Blank means the number is typed.</summary>
     public string? InspectionRequestNumberCode { get; set; } = "INSP";
 }

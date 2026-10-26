@@ -35,6 +35,7 @@ internal static class SequflohTrackingQuery
             "inspection" => query.Where(x => x.Type == TrackingType.Inspection),
             "warranty" => query.Where(x => x.Type == TrackingType.Warranty),
             "development" => query.Where(x => x.Type == TrackingType.Development),
+            "rebox" => query.Where(x => x.Type == TrackingType.Rebox),
             "open" => query.Where(x => SequflohTrackingService.Open.Contains(x.Status)),
             "completed" => query.Where(x => x.Status == TrackingStatus.Completed),
             "on-hold" => query.Where(x => x.Status == TrackingStatus.Paused), // old links; holds are handled in the ERP

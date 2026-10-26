@@ -101,7 +101,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         {
             TrackingType.Validation or TrackingType.Fai => t.Tracking.ValidationNumberCode, TrackingType.Repair => t.Tracking.RepairNumberCode, TrackingType.Inspection => t.Tracking.InspectionNumberCode,
             TrackingType.Warranty => t.Tracking.WarrantyNumberCode, TrackingType.SaltSpray => t.Tracking.SaltSprayNumberCode,
-            TrackingType.Development => t.Tracking.DevelopmentNumberCode, _ => null,
+            TrackingType.Development => t.Tracking.DevelopmentNumberCode, TrackingType.Rebox => t.Tracking.ReboxNumberCode, _ => null,
         });
         if (typeCode is null) return null;
         return await FamilyPrefixAsync($"WO-{typeCode}-", familyId, partId, siteId, ct);
@@ -745,7 +745,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     }
 
     async Task<string> NameAsync(Guid? id, CancellationToken ct) => id is null ? "nobody" : await db.Users.Where(u => u.Id == id).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "unknown";
-    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI", TrackingType.Validation => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray Test", TrackingType.Repair => "Repair / Rework", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", TrackingType.Development => "Development", _ => "production" };
+    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI", TrackingType.Validation => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray Test", TrackingType.Repair => "Repair / Rework", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", TrackingType.Development => "Development", TrackingType.Rebox => "Rebox", _ => "production" };
     public static string Words(TrackingStatus s) => SequflohInstructionService.Words(s.ToString());
     static string Words(string s) => SequflohInstructionService.Words(s);
     static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
