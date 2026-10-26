@@ -23,9 +23,9 @@ const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Com
 const wiStatuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 const opt = (l: string[]): [string, string][] => l.map((v) => [v, words(v)]);
 const filterSets: Record<string, { status?: [string, string][]; type?: [string, string][] }> = {
-  'task-performance': { status: opt(trackingStatuses), type: [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Production', 'Production']] },
+  'task-performance': { status: opt(trackingStatuses), type: [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Production', 'Production']] },
   validation: { status: opt(trackingStatuses) }, repair: { status: opt(trackingStatuses) }, production: { status: opt(trackingStatuses) },
-  'time-variance': { type: [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Production', 'Production']] },
+  'time-variance': { type: [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Production', 'Production']] },
   'work-instructions': { status: opt(wiStatuses), type: [['ValidationFai', 'Validation / FAI'], ['RepairWork', 'Repair / Rework Work Instruction'], ['Inspection', 'Inspection']] },
   'parts-lists': { status: [['Draft', 'Draft'], ['Released', 'Released'], ['Inactive', 'Inactive']] },
 };

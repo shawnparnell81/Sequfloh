@@ -41,7 +41,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
     static ReportColumn C(string key, string label, string type = "text") => new(key, label, type);
     static string Words(object? s) => s is null ? "" : Regex.Replace(s.ToString()!, "([a-z])([A-Z])", "$1 $2");
     static double? Minutes(long seconds) => Math.Round(seconds / 60.0, 1);
-    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation / FAI", [TrackingType.Fai] = "Validation / FAI", [TrackingType.Repair] = "Repair / Rework", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty", [TrackingType.SaltSpray] = "Salt Spray Test", [TrackingType.Development] = "Development" };
+    static readonly Dictionary<TrackingType, string> TypeLabel = new() { [TrackingType.Validation] = "Validation / FAI", [TrackingType.Fai] = "Validation / FAI", [TrackingType.Repair] = "Repair / Rework", [TrackingType.Production] = "Production", [TrackingType.Inspection] = "Inspection", [TrackingType.Warranty] = "Warranty", [TrackingType.SaltSpray] = "Salt Spray Test", [TrackingType.Development] = "Development", [TrackingType.Rebox] = "Rebox" };
     static readonly Dictionary<WorkInstructionType, string> WiLabel = new() { [WorkInstructionType.Validation] = "Validation / FAI", [WorkInstructionType.ValidationFai] = "Validation / FAI", [WorkInstructionType.Fai] = "Validation / FAI",
         [WorkInstructionType.RepairTest] = "Repair / Rework Test", [WorkInstructionType.RepairWork] = "Repair / Rework Work Instruction", [WorkInstructionType.Inspection] = "Inspection", [WorkInstructionType.Procedure] = "Procedure Instructions" };
 

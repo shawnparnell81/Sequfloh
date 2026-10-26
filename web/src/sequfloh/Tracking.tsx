@@ -25,13 +25,13 @@ import { PartDrawingLinks, RecordDrawings } from './Drawings';
 import { DEVELOPMENT_LINES, useFamilies } from './Imports';
 
 /** Work order type names. Validation and FAI are one type to the user: records stored as either show as Validation / FAI. */
-export const trackingTypes: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development' };
+export const trackingTypes: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox' };
 /** One entry per type for type pickers and filters (Validation / FAI listed once). */
-export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Production', 'Production']];
+export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Production', 'Production']];
 /** Types offered by the New work order builder; Production stays available for links that ask for it. */
-const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development' };
+const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox' };
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
-const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task', SaltSpray: 'sequfloh.create_production_task', Development: 'sequfloh.create_production_task' };
+const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task', SaltSpray: 'sequfloh.create_production_task', Development: 'sequfloh.create_production_task', Rebox: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work Orders', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
 /** The one way to start a work order: the type is chosen inside the builder. */
@@ -66,6 +66,7 @@ const folders: Record<string, { title: string; description: string; type?: strin
   warranty: { title: 'Warranty', type: 'Warranty', description: 'Warranty work orders with the same fields and results as inspections.' },
   'salt-spray': { title: 'Salt Spray Test', type: 'SaltSpray', description: 'Salt Spray Test work orders, with the same clock, crew and day-worker time as every other work order.' },
   development: { title: 'Development', type: 'Development', description: 'Development work orders for the Engineering, Development product lines.' },
+  rebox: { title: 'Rebox', type: 'Rebox', description: 'Rebox work orders, with the same clock, crew and day-worker time as every other work order.' },
   open: { title: 'Open Work Orders', description: 'Every work order that is not completed, failed or canceled.' },
   completed: { title: 'Completed Work Orders', description: 'Completed work orders.' },
 };
@@ -316,7 +317,7 @@ export function TrackingRecordPage() {
   };
   const enter = q.data.canEnter && !busy;
   const plan = q.data.canPlan && !busy;
-  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development' }[rec.type] ?? 'open';
+  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
   const vf = (rec.details as unknown as { validationForm?: { family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
