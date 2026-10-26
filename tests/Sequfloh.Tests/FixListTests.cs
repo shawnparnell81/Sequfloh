@@ -36,6 +36,31 @@ public sealed class FixListTests(TestApp app)
     }
 
     [Fact]
+    public async Task A_pdf_imported_into_wi_procedures_is_released_and_attached_to_a_work_order()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, a) = await app.CreateUserAsync([.. Author, Permissions.SequflohReleaseWorkInstruction], site);
+        var (_, c) = await app.CreateUserAsync(Planner, site);
+        var name = "SOP-" + Guid.NewGuid().ToString("N")[..8];
+        var pdf = System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+        var form = new MultipartFormDataContent { { new ByteArrayContent(pdf) { Headers = { ContentType = new("application/pdf") } }, "file", $"{name}.pdf" },
+            { new StringContent("Procedure"), "type" }, { new StringContent(site.ToString()), "siteId" } };
+        var up = await a.Http.PostAsync("/api/sequfloh/instructions/import", form);
+        Assert.True(up.IsSuccessStatusCode, await up.Content.ReadAsStringAsync());
+        var imported = await up.JsonAsync();
+        var wi = imported.Id();
+        Assert.StartsWith(name, imported.Str("number"));
+        await a.PostOkAsync($"/api/sequfloh/instructions/{wi}/actions/release", new { effectiveDate = "2026-11-01" });
+        var listed = (await a.GetElAsync($"/api/sequfloh/instructions?folder=all&q={name}")).GetProperty("items").EnumerateArray().Select(i => i.Id());
+        Assert.Contains(wi, listed);
+
+        var id = (await (await c.PostOkAsync(T, new { type = "Production", siteId = site, workOrder = "WO-PDF-" + name })).JsonAsync()).Id();
+        var put = await c.PutAsync($"{T}/{id}/instruction", new { workInstructionId = wi });
+        Assert.True(put.IsSuccessStatusCode, await put.Content.ReadAsStringAsync());
+        Assert.Equal(wi, (await c.GetElAsync($"{T}/{id}")).GetProperty("record").GetProperty("workInstructionId").GetGuid());
+    }
+
+    [Fact]
     public async Task A_work_order_needs_no_instruction_and_one_can_be_attached_and_removed_later()
     {
         var site = await app.CreateSiteAsync();

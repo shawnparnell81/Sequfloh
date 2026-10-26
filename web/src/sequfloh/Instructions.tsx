@@ -28,7 +28,7 @@ import { partNo, partOption } from './partLabel';
 import { type DSchema, FieldInput, ProblemList, type Row, RowsEditor, SectionCard, type Val, sequenceProblems, typeLabels, types, useSchemas } from './Designer';
 
 export const wiCrumbs = (label: string, folder?: { label: string; to: string }) =>
-  [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work Instructions', to: '/sequfloh/instructions/all' }, ...(folder ? [folder] : []), { label }];
+  [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'WI / Procedures', to: '/sequfloh/instructions/all' }, ...(folder ? [folder] : []), { label }];
 const statuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 const folderStatuses = ['Draft', 'Released', 'Superseded', 'Obsolete'];
 
@@ -38,7 +38,7 @@ interface WiRow { statusTag?: string | null; statusNote?: string | null; id: str
 type Kind = 'generic' | 'validation' | 'repair';
 /** Navigation folder -> API folder, title, column set. */
 const folders: Record<string, { api: string; title: string; kind: Kind; description: string; newType?: string }> = {
-  all: { api: 'all', title: 'All Work Instructions', kind: 'generic', description: 'Every SEQUFLOH work instruction you can see, all types and statuses.' },
+  all: { api: 'all', title: 'All WI / Procedures', kind: 'generic', description: 'Every SEQUFLOH work instruction and procedure you can see, all types and statuses.' },
   validation: { api: 'validation', title: 'Validation / FAI Work Instructions', kind: 'validation', newType: 'ValidationFai', description: 'Validation / FAI instructions, kept separate from repair instructions.' },
   repair: { api: 'repair', title: 'Repair / Rework Work Instructions', kind: 'repair', newType: 'RepairWork', description: 'Repair / Rework work instructions, kept separate from validation instructions.' },
   inspection: { api: 'inspection', title: 'Inspection Work Instructions', kind: 'generic', newType: 'Inspection', description: 'Inspection instructions used when an inspection request is turned into a work order.' },

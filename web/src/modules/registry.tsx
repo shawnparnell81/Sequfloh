@@ -53,8 +53,8 @@ export const sequfloh: ModuleDef = {
         { label: 'Completed Work Orders', path: '/sequfloh/tracking/completed' },
       ] },
       { label: 'Inspection Requests', path: '/sequfloh/inspection-requests', icon: <FactCheckOutlined fontSize="small" />, match: ['/sequfloh/inspection-request'] },
-      { label: 'Work Instructions', path: '/sequfloh/instructions/all', icon: <DescriptionOutlined fontSize="small" />, match: ['/sequfloh/instructions', '/sequfloh/instruction/'], children: [
-        { label: 'All Work Instructions', path: '/sequfloh/instructions/all' },
+      { label: 'WI / Procedures', path: '/sequfloh/instructions/all', icon: <DescriptionOutlined fontSize="small" />, match: ['/sequfloh/instructions', '/sequfloh/instruction/'], children: [
+        { label: 'All WI / Procedures', path: '/sequfloh/instructions/all' },
         { label: 'Validation / FAI Work Instructions', path: '/sequfloh/instructions/validation' },
         { label: 'Repair / Rework Work Instructions', path: '/sequfloh/instructions/repair' },
         { label: 'Inspection Work Instructions', path: '/sequfloh/instructions/inspection' },
