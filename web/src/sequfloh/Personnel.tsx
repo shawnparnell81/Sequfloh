@@ -9,6 +9,7 @@ import { PanelHead, Readout, useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
 import { ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, nul, qs } from './common';
 import { InstructionsFolderPage } from './Instructions';
+import { DEVELOPMENT_LINES, DevelopmentFiles } from './Imports';
 
 const typeLabel: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', ValidationFai: 'Validation / FAI', RepairTest: 'Repair / Rework Work Instruction', RepairWork: 'Repair / Rework Work Instruction' };
 const qCrumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Quality Personnel', to: '/sequfloh/quality' }, { label }];
@@ -134,10 +135,14 @@ export function DevelopmentPage() {
   const v = (k: string) => sp.get(k) ?? '';
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('updatedAt:desc');
-  const q = useQuery({ queryKey: ['sqf-wi', 'development', sp.toString(), page, size, sort],
+  const line = sp.get('line') ?? '';
+  const tabs = [{ label: 'Work instructions', value: '' }, ...DEVELOPMENT_LINES.map(([value, label]) => ({ label, value }))];
+  const onTab = (t: string) => { setSp(t ? { line: t } : {}); setPage(1); };
+  const q = useQuery({ queryKey: ['sqf-wi', 'development', sp.toString(), page, size, sort], enabled: !line,
     queryFn: () => get<{ items: DevRow[]; total: number }>(`${S}/instructions?${qs({ folder: 'development', q: v('q'), type: v('type'), part: v('part'), sort, page, pageSize: size })}`) });
   return (
-    <SqfPage title="Development" crumbs={eCrumbs('Development')} permission="sequfloh.view_engineering_folder"
+    line ? <DevelopmentFiles line={line} page={{ title: 'Development', crumbs: eCrumbs('Development'), tabs, onTab }} /> :
+    <SqfPage title="Development" crumbs={eCrumbs('Development')} permission="sequfloh.view_engineering_folder" tabs={tabs} tab={line} onTab={onTab}
       description="Draft work instructions in development, with the assigned engineer, target date, project and development status."
       actions={can('sequfloh.create_work_instruction') && <Button variant="contained" component={RouterLink} to="/sequfloh/instructions/new">New work instruction</Button>}>
       <Filters search={v('q')} onSearch={(x) => set('q', x)} values={{ type: v('type') }} onChange={set} onClear={() => { setSp({}); setPage(1); }}

@@ -65,7 +65,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     Task GuardClosedAsync(ImportedFile f, CancellationToken ct) => GuardClosedWorkOrderAsync(db, access, UserId, f, ct);
 
-    public async Task<object> ListAsync(string? q, string? kind, int page, int pageSize, CancellationToken ct, string? family = null)
+    public async Task<object> ListAsync(string? q, string? kind, int page, int pageSize, CancellationToken ct, string? family = null, string? development = null)
     {
         var scope = await access.GetScopeAsync(UserId, Permissions.SequflohViewImportedFiles, ct);
         if (scope.IsEmpty) return new { total = 0, items = Array.Empty<object>() };
@@ -79,6 +79,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (kind == "spreadsheet") query = query.Where(f => f.Kind == ImportedFileKind.Spreadsheet);
         if (kind == "document") query = query.Where(f => f.Kind == ImportedFileKind.Document);
         if (kind == "blank") query = query.Where(f => f.IsBlankForm);
+        if (!string.IsNullOrWhiteSpace(development)) query = query.Where(f => f.DevelopmentLine == development);
         if (kind == "filled") query = query.Where(f => f.BlankFormId != null || f.IsCompletedForm);
         // Salt Spray Test is a test, not a product family: its copies come from the confirmed Salt Spray Test blank form
         var saltId = family is "salt-spray" or "none" ? (await db.SequflohSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.SaltSprayFormId : null;
@@ -115,8 +116,10 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
 
-    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false, bool completedForm = false, Guid? familyId = null, string? number = null, bool saltSpray = false)
+    public async Task<ImportedFile> UploadAsync(Stream content, string fileName, string? title, Guid? siteId, Guid? departmentId, CancellationToken ct, bool blankForm = false, bool completedForm = false, Guid? familyId = null, string? number = null, bool saltSpray = false, string? developmentLine = null)
     {
+        if (developmentLine is not null && !DevelopmentLines.All.ContainsKey(developmentLine)) throw new AppException("Choose a development product line.");
+        if (developmentLine is not null && (blankForm || completedForm || saltSpray)) throw new AppException("A development file cannot also be a form.");
         if (saltSpray && (!completedForm || familyId is not null)) throw new AppException("A Salt Spray Test report is imported as a completed form without a product family.");
         if (completedForm && blankForm) throw new AppException("A completed form cannot also be a blank form.");
         if (!completedForm && familyId is not null) throw new AppException("Only a completed form has a product family.");
@@ -138,7 +141,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             Number = fileNumber,
             Title = string.IsNullOrWhiteSpace(title) ? DefaultTitle(name) : title.Trim(),
             Kind = kind, SourceFormat = ext.TrimStart('.'), OriginalFileName = name, SiteId = site, DepartmentId = departmentId, Summary = summary, IsBlankForm = blankForm,
-            IsCompletedForm = completedForm, FamilyId = completedForm ? familyId : null, IsSaltSprayTest = saltSpray,
+            IsCompletedForm = completedForm, FamilyId = completedForm ? familyId : null, IsSaltSprayTest = saltSpray, DevelopmentLine = developmentLine,
         };
         if (f.Title.Length > 300) f.Title = f.Title[..300];
         f.OriginalStorageKey = $"imports/{f.Id:N}/original{storedExt}";
@@ -149,6 +152,9 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (completedForm)
             db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Imported completed form", EntityType = nameof(ImportedFile),
                 EntityId = f.Id, SiteId = f.SiteId, Description = $"Imported {f.Number} {f.Title} as a completed form into {(saltSpray ? "Salt Spray Test" : await FamilyLabelAsync(familyId, ct))}" });
+        if (developmentLine is not null)
+            db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Imported development file", EntityType = nameof(ImportedFile),
+                EntityId = f.Id, SiteId = f.SiteId, Description = $"Imported {f.Number} {f.Title} into {DevelopmentLines.All[developmentLine]}" });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return f;

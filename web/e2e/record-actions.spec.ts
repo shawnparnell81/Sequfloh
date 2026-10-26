@@ -52,6 +52,7 @@ test('standard record actions on every record page', async ({ page }) => {
     'imported-file': `/sequfloh/imported-files/${file}`,
     'completed-form': `/sequfloh/imported-files/${done}`,
     'completed-forms': `/sequfloh/completed-forms?family=${fam}`,
+    'development-files': '/sequfloh/engineering/development?line=legacy',
     'inspection-request': `/sequfloh/inspection-request/${ir}`,
     'part': `/sequfloh/parts/${part}`,
     'parts-list': `/sequfloh/parts-lists/${list}`,

@@ -715,3 +715,36 @@ export function CompletedFormsPage() {
     </SqfPage>
   );
 }
+
+/** Engineering, Development: the product lines development files are filed under. Legacy has no "Development" after it. */
+export const DEVELOPMENT_LINES: [string, string][] = [['air-suspension', 'Air Suspension Development'], ['bws', 'BWS Development'], ['coil-spring', 'Coil Spring Development'],
+  ['csa', 'CSA Development'], ['fuel-injector', 'Fuel Injector Development'], ['fuel-pump', 'Fuel Pump Development'], ['gas-lift', 'Gas Lift Development'],
+  ['hd-shock', 'HD Shock Development'], ['shock', 'Shock Development'], ['legacy', 'Legacy']];
+
+interface DevFileRow { id: string; number: string; title: string; kind?: string; originalFileName?: string; updatedAt: string }
+/** The files imported into one development product line, with Import file and Import folder saving straight into that line. */
+export function DevelopmentFiles({ line, page: pageProps }: { line: string; page: { title: string; crumbs: { label: string; to?: string }[]; tabs: { label: string; value: string }[]; onTab: (v: string) => void } }) {
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const label = DEVELOPMENT_LINES.find(([k]) => k === line)?.[1] ?? line;
+  const [page, setPage] = useState(1); const [size, setSize] = useState(50);
+  useEffect(() => setPage(1), [line]);
+  const q = useQuery({ queryKey: ['imported-development', line, page, size], queryFn: () => get<Paged<DevFileRow>>(`${A}?${qs({ development: line, page, pageSize: size })}`) });
+  const importNode = can('sequfloh.import_files') && <ImportButtons surface="development-files" accept={IMPORT_TYPES} maxBytes={20 * 1024 * 1024} what="file" variant="contained"
+    settings={<Typography variant="body2" data-testid="development-import-line">Saved in <b>{label}</b>.</Typography>}
+    upload={async (file) => {
+      const fd = new FormData(); fd.append('file', file); fd.append('title', file.name.replace(/\.[^.]+$/, '')); fd.append('blankForm', 'false'); fd.append('developmentLine', line);
+      await api('POST', A, fd);
+    }}
+    onDone={() => qc.invalidateQueries({ queryKey: ['imported-development'] })} />;
+  return <SqfPage title={pageProps.title} crumbs={pageProps.crumbs} permission="sequfloh.view_engineering_folder" tabs={pageProps.tabs} tab={line} onTab={pageProps.onTab}
+    description="Development files for this product line. Import file or Import folder saves the files straight into this line under their own names."
+    actions={<RecordActions surface="development-files" print={{ onClick: () => window.print() }} importNode={importNode} />}>
+    <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} onRow={(r) => nav(`/sequfloh/imported-files/${r.id}`)} empty={`No files in ${label} yet.`}
+      cols={[{ key: 'title', label: 'Title', render: (r: DevFileRow) => <><Mono>{r.number}</Mono> {r.title}</> }, { key: 'originalFileName', label: 'File', render: (r: DevFileRow) => r.originalFileName ?? '—' },
+        { key: 'updatedAt', label: 'Saved', render: (r: DevFileRow) => fmtDateTime(r.updatedAt) },
+        { key: 'actions', label: '', render: (r: DevFileRow) => <Stack direction="row" gap={1} onClick={(e) => e.stopPropagation()}>
+          <DeleteButton size="small" what={`${r.number} ${r.title}`} url={`${A}/${r.id}`} extra="All versions and stored files are removed." onDone={() => qc.invalidateQueries({ queryKey: ['imported-development'] })} /></Stack> }]} />
+  </SqfPage>;
+}
