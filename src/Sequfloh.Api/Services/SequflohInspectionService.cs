@@ -14,7 +14,7 @@ using Sequfloh.Platform;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record InspectionRequestInput(Guid SiteId, string? PartNumber = null, Guid? PartId = null, string? PartDescription = null, decimal? Quantity = null, string? Reason = null,
-    string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null, string? Number = null);
+    string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null, string? Number = null, Guid? ProjectId = null);
 public sealed record InspectionAssignInput(Guid? UserId);
 public sealed record InspectionConvertInput(Guid? WorkInstructionId = null, TrackingType Type = TrackingType.Inspection, string? Number = null);
 
@@ -61,7 +61,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
     static object Dto(SequflohInspectionRequest x, DateOnly today) => new
     {
         x.Id, x.Number, x.SiteId, x.PartId, x.PartNumber, x.PartDescription, x.Quantity, x.Reason, x.Requirement, x.WorkInstructionId, x.WorkInstructionLabel, x.RequestedDate,
-        x.Priority, x.Status, x.RequestedByName, x.CreatedAt, x.WorkOrderId, x.WorkOrderNumber, x.AssignedUserId, x.AssignedUserName,
+        x.Priority, x.Status, x.RequestedByName, x.CreatedAt, x.WorkOrderId, x.WorkOrderNumber, x.AssignedUserId, x.AssignedUserName, x.ProjectId,
         Overdue = x.RequestedDate is { } d && d < today && x.Status is InspectionRequestStatus.Open or InspectionRequestStatus.InProgress,
     };
 
@@ -98,6 +98,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
             wiLabel = $"{wi.Number} rev {wi.Revision} {wi.Title}";
         }
         r.PartId = partId; r.PartNumber = pn; r.PartDescription = desc; r.Quantity = x.Quantity; r.Reason = reason; r.Requirement = T(x.Requirement, 4000);
+        if (x.ProjectId != r.ProjectId) { if (await tracking.OpenProjectAsync(x.ProjectId, ct) is { } proj) f.Audit("ProjectLinked", EntityType, r.Id, $"Inspection request linked to project {proj.Number}", r.SiteId); r.ProjectId = x.ProjectId; }
         r.WorkInstructionId = x.WorkInstructionId; r.WorkInstructionLabel = wiLabel; r.RequestedDate = x.RequestedDate; r.Priority = priority;
     }
 
@@ -206,7 +207,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
             due = end;
         }
         var cond = string.Join("\n", new[] { $"Inspection request {r.Number}", r.Reason is null ? null : $"Reason: {r.Reason}", r.Requirement is null ? null : $"Requirement: {r.Requirement}" }.Where(s => s is not null));
-        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond, Number: x.Number, AssignedUserId: r.AssignedUserId), ct);
+        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond, Number: x.Number, AssignedUserId: r.AssignedUserId, ProjectId: r.ProjectId), ct);
         var tracked = await db.SequflohTrackingRecords.FirstAsync(e => e.Id == rec.Id, ct);
         if (r.Quantity is { } q) tracked.QuantityTarget = (int)Math.Round(q);
         if (x.Type != TrackingType.Validation && rec.PartId is { } part && !await db.TrackingRecordDrawings.AnyAsync(e => e.TrackingRecordId == rec.Id, ct))

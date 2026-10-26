@@ -30,6 +30,7 @@ public partial class AppDbContext
     public DbSet<SequflohChargebackReport> SequflohChargebackReports => Set<SequflohChargebackReport>();
     public DbSet<SequflohSavedJobReport> SequflohSavedJobReports => Set<SequflohSavedJobReport>();
     public DbSet<SequflohInspectionRequest> SequflohInspectionRequests => Set<SequflohInspectionRequest>();
+    public DbSet<SequflohProject> SequflohProjects => Set<SequflohProject>();
 
     private static void ConfigureSequfloh(ModelBuilder b)
     {
@@ -199,6 +200,8 @@ public partial class AppDbContext
         b.Entity<SequflohTrackingRecord>(e =>
         {
             e.ToTable("sequfloh_tracking_records");
+            e.HasIndex(x => x.ProjectId);
+            e.HasOne<SequflohProject>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => x.Number).IsUnique();
             e.HasIndex(x => new { x.Type, x.Status });
             e.HasIndex(x => new { x.Type, x.Result, x.Status });
@@ -246,8 +249,18 @@ public partial class AppDbContext
             e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
+        b.Entity<SequflohProject>(e =>
+        {
+            e.ToTable("sequfloh_projects");
+            e.HasIndex(x => x.Number).IsUnique();
+            e.Property(x => x.Number).HasMaxLength(60);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Description).HasMaxLength(2000);
+        });
         b.Entity<SequflohInspectionRequest>(e =>
         {
+            e.HasIndex(x => x.ProjectId);
+            e.HasOne<SequflohProject>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
             e.ToTable("sequfloh_inspection_requests");
             e.HasIndex(x => x.Number).IsUnique();
             e.HasIndex(x => new { x.Status, x.RequestedDate });

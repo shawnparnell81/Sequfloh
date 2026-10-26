@@ -53,6 +53,7 @@ public static class Permissions
     public const string SequflohDeleteRecords = "sequfloh.delete_records";
     public const string SequflohManageCrewTime = "sequfloh.manage_crew_time";
     public const string SequflohManageChargebacks = "sequfloh.manage_chargebacks";
+    public const string SequflohManageProjects = "sequfloh.manage_projects";
     public const string SequflohReopenCompleted = "sequfloh.reopen_completed";
 
     /// <summary>The delete permission that goes with a module's edit permission, or null when there is none.</summary>

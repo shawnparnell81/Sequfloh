@@ -155,6 +155,12 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             per.Range();
             if (!string.IsNullOrWhiteSpace(per.Type) && !Enum.TryParse<TrackingType>(per.Type, true, out _)) throw new AppException("Unknown work order type.");
             if (per.SiteId is { } ps && !await db.Sites.AnyAsync(x2 => x2.Id == ps, ct)) throw new AppException("Unknown site.");
+            if (per.IsProject)
+            {
+                var proj = await db.SequflohProjects.AsNoTracking().FirstOrDefaultAsync(x2 => x2.Id == per.ProjectId, ct) ?? throw new AppException("The project does not exist.");
+                // the report number of a project report is the project number unless one is typed
+                if (string.IsNullOrWhiteSpace(i.WorkOrderNumber)) i = i with { WorkOrderNumber = proj.Number };
+            }
             x.Period = JsonSerializer.Serialize(per with { Person = T(per.Person, 200), SubType = T(per.SubType, 100) }, SequflohJson.Options);
         }
         else x.Period = null;

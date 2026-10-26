@@ -8,13 +8,16 @@ using Sequfloh.Infrastructure.Persistence;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 /// <summary>The period a report covers (Day, Week, Month or Custom) with optional filters by person, work order type, inspection sub-type and product family.</summary>
-public sealed record ReportPeriod(string Kind, DateOnly? From, DateOnly? To, string? Person = null, string? Type = null, string? SubType = null, Guid? FamilyId = null, Guid? SiteId = null)
+public sealed record ReportPeriod(string Kind, DateOnly? From, DateOnly? To, string? Person = null, string? Type = null, string? SubType = null, Guid? FamilyId = null, Guid? SiteId = null, Guid? ProjectId = null)
 {
-    public static readonly string[] Kinds = ["Day", "Week", "Month", "Custom"];
+    public static readonly string[] Kinds = ["Day", "Week", "Month", "Custom", "Project"];
+    public bool IsProject => Kind == "Project";
 
     /// <summary>The first and last day covered, both included. A week runs Monday to Sunday.</summary>
     public (DateOnly Start, DateOnly End) Range()
     {
+        // a project report covers everything in the project, whatever the dates
+        if (IsProject) return ProjectId is null ? throw new AppException("Choose the project.") : (DateOnly.MinValue, DateOnly.MaxValue);
         var d = From ?? throw new AppException("Choose the date the report covers.");
         switch (Kind)
         {
@@ -29,7 +32,7 @@ public sealed record ReportPeriod(string Kind, DateOnly? From, DateOnly? To, str
             default: throw new AppException("Choose Single day, Week, Month or Custom range.");
         }
     }
-    public string Label() { var (s, e) = Range(); return s == e ? s.ToString("yyyy-MM-dd") : $"{s:yyyy-MM-dd} to {e:yyyy-MM-dd}"; }
+    public string Label() { if (IsProject) return "whole project"; var (s, e) = Range(); return s == e ? s.ToString("yyyy-MM-dd") : $"{s:yyyy-MM-dd} to {e:yyyy-MM-dd}"; }
 }
 
 /// <summary>
@@ -57,7 +60,8 @@ public static class SequflohPeriodSummary
         var q = records;
         if (workOrderId is { } wo) q = q.Where(r => r.Id == wo);
         DateTimeOffset? from = null, to = null;
-        if (p is not null)
+        if (p is { IsProject: true }) q = q.Where(r => r.ProjectId == p.ProjectId);
+        else if (p is not null)
         {
             var (sd, ed) = p.Range();
             DateTimeOffset At(DateOnly d) { var t = d.ToDateTime(TimeOnly.MinValue); return new DateTimeOffset(t, zone.GetUtcOffset(t)).ToUniversalTime(); }
@@ -82,13 +86,17 @@ public static class SequflohPeriodSummary
     {
         var blocks = new List<SequflohChargebackService.ReportBlock>();
         if (!Keys.Any(on.Contains)) return blocks;
+        var proj = p.IsProject;
         var (sd, ed) = p.Range();
         DateTimeOffset At(DateOnly d) { var t = d.ToDateTime(TimeOnly.MinValue); return new DateTimeOffset(t, zone.GetUtcOffset(t)).ToUniversalTime(); }
-        var from = At(sd); var to = At(ed.AddDays(1));
+        var from = proj ? DateTimeOffset.MinValue : At(sd); var to = proj ? DateTimeOffset.MaxValue : At(ed.AddDays(1));
+        var projectIds = proj ? await records.Where(r => r.ProjectId == p.ProjectId).Select(r => r.Id).ToListAsync(ct) : [];
         TrackingType? type = string.IsNullOrWhiteSpace(p.Type) ? null : Enum.TryParse<TrackingType>(p.Type, true, out var tt) ? tt : throw new AppException("Unknown work order type.");
 
-        var times = await db.SequflohTimeEntries.AsNoTracking().Where(t => t.StartedAt >= from && t.StartedAt < to).ToListAsync(ct);
-        var crews = await db.SequflohCrewSessions.AsNoTracking().Where(s => s.StartedAt >= from && s.StartedAt < to).ToListAsync(ct);
+        var times = proj ? await db.SequflohTimeEntries.AsNoTracking().Where(t => projectIds.Contains(t.TrackingRecordId)).ToListAsync(ct)
+            : await db.SequflohTimeEntries.AsNoTracking().Where(t => t.StartedAt >= from && t.StartedAt < to).ToListAsync(ct);
+        var crews = proj ? await db.SequflohCrewSessions.AsNoTracking().Where(s => projectIds.Contains(s.TrackingRecordId)).ToListAsync(ct)
+            : await db.SequflohCrewSessions.AsNoTracking().Where(s => s.StartedAt >= from && s.StartedAt < to).ToListAsync(ct);
         var person = p.Person?.Trim();
         if (!string.IsNullOrEmpty(person))
         {
@@ -97,7 +105,7 @@ public static class SequflohPeriodSummary
         }
         var timedIds = times.Select(t => t.TrackingRecordId).Concat(crews.Select(s => s.TrackingRecordId)).ToHashSet();
         if (p.SiteId is { } site) records = records.Where(r => r.SiteId == site);
-        var q = records.Where(r => timedIds.Contains(r.Id)
+        var q = proj ? records.Where(r => projectIds.Contains(r.Id) && (string.IsNullOrEmpty(person) || timedIds.Contains(r.Id))) : records.Where(r => timedIds.Contains(r.Id)
             || (string.IsNullOrEmpty(person) && ((r.CreatedAt >= from && r.CreatedAt < to) || (r.ActualCompletion >= from && r.ActualCompletion < to))));
         // Validation and FAI are one type to the user (Validation / FAI)
         if (type is { } ty) q = ty is TrackingType.Validation or TrackingType.Fai ? q.Where(r => r.Type == TrackingType.Validation || r.Type == TrackingType.Fai) : q.Where(r => r.Type == ty);
@@ -126,7 +134,17 @@ public static class SequflohPeriodSummary
         if (!string.IsNullOrWhiteSpace(p.SubType)) filters.Add($"sub-type {p.SubType}");
         if (p.SiteId is { } s2) filters.Add($"site {await db.Sites.Where(x => x.Id == s2).Select(x => x.Name).FirstOrDefaultAsync(ct) ?? "unknown"}");
         if (p.FamilyId is { } f2) filters.Add($"product family {(famNames.TryGetValue(f2, out var fl) ? fl : "unknown")}");
-        blocks.Add(new("period", "Period", [("Period", $"{p.Kind}: {p.Label()}"), ("Filters", filters.Count == 0 ? "none" : string.Join(", ", filters)), ("Work orders in the period", I(wos.Count))]));
+        if (proj)
+        {
+            var pr = await db.SequflohProjects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == p.ProjectId, ct);
+            var requests = await db.SequflohInspectionRequests.AsNoTracking().CountAsync(x => x.ProjectId == p.ProjectId, ct);
+            var costLines = recs.Sum(r => (JsonSerializer.Deserialize<List<CostLine>>(r.CostLines, SequflohJson.Options) ?? []).Sum(l => l.Amount));
+            blocks.Add(new("period", "Project", [("Project", pr is null ? "unknown" : $"{pr.Number} {pr.Name}"), ("Status", pr?.Status.ToString()), ("Filters", filters.Count == 0 ? "none" : string.Join(", ", filters)),
+                ("Work orders", I(wos.Count)), ("Inspection requests", I(requests)),
+                ("Work orders by type", string.Join(", ", wos.GroupBy(w => TypeName(w.R.Type)).OrderBy(g => g.Key).Select(g => $"{g.Key} {g.Count()}"))),
+                ("Work order cost lines", costLines.ToString("#,##0.00", CultureInfo.InvariantCulture))]));
+        }
+        else blocks.Add(new("period", "Period", [("Period", $"{p.Kind}: {p.Label()}"), ("Filters", filters.Count == 0 ? "none" : string.Join(", ", filters)), ("Work orders in the period", I(wos.Count))]));
 
         if (on.Contains("sumHours"))
             blocks.Add(new("sumHours", "Total hours", [("Total hours", H(totalSec) + " (paused time excluded)"), ("Signed-in people", H(userSec)),
@@ -164,7 +182,8 @@ public static class SequflohPeriodSummary
         }
         if (on.Contains("sumChargebacks"))
         {
-            var cbs = await db.SequflohChargebackReports.AsNoTracking().Where(c => c.CreatedAt >= from && c.CreatedAt < to && c.Period == null).ToListAsync(ct);
+            var cbs = proj ? await db.SequflohChargebackReports.AsNoTracking().Where(c => c.Period == null && c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)).ToListAsync(ct)
+                : await db.SequflohChargebackReports.AsNoTracking().Where(c => c.CreatedAt >= from && c.CreatedAt < to && c.Period == null).ToListAsync(ct);
             if (p.SiteId is { } cs) cbs = cbs.Where(c => c.SiteId == cs).ToList();
             if (ids.Count > 0 && (type is not null || !string.IsNullOrWhiteSpace(p.SubType) || p.FamilyId is not null || !string.IsNullOrEmpty(person))) cbs = cbs.Where(c => c.TrackingRecordId is { } tid && ids.Contains(tid)).ToList();
             var totals = cbs.Select(SequflohChargebackService.TotalOf).ToList();

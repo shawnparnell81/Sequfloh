@@ -1,4 +1,5 @@
 import { setupOptions } from '../components/SetupLink';
+import { ProjectField, ProjectPicker } from './Projects';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -136,6 +137,7 @@ function TrackingFolder({ folder }: { folder: string }) {
 export interface ValidationForms { blanks: { id: string; number: string; title: string }[]; families: { id: string; label: string; blankFormId?: string | null; suggestedId?: string | null }[]; tests?: { key: string; label: string; blankFormId?: string | null; suggestedId?: string | null }[] }
 interface WiOpt { id: string; number: string; revision: string; title: string; type: string; partId?: string; partNumber?: string; partDescription?: string; operation?: string; repairDescription?: string; siteId: string; departmentId?: string }
 export function NewTrackingPage() {
+  const [projectId, setProjectId] = useState(new URLSearchParams(window.location.search).get('project') ?? '');
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const { can } = useAuth();
@@ -191,7 +193,7 @@ export function NewTrackingPage() {
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
-        maxBenchmarkMinutes: numOrNull(f.max), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom });
+        maxBenchmarkMinutes: numOrNull(f.max), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId) });
       nav(`/sequfloh/record/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -247,7 +249,8 @@ export function NewTrackingPage() {
           <TextField select size="small" label="Priority" value={priorities.data ? f.priority : ''} onChange={(e) => setF({ ...f, priority: e.target.value })}>
             {(priorities.data ?? []).map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}</TextField>
           {fld('serialNumber', 'Serial number')}{fld('lotNumber', 'Lot number')}
-          {fld('workOrder', 'Work order')}{type === 'Repair' ? fld('repairOrder', 'Repair order') : fld('project', 'Project')}
+          {fld('workOrder', 'Work order')}{type === 'Repair' ? fld('repairOrder', 'Repair order') : fld('project', 'Project reference')}
+          <ProjectPicker value={projectId} onChange={setProjectId} />
           {type === 'Repair' && fld('customerReturnReference', 'Customer-return reference')}
           {fld('operation', 'Operation')}
           {fld('plannedStart', 'Expected start date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
@@ -279,6 +282,7 @@ const s = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 
 export function TrackingRecordPage() {
   const { id = '' } = useParams();
+  const { can } = useAuth();
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
   const tab = sp.get('tab') ?? 'record';
@@ -388,9 +392,10 @@ export function TrackingRecordPage() {
         </Paper>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Planning">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Planning</Typography>
+          <Box sx={{ mb: 1.5 }}><ProjectField kind="work-orders" recordId={rec.id} projectId={s(rec.projectId) || null} label={s(rec.projectLabel) || null} canEdit={!closed && (can('sequfloh.manage_projects') || can(createPerm[rec.type] ?? ''))} /></Box>
           <Grid cols={3}>
             {txt('serialNumber', 'Serial number', !plan, false)}{txt('lotNumber', 'Lot number', !plan, false)}{txt('workOrder', 'Work order', !plan, false)}
-            {txt('repairOrder', 'Repair order', !plan, false)}{txt('customerReturnReference', 'Customer-return reference', !plan, false)}{txt('project', 'Project', !plan, false)}
+            {txt('repairOrder', 'Repair order', !plan, false)}{txt('customerReturnReference', 'Customer-return reference', !plan, false)}{txt('project', 'Project reference', !plan, false)}
             <PrioritySelect value={s(doc.priority)} disabled={!plan} onChange={(v) => upd({ priority: v })} />
             <TextField size="small" type="datetime-local" label="Planned start" value={local(s(doc.plannedStart))} disabled={!plan} InputLabelProps={{ shrink: true }} onChange={(e) => upd({ plannedStart: e.target.value ? new Date(e.target.value).toISOString() : null })} />
             <TextField size="small" type="datetime-local" label="Due date" value={local(s(doc.dueAt))} disabled={!plan} InputLabelProps={{ shrink: true }} onChange={(e) => upd({ dueAt: e.target.value ? new Date(e.target.value).toISOString() : null })} />
