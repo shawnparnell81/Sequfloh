@@ -53,6 +53,29 @@ public sealed class SequflohInstructionTests(TestApp app)
     }
 
     [Fact]
+    public async Task Released_validation_folder_lists_only_validation_instructions()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, author) = await app.CreateUserAsync(AuthorPerms, site);
+        var (_, releaser) = await app.CreateUserAsync(ReleaserPerms, site);
+        var ids = new Dictionary<string, Guid>();
+        foreach (var type in new[] { "Validation", "Inspection" })
+        {
+            var id = (await PostEl(author, "/api/sequfloh/instructions", new { type, title = $"Folder check {type}", siteId = site })).Id();
+            var url = $"/api/sequfloh/instructions/{id}";
+            await PutOk(author, url, Save(await author.GetElAsync(url), site, new { validationAcceptance = new { overallAcceptanceCriteria = "No leak" } }, [new { sequence = 10, title = "Check" }]));
+            await releaser.PostOkAsync($"{url}/actions/release", new { effectiveDate = "2026-11-01" });
+            ids[type] = id;
+        }
+        var all = (await author.GetElAsync("/api/sequfloh/instructions?folder=released&pageSize=500")).GetProperty("items").EnumerateArray().Select(i => i.Id()).ToList();
+        var val = (await author.GetElAsync("/api/sequfloh/instructions?folder=released-validation&pageSize=500")).GetProperty("items").EnumerateArray().ToList();
+        Assert.All(ids.Values, id => Assert.Contains(id, all));
+        Assert.Contains(val, i => i.Id() == ids["Validation"]);
+        Assert.DoesNotContain(val, i => i.Id() == ids["Inspection"]);
+        Assert.All(val, i => Assert.Contains(i.Str("type"), new[] { "Validation", "ValidationFai", "Fai" }));
+    }
+
+    [Fact]
     public async Task Draft_is_released_with_one_button_and_released_records_change_only_by_revision()
     {
         var site = await app.CreateSiteAsync();

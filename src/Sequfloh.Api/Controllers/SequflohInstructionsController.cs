@@ -34,6 +34,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             "current" => query.Where(x => x.Status == WorkInstructionStatus.Released),
             "drafts" => query.Where(x => SequflohInstructionService.Editable.Contains(x.Status)),
             "released" => query.Where(x => x.Status == WorkInstructionStatus.Released),
+            "released-validation" => query.Where(x => x.Status == WorkInstructionStatus.Released && validation.Contains(x.Type)),
             "superseded" => query.Where(x => x.Status == WorkInstructionStatus.Superseded),
             "obsolete" => query.Where(x => x.Status == WorkInstructionStatus.Obsolete),
             "development" => query.Where(x => x.Status == WorkInstructionStatus.Draft),

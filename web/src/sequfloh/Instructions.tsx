@@ -45,6 +45,7 @@ const folders: Record<string, { api: string; title: string; kind: Kind; descript
   procedure: { api: 'procedure', title: 'Procedure Instructions', kind: 'generic', newType: 'Procedure', description: 'Imported PDF instructions that apply to every part of a product family. The file is the instruction: to change one, update the file and import it again, which revises it.' },
   draft: { api: 'drafts', title: 'Draft Instructions', kind: 'generic', description: 'Instructions that can still be edited. Release one when it is ready.' },
   released: { api: 'released', title: 'Released Instructions', kind: 'generic', description: 'Current released revisions. Released revisions are read-only; changes go through a new revision.' },
+  releasedValidation: { api: 'released-validation', title: 'Released Validation Instructions', kind: 'validation', description: 'Current released Validation / FAI revisions.' },
   obsolete: { api: 'obsolete', title: 'Obsolete Instructions', kind: 'generic', description: 'Instructions marked obsolete. They stay on file and cannot be used for new work.' },
 };
 
