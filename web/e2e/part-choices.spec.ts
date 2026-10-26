@@ -12,7 +12,7 @@ test('part choices: form dropdowns and import "same for all rows" or "from file 
   await page.goto('/sequfloh/parts');
   await view(page).getByRole('button', { name: 'New part' }).click();
   const dlg = page.getByRole('dialog');
-  await dlg.getByLabel('OR # (Part number)').fill(`PC-${k}-1`);
+  await dlg.getByLabel('Part number').fill(`PC-${k}-1`);
   await choosePartType(page, 'Fuel Pump');
   await choosePartName(page, 'Fuel Pump');
   const pick = async (label: RegExp, option: string) => { await dlg.getByRole('combobox', { name: label }).click(); await page.getByRole('option', { name: option, exact: true }).click(); };
