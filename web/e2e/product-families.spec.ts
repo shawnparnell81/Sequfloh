@@ -22,9 +22,9 @@ test('product families and cross-reference fields', async ({ page }) => {
   await page.goto('/sequfloh/parts');
   await view(page).getByRole('button', { name: 'New part' }).click();
   const dlg = page.getByRole('dialog');
-  await expect(dlg.getByLabel('OR # (Part number)')).toBeVisible();
+  await expect(dlg.getByLabel('Part number')).toBeVisible();
   await expect(dlg.getByLabel('DWG #')).toBeVisible();
-  await dlg.getByLabel('OR # (Part number)').fill(`OR-${k}`);
+  await dlg.getByLabel('Part number').fill(`OR-${k}`);
   await choosePartName(page, 'Struts');
   await dlg.getByLabel('DWG #').fill(`SN-${k}`);
   const site_ = dlg.getByLabel('Site');
@@ -100,7 +100,7 @@ test('product families and cross-reference fields', async ({ page }) => {
   await expect(imp.getByTestId('import-counts')).toContainText('Add 2');
   await expect(imp.getByTestId('import-counts')).toContainText('Skip 2');
   await expect(imp.getByTestId('import-counts')).toContainText('Errors 0');
-  await expect(imp.getByText(/Same OR # \(Part number\) as row 3/)).toBeVisible();
+  await expect(imp.getByText(/Same Part number as row 3/)).toBeVisible();
   await shot('10-import-preview');
   await imp.getByRole('button', { name: 'Import 2 parts' }).click();
   await expect(imp.getByTestId('import-done')).toContainText('2 added');

@@ -52,7 +52,7 @@ test('parts: no revision, notes, editable OR # and fuel pump fields', async ({ p
   const ed = page.getByRole('dialog');
   await expect(ed.getByLabel('Revision')).toHaveCount(0);
   await expect(ed.getByLabel('JH PN')).toHaveValue(`JH-${k}-3`);
-  await ed.getByLabel('OR PN').fill(`NR-${k}-2X`);
+  await ed.getByLabel('Part number').fill(`NR-${k}-2X`);
   await ed.getByTestId('part-notes-input').fill('Example note: ships with a new strainer.\nCheck the individual box size before packing.');
   await shot('01-part-form-notes');
   await ed.getByRole('button', { name: 'Save' }).click();

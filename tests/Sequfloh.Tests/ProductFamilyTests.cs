@@ -88,7 +88,7 @@ public sealed class ProductFamilyTests(TestApp app)
 
         var csv = await eng.Http.GetStringAsync($"/api/sequfloh/parts/export?q={tag}");
         var lines = csv.TrimStart('\uFEFF').Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
-        Assert.StartsWith("OR # (Part number),Name,Description,Product family,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
+        Assert.StartsWith("Part number,Name,Description,Product family,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
         Assert.Contains("DWG #", lines[0]);
         Assert.StartsWith($"OR-{tag},Example part OR-{tag},,Struts,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
         Assert.Contains("SN-" + tag, lines[1]);
@@ -195,14 +195,14 @@ public sealed class ProductFamilyTests(TestApp app)
         var req = new { fileName = "cross.xlsx", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), rowNumbers = t.GetProperty("rowNumbers"), mapping = map,
             siteId = site, updateExisting = false, defaultTypeId = csa, @fixed = new Dictionary<string, string> { ["name"] = "CSA" } };
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import", req)).JsonAsync();
-        Assert.Equal(3, plan.GetProperty("add").GetInt32());
-        Assert.Equal(2, plan.GetProperty("skip").GetInt32());
+        Assert.Equal(4, plan.GetProperty("add").GetInt32());
+        Assert.Equal(1, plan.GetProperty("skip").GetInt32());
         Assert.Equal(0, plan.GetProperty("errors").GetInt32());
         var byRow = plan.GetProperty("rows").EnumerateArray().ToDictionary(x => x.GetProperty("row").GetInt32());
-        Assert.Equal("Skip", byRow[5].Str("action"));
-        Assert.Contains("No OR # (Part number)", byRow[5].GetProperty("messages")[0].GetString());
+        Assert.Equal("Add", byRow[5].Str("action")); // no part number, but the drawing number is a number of the row
+        Assert.Equal("9000-0003", byRow[5].Str("partNumber"));
         Assert.Equal("Skip", byRow[6].Str("action"));
-        Assert.Contains("Same OR # (Part number) as row 3", byRow[6].GetProperty("messages")[0].GetString());
+        Assert.Contains("Same Part number as row 3", byRow[6].GetProperty("messages")[0].GetString());
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

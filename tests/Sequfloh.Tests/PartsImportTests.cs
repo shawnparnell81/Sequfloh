@@ -45,17 +45,17 @@ public sealed class PartsImportTests(TestApp app)
         var t = await Read(eng, "repeats.csv", Encoding.UTF8.GetBytes(csv));
 
         var off = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false))).JsonAsync();
-        Assert.Equal(2, off.GetProperty("add").GetInt32());
-        Assert.Equal(3, off.GetProperty("skip").GetInt32());
+        Assert.Equal(3, off.GetProperty("add").GetInt32());
+        Assert.Equal(2, off.GetProperty("skip").GetInt32());
         var on = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false, true))).JsonAsync();
         var rows = on.GetProperty("rows").EnumerateArray().ToList();
-        Assert.Equal(["Add", "Skip", "Add", "Add", "Skip"], rows.Select(r => r.GetProperty("action").GetString()).ToList());
+        Assert.Equal(["Add", "Skip", "Add", "Add", "Add"], rows.Select(r => r.GetProperty("action").GetString()).ToList());
         Assert.Contains("Exact duplicate of row 1", rows[1].GetProperty("messages")[0].GetString());
         Assert.True(rows[2].GetProperty("repeat").GetBoolean());
         Assert.False(rows[0].GetProperty("repeat").GetBoolean());
-        Assert.Contains("No OR #", rows[4].GetProperty("messages")[0].GetString());
+        Assert.Equal("N3", rows[4].GetProperty("partNumber").GetString()); // no part number: the row takes its other number
         var done = await (await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, false, true))).JsonAsync();
-        Assert.Equal(3, done.GetProperty("add").GetInt32());
+        Assert.Equal(4, done.GetProperty("add").GetInt32());
 
         using (var scope = app.Services.CreateScope())
         {
@@ -68,9 +68,48 @@ public sealed class PartsImportTests(TestApp app)
         // the same file again: each part is matched by OR # and Position
         var again = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true, true))).JsonAsync();
         Assert.Equal(0, again.GetProperty("add").GetInt32());
-        Assert.Equal(3, again.GetProperty("update").GetInt32());
+        Assert.Equal(4, again.GetProperty("update").GetInt32());
         var skip = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false, true))).JsonAsync();
         Assert.Equal(0, skip.GetProperty("add").GetInt32());
+    }
+
+    [Fact]
+    public async Task Reimport_matches_by_any_unique_number_and_placeholders_are_never_part_numbers()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var k = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        // made-up sheet: each row has one customer number or the other, every row has a DMA PN, and one JH PN is shared
+        var csv = $"OR PN,NAPA PN,DMA PN,JH PN\nOR{k}1,/,DM{k}1,JH{k}\nOR{k}2,/,DM{k}2,JH{k}\n/,NP{k}3,DM{k}3,JH{k}\n/,NP{k}4,DM{k}4,N/A\n/,NP{k}4,DM{k}4,N/A\n";
+        var t = await Read(eng, "pumps.csv", Encoding.UTF8.GetBytes(csv));
+        Assert.Equal(0, t.GetProperty("mapping").GetProperty("partNumber").GetInt32());
+        var first = await (await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, false))).JsonAsync();
+        Assert.Equal(4, first.GetProperty("add").GetInt32()); // the "/" rows are added under their NAPA PN; the exact copy is skipped
+        Assert.Equal(1, first.GetProperty("skip").GetInt32());
+
+        // the same parts again, keyed on the DMA PN this time, with the family changed: every row updates and nothing is added
+        var again = $"DMA PN,OR PN,NAPA PN,JH PN\nDM{k}1,OR{k}1,/,JH{k}\nDM{k}2,/,/,JH{k}\nDM{k}3,/,NP{k}3,JH{k}\nDM{k}4,-,NP{k}4,\n";
+        var t2 = await Read(eng, "pumps2.csv", Encoding.UTF8.GetBytes(again));
+        var map = t2.GetProperty("mapping").EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetInt32());
+        map.Remove("attr:dmaPn"); map["partNumber"] = 0;
+        var req = new { fileName = "pumps2.csv", headers = t2.GetProperty("headers"), rows = t2.GetProperty("rows"), mapping = map, siteId = site, updateExisting = true, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Injector" } };
+        var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", req)).JsonAsync();
+        Assert.Equal(["Update", "Update", "Update", "Update"], plan.GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("action").GetString()).ToList());
+        await eng.PostOkAsync("/api/sequfloh/parts/import", req);
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var parts = await db.Parts.AsNoTracking().Where(p => p.SiteId == site).ToListAsync();
+        Assert.Equal(4, parts.Count);
+        Assert.DoesNotContain(parts, p => p.PartNumber == "/");
+        Assert.All(parts, p => Assert.Equal("Fuel Injector", p.Name));
+
+        // a row whose numbers belong to two different parts is an error, not a guess
+        var mixed = $"OR PN,NAPA PN\nOR{k}1,NP{k}3\n";
+        var t3 = await Read(eng, "mixed.csv", Encoding.UTF8.GetBytes(mixed));
+        var bad = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t3, site, true))).JsonAsync();
+        Assert.Equal("Error", bad.GetProperty("rows")[0].GetProperty("action").GetString());
+        Assert.Contains("more than one part", bad.GetProperty("rows")[0].GetProperty("messages")[0].GetString());
     }
 
     public static byte[] Docx(params string[][][] tables)

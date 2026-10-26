@@ -19,7 +19,7 @@ public sealed record PartsImportTable(string FileName, List<string> Headers, Lis
 public sealed record PartsImportTopRow(int Row, List<string> Cells);
 public sealed record PartsImportRequest(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, Guid SiteId, bool UpdateExisting,
     List<int>? RowNumbers = null, Guid? DefaultTypeId = null, bool KeepRepeats = false, Dictionary<string, string>? Fixed = null);
-/// <summary>Repeat is true for an added row whose OR # is already used by another row or part but whose values differ.</summary>
+/// <summary>Repeat is true for an added row whose part number is already used by another row or part but whose values differ.</summary>
 public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages, bool Repeat = false);
 public sealed record ImportLayoutInput(string Name, System.Text.Json.JsonElement Layout);
 public sealed record ImportLayoutView(Guid Id, string Name, System.Text.Json.JsonElement Layout);
@@ -38,7 +38,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     /// <summary>Importable fields and the header words that suggest them.</summary>
     public static readonly (string Key, string Label, string[] Words)[] Fields =
     [
-        ("partNumber", "OR # (Part number)", ["or pn", "or #", "or#", "or no", "or number", "part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
+        ("partNumber", "Part number", ["or pn", "or #", "or#", "or no", "or number", "part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
         ("name", "Name", ["name", "part name", "item name", "title"]),
         ("description", "Description", ["description", "desc", "details", "purchase description", "sales description"]),
         ("typeName", "Product family", ["product family", "family", "category", "item category", "product category", "part type", "type", "product type"]),
@@ -201,7 +201,17 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     /// <summary>Key is the row's mapped values, used to find exact duplicates; Position tells parts with the same OR # apart.</summary>
-    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null);
+    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null);
+
+    /// <summary>Attribute fields that hold a number used to find the same part again; descriptive fields are left out.</summary>
+    static bool IsNumberKey(string key) => key is "partNumber" or "drawingNumber" || (key.StartsWith("attr:", StringComparison.Ordinal) && PartAttributes.Find(key[5..]) is { } d && IsNumber(d));
+
+    static bool IsNumber(PartAttributeDef a) => a.Key is not ("keyApplication" or "position" or "boxSize");
+
+    /// <summary>The real numbers of an existing part: its part number, drawing number and cross-reference numbers.</summary>
+    static IEnumerable<string> NumbersOf(Part x) => new[] { x.PartNumber, x.DrawingNumber ?? "" }
+        .Concat(PartAttributes.Read(x.Attributes).Where(kv => PartAttributes.Find(kv.Key) is { } d && IsNumber(d)).Select(kv => kv.Value))
+        .Select(v => v.Trim()).Where(v => !PartFields.IsBlank(v)).Distinct(StringComparer.OrdinalIgnoreCase);
 
     static bool? Flag(string v) => Norm(v) switch
     {
@@ -225,14 +235,21 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         for (var i = 0; i < r.Rows.Count; i++)
         {
             var row = r.Rows[i];
-            string Get(string key) => r.Fixed?.GetValueOrDefault(key) is { Length: > 0 } fx ? fx.Trim() : r.Mapping.TryGetValue(key, out var c) && c >= 0 && c < row.Count ? (row[c] ?? "").Trim() : "";
+            string Raw(string key) => r.Fixed?.GetValueOrDefault(key) is { Length: > 0 } fx ? fx.Trim() : r.Mapping.TryGetValue(key, out var c) && c >= 0 && c < row.Count ? (row[c] ?? "").Trim() : "";
+            // in a number column a placeholder such as "/", "-" or "N/A" reads as an empty cell, so it is never a part number or a match key
+            string Get(string key) => Raw(key) is var v && IsNumberKey(key) && PartFields.IsBlank(v) ? "" : v;
             var errors = new List<string>();
             string? Text(string key, string label, int max) { var v = Get(key); if (v.Length == 0) return null; if (v.Length > max) { errors.Add($"{label} is longer than {max} characters."); return null; } return v; }
             bool? FlagOf(string key, string label) { try { return Flag(Get(key)); } catch (FormatException) { errors.Add($"{label} must be Yes or No."); return null; } }
-            var pn = Text("partNumber", "Part number", 60);
             var desc = Text("description", "Description", 4000);
             var attrs = new Dictionary<string, string>();
             foreach (var a in PartAttributes.All) if (Text("attr:" + a.Key, a.Label, a.MaxLength) is { } av) attrs[a.Key] = av;
+            // every real number in the row
+            var numbers = new[] { Get("partNumber"), Get("drawingNumber") }.Concat(PartAttributes.All.Where(IsNumber).Select(a => attrs.GetValueOrDefault(a.Key) ?? ""))
+                .Where(v => v.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var pn = Text("partNumber", "Part number", 60);
+            // no Part number: the first real number of the mapped number columns, in column order
+            if (pn is null && r.Mapping.Where(kv => IsNumberKey(kv.Key)).OrderBy(kv => kv.Value).Select(kv => Get(kv.Key)).FirstOrDefault(v => v.Length is > 0 and <= 60) is { } other) pn = other;
             string? Family(string key, string label)
             {
                 var v = Get(key);
@@ -262,7 +279,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             // mapped fields that are empty or hold a placeholder ("/", "-", "N/A") are marked Not applicable on the part; the value is still kept
             var fieldKeys = PartFields.All.Select(x => x.Key).ToHashSet();
             var blanks = r.Mapping.Keys.Select(k => k.StartsWith("attr:", StringComparison.Ordinal) ? k[5..] : k).Where(fieldKeys.Contains)
-                .Where(k => PartFields.IsBlank(Get(fieldKeys.Contains(k) && PartAttributes.Find(k) is not null ? "attr:" + k : k))).ToList();
+                .Where(k => PartFields.IsBlank(Raw(fieldKeys.Contains(k) && PartAttributes.Find(k) is not null ? "attr:" + k : k))).ToList();
             var key = string.Join("\u001f", r.Mapping.Keys.Concat(r.Fixed?.Keys ?? Enumerable.Empty<string>()).Distinct().Order(StringComparer.Ordinal).Select(k => k + "=" + Get(k)));
             list.Add(new Parsed(r.RowNumbers?[i] ?? i + 1, pn, name, rev, errors, p =>
             {
@@ -283,7 +300,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 var hidden = PartFields.Read(p.HiddenFields);
                 if (p.HiddenFields is null && p.TypeId is { } ft) hidden.AddRange(PartFields.Read(familyHidden.GetValueOrDefault(ft)));
                 p.HiddenFields = PartFields.Write(hidden.Concat(blanks));
-            }, key, attrs.GetValueOrDefault("position")));
+            }, key, attrs.GetValueOrDefault("position"), numbers));
         }
         return list;
     }
@@ -295,9 +312,10 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     /// <summary>
-    /// Rows without an OR # and exact repeats of an earlier row are skipped. A row that repeats an OR # with other values (for example another
-    /// Position) is skipped, or added as its own part when KeepRepeats is on; the OR # is never changed. An existing part is matched by OR # and
-    /// Position, or by OR # alone when only one part has it.
+    /// Rows without any number and exact repeats of an earlier row are skipped. A row that repeats a part number with other values (for example another
+    /// Position) is skipped, or added as its own part when KeepRepeats is on. An existing part is matched by part number and Position, or by any number
+    /// of the row (part number, drawing number or a cross-reference number) that only one row of the file and only one existing part have.
+    /// A row that matches more than one part is an error. Placeholders such as "/" are never numbers.
     /// </summary>
     async Task<(PartsImportPlan Plan, List<Parsed> Parsed, Dictionary<int, Part> Targets)> PlanAsync(PartsImportRequest r, CancellationToken ct)
     {
@@ -305,9 +323,14 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         await m.RequireAsync(Permissions.MasterDataEdit, r.SiteId, null, ct);
         await m.ValidateLocationAsync(r.SiteId, null, ct);
         var parsed = await ParseAsync(r, ct);
-        var numbers = parsed.Where(p => p.PartNumber is not null).Select(p => p.PartNumber!).Distinct().ToList();
-        var existing = (await db.Parts.Where(p => numbers.Contains(p.PartNumber)).ToListAsync(ct))
+        var all = await db.Parts.ToListAsync(ct);
+        var existing = all.Where(p => !PartFields.IsBlank(p.PartNumber))
             .GroupBy(p => p.PartNumber, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        // a number shared by several existing parts, or by several different rows of the file, is not used to match
+        var byNumber = all.SelectMany(x => NumbersOf(x).Select(n => (n, x))).GroupBy(t => t.n, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single().x, StringComparer.OrdinalIgnoreCase);
+        var inFile = parsed.DistinctBy(p => p.Key).SelectMany(p => p.Numbers ?? []).GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var exact = new Dictionary<string, int>(StringComparer.Ordinal);
         var firstOf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var claimed = new HashSet<Guid>();
@@ -316,16 +339,22 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         static string Pos(Part x) => PartAttributes.Read(x.Attributes).GetValueOrDefault("position") ?? "";
         foreach (var p in parsed)
         {
-            if (p.PartNumber is null) { rows.Add(new(p.Row, "Skip", null, p.Name, ["No OR # (Part number)."])); continue; }
+            if (p.PartNumber is null) { rows.Add(new(p.Row, "Skip", null, p.Name, ["No part numbers in this row."])); continue; }
             if (p.Errors.Count > 0) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, p.Errors)); continue; }
             if (exact.TryGetValue(p.PartNumber + "\u001e" + p.Key, out var same)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Exact duplicate of row {same}."])); continue; }
             exact[p.PartNumber + "\u001e" + p.Key] = p.Row;
             var repeatOf = firstOf.TryGetValue(p.PartNumber, out var fr) ? fr : (int?)null;
             firstOf.TryAdd(p.PartNumber, p.Row);
-            // an existing part with this OR #: the one with the same Position, or the only one when the file has not used the number yet
+            // an existing part with this part number: the one with the same Position, or the only one when the file has not used the number yet
             var candidates = existing.GetValueOrDefault(p.PartNumber)?.Where(x => !claimed.Contains(x.Id)).ToList() ?? [];
             var match = candidates.FirstOrDefault(x => string.Equals(Pos(x), p.Position ?? "", StringComparison.OrdinalIgnoreCase))
                 ?? (repeatOf is null && existing.GetValueOrDefault(p.PartNumber)?.Count == 1 ? candidates.FirstOrDefault() : null);
+            // or the one existing part that has another number of this row
+            var hits = (p.Numbers ?? []).Where(n => inFile.GetValueOrDefault(n) == 1 && byNumber.ContainsKey(n)).Select(n => byNumber[n])
+                .Concat(match is null ? [] : [match]).DistinctBy(x => x.Id).ToList();
+            if (hits.Count > 1) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, [$"Matches more than one part in the Part Master: {string.Join(", ", hits.Select(x => x.PartNumber))}."])); continue; }
+            if (hits.Count == 1 && claimed.Contains(hits[0].Id)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Matches the same part as an earlier row ({hits[0].PartNumber})."])); continue; }
+            match = hits.FirstOrDefault();
             if (match is not null)
             {
                 claimed.Add(match.Id);
@@ -338,8 +367,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var used = repeatOf is not null || existing.ContainsKey(p.PartNumber);
             if (!used) { rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [])); continue; }
             var where = repeatOf is { } rr ? $"row {rr}" : "a part already in the Part Master";
-            if (!r.KeepRepeats) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Same OR # (Part number) as {where} with different values. Turn on \"Keep rows that repeat an OR # but differ\" to add it as its own part."]));
-            else rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [$"Same OR # (Part number) as {where}; added as its own part."], Repeat: true));
+            if (!r.KeepRepeats) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Same Part number as {where} with different values. Turn on \"Keep rows that repeat a Part number but differ\" to add it as its own part."]));
+            else rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [$"Same Part number as {where}; added as its own part."], Repeat: true));
         }
         return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error")), parsed, targets);
     }

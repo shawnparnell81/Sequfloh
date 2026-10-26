@@ -29,16 +29,16 @@ const yes = (b?: boolean) => (b ? 'Yes' : 'No');
 /** Shared Part Master enums (numeric on the wire, as in the Master Data module). */
 const partTypeValue: Record<string, number> = { Component: 0, Assembly: 1, Material: 2, Subassembly: 3, Consumable: 4, Packaging: 5, Other: 9 };
 const masterStatuses = ['Active', 'Inactive', 'Obsolete'];
-/** Labels of the Part Master number fields: the OR # is the part number and the SENSEN # is the drawing number. */
-export const PN_LABEL = 'OR # (Part number)';
+/** Labels of the Part Master number fields. */
+export const PN_LABEL = 'Part number';
 export const DWG_LABEL = 'DWG #';
 interface PartTypeValue { id: string; code: string; label: string; isActive: boolean }
 interface AttrDef { key: string; label: string; maxLength: number; types?: string[] | null; notTypes?: string[] | null }
 const FUEL_PUMP = 'FUEL_PUMP';
 /** Whether an attribute field belongs to a product family code (no code: fields for every family). */
 const attrFor = (d: AttrDef, code?: string) => (!d.types?.length || (!!code && d.types.includes(code))) && !(code && d.notTypes?.includes(code));
-/** Fuel pump parts use the fuel pump sheet's titles: the OR # reads OR PN and there is no SENSEN #. */
-const pnLabel = (code?: string) => (code === FUEL_PUMP ? 'OR PN' : PN_LABEL);
+/** The part number label, the same for every family. */
+const pnLabel = (_code?: string) => PN_LABEL;
 /** Values of the admin-managed product families list, including deactivated ones (shown on parts that still have them). */
 const usePartTypes = () => useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<PartTypeValue[]>(`${S}/reference/product-families`), staleTime: 60_000 });
 /** Attribute fields defined on the server (cross-reference numbers and others). */
@@ -162,7 +162,7 @@ function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number
   return (
     <Stack gap={3}>
       <ListToolbar onSubmit={() => setQ(text.trim())}>
-        <TextField size="small" label="Search parts" placeholder="OR #, DWG #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} sx={{ width: { xs: '100%', sm: 480 } }} />
+        <TextField size="small" label="Search parts" placeholder="Part number, DWG #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} sx={{ width: { xs: '100%', sm: 480 } }} />
         <Button type="submit" variant="outlined">Search</Button>
       </ListToolbar>
       {q && <Paper variant="outlined" data-testid="parts-search-results">
@@ -401,7 +401,7 @@ function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChan
     getOptionLabel={(p) => partOption(p)} noOptionsText={text ? 'No part matches' : 'Type a part number'}
     renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partOption(p)}</Typography>{otherNumbers(p) && <Typography variant="caption" color="text.secondary">{otherNumbers(p)}</Typography>}</Box></li>}
     onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, p) => onChange(p?.id ?? '', p?.partNumber)}
-    renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by OR #, DWG #, NAPA, DMA or JH PN" />} />;
+    renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by part number, DWG #, NAPA, DMA or JH PN" />} />;
 }
 
 interface ListDetail { list: { id: string; number: string; title: string; parentPartId?: string; revision: string; status: string; description?: string; listType: string; releasedAt?: string; releasedBy: string;

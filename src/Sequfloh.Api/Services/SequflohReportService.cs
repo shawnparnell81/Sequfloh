@@ -262,7 +262,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                 foreach (var x in await q.OrderBy(x => x.PartNumber).Take(limit).ToListAsync(ct))
                     rows.Add(new() { ["partNumber"] = x.PartNumber, ["name"] = x.Name, ["drawing"] = x.DrawingNumber, ["partTypeName"] = x.TypeId is { } ti && partTypes.TryGetValue(ti, out var tl) ? tl : x.ProductFamily, ["type"] = Words(x.PartType), ["uom"] = x.UnitOfMeasure,
                         ["repairable"] = x.IsRepairable, ["serialized"] = x.IsSerialized, ["status"] = Words(x.Status), ["_url"] = $"/sequfloh/parts/{x.Id}" });
-                return ([C("partNumber", "OR # (Part number)"), C("name", "Name"), C("partTypeName", "Product family"), C("drawing", "DWG #"), C("type", "Part class"), C("uom", "Unit"), C("repairable", "Repairable"),
+                return ([C("partNumber", "Part number"), C("name", "Name"), C("partTypeName", "Product family"), C("drawing", "DWG #"), C("type", "Part class"), C("uom", "Unit"), C("repairable", "Repairable"),
                     C("serialized", "Serialized"), C("status", "Status")], rows);
             }
             case "parts-lists":

@@ -92,7 +92,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
         var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
         var rows = await query.Take(50_000).ToListAsync(ct);
-        var head = new List<string> { "OR # (Part number)", "Name", "Description", "Product family" };
+        var head = new List<string> { "Part number", "Name", "Description", "Product family" };
         head.AddRange(PartAttributes.All.Select(a => a.Label));
         head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "DWG #", "Specification", "Status"]);
         var sb = new System.Text.StringBuilder();
