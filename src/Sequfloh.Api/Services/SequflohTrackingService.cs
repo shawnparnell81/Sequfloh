@@ -104,14 +104,21 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             TrackingType.Development => t.Tracking.DevelopmentNumberCode, _ => null,
         });
         if (typeCode is null) return null;
+        return await FamilyPrefixAsync($"WO-{typeCode}-", familyId, partId, siteId, ct);
+    }
+
+    /// <summary>"{lead}{family}{yy}-" when the family has a code, otherwise null. The year is the current year where the site is (Eastern time by default).</summary>
+    public async Task<string?> FamilyPrefixAsync(string lead, Guid? familyId, Guid? partId, Guid siteId, CancellationToken ct)
+    {
         var fam = familyId ?? (partId is { } p ? await db.Parts.AsNoTracking().Where(x => x.Id == p).Select(x => x.TypeId).FirstOrDefaultAsync(ct) : null);
         if (fam is null) return null;
         var famCode = CleanCodeOrNull(await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == fam && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.NumberCode).FirstOrDefaultAsync(ct));
         if (famCode is null) return null;
-        var year = TimeZoneInfo.ConvertTime(await DbNowAsync(ct), await m.ZoneAsync(siteId, ct)).Year % 100;
-        return $"WO-{typeCode}-{famCode}{year:00}-";
+        return $"{lead}{famCode}{YearCode(await DbNowAsync(ct), await m.ZoneAsync(siteId, ct))}-";
     }
-    static string? CleanCodeOrNull(string? c) { try { return CleanCode(c); } catch (AppException) { return null; } }
+    /// <summary>Two-digit year of the local date, so numbers roll to the new year at local midnight on January 1 and count again from 001.</summary>
+    public static string YearCode(DateTimeOffset now, TimeZoneInfo zone) => (TimeZoneInfo.ConvertTime(now, zone).Year % 100).ToString("00");
+    public static string? CleanCodeOrNull(string? c) { try { return CleanCode(c); } catch (AppException) { return null; } }
 
     /// <summary>The next number after the highest existing one with this prefix, counting per prefix from 001. Inside a transaction the prefix is locked until commit.</summary>
     public async Task<string> NextNumberAsync(string prefix, bool lockPrefix, CancellationToken ct)

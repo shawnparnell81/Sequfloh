@@ -100,6 +100,34 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
         r.WorkInstructionId = x.WorkInstructionId; r.WorkInstructionLabel = wiLabel; r.RequestedDate = x.RequestedDate; r.Priority = priority;
     }
 
+    /// <summary>"INSP-{family}{yy}-" from Tracking settings and the part's product family, or null when either has no code.</summary>
+    async Task<string?> PrefixAsync(Guid? partId, Guid siteId, CancellationToken ct)
+    {
+        if (partId is null) return null;
+        var code = SequflohTrackingService.CleanCodeOrNull((await f.GetSettingsAsync(ct)).Tracking.InspectionRequestNumberCode);
+        return code is null ? null : await tracking.FamilyPrefixAsync($"{code}-", null, partId, siteId, ct);
+    }
+
+    async Task<string> NextAsync(string prefix, bool lockPrefix, CancellationToken ct)
+    {
+        if (lockPrefix) await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtext({0}))", [prefix], ct);
+        var taken = await db.SequflohInspectionRequests.IgnoreQueryFilters().AsNoTracking().Where(x => x.Number.StartsWith(prefix)).Select(x => x.Number).ToListAsync(ct);
+        var max = taken.Select(n => n[prefix.Length..]).Where(s => s.Length > 0 && s.All(char.IsAsciiDigit)).Select(s => int.TryParse(s, out var v) ? v : 0).DefaultIfEmpty(0).Max();
+        return $"{prefix}{max + 1:000}";
+    }
+
+    /// <summary>The number a new request for this part would get, or null when it has to be typed.</summary>
+    public async Task<object> NextNumberAsync(Guid? partId, string? partNumber, Guid siteId, CancellationToken ct)
+    {
+        await m.RequireAsync(Permissions.SequflohAccess, siteId, null, ct);
+        if (partId is null && T(partNumber, 100) is { } pn)
+        {
+            var ps = await db.Parts.AsNoTracking().Where(e => e.PartNumber == pn).Select(e => e.Id).Take(2).ToListAsync(ct);
+            if (ps.Count == 1) partId = ps[0];
+        }
+        return new { number = await PrefixAsync(partId, siteId, ct) is { } p ? await NextAsync(p, false, ct) : null };
+    }
+
     public async Task<object> CreateAsync(InspectionRequestInput x, CancellationToken ct)
     {
         await m.RequireAsync(Permissions.SequflohAccess, x.SiteId, null, ct);
@@ -107,9 +135,10 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
         var r = new SequflohInspectionRequest { SiteId = x.SiteId, RequestedById = m.UserId };
         await Fill(r, x, ct);
         r.RequestedByName = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
-        r.Number = RecordNumbers.Clean(x.Number, 40, "inspection request number");
-        await RecordNumbers.EnsureFreeAsync(db.SequflohInspectionRequests.Select(o => o.Number), r.Number, "An inspection request numbered", ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (string.IsNullOrWhiteSpace(x.Number) && await PrefixAsync(r.PartId, r.SiteId, ct) is { } prefix) r.Number = await NextAsync(prefix, true, ct);
+        else r.Number = RecordNumbers.Clean(x.Number, 40, "inspection request number");
+        await RecordNumbers.EnsureFreeAsync(db.SequflohInspectionRequests.Select(o => o.Number), r.Number, "An inspection request numbered", ct);
         db.SequflohInspectionRequests.Add(r);
         f.Audit("InspectionRequestCreated", EntityType, r.Id, $"{r.Number} requested for {r.PartNumber} ({r.Priority})", r.SiteId);
         await db.SaveChangesAsync(ct);
