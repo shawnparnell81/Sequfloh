@@ -361,7 +361,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (!r.UpdateExisting) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, ["Already in the Part Master."]));
                 else if (!await m.CanAsync(Permissions.MasterDataEdit, match.SiteId, match.DepartmentId, ct) || !await m.CanAsync(Permissions.SequflohEditParts, match.SiteId, match.DepartmentId, ct))
                     rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, ["You cannot edit this existing part."]));
-                else { rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, [])); targets[p.Row] = match; }
+                else { rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, PartFields.IsBlank(match.PartNumber) ? [$"Part number \"{match.PartNumber}\" becomes {p.PartNumber}."] : [])); targets[p.Row] = match; }
                 continue;
             }
             var used = repeatOf is not null || existing.ContainsKey(p.PartNumber);
@@ -393,7 +393,13 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 saved.Add(part.Id);
                 db.PartRevisions.Add(new PartRevision { PartId = part.Id, Revision = part.Revision, Reason = "Initial release (imported)", EffectiveOn = today });
             }
-            else if (row.Action == "Update") { p.Apply(targets[row.Row]); saved.Add(targets[row.Row].Id); }
+            else if (row.Action == "Update")
+            {
+                var t = targets[row.Row];
+                // a part left numbered "/" (or another placeholder) by an earlier import takes the row's part number; a real number is never changed
+                if (PartFields.IsBlank(t.PartNumber) && p.PartNumber is not null) t.PartNumber = p.PartNumber;
+                p.Apply(t); saved.Add(t.Id);
+            }
         }
         var file = Path.GetFileName(r.FileName);
         db.AuditEntries.Add(new AuditEntry

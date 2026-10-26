@@ -112,6 +112,37 @@ public sealed class PartsImportTests(TestApp app)
         Assert.Contains("more than one part", bad.GetProperty("rows")[0].GetProperty("messages")[0].GetString());
     }
 
+    [Fact]
+    public async Task Update_gives_parts_numbered_slash_the_row_part_number()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var k = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        // parts an earlier import left numbered "/", told apart only by their NAPA PN
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            foreach (var (pn, napa) in new[] { ($"OR{k}1", "/"), ("/", $"NP{k}2"), ("/", $"NP{k}3") })
+            {
+                var p = new Sequfloh.Domain.MasterData.Part { PartNumber = pn, Name = "Fuel Pump", Revision = "A", UnitOfMeasure = "Each", SiteId = site };
+                Sequfloh.Infrastructure.Modules.Execution.PartAttributes.Write(p, new Dictionary<string, string?> { ["napaPn"] = napa });
+                db.Parts.Add(p);
+            }
+            await db.SaveChangesAsync();
+        }
+        var csv = $"OR PN,NAPA PN\nOR{k}1,/\n/,NP{k}2\n/,NP{k}3\n";
+        var t = await Read(eng, "pumps.csv", Encoding.UTF8.GetBytes(csv));
+        var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true, true))).JsonAsync();
+        Assert.Equal(3, plan.GetProperty("update").GetInt32());
+        Assert.Contains($"becomes NP{k}2", plan.GetProperty("rows")[1].GetProperty("messages")[0].GetString());
+        await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, true, true));
+
+        using var scope2 = app.Services.CreateScope();
+        var db2 = scope2.ServiceProvider.GetRequiredService<AppDbContext>();
+        var numbers = await db2.Parts.AsNoTracking().Where(p => p.SiteId == site).Select(p => p.PartNumber).OrderBy(x => x).ToListAsync();
+        Assert.Equal(new[] { $"NP{k}2", $"NP{k}3", $"OR{k}1" }, numbers);
+    }
+
     public static byte[] Docx(params string[][][] tables)
     {
         var body = new StringBuilder();
