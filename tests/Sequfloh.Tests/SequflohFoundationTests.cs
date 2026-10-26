@@ -119,8 +119,10 @@ public sealed class SequflohFoundationTests(TestApp app)
         var root = await app.AdminAsync();
         var roleId = await (await root.PostOkAsync("/api/admin/roles", new { name = "Repair bench " + Guid.NewGuid().ToString("N")[..6], description = (string?)null, permissions = new[] { Permissions.MasterDataView } })).Content.ReadFromJsonAsync<Guid>();
         var access = await admin.GetElAsync("/api/sequfloh/module-access");
-        Assert.Equal(42, access.GetProperty("permissions").GetArrayLength());
         var codes = access.GetProperty("permissions").EnumerateArray().Select(p => p.ValueKind == System.Text.Json.JsonValueKind.String ? p.GetString() : p.Str("code")).ToList();
+        // exactly the Sequfloh permissions of the app, each once
+        Assert.Equal(Permissions.All.Where(p => p.StartsWith("sequfloh.", StringComparison.Ordinal)).Order(), codes.Order());
+        Assert.Contains("sequfloh.manage_projects", codes);
         Assert.Contains("sequfloh.release_work_instruction", codes);
         Assert.Contains("sequfloh.manage_drawings", codes);
         Assert.DoesNotContain(codes, c => c is "sequfloh.approve_work_instruction" or "sequfloh.review_work_instruction" or "sequfloh.submit_work_instruction" or "sequfloh.reject_task");
