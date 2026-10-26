@@ -1,16 +1,19 @@
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { Empty, ErrorState, Loading, S, SqfPage, qs, useSqf } from './common';
 import { useSites } from '../components/Kit';
+import { fmtDateTime } from '../components/Status';
 
 export interface ProjectRow { id: string; number: string; name: string; description?: string | null; siteId?: string | null; site?: string | null; status: string; workOrders: number; inspectionRequests: number }
 interface ProjectDetail {
   id: string; number: string; name: string; description?: string | null; siteId?: string | null; status: string; canManage: boolean;
-  workOrders: { id: string; number: string; type: string; typeLabel: string; status: string; partNumber?: string | null; qtyGood?: number | null; qtyBad?: number | null; hours: number; userHours: number; crewHours: number; costLines: number; chargebacks: number }[];
-  inspectionRequests: { id: string; number: string; partNumber: string; status: string; workOrderId?: string | null; workOrderNumber?: string | null; quantity?: number | null }[];
+  workOrders: { id: string; number: string; type: string; typeLabel: string; status: string; partNumber?: string | null; qtyGood?: number | null; qtyBad?: number | null; hours: number; userHours: number; crewHours: number; costLines: number; chargebacks: number;
+    statusLabel: string; title?: string | null; assignedTo?: string | null; updatedAt: string; fromRequest?: string | null }[];
+  inspectionRequests: { id: string; number: string; partNumber: string; status: string; workOrderId?: string | null; workOrderNumber?: string | null; quantity?: number | null;
+    statusLabel: string; title?: string | null; assignedTo?: string | null; updatedAt: string; workOrderStatusLabel?: string | null }[];
   totals: { hours: number; userHours: number; dayWorkerHours: number; crewHours: number; costLines: number; chargebackReports: number; chargebackTotal: number; totalCost: number;
     workOrders: number; inspectionRequests: number; byType: { type: string; count: number }[]; qtyGood: number; qtyBad: number };
 }
@@ -18,6 +21,7 @@ interface ProjectDetail {
 export const useProjects = () => useQuery({ queryKey: ['sqf-projects'], queryFn: () => get<ProjectRow[]>(`${S}/projects`), staleTime: 30_000 });
 const useCanManage = () => !!useSqf().data?.permissions.includes('sequfloh.manage_projects');
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const IR = 'Inspection requests';
 const crumbs = (last?: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Projects', to: last ? '/sequfloh/projects' : undefined }, ...(last ? [{ label: last }] : [])];
 
 /** Optional project picker for work orders and inspection requests. Only open projects are offered; the current one stays listed. */
@@ -94,6 +98,7 @@ export function ProjectPage() {
   const qc = useQueryClient();
   const [edit, setEdit] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [type, setType] = useState<string | null>(null);
   const q = useQuery({ queryKey: ['sqf-project', id], queryFn: () => get<ProjectDetail>(`${S}/projects/${id}`) });
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorState error={q.error} />;
@@ -101,6 +106,8 @@ export function ProjectPage() {
   const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-project', id] }); qc.invalidateQueries({ queryKey: ['sqf-projects'] }); };
   const act = async (fn: () => Promise<unknown>) => { setErr(null); try { await fn(); refresh(); } catch (e) { setErr((e as Error).message); } };
   const linked = t.workOrders + t.inspectionRequests > 0;
+  const types = [...new Set(p.workOrders.map((w) => w.typeLabel))].sort();
+  const wos = type === null ? p.workOrders : p.workOrders.filter((w) => w.typeLabel === type);
   return <SqfPage title={`Project ${p.number}`} crumbs={crumbs(p.number)} permission="sequfloh.access" recent={{ label: `Project ${p.number}`, itemType: 'project', recordId: p.id }}
     actions={p.canManage && <Stack direction="row" gap={1}>
       <Button variant="outlined" onClick={() => setEdit(true)} data-testid="project-edit">Edit</Button>
@@ -121,24 +128,32 @@ export function ProjectPage() {
       </Box>
       <Button sx={{ mt: 2 }} variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?project=${p.id}`}>Chargeback report for this project</Button>
     </Paper>
-    <Typography variant="h6" sx={{ mb: 1 }}>Work orders</Typography>
-    {!p.workOrders.length ? <Empty text="No work orders in this project yet. Pick the project on a work order to add it." /> :
-      <Paper variant="outlined" sx={{ mb: 2 }}><Table size="small">
-        <TableHead><TableRow><TableCell>WO #</TableCell><TableCell>Type</TableCell><TableCell>Status</TableCell><TableCell>Part</TableCell><TableCell align="right">Hours</TableCell><TableCell align="right">Qty good</TableCell><TableCell align="right">Qty bad</TableCell><TableCell align="right">Cost lines</TableCell><TableCell align="right">Chargebacks</TableCell></TableRow></TableHead>
-        <TableBody>{p.workOrders.map((w) => <TableRow key={w.id} hover>
-          <TableCell><Link component={RouterLink} to={`/sequfloh/record/${w.id}`}>{w.number}</Link></TableCell><TableCell>{w.typeLabel}</TableCell><TableCell>{w.status}</TableCell><TableCell>{w.partNumber ?? '—'}</TableCell>
+    <Typography variant="h6" sx={{ mb: 1 }}>Linked items</Typography>
+    {linked && <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 1 }} data-testid="project-type-filter">
+      {[null, ...types, ...(p.inspectionRequests.length ? [IR] : [])].map((k) => <Chip key={k ?? 'all'} label={k ?? 'All'} size="small" color={type === k ? 'primary' : 'default'} onClick={() => setType(k)} />)}
+    </Stack>}
+    {type !== IR && (!wos.length ? (type === null && <Empty text="No work orders in this project yet. Pick the project on a work order to add it." />) :
+      <Paper variant="outlined" sx={{ mb: 2, overflowX: 'auto' }}><Table size="small" data-testid="project-work-orders">
+        <TableHead><TableRow><TableCell>WO #</TableCell><TableCell>Type</TableCell><TableCell>Part</TableCell><TableCell>Title</TableCell><TableCell>Status</TableCell><TableCell>Assigned</TableCell><TableCell>Last updated</TableCell><TableCell align="right">Hours</TableCell><TableCell align="right">Qty good</TableCell><TableCell align="right">Qty bad</TableCell><TableCell align="right">Cost lines</TableCell><TableCell align="right">Chargebacks</TableCell></TableRow></TableHead>
+        <TableBody>{wos.map((w) => <TableRow key={w.id} hover>
+          <TableCell><Link component={RouterLink} to={`/sequfloh/record/${w.id}`}>{w.number}</Link>{w.fromRequest && <Typography variant="caption" color="text.secondary" display="block">From request {w.fromRequest}</Typography>}</TableCell>
+          <TableCell>{w.typeLabel}</TableCell><TableCell>{w.partNumber ?? '—'}</TableCell><TableCell>{w.title ?? '—'}</TableCell><TableCell>{w.statusLabel}</TableCell><TableCell>{w.assignedTo ?? '—'}</TableCell><TableCell>{fmtDateTime(w.updatedAt)}</TableCell>
           <TableCell align="right">{w.hours.toFixed(2)}</TableCell><TableCell align="right">{w.qtyGood ?? ''}</TableCell><TableCell align="right">{w.qtyBad ?? ''}</TableCell><TableCell align="right">{money(w.costLines)}</TableCell><TableCell align="right">{money(w.chargebacks)}</TableCell>
         </TableRow>)}</TableBody>
-      </Table></Paper>}
-    <Typography variant="h6" sx={{ mb: 1 }}>Inspection requests</Typography>
-    {!p.inspectionRequests.length ? <Empty text="No inspection requests in this project yet." /> :
-      <Paper variant="outlined"><Table size="small">
-        <TableHead><TableRow><TableCell>Number</TableCell><TableCell>Part</TableCell><TableCell>Status</TableCell><TableCell>Work order</TableCell></TableRow></TableHead>
-        <TableBody>{p.inspectionRequests.map((r) => <TableRow key={r.id} hover>
-          <TableCell><Link component={RouterLink} to={`/sequfloh/inspection-request/${r.id}`}>{r.number}</Link></TableCell><TableCell>{r.partNumber}</TableCell><TableCell>{r.status}</TableCell>
-          <TableCell>{r.workOrderId ? <Link component={RouterLink} to={`/sequfloh/record/${r.workOrderId}`}>{r.workOrderNumber}</Link> : '—'}</TableCell>
-        </TableRow>)}</TableBody>
-      </Table></Paper>}
+      </Table></Paper>)}
+    {(type === null || type === IR) && <>
+      <Typography variant="subtitle1" sx={{ mb: 1 }}>Inspection requests</Typography>
+      {!p.inspectionRequests.length ? <Empty text="No inspection requests in this project yet." /> :
+        <Paper variant="outlined" sx={{ overflowX: 'auto' }}><Table size="small" data-testid="project-inspection-requests">
+          <TableHead><TableRow><TableCell>Number</TableCell><TableCell>Type</TableCell><TableCell>Part</TableCell><TableCell>Description</TableCell><TableCell>Status</TableCell><TableCell>Assigned</TableCell><TableCell>Last updated</TableCell><TableCell>Converted to work order</TableCell></TableRow></TableHead>
+          <TableBody>{p.inspectionRequests.map((r) => <TableRow key={r.id} hover>
+            <TableCell><Link component={RouterLink} to={`/sequfloh/inspection-request/${r.id}`}>{r.number}</Link></TableCell><TableCell>Inspection request</TableCell><TableCell>{r.partNumber}</TableCell><TableCell>{r.title ?? '—'}</TableCell>
+            <TableCell>{r.statusLabel}</TableCell><TableCell>{r.assignedTo ?? '—'}</TableCell><TableCell>{fmtDateTime(r.updatedAt)}</TableCell>
+            <TableCell>{r.workOrderId ? <><Link component={RouterLink} to={`/sequfloh/record/${r.workOrderId}`}>{r.workOrderNumber}</Link>{r.workOrderStatusLabel ? ` · ${r.workOrderStatusLabel}` : ''}</> : '—'}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table></Paper>}
+      {p.inspectionRequests.some((r) => r.workOrderId) && <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1 }}>Hours and costs of a converted request are counted once, on its work order.</Typography>}
+    </>}
     {edit && <ProjectDialog open initial={p} onClose={() => { setEdit(false); refresh(); }} />}
   </SqfPage>;
 }

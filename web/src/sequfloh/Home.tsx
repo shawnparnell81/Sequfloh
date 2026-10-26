@@ -13,7 +13,7 @@ import { Dashboard } from './Dashboard';
 import { NewWorkOrderButton } from './Tracking';
 
 interface Section { key: string; visible: boolean }
-const SECTIONS: [string, string][] = [['quick', 'Quick actions'], ['dashboard', 'Dashboard'], ['pinned', 'Pinned'], ['recent', 'Recently opened']];
+const SECTIONS: [string, string][] = [['quick', 'Quick actions'], ['dashboard', 'Dashboard'], ['pinned', 'Pinned'], ['recent', 'Recently opened'], ['projects', 'Open projects']];
 const DEFAULT: Section[] = SECTIONS.map(([key]) => ({ key, visible: true }));
 
 /** Lets the person show, hide and reorder their own Home sections. */
@@ -47,6 +47,27 @@ function CustomizeHome({ current, onClose }: { current: Section[]; onClose: () =
   );
 }
 
+interface OpenProject { id: string; number: string; name: string; workOrders: number; inspectionRequests: number; items: number; hours: number; totalCost: number }
+
+/** Open projects with their linked item count, man hours and total cost; each row opens the project. */
+function OpenProjects() {
+  const q = useQuery({ queryKey: ['sqf-projects-open-summary'], queryFn: () => get<OpenProject[]>(`${S}/projects/open-summary`) });
+  const rows = q.data ?? [];
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }} data-testid="home-open-projects">
+      <Typography variant="h3" sx={{ mb: 1 }}>Open projects</Typography>
+      {q.isLoading ? <Typography variant="body2" color="text.secondary">Loading…</Typography> : rows.length === 0 ?
+        <Typography variant="body2" color="text.secondary">No open projects. <Link component={RouterLink} to="/sequfloh/projects">Go to Projects</Link></Typography> :
+        <List dense disablePadding>{rows.map((p) => (
+          <ListItemButton key={p.id} component={RouterLink} to={`/sequfloh/project/${p.id}`}>
+            <ListItemText primary={`${p.number} · ${p.name}`}
+              secondary={`${p.items} linked item${p.items === 1 ? '' : 's'} · ${p.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })} man hours · ${p.totalCost.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`} />
+          </ListItemButton>))}
+        </List>}
+    </Paper>
+  );
+}
+
 interface Item { id: string; itemType: string; path: string; label: string; lastOpenedAt: string }
 
 /** SEQUFLOH Home: permission-aware dashboard, quick actions, pinned and recent SEQUFLOH items. */
@@ -55,7 +76,8 @@ export function SequflohHome() {
   const ctx = useSqf();
   const home = useQuery({ queryKey: ['sqf-my-home'], queryFn: () => get<{ sections: Section[] | null }>(`${S}/my-home`) });
   const [customizing, setCustomizing] = useState(false);
-  const sections = home.data?.sections ?? DEFAULT;
+  const saved = home.data?.sections ?? DEFAULT;
+  const sections = [...saved.filter((x) => SECTIONS.some(([k]) => k === x.key)), ...DEFAULT.filter((d) => !saved.some((x) => x.key === d.key))];
   const items = useQuery({ queryKey: ['sqf-my-items'], queryFn: () => get<{ recent: Item[]; favorites: Item[] }>(`${S}/my-items`) });
   const quick: [string, string, string][] = [
     ['New work instruction', '/sequfloh/instructions/new', 'sequfloh.create_work_instruction'],
@@ -81,6 +103,7 @@ export function SequflohHome() {
     dashboard: <Dashboard />,
     pinned: <List2 title="Pinned" rows={items.data?.favorites} empty="Pin SEQUFLOH pages and records with the pin button in their header." />,
     recent: <List2 title="Recently opened" rows={items.data?.recent} empty="SEQUFLOH pages and records you open appear here." />,
+    projects: can('sequfloh.access') ? <OpenProjects /> : null,
   };
   return (
     <SqfPage title={ctx.data?.module.displayName ?? 'SEQUFLOH'} crumbs={[{ label: 'SEQUFLOH Home' }]} permission="sequfloh.view_dashboard"
@@ -88,7 +111,7 @@ export function SequflohHome() {
       <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
         <Button size="small" onClick={() => setCustomizing(true)} data-testid="customize-home">Customize Home</Button>
       </Stack>
-      {sections.filter((x) => x.visible).map((x) => <Box key={x.key} sx={{ mb: 3 }}>{parts[x.key]}</Box>)}
+      {sections.filter((x) => x.visible && parts[x.key]).map((x) => <Box key={x.key} sx={{ mb: 3 }}>{parts[x.key]}</Box>)}
       {customizing && <CustomizeHome current={sections} onClose={() => setCustomizing(false)} />}
       {!ctx.data && !ctx.isLoading && <Empty text="SEQUFLOH context could not be loaded." />}
       <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3 }}>

@@ -138,15 +138,22 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
 
     static decimal Hr(long s) => Math.Round(s / 3600m, 2);
 
-    /// <summary>The project with every linked work order and inspection request and the totals: man hours (signed-in people, day workers, crew), costs, counts by type and quantities.</summary>
-    public async Task<object> GetAsync(Guid id, CancellationToken ct)
+    static string StatusText(TrackingStatus s) => s switch
     {
-        await RequireViewAsync(ct);
-        var p = await db.SequflohProjects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Project");
+        TrackingStatus.NotStarted => "Not started", TrackingStatus.InProgress => "In progress", TrackingStatus.OnHold => "On hold", TrackingStatus.Canceled => "Cancelled", _ => s.ToString(),
+    };
+
+    static string StatusText(InspectionRequestStatus s) => s switch { InspectionRequestStatus.InProgress => "In progress", _ => s.ToString() };
+
+    sealed record Rollup(List<SequflohTrackingRecord> Recs, List<object> Rows, long User, long CrewLabor, long DayWorkers, decimal Lines, int ChargebackReports, decimal ChargebackTotal);
+
+    /// <summary>The project's work orders the user can see, each with its hours and costs, and the totals.</summary>
+    async Task<Rollup> RollupAsync(Guid id, Dictionary<Guid, string>? fromRequest, CancellationToken ct)
+    {
         var recs = await (await m.ScopeAsync(db.SequflohTrackingRecords.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(r => r.ProjectId == id).OrderBy(r => r.Number).ToListAsync(ct);
-        var reqs = await (await m.ScopeAsync(db.SequflohInspectionRequests.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(r => r.ProjectId == id).OrderBy(r => r.Number).ToListAsync(ct);
         var ids = recs.Select(r => r.Id).ToList();
         var cbs = await db.SequflohChargebackReports.AsNoTracking().Where(c => c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)).ToListAsync(ct);
+        var people = fromRequest is null ? [] : await NamesAsync(recs.Select(r => r.AssignedUserId), ct);
         var rows = new List<object>();
         long user = 0, crewLabor = 0, dayWorkers = 0; decimal lines = 0;
         foreach (var r in recs)
@@ -154,20 +161,66 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
             var t = await crew.TotalsAsync(r.Id, ct);
             var cost = (JsonSerializer.Deserialize<List<CostLine>>(r.CostLines, SequflohJson.Options) ?? []).Sum(l => l.Amount);
             user += t.UserSeconds; crewLabor += t.CrewLaborSeconds; dayWorkers += t.DayWorkerSeconds; lines += cost;
+            if (fromRequest is null) continue;
             var cb = cbs.Where(c => c.TrackingRecordId == r.Id).Sum(c => SequflohChargebackService.TotalOf(c) ?? 0);
-            rows.Add(new { r.Id, r.Number, r.Type, TypeLabel = SequflohPeriodSummary.TypeName(r.Type), r.Status, r.PartNumber, r.QtyGood, r.QtyBad, Hours = Hr(t.TotalSeconds), UserHours = Hr(t.UserSeconds), CrewHours = Hr(t.CrewLaborSeconds), CostLines = cost, Chargebacks = cb });
+            rows.Add(new
+            {
+                r.Id, r.Number, r.Type, TypeLabel = SequflohPeriodSummary.TypeName(r.Type), r.Status, StatusLabel = StatusText(r.Status), r.PartNumber, r.QtyGood, r.QtyBad,
+                Title = string.IsNullOrWhiteSpace(r.PartDescription) ? (string.IsNullOrWhiteSpace(r.WorkInstructionTitle) ? null : r.WorkInstructionTitle) : r.PartDescription,
+                AssignedTo = r.AssignedUserId is { } a ? people.GetValueOrDefault(a) : null, r.UpdatedAt, FromRequest = fromRequest.GetValueOrDefault(r.Id),
+                Hours = Hr(t.TotalSeconds), UserHours = Hr(t.UserSeconds), CrewHours = Hr(t.CrewLaborSeconds), CostLines = cost, Chargebacks = cb,
+            });
         }
-        var chargebackTotal = cbs.Sum(c => SequflohChargebackService.TotalOf(c) ?? 0);
+        return new(recs, rows, user, crewLabor, dayWorkers, lines, cbs.Count, cbs.Sum(c => SequflohChargebackService.TotalOf(c) ?? 0));
+    }
+
+    async Task<Dictionary<Guid, string>> NamesAsync(IEnumerable<Guid?> ids, CancellationToken ct)
+    {
+        var list = ids.OfType<Guid>().Distinct().ToList();
+        return list.Count == 0 ? [] : await db.Users.AsNoTracking().Where(u => list.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => string.IsNullOrWhiteSpace(u.DisplayName) ? u.UserName : u.DisplayName, ct);
+    }
+
+    /// <summary>Open projects for SEQUFLOH Home: linked work orders and inspection requests, man hours and total cost, the same totals the project page shows.</summary>
+    public async Task<object> OpenSummaryAsync(CancellationToken ct)
+    {
+        await RequireViewAsync(ct);
+        var open = await db.SequflohProjects.AsNoTracking().Where(x => x.Status == ProjectStatus.Open).OrderBy(x => x.Number).Take(50).ToListAsync(ct);
+        var reqScope = await m.ScopeAsync(db.SequflohInspectionRequests.AsNoTracking(), Permissions.SequflohAccess, ct);
+        var result = new List<object>();
+        foreach (var p in open)
+        {
+            var r = await RollupAsync(p.Id, null, ct);
+            var reqs = await reqScope.CountAsync(x => x.ProjectId == p.Id, ct);
+            result.Add(new { p.Id, p.Number, p.Name, WorkOrders = r.Recs.Count, InspectionRequests = reqs, Items = r.Recs.Count + reqs, Hours = Hr(r.User + r.CrewLabor), TotalCost = r.Lines + r.ChargebackTotal });
+        }
+        return result;
+    }
+
+    /// <summary>The project with every linked work order and inspection request and the totals: man hours (signed-in people, day workers, crew), costs, counts by type and quantities.
+    /// Inspection requests carry no hours or costs, so a request turned into a work order is counted once, through the work order.</summary>
+    public async Task<object> GetAsync(Guid id, CancellationToken ct)
+    {
+        await RequireViewAsync(ct);
+        var p = await db.SequflohProjects.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Project");
+        var reqs = await (await m.ScopeAsync(db.SequflohInspectionRequests.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(r => r.ProjectId == id).OrderBy(r => r.Number).ToListAsync(ct);
+        var fromRequest = reqs.Where(r => r.WorkOrderId != null).GroupBy(r => r.WorkOrderId!.Value).ToDictionary(g => g.Key, g => g.First().Number);
+        var x = await RollupAsync(id, fromRequest, ct);
+        var recs = x.Recs;
+        var woNumbers = recs.ToDictionary(r => r.Id, r => (r.Number, r.Status));
         return new
         {
             p.Id, p.Number, p.Name, p.Description, p.SiteId, Status = p.Status.ToString(), p.CreatedAt,
             CanManage = await m.CanAnyAsync(Permissions.SequflohManageProjects, ct),
-            WorkOrders = rows,
-            InspectionRequests = reqs.Select(r => new { r.Id, r.Number, r.PartNumber, r.Status, r.WorkOrderId, r.WorkOrderNumber, r.Quantity }),
+            WorkOrders = x.Rows,
+            InspectionRequests = reqs.Select(r => new
+            {
+                r.Id, r.Number, r.PartNumber, r.Status, StatusLabel = StatusText(r.Status), Title = r.PartDescription ?? r.Reason, AssignedTo = r.AssignedUserName, r.UpdatedAt,
+                r.WorkOrderId, r.WorkOrderNumber, WorkOrderStatusLabel = r.WorkOrderId is { } w && woNumbers.TryGetValue(w, out var wo) ? StatusText(wo.Status) : null, r.Quantity,
+            }),
             Totals = new
             {
-                Hours = Hr(user + crewLabor), UserHours = Hr(user), DayWorkerHours = Hr(dayWorkers), CrewHours = Hr(crewLabor - dayWorkers),
-                CostLines = lines, ChargebackReports = cbs.Count, ChargebackTotal = chargebackTotal, TotalCost = lines + chargebackTotal,
+                Hours = Hr(x.User + x.CrewLabor), UserHours = Hr(x.User), DayWorkerHours = Hr(x.DayWorkers), CrewHours = Hr(x.CrewLabor - x.DayWorkers),
+                CostLines = x.Lines, ChargebackReports = x.ChargebackReports, ChargebackTotal = x.ChargebackTotal, TotalCost = x.Lines + x.ChargebackTotal,
                 WorkOrders = recs.Count, InspectionRequests = reqs.Count,
                 ByType = recs.GroupBy(r => SequflohPeriodSummary.TypeName(r.Type)).Select(g => new { Type = g.Key, Count = g.Count() }).OrderBy(x => x.Type),
                 QtyGood = recs.Sum(r => r.QtyGood ?? 0), QtyBad = recs.Sum(r => r.QtyBad ?? 0),

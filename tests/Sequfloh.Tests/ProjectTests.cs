@@ -87,4 +87,48 @@ public sealed class ProjectTests(TestApp app)
             Assert.Contains("ProjectCreated", actions); Assert.Contains("ProjectClosed", actions); Assert.True(actions.Count(a => a == "ProjectLinked") >= 3);
         }
     }
+
+    [Fact]
+    public async Task Project_page_lists_every_item_with_status_and_Home_summary_shows_open_projects()
+    {
+        var site = await app.CreateSiteAsync();
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var (_, mgr) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohManageProjects, Permissions.SequflohCreateProductionTask], site);
+        var (_, outsider) = await app.CreateUserAsync([Permissions.SequflohViewDashboard], site);
+        var pid = (await (await mgr.PostOkAsync(P, new { number = $"HP-{tag}", name = "Home example", siteId = site })).JsonAsync()).Id();
+        var wo = (await (await mgr.PostOkAsync(T, new { type = "Rebox", siteId = site, number = $"HR-{tag}", projectId = pid })).JsonAsync()).Id();
+        var req = (await (await mgr.PostOkAsync(R, new { siteId = site, partNumber = $"HN-{tag}", number = $"HQ-{tag}", projectId = pid })).JsonAsync()).Id();
+        await mgr.PostOkAsync($"{R}/{req}/convert", new { type = "Inspection", number = $"HC-{tag}" });
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var start = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+            db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = wo, TrackingNumber = $"HR-{tag}", CrewSize = 2, StartedAt = start, StoppedAt = start.AddHours(1.5) });
+            (await db.SequflohTrackingRecords.FindAsync(wo))!.CostLines = "[{\"description\":\"Tape\",\"amount\":12}]";
+            await db.SaveChangesAsync();
+        }
+
+        var d = await mgr.GetElAsync($"{P}/{pid}");
+        var wos = d.GetProperty("workOrders").EnumerateArray().ToDictionary(x => x.GetProperty("number").GetString()!);
+        Assert.Equal(2, wos.Count);
+        Assert.Equal("Not started", wos[$"HR-{tag}"].GetProperty("statusLabel").GetString());
+        Assert.Equal("Rebox", wos[$"HR-{tag}"].GetProperty("typeLabel").GetString());
+        Assert.True(wos[$"HR-{tag}"].TryGetProperty("updatedAt", out _));
+        Assert.Equal($"HQ-{tag}", wos[$"HC-{tag}"].GetProperty("fromRequest").GetString());
+        Assert.Equal(JsonValueKind.Null, wos[$"HR-{tag}"].GetProperty("fromRequest").ValueKind);
+        var ir = d.GetProperty("inspectionRequests").EnumerateArray().Single();
+        Assert.Equal(wos[$"HC-{tag}"].GetProperty("id").GetGuid(), ir.GetProperty("workOrderId").GetGuid());
+        Assert.False(string.IsNullOrEmpty(ir.GetProperty("statusLabel").GetString()));
+        Assert.Equal("Not started", ir.GetProperty("workOrderStatusLabel").GetString());
+
+        var sum = (await mgr.GetElAsync($"{P}/open-summary")).EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == pid);
+        Assert.Equal(3, sum.GetProperty("items").GetInt32());
+        Assert.Equal(d.GetProperty("totals").GetProperty("hours").GetDecimal(), sum.GetProperty("hours").GetDecimal());
+        Assert.Equal(3m, sum.GetProperty("hours").GetDecimal());
+        Assert.Equal(12m, sum.GetProperty("totalCost").GetDecimal());
+        Assert.Equal(HttpStatusCode.Forbidden, (await outsider.Http.GetAsync($"{P}/open-summary")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await mgr.PostAsync($"{P}/{pid}/close", new { })).StatusCode);
+        Assert.DoesNotContain((await mgr.GetElAsync($"{P}/open-summary")).EnumerateArray(), x => x.GetProperty("id").GetGuid() == pid);
+    }
 }
