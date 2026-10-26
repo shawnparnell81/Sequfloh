@@ -88,9 +88,9 @@ public sealed class ProductFamilyTests(TestApp app)
 
         var csv = await eng.Http.GetStringAsync($"/api/sequfloh/parts/export?q={tag}");
         var lines = csv.TrimStart('\uFEFF').Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
-        Assert.StartsWith("Part number,Name,Description,Product family,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
+        Assert.StartsWith("Part number,Name,Description,Product family,OR #,Nissan VA #,NAPA US #,NAPA CA #,Key Application,Position", lines[0]);
         Assert.Contains("DWG #", lines[0]);
-        Assert.StartsWith($"OR-{tag},Example part OR-{tag},,Struts,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
+        Assert.StartsWith($"OR-{tag},Example part OR-{tag},,Struts,,NVA-{tag},NUS-{tag},,Example sedan 2019-2023 front", lines[1]);
         Assert.Contains("SN-" + tag, lines[1]);
     }
 
@@ -112,7 +112,7 @@ public sealed class ProductFamilyTests(TestApp app)
         form.Add(file, "file", "parts.csv");
         var t = await (await eng.Http.PostAsync("/api/sequfloh/parts/import/read", form)).JsonAsync();
         var map = t.GetProperty("mapping");
-        Assert.Equal(0, map.GetProperty("partNumber").GetInt32());
+        Assert.Equal(0, map.GetProperty("attr:orNumber").GetInt32());
         Assert.Equal(1, map.GetProperty("drawingNumber").GetInt32());
         Assert.Equal(2, map.GetProperty("description").GetInt32());
         Assert.Equal(3, map.GetProperty("typeName").GetInt32());
@@ -185,7 +185,7 @@ public sealed class ProductFamilyTests(TestApp app)
         Assert.Equal(1, t.GetProperty("top")[0].GetProperty("row").GetInt32());
         var map = t.GetProperty("mapping");
         Assert.Equal(0, map.GetProperty("drawingNumber").GetInt32());
-        Assert.Equal(1, map.GetProperty("partNumber").GetInt32());
+        Assert.Equal(1, map.GetProperty("attr:orNumber").GetInt32());
         Assert.Equal(6, map.GetProperty("attr:position").GetInt32());
         Assert.False(map.TryGetProperty("name", out _));
         // the header row can be chosen; row 1 gives one column heading only
@@ -414,7 +414,7 @@ public sealed class ProductFamilyTests(TestApp app)
         var form = new MultipartFormDataContent { { new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(csv)), "file", "example-fuel-pumps.csv" } };
         var t = await (await eng.Http.PostAsync("/api/sequfloh/parts/import/read", form)).JsonAsync();
         var map = t.GetProperty("mapping").EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetInt32());
-        Assert.Equal(new Dictionary<string, int> { ["partNumber"] = 0, ["attr:napaPn"] = 1, ["attr:dmaPn"] = 2, ["attr:cross"] = 3, ["attr:jhPn"] = 4, ["attr:boxSize"] = 5 }, map);
+        Assert.Equal(new Dictionary<string, int> { ["attr:orNumber"] = 0, ["attr:napaPn"] = 1, ["attr:dmaPn"] = 2, ["attr:cross"] = 3, ["attr:jhPn"] = 4, ["attr:boxSize"] = 5 }, map);
         await eng.PostOkAsync("/api/sequfloh/parts/import", new { fileName = "example-fuel-pumps.csv", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = map, siteId = site,
             updateExisting = false, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump", ["typeName"] = "Fuel Pump" } });
         var p = (await eng.GetElAsync($"/api/sequfloh/parts?q=JH-2")).GetProperty("items").EnumerateArray().Single(x => x.Str("partNumber") == $"FP{tag}2");

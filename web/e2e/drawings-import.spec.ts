@@ -19,7 +19,7 @@ test('drawings import: a folder tree with preview, part links, progress and a se
   await signIn(page);
   const v = view(page);
 
-  // a made-up part whose OR # is also a folder name in the drawings folder
+  // a made-up part whose part number is also a folder name in the drawings folder
   await page.goto('/sequfloh/parts');
   await v.getByRole('button', { name: 'Import parts' }).click();
   const imp = page.getByRole('dialog');

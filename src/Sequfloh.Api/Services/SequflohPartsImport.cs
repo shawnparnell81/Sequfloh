@@ -38,7 +38,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     /// <summary>Importable fields and the header words that suggest them.</summary>
     public static readonly (string Key, string Label, string[] Words)[] Fields =
     [
-        ("partNumber", "Part number", ["or pn", "or #", "or#", "or no", "or number", "part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
+        ("partNumber", "Part number", ["part number", "part no", "part #", "partnumber", "pn", "item", "item number", "item no", "sku", "part"]),
         ("name", "Name", ["name", "part name", "item name", "title"]),
         ("description", "Description", ["description", "desc", "details", "purchase description", "sales description"]),
         ("typeName", "Product family", ["product family", "family", "category", "item category", "product category", "part type", "type", "product type"]),
@@ -225,7 +225,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         // the name is always chosen in the dialog, never read from the file
         if (r.Mapping.ContainsKey("name")) throw new AppException("Name cannot come from a file column. Choose the Name for all rows.");
         if (string.IsNullOrWhiteSpace(r.Fixed?.GetValueOrDefault("name"))) throw new AppException("Choose the Name for all rows before you preview or import.");
-        if (!r.Mapping.TryGetValue("partNumber", out _)) throw new AppException("Choose the column that holds the part number.");
+        if (!r.Mapping.Keys.Any(IsNumberKey)) throw new AppException("Choose the column that holds the part number, or at least one number column.");
         if (r.Rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
         var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive).Select(v => new { v.Id, v.Code, v.Label }).ToListAsync(ct);
         var familyHidden = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.HiddenFields != null).ToDictionaryAsync(v => v.Id, v => v.HiddenFields, ct);
@@ -240,16 +240,18 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             string Get(string key) => Raw(key) is var v && IsNumberKey(key) && PartFields.IsBlank(v) ? "" : v;
             var errors = new List<string>();
             string? Text(string key, string label, int max) { var v = Get(key); if (v.Length == 0) return null; if (v.Length > max) { errors.Add($"{label} is longer than {max} characters."); return null; } return v; }
+            string? Verbatim(string key, string label, int max) { var v = Raw(key); if (v.Length == 0) return null; if (v.Length > max) { errors.Add($"{label} is longer than {max} characters."); return null; } return v; }
             bool? FlagOf(string key, string label) { try { return Flag(Get(key)); } catch (FormatException) { errors.Add($"{label} must be Yes or No."); return null; } }
             var desc = Text("description", "Description", 4000);
             var attrs = new Dictionary<string, string>();
-            foreach (var a in PartAttributes.All) if (Text("attr:" + a.Key, a.Label, a.MaxLength) is { } av) attrs[a.Key] = av;
+            foreach (var a in PartAttributes.All)
+                if ((a.Verbatim ? Verbatim("attr:" + a.Key, a.Label, a.MaxLength) : Text("attr:" + a.Key, a.Label, a.MaxLength)) is { } av) attrs[a.Key] = av;
             // every real number in the row
             var numbers = new[] { Get("partNumber"), Get("drawingNumber") }.Concat(PartAttributes.All.Where(IsNumber).Select(a => attrs.GetValueOrDefault(a.Key) ?? ""))
-                .Where(v => v.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                .Where(v => !PartFields.IsBlank(v)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var pn = Text("partNumber", "Part number", 60);
-            // no Part number: the first real number of the mapped number columns, in column order
-            if (pn is null && r.Mapping.Where(kv => IsNumberKey(kv.Key)).OrderBy(kv => kv.Value).Select(kv => Get(kv.Key)).FirstOrDefault(v => v.Length is > 0 and <= 60) is { } other) pn = other;
+            // no Part number: the OR #, else the first real number of the other mapped number columns, in column order
+            if (pn is null && r.Mapping.Where(kv => IsNumberKey(kv.Key)).OrderBy(kv => kv.Key == "attr:orNumber" ? 0 : 1).ThenBy(kv => kv.Value).Select(kv => Get(kv.Key)).FirstOrDefault(v => v.Length is > 0 and <= 60) is { } other) pn = other;
             string? Family(string key, string label)
             {
                 var v = Get(key);
@@ -277,7 +279,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             }
             var name = chosenName;
             // mapped fields that are empty or hold a placeholder ("/", "-", "N/A") are marked Not applicable on the part; the value is still kept
-            var fieldKeys = PartFields.All.Select(x => x.Key).ToHashSet();
+            var fieldKeys = PartFields.All.Select(x => x.Key).Where(k => PartAttributes.Find(k) is not { Verbatim: true }).ToHashSet();
             var blanks = r.Mapping.Keys.Select(k => k.StartsWith("attr:", StringComparison.Ordinal) ? k[5..] : k).Where(fieldKeys.Contains)
                 .Where(k => PartFields.IsBlank(Raw(fieldKeys.Contains(k) && PartAttributes.Find(k) is not null ? "attr:" + k : k))).ToList();
             var key = string.Join("\u001f", r.Mapping.Keys.Concat(r.Fixed?.Keys ?? Enumerable.Empty<string>()).Distinct().Order(StringComparer.Ordinal).Select(k => k + "=" + Get(k)));

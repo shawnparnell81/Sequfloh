@@ -82,7 +82,7 @@ public sealed class PartsImportTests(TestApp app)
         // made-up sheet: each row has one customer number or the other, every row has a DMA PN, and one JH PN is shared
         var csv = $"OR PN,NAPA PN,DMA PN,JH PN\nOR{k}1,/,DM{k}1,JH{k}\nOR{k}2,/,DM{k}2,JH{k}\n/,NP{k}3,DM{k}3,JH{k}\n/,NP{k}4,DM{k}4,N/A\n/,NP{k}4,DM{k}4,N/A\n";
         var t = await Read(eng, "pumps.csv", Encoding.UTF8.GetBytes(csv));
-        Assert.Equal(0, t.GetProperty("mapping").GetProperty("partNumber").GetInt32());
+        Assert.Equal(0, t.GetProperty("mapping").GetProperty("attr:orNumber").GetInt32());
         var first = await (await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, false))).JsonAsync();
         Assert.Equal(4, first.GetProperty("add").GetInt32()); // the "/" rows are added under their NAPA PN; the exact copy is skipped
         Assert.Equal(1, first.GetProperty("skip").GetInt32());
@@ -246,5 +246,48 @@ public sealed class PartsImportTests(TestApp app)
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.True((await db.Parts.SingleAsync(p => p.PartNumber == $"XL-{k}-1")).IsRepairPart);
         Assert.Equal(2, await db.Parts.CountAsync(p => p.PartNumber.StartsWith($"WD-{k}-")));
+    }
+
+    [Fact]
+    public async Task OR_number_is_its_own_column_kept_as_written_and_a_reimport_fills_it_without_renumbering()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, eng) = await app.CreateUserAsync(Editor, site);
+        var k = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        // parts left by earlier imports: numbered with the OR number or, where O'Reilly's has none, the NAPA number; no OR # stored
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            foreach (var (pn, napa) in new[] { ($"OR{k}1", $"NP{k}1"), ($"NP{k}2", $"NP{k}2"), ($"NP{k}3", $"NP{k}3") })
+            {
+                var p = new Sequfloh.Domain.MasterData.Part { PartNumber = pn, Name = "Fuel Pump", Revision = "A", UnitOfMeasure = "EA", SiteId = site };
+                Sequfloh.Infrastructure.Modules.Execution.PartAttributes.Write(p, new Dictionary<string, string?> { ["napaPn"] = napa, ["dmaPn"] = $"DM{pn}" });
+                db.Parts.Add(p);
+            }
+            await db.SaveChangesAsync();
+        }
+        var csv = $"OR PN,NAPA PN,DMA PN\nOR{k}1,NP{k}1,DMOR{k}1\n/,NP{k}2,DMNP{k}2\n/,NP{k}3,DMNP{k}3\n";
+        var t = await Read(eng, "pumps.csv", Encoding.UTF8.GetBytes(csv));
+        var map = t.GetProperty("mapping");
+        Assert.Equal(0, map.GetProperty("attr:orNumber").GetInt32());
+        Assert.False(map.TryGetProperty("partNumber", out _));
+        foreach (var h in new[] { "OR #", "OR Part Number", "O'Reilly" })
+            Assert.Equal(0, (await Read(eng, "h.csv", Encoding.UTF8.GetBytes($"{h},NAPA PN\nX{k},Y{k}\n"))).GetProperty("mapping").GetProperty("attr:orNumber").GetInt32());
+
+        var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true))).JsonAsync();
+        Assert.Equal(3, plan.GetProperty("update").GetInt32());
+        Assert.Equal(0, plan.GetProperty("add").GetInt32());
+        Assert.Equal(0, plan.GetProperty("errors").GetInt32());
+        Assert.All(plan.GetProperty("rows").EnumerateArray(), r => Assert.Empty(r.GetProperty("messages").EnumerateArray()));
+        await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, true));
+
+        using var s2 = app.Services.CreateScope();
+        var parts = await s2.ServiceProvider.GetRequiredService<AppDbContext>().Parts.AsNoTracking().Where(p => p.SiteId == site).ToListAsync();
+        Assert.Equal(3, parts.Count);
+        var or = parts.ToDictionary(p => p.PartNumber, p => Sequfloh.Infrastructure.Modules.Execution.PartAttributes.Read(p.Attributes).GetValueOrDefault("orNumber"));
+        Assert.Equal($"OR{k}1", or[$"OR{k}1"]);
+        Assert.Equal("/", or[$"NP{k}2"]); // kept as written: O'Reilly's does not carry it
+        Assert.Equal("/", or[$"NP{k}3"]);
+        Assert.DoesNotContain(parts, p => (p.HiddenFields ?? "").Contains("orNumber"));
     }
 }
