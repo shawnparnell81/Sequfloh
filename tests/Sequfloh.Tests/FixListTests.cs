@@ -58,6 +58,11 @@ public sealed class FixListTests(TestApp app)
         var put = await c.PutAsync($"{T}/{id}/instruction", new { workInstructionId = wi });
         Assert.True(put.IsSuccessStatusCode, await put.Content.ReadAsStringAsync());
         Assert.Equal(wi, (await c.GetElAsync($"{T}/{id}")).GetProperty("record").GetProperty("workInstructionId").GetGuid());
+        var (_, v) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohCreateValidationRecord], site);
+        var vid = (await (await v.PostOkAsync(T, new { type = "Validation", siteId = site, workOrder = "WO-VAL-" + name })).JsonAsync()).Id();
+        put = await v.PutAsync($"{T}/{vid}/instruction", new { workInstructionId = wi });
+        Assert.True(put.IsSuccessStatusCode, await put.Content.ReadAsStringAsync());
+        Assert.Equal(wi, (await v.GetElAsync($"{T}/{vid}")).GetProperty("record").GetProperty("workInstructionId").GetGuid());
     }
 
     [Fact]

@@ -47,8 +47,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     /// <summary>Instruction types a tracking record of this type may execute.</summary>
     public static WorkInstructionType[] InstructionTypes(TrackingType t) => t switch
     {
-        TrackingType.Validation => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai],
-        TrackingType.Fai => [WorkInstructionType.Fai, WorkInstructionType.ValidationFai],
+        // Validation and FAI are one kind of work order; work instructions and procedures are one kind of instruction
+        TrackingType.Validation or TrackingType.Fai => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.Procedure],
         TrackingType.Repair => [WorkInstructionType.RepairWork, WorkInstructionType.Procedure],
         _ => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.RepairTest, WorkInstructionType.RepairWork, WorkInstructionType.Inspection, WorkInstructionType.Procedure]
     };
