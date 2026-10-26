@@ -26,13 +26,13 @@ import { PartDrawingLinks, RecordDrawings } from './Drawings';
 import { DEVELOPMENT_LINES, useFamilies } from './Imports';
 
 /** Work order type names. Validation and FAI are one type to the user: records stored as either show as Validation / FAI. */
-export const trackingTypes: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox' };
+export const trackingTypes: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox', Test: 'Test' };
 /** One entry per type for type pickers and filters (Validation / FAI listed once). */
-export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Production', 'Production']];
+export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Production', 'Production']];
 /** Types offered by the New work order builder; Production stays available for links that ask for it. */
-const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox' };
+const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox', Test: 'Test' };
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
-const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task', SaltSpray: 'sequfloh.create_production_task', Development: 'sequfloh.create_production_task', Rebox: 'sequfloh.create_production_task' };
+const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task', SaltSpray: 'sequfloh.create_production_task', Development: 'sequfloh.create_production_task', Rebox: 'sequfloh.create_production_task', Test: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work Orders', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
 /** The one way to start a work order: the type is chosen inside the builder. */
@@ -68,6 +68,7 @@ const folders: Record<string, { title: string; description: string; type?: strin
   'salt-spray': { title: 'Salt Spray Test', type: 'SaltSpray', description: 'Salt Spray Test work orders, with the same clock, crew and day-worker time as every other work order.' },
   development: { title: 'Development', type: 'Development', description: 'Development work orders for the Engineering, Development product lines.' },
   rebox: { title: 'Rebox', type: 'Rebox', description: 'Rebox work orders, with the same clock, crew and day-worker time as every other work order.' },
+  test: { title: 'Test', type: 'Test', description: 'Test work orders, with the drawing of the part, its validation form and the same clock, crew and day-worker time as every other work order.' },
   open: { title: 'Open Work Orders', description: 'Every work order that is not completed, failed or canceled.' },
   completed: { title: 'Completed Work Orders', description: 'Completed work orders.' },
 };
@@ -151,7 +152,7 @@ export function NewTrackingPage() {
   const [clockAsk, setClockAsk] = useState(true);
   const [clockFrom, setClockFrom] = useState<string | null>(null);
   const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
-  const forms = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`), enabled: type === 'Validation' || type === 'SaltSpray' });
+  const forms = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`), enabled: type === 'Validation' || type === 'Test' || type === 'SaltSpray' });
   const famForm = forms.data?.families.find((x) => x.id === familyId);
   const famBlank = famForm?.blankFormId ? forms.data?.blanks.find((b) => b.id === famForm.blankFormId) : undefined;
   const isInsp = type === 'Inspection' || type === 'Warranty';
@@ -163,7 +164,7 @@ export function NewTrackingPage() {
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
   // automatic number when the type and the product family both have a code; it stays editable
-  const famForNumber = type === 'Validation' || type === 'Development' ? familyId : '';
+  const famForNumber = type === 'Validation' || type === 'Test' || type === 'Development' ? familyId : '';
   // a development line opens with the product family of the same name, when there is one
   useEffect(() => {
     if (type !== 'Development' || !devLine || familyId || !families.data) return;
@@ -189,7 +190,7 @@ export function NewTrackingPage() {
       if (!f.number?.trim()) throw new Error('Enter the number.');
       const auto = !!suggested && f.number.trim() === suggested;
       if (isInsp && !f.subType) throw new Error('Choose the inspection sub-type.');
-      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' || type === 'Development' ? nul(familyId) : null, developmentLine: type === 'Development' ? nul(devLine) : null,
+      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' || type === 'Test' || type === 'Development' ? nul(familyId) : null, developmentLine: type === 'Development' ? nul(devLine) : null,
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
@@ -227,10 +228,10 @@ export function NewTrackingPage() {
             <MenuItem value=""><em>None</em></MenuItem>{DEVELOPMENT_LINES.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}</TextField>}
           {type === 'Development' && <TextField select size="small" label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}>
             <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
-          {type === 'Validation' && <TextField select size="small" label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
+          {(type === 'Validation' || type === 'Test') && <TextField select size="small" label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
             helperText="The confirmed validation form for this family is attached as a copy to fill out.">
             <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
-          {type === 'Validation' && familyId && forms.data && <Box sx={{ gridColumn: '1 / -1' }}>
+          {(type === 'Validation' || type === 'Test') && familyId && forms.data && <Box sx={{ gridColumn: '1 / -1' }}>
             {famBlank ? <Stack gap={1}><Alert severity="success" data-testid="new-wo-form-note">A copy of {famBlank.number} {famBlank.title} is attached to fill out once you type its number and file name. You can also attach it later on the work order.</Alert>
               {fld('formNumber', 'Validation form number and file name', { inputProps: { 'data-testid': 'new-wo-form-number', maxLength: 300 } })}</Stack>
               : <Alert severity="warning" data-testid="new-wo-form-note">No validation form is confirmed for this product family. An administrator can set one in Settings, Validation forms by product.</Alert>}</Box>}
@@ -323,7 +324,7 @@ export function TrackingRecordPage() {
   };
   const enter = q.data.canEnter && !busy;
   const plan = q.data.canPlan && !busy;
-  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox' }[rec.type] ?? 'open';
+  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox', Test: 'test' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
   const vf = (rec.details as unknown as { validationForm?: { familyId?: string; family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),

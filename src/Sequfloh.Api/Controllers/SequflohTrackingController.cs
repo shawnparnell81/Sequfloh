@@ -99,7 +99,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         object? form = null;
         var formNumber = (r.FormNumber ?? "").Trim();
         var typed = formNumber.Length > 0 && r.FamilyId is not null;
-        if (typed || (x.Type == TrackingType.Validation && r.FamilyId is not null) || x.Type == TrackingType.SaltSpray)
+        if (typed || (x.Type is TrackingType.Validation or TrackingType.Test && r.FamilyId is not null) || x.Type == TrackingType.SaltSpray)
         {
             // nothing is numbered for the user: without a typed number the form waits for Attach validation form
             var info = await StartFormAsync(x.Type, x.Number, formNumber.Length > 0 ? formNumber : null, x.PartNumber, r.FamilyId, x.Id, ct);
