@@ -243,7 +243,7 @@ function ConvertDialog({ r, open, onClose }: { r: InspectionRequest; open: boole
           <Typography variant="body2" color="text.secondary">Part, quantity, priority, requested date and the inspection requirement carry over. The part's drawings are attached.</Typography>
           <NumberField label="Work order number" value={number} onChange={(e) => setNumber(e.target.value)} inputProps={{ 'data-testid': 'convert-number', maxLength: 40 }} />
           <TextField select label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }}>
-            {[['Inspection', 'Inspection'], ['Production', 'Production'], ['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox']].map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
+            {[['Inspection', 'Inspection'], ['Production', 'Production'], ['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test']].map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</TextField>
           <FormControlLabel control={<Switch checked={attach} onChange={(_, c) => { setAttach(c); if (!c) setWi(null); }} inputProps={{ 'data-testid': 'convert-attach-wi' } as object} />}
             label="Attach a work instruction (optional)" />
           {attach && <Autocomplete options={wis.data ?? []} value={wi} onChange={(_, o) => setWi(o)} onInputChange={(_, v, rs) => rs === 'input' && setText(v)}
