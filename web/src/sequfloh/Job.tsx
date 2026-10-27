@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Checkbox, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Dialog, DialogActions, DialogContent, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+import { Alert, Box, Button, Checkbox, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Dialog, DialogActions, DialogContent, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ import { ImportButtons } from '../components/ImportButtons';
 import { fmtDateTime } from '../components/Status';
 import type { CostLine, Findings } from './Findings';
 import { ErrorState, Loading, Mono, S, SqfPage } from './common';
+import { EightDFile, eightDUrl } from './EightD';
 
 // ------------------------------------------------------------------ Inventory status
 export const INVENTORY_NOTE = 'Inventory status is kept in NetSuite. Sequfloh does not connect to NetSuite.';
@@ -149,7 +150,7 @@ interface Report { id: string; number: string; type: string; status: string; tit
   pausedSeconds: number; parts: { partNumber: string; description?: string; perAssembly: number; quantity: number; overridden: boolean; unitCost?: number | null }[]; partsTotal: number;
   files: { fileName: string; batch?: string; testDate?: string; tested?: number; passed?: number; failed?: number }[]; tested: number; passed: number; failed: number; generatedAt: string;
   timeLog: { name: string; kind: string; at: string }[]; findings: Findings; costLines: CostLine[]; options: Opts; attachments: Att[]; photos: Att[];
-  workInstructionNumber: string; workInstructionRevision: string; partsCost: number; otherCost: number }
+  workInstructionNumber: string; workInstructionRevision: string; partsCost: number; otherCost: number; eightD?: EightDFile[] }
 
 const hrs = (s: number) => (s / 3600).toFixed(2);
 const money = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -221,6 +222,8 @@ export function JobReportPage() {
         rows={[...r.people.map((p) => [p.name, String(p.sessions), hrs(p.seconds), hrs(p.pausedSeconds)]), ['Total', String(r.people.reduce((a, p) => a + p.sessions, 0)), hrs(r.totalSeconds), hrs(r.pausedSeconds)]]} /></Sec>}
       {o.timeLog && r.timeLog.length > 0 && <Sec title="Detailed time log"><Grid2 noTotal head={['When', 'Technician', 'Event']} rows={r.timeLog.map((e) => [fmtDateTime(e.at), e.name, e.kind])} /></Sec>}
       {o.tests && r.files.length > 0 && <Sec title="Test results"><Grid2 head={['File', 'Batch', 'Test date', 'Tested', 'Passed', 'Failed']} rows={[...r.files.map((f) => [f.fileName, f.batch ?? '', f.testDate ?? '', f.tested ?? '', f.passed ?? '', f.failed ?? ''].map(String)), ['Total', '', '', String(r.tested), String(r.passed), String(r.failed)]]} /></Sec>}
+      {!!r.eightD?.length && <Sec title="8D Report"><Table size="small" data-testid="job-eightd"><TableHead><TableRow><TableCell>8D Report</TableCell><TableCell>Uploaded by</TableCell><TableCell>When</TableCell></TableRow></TableHead>
+        <TableBody>{r.eightD.map((f) => <TableRow key={f.id}><TableCell><Link href={eightDUrl(f.id)} target="_blank" rel="noopener">{f.fileName}</Link></TableCell><TableCell>{f.uploadedBy ?? '—'}</TableCell><TableCell>{fmtDateTime(f.uploadedAt)}</TableCell></TableRow>)}</TableBody></Table></Sec>}
       {o.attachments && r.attachments.length > 0 && <Sec title="Attachments"><Grid2 noTotal head={['File', 'Added']} rows={r.attachments.map((a) => [a.fileName, fmtDateTime(a.uploadedAt)])} /></Sec>}
       {o.photos && r.photos.length > 0 && <Sec title="Photos and evidence"><Stack direction="row" gap={2} flexWrap="wrap">{r.photos.map((p) => <Box key={p.id} sx={{ width: 260 }}>
         <Box component="img" src={`${S}/tracking/job/test-files/${p.id}`} alt={p.fileName} sx={{ width: '100%', border: '1px solid #ddd' }} />

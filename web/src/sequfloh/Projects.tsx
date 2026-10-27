@@ -6,10 +6,11 @@ import { del, get, post, put } from '../api';
 import { Empty, ErrorState, Loading, S, SqfPage, qs, useSqf } from './common';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
+import { EightDAsk, EightDBlock, EightDCreate, uploadEightD } from './EightD';
 
 export interface ProjectRow { id: string; number: string; name: string; description?: string | null; siteId?: string | null; site?: string | null; status: string; workOrders: number; inspectionRequests: number }
 interface ProjectDetail {
-  id: string; number: string; name: string; description?: string | null; siteId?: string | null; status: string; canManage: boolean;
+  id: string; number: string; name: string; description?: string | null; siteId?: string | null; status: string; canManage: boolean; include8D?: boolean;
   workOrders: { id: string; number: string; type: string; typeLabel: string; status: string; partNumber?: string | null; qtyGood?: number | null; qtyBad?: number | null; hours: number; userHours: number; crewHours: number; costLines: number; chargebacks: number;
     statusLabel: string; title?: string | null; assignedTo?: string | null; updatedAt: string; fromRequest?: string | null }[];
   inspectionRequests: { id: string; number: string; partNumber: string; status: string; workOrderId?: string | null; workOrderNumber?: string | null; quantity?: number | null;
@@ -52,15 +53,21 @@ export const PICK_PROJECT = 'Pick the project to link, or choose No for Link to 
 function ProjectDialog({ open, onClose, initial }: { open: boolean; onClose: (id?: string) => void; initial?: ProjectRow | ProjectDetail }) {
   const sites = useSites();
   const [f, setF] = useState({ number: initial?.number ?? '', name: initial?.name ?? '', description: initial?.description ?? '', siteId: initial?.siteId ?? '' });
+  const [with8D, setWith8D] = useState(!!(initial as ProjectDetail | undefined)?.include8D);
+  const [files8D, setFiles8D] = useState<File[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const next = useQuery({ queryKey: ['sqf-project-next'], queryFn: () => get<{ number: string }>(`${S}/projects/next-number`), enabled: open && !initial, staleTime: 0 });
   useEffect(() => { if (!initial && next.data?.number) setF((cur) => (cur.number ? cur : { ...cur, number: next.data.number })); }, [next.data?.number]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
     setErr(null);
-    const body = { number: f.number.trim() || null, name: f.name.trim(), description: f.description.trim() || null, siteId: f.siteId || null };
+    const body = { number: f.number.trim() || null, name: f.name.trim(), description: f.description.trim() || null, siteId: f.siteId || null, include8D: with8D };
     try {
       if (initial) { await put(`${S}/projects/${initial.id}`, body); onClose(initial.id); }
-      else { const r = await post<{ id: string }>(`${S}/projects`, body); onClose(r.id); }
+      else {
+        const r = await post<{ id: string }>(`${S}/projects`, body);
+        for (const x of files8D) { try { await uploadEightD('projects', r.id, x); } catch (e) { window.alert(`The project was created, but ${x.name} was not added: ${(e as Error).message}`); } }
+        onClose(r.id);
+      }
     } catch (e) { setErr((e as Error).message); }
   };
   return <Dialog open={open} onClose={() => onClose()} fullWidth maxWidth="sm">
@@ -73,6 +80,7 @@ function ProjectDialog({ open, onClose, initial }: { open: boolean; onClose: (id
       <TextField select label="Site (optional)" value={f.siteId} onChange={(e) => setF({ ...f, siteId: e.target.value })}>
         <MenuItem value="">Any site</MenuItem>{(sites.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
       </TextField>
+      {initial ? <EightDAsk yes={with8D} onYes={setWith8D} /> : <EightDCreate yes={with8D} onYes={setWith8D} files={files8D} onFiles={setFiles8D} />}
     </Stack></DialogContent>
     <DialogActions><Button onClick={() => onClose()}>Cancel</Button><Button variant="contained" onClick={save} disabled={(!!initial && !f.number.trim()) || !f.name.trim()} data-testid="project-save">Save</Button></DialogActions>
   </Dialog>;
@@ -145,6 +153,7 @@ export function ProjectPage() {
       </Box>
       <Button sx={{ mt: 2 }} variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?project=${p.id}`}>Chargeback report for this project</Button>
     </Paper>
+    {p.include8D && <Box sx={{ mb: 2 }}><EightDBlock kind="projects" id={p.id} /></Box>}
     <Typography variant="h6" sx={{ mb: 1 }}>Linked items</Typography>
     {linked && <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 1 }} data-testid="project-type-filter">
       {[null, ...types, ...(p.inspectionRequests.length ? [IR] : [])].map((k) => <Chip key={k ?? 'all'} label={k ?? 'All'} size="small" color={type === k ? 'primary' : 'default'} onClick={() => setType(k)} />)}
@@ -171,7 +180,7 @@ export function ProjectPage() {
         </Table></Paper>}
       {p.inspectionRequests.some((r) => r.workOrderId) && <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1 }}>Hours and costs of a converted request are counted once, on its work order.</Typography>}
     </>}
-    {edit && <ProjectDialog open initial={p} onClose={() => { setEdit(false); refresh(); }} />}
+    {edit && <ProjectDialog open initial={p} onClose={() => { setEdit(false); refresh(); qc.invalidateQueries({ queryKey: ['sqf-8d'] }); }} />}
   </SqfPage>;
 }
 

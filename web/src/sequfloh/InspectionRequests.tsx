@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PICK_PROJECT, ProjectLink, ProjectName } from './Projects';
+import { EightDAsk, EightDBlock, EightDCreate, uploadEightD } from './EightD';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
@@ -22,7 +23,7 @@ const A = `${S}/inspection-requests`;
 export interface InspectionRequest {
   id: string; number: string; siteId: string; partId?: string | null; partNumber: string; partDescription?: string | null; quantity?: number | null; reason?: string | null;
   requirement?: string | null; workInstructionId?: string | null; workInstructionLabel?: string | null; requestedDate?: string | null; priority: string; status: string;
-  requestedByName?: string | null; createdAt: string; projectId?: string | null; workOrderId?: string | null; workOrderNumber?: string | null; overdue: boolean;
+  requestedByName?: string | null; createdAt: string; projectId?: string | null; include8D?: boolean; workOrderId?: string | null; workOrderNumber?: string | null; overdue: boolean;
   assignedUserId?: string | null; assignedUserName?: string | null;
 }
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null ; attributes?: string | null }
@@ -77,11 +78,13 @@ const body = (f: Form) => ({ number: f.number?.trim() || null, siteId: f.siteId,
   quantity: f.quantity === '' ? null : Number(f.quantity), reason: f.reason || null, requirement: f.requirement.trim() || null, workInstructionId: f.wi?.id ?? null,
   requestedDate: f.requestedDate || null, priority: f.priority, projectId: f.projectId || null });
 
-export function InspectionRequestDialog({ open, onClose, initial, id }: { open: boolean; onClose: () => void; initial?: Form; id?: string }) {
+export function InspectionRequestDialog({ open, onClose, initial, id, include8D }: { open: boolean; onClose: () => void; initial?: Form; id?: string; include8D?: boolean }) {
   const qc = useQueryClient(); const nav = useNavigate();
   const [f, setF] = useState<Form>(initial ?? blank); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const [linkProject, setLinkProject] = useState(false);
-  useEffect(() => { if (open) { setF(initial ?? blank); setErr(null); setLinkProject(!!initial?.projectId); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [with8D, setWith8D] = useState(false);
+  const [files8D, setFiles8D] = useState<File[]>([]);
+  useEffect(() => { if (open) { setF(initial ?? blank); setErr(null); setLinkProject(!!initial?.projectId); setWith8D(!!include8D); setFiles8D([]); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const [auto, setAuto] = useState('');
   useEffect(() => {
     if (id || !open || !f.siteId || (!f.partId && !f.partNumber.trim())) return;
@@ -100,7 +103,10 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
     if (linkProject && !f.projectId) return setErr(PICK_PROJECT);
     setBusy(true); setErr(null);
     try {
-      const r = id ? await put<InspectionRequest>(`${A}/${id}`, body(f)) : await post<InspectionRequest>(A, body(f));
+      const r = id ? await put<InspectionRequest>(`${A}/${id}`, body(f)) : await post<InspectionRequest>(A, { ...body(f), include8D: with8D });
+      if (id && with8D !== !!include8D) await put(`${S}/8d/inspection-requests/${id}/include`, { include: with8D });
+      if (!id && with8D) for (const x of files8D) { try { await uploadEightD('inspection-requests', r.id, x); } catch (e) { window.alert(`The request was saved, but ${x.name} was not added: ${(e as Error).message}`); } }
+      await qc.invalidateQueries({ queryKey: ['sqf-8d'] });
       await qc.invalidateQueries({ queryKey: ['sqf-ir'] }); onClose();
       if (!id) nav(`/sequfloh/inspection-request/${r.id}`);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
@@ -111,7 +117,8 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
       <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
         {!id && <NumberField fullWidth sx={{ mt: 1, mb: 2 }} value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'ir-number', maxLength: 40 }} />}
         <RequestForm value={f} onChange={setF} />
-        <Box sx={{ mt: 2 }}><ProjectLink value={f.projectId ?? ''} onChange={(v) => setF({ ...f, projectId: v })} yes={linkProject} onYes={setLinkProject} testId="ir-project" /></Box></DialogContent>
+        <Box sx={{ mt: 2 }}><ProjectLink value={f.projectId ?? ''} onChange={(v) => setF({ ...f, projectId: v })} yes={linkProject} onYes={setLinkProject} testId="ir-project" /></Box>
+        <Box sx={{ mt: 2 }}>{id ? <EightDAsk yes={with8D} onYes={setWith8D} /> : <EightDCreate yes={with8D} onYes={setWith8D} files={files8D} onFiles={setFiles8D} />}</Box></DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={busy}>{id ? 'Save' : 'Submit request'}</Button></DialogActions>
     </Dialog>
   );
@@ -292,8 +299,9 @@ export function InspectionRequestPage() {
         <Paper sx={{ p: 2 }}><Typography variant="subtitle2" gutterBottom>Inspection requirement</Typography>
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{r.requirement || '—'}</Typography></Paper>
       </Box>
+      <Box sx={{ mt: 3 }}><EightDBlock kind="inspection-requests" id={r.id} /></Box>
       <Box sx={{ mt: 3 }}><Typography variant="h6" gutterBottom>Attachments</Typography><FilesPanel surface="inspection-request-files" type="SequflohInspectionRequest" id={r.id} canEdit={!closed && can('sequfloh.access')} /></Box>
-      <InspectionRequestDialog open={edit} onClose={() => setEdit(false)} initial={initial} id={r.id} />
+      <InspectionRequestDialog open={edit} onClose={() => setEdit(false)} initial={initial} id={r.id} include8D={!!r.include8D} />
       <ConvertDialog r={r} open={convert} onClose={() => setConvert(false)} />
     </SqfPage>
   );

@@ -30,5 +30,7 @@ public class SequflohInspectionRequest : Entity, IAudited, ISiteScoped
     public Guid? AssignedUserId { get; set; }
     public string? AssignedUserName { get; set; }
     public Guid? ProjectId { get; set; }
+    /// <summary>"Include 8D Report?" Yes: the record shows the 8D Report block.</summary>
+    public bool Include8D { get; set; }
     public string AuditLabel => $"inspection request {Number}";
 }

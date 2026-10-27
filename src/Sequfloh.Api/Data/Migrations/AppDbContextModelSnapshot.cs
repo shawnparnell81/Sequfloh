@@ -764,6 +764,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("Include8D")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Number")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -1239,6 +1242,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<bool>("Include8D")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1866,6 +1872,9 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<long>("HoldSeconds")
                         .HasColumnType("bigint");
+
+                    b.Property<bool>("Include8D")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("InspectionDescription")
                         .HasMaxLength(4000)

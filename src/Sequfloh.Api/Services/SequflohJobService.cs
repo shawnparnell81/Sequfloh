@@ -324,7 +324,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         List<ReportPart> Parts, decimal PartsTotal, List<ReportFile> Files, int Tested, int Passed, int Failed, DateTimeOffset GeneratedAt,
         long PausedSeconds = 0, List<ReportTimeEvent>? TimeLog = null, JobFindings? Findings = null, List<CostLine>? CostLines = null, ReportOptions? Options = null,
         List<ReportAttachment>? Attachments = null, List<ReportAttachment>? Photos = null, string? WorkInstructionNumber = null, string? WorkInstructionRevision = null,
-        decimal PartsCost = 0, decimal OtherCost = 0);
+        decimal PartsCost = 0, decimal OtherCost = 0, List<EightDFile>? EightD = null);
 
     public async Task<JobReport> ReportAsync(Guid id, CancellationToken ct)
     {
@@ -349,7 +349,8 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             people.Sum(p => p.PausedSeconds), log, FindingsOf(r.Findings), lines, opts,
             [.. all.Where(x => x.Kind == "attachment").OrderBy(x => x.CreatedAt).Select(A)], [.. all.Where(x => x.Kind == "evidence").OrderBy(x => x.CreatedAt).Select(A)],
             r.WorkInstructionNumber, r.WorkInstructionRevision,
-            parts.Sum(p => p.UnitCost is { } u ? Math.Round(u * p.Quantity, 2) : 0), lines.Sum(l => l.Amount));
+            parts.Sum(p => p.UnitCost is { } u ? Math.Round(u * p.Quantity, 2) : 0), lines.Sum(l => l.Amount),
+            SequflohEightDService.Excluded(r.Type) ? [] : await SequflohEightDService.FilesOfAsync(db, "work-orders", [r.Id], ct));
     }
 
     public static string Hours(long seconds) => (seconds / 3600m).ToString("0.00", CultureInfo.InvariantCulture);
@@ -416,6 +417,11 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
                     fl.Tested?.ToString(CultureInfo.InvariantCulture) ?? "not read", I(fl.Passed), I(fl.Failed),
                     string.Join("; ", fl.KeyValues.Select(k => $"{k.Column} {N(k.Min)}–{N(k.Max)} (avg {N(k.Average)})")), fl.FileName,
                 }).ToList()));
+        }
+        if (x.EightD is { Count: > 0 } ed)
+        {
+            blocks.Add(new PrintHeading("8D Report"));
+            blocks.Add(new PrintTable([("File", 5), ("Uploaded by", 2), ("When", 2)], [.. ed.Select(a => new string?[] { a.FileName, a.UploadedBy ?? "", local(a.UploadedAt) })]));
         }
         if (o.Attachments && x.Attachments is { Count: > 0 } at)
         {

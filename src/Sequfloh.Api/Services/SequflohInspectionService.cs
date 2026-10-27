@@ -14,7 +14,7 @@ using Sequfloh.Platform;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record InspectionRequestInput(Guid SiteId, string? PartNumber = null, Guid? PartId = null, string? PartDescription = null, decimal? Quantity = null, string? Reason = null,
-    string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null, string? Number = null, Guid? ProjectId = null);
+    string? Requirement = null, Guid? WorkInstructionId = null, DateOnly? RequestedDate = null, string? Priority = null, string? Number = null, Guid? ProjectId = null, bool Include8D = false);
 public sealed record InspectionAssignInput(Guid? UserId);
 public sealed record InspectionConvertInput(Guid? WorkInstructionId = null, TrackingType Type = TrackingType.Inspection, string? Number = null);
 
@@ -61,7 +61,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
     static object Dto(SequflohInspectionRequest x, DateOnly today) => new
     {
         x.Id, x.Number, x.SiteId, x.PartId, x.PartNumber, x.PartDescription, x.Quantity, x.Reason, x.Requirement, x.WorkInstructionId, x.WorkInstructionLabel, x.RequestedDate,
-        x.Priority, x.Status, x.RequestedByName, x.CreatedAt, x.WorkOrderId, x.WorkOrderNumber, x.AssignedUserId, x.AssignedUserName, x.ProjectId,
+        x.Priority, x.Status, x.RequestedByName, x.CreatedAt, x.WorkOrderId, x.WorkOrderNumber, x.AssignedUserId, x.AssignedUserName, x.ProjectId, x.Include8D,
         Overdue = x.RequestedDate is { } d && d < today && x.Status is InspectionRequestStatus.Open or InspectionRequestStatus.InProgress,
     };
 
@@ -143,7 +143,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
     {
         await m.RequireAsync(Permissions.SequflohAccess, x.SiteId, null, ct);
         await m.ValidateLocationAsync(x.SiteId, null, ct);
-        var r = new SequflohInspectionRequest { SiteId = x.SiteId, RequestedById = m.UserId };
+        var r = new SequflohInspectionRequest { SiteId = x.SiteId, RequestedById = m.UserId, Include8D = x.Include8D };
         await Fill(r, x, ct);
         r.RequestedByName = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
         await using var tx = await db.Database.BeginTransactionAsync(ct);

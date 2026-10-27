@@ -14,5 +14,7 @@ public class SequflohProject : Entity, IAudited
     public string? Description { get; set; }
     public Guid? SiteId { get; set; }
     public ProjectStatus Status { get; set; }
+    /// <summary>"Include 8D Report?" Yes: the record shows the 8D Report block.</summary>
+    public bool Include8D { get; set; }
     public string AuditLabel => $"project {Number}";
 }

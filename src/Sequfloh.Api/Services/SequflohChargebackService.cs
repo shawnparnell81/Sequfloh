@@ -253,7 +253,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
 
     /// <summary>One block of the printed report: a heading with label / value rows, a table, photos or a line of text.</summary>
     public sealed record ReportBlock(string Key, string Heading, List<(string Label, string? Value)>? Fields = null, List<(string Name, double Width)>? Columns = null,
-        List<string?[]>? Rows = null, List<(Guid Id, string Caption)>? Photos = null);
+        List<string?[]>? Rows = null, List<(Guid Id, string Caption)>? Photos = null, List<EightDFile>? Links = null);
 
     static string? I(int? v) => v?.ToString(CultureInfo.InvariantCulture);
     static string? Hd(decimal? v) => v is { } h ? h.ToString("0.00", CultureInfo.InvariantCulture) : null;
@@ -359,6 +359,21 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             blocks.Add(new("attachments", "Attachments", Columns: [("File", 6), ("Added", 2)], Rows: [.. at.Select(a => new string?[] { a.FileName, local(a.UploadedAt) })]));
         if (on.Contains("photos") && job?.Photos is { Count: > 0 } ph)
             blocks.Add(new("photos", "Photos and evidence", Photos: [.. ph.Select(p => (p.Id, $"{p.FileName} · {local(p.UploadedAt)}"))]));
+        // 8D reports: the work order's own (not Validation / FAI), or for a project rollup the project's and those of its linked records
+        var eightD = new List<EightDFile>();
+        if (x.TrackingRecordId is { } wid && job is not null && !SequflohEightDService.Excluded(Enum.Parse<TrackingType>(job.Type))) eightD.AddRange(job.EightD ?? []);
+        if (PeriodOf(x.Period) is { IsProject: true, ProjectId: { } pid8 })
+        {
+            eightD.AddRange(await SequflohEightDService.FilesOfAsync(db, "projects", [pid8], ct));
+            var wos = await db.SequflohTrackingRecords.AsNoTracking().Where(r => r.ProjectId == pid8 && r.Type != TrackingType.Validation && r.Type != TrackingType.Fai).Select(r => new { r.Id, r.Number }).ToListAsync(ct);
+            var irs = await db.SequflohInspectionRequests.AsNoTracking().Where(r => r.ProjectId == pid8).Select(r => new { r.Id, r.Number }).ToListAsync(ct);
+            var wn = wos.ToDictionary(w => w.Id, w => w.Number); var rn = irs.ToDictionary(w => w.Id, w => w.Number);
+            eightD.AddRange((await SequflohEightDService.FilesOfAsync(db, "work-orders", wn.Keys, ct)).Select(e => e with { OwnerNumber = wn[e.OwnerId] }));
+            eightD.AddRange((await SequflohEightDService.FilesOfAsync(db, "inspection-requests", rn.Keys, ct)).Select(e => e with { OwnerNumber = rn[e.OwnerId] }));
+        }
+        if (eightD.Count > 0)
+            blocks.Add(new("eightD", "8D Report", Columns: [("8D Report", 4), ("Record", 1.6), ("Uploaded by", 2), ("When", 2)],
+                Rows: [.. eightD.Select(e => new string?[] { e.FileName, e.OwnerNumber ?? (e.OwnerKind == "projects" ? "Project" : x.WorkOrderNumber), e.UploadedBy ?? "", local(e.UploadedAt) })], Links: eightD));
         Add("notes", "Notes", [("Notes", x.Notes)]);
         if (on.Contains("cost"))
         {
@@ -384,7 +399,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         return blocks.Select(b => new
         {
             b.Key, b.Heading, Fields = b.Fields?.Where(v => !string.IsNullOrWhiteSpace(v.Value)).Select(v => new { v.Label, v.Value }),
-            Columns = b.Columns?.Select(c => c.Name), b.Rows, Photos = b.Photos?.Select(p => p.Caption),
+            Columns = b.Columns?.Select(c => c.Name), b.Rows, Photos = b.Photos?.Select(p => p.Caption), Links = b.Links?.Select(l => new { l.Id, l.FileName }),
         });
     }
 
