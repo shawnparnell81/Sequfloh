@@ -56,6 +56,8 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string? Project { get; set; }
     /// <summary>The project this work order belongs to, or null. The free-text Project above is kept as it was.</summary>
     public Guid? ProjectId { get; set; }
+    /// <summary>"Include 8D Report?" Yes: the record shows the 8D Report block.</summary>
+    public bool Include8D { get; set; }
     public string? Operation { get; set; }
     public Guid? OwnerId { get; set; }
     public Guid? AssignedUserId { get; set; }

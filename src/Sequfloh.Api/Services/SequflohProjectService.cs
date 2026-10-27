@@ -11,7 +11,7 @@ using Sequfloh.Infrastructure.Modules.Quality;
 
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
-public sealed record ProjectInput(string? Number, string? Name, string? Description = null, Guid? SiteId = null);
+public sealed record ProjectInput(string? Number, string? Name, string? Description = null, Guid? SiteId = null, bool? Include8D = null);
 public sealed record ProjectLinkInput(Guid? ProjectId);
 
 /// <summary>
@@ -82,9 +82,15 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
         if (await db.SequflohProjects.AnyAsync(x => x.Id != p.Id && x.Number.ToLower() == number.ToLower(), ct)) throw new ConflictException($"A project numbered {number} already exists.");
         if (i.SiteId is { } s && !await db.Sites.AnyAsync(x => x.Id == s, ct)) throw new AppException("Unknown site.");
         p.Number = number; p.Name = name; p.Description = T(i.Description, 2000); p.SiteId = i.SiteId;
+        if (i.Include8D is { } inc && inc != p.Include8D)
+        {
+            var ownerType = SequflohEightDService.OwnerType("projects");
+            if (!inc && await db.Attachments.AnyAsync(a => a.OwnerType == ownerType && a.OwnerId == p.Id && !a.IsArchived, ct)) throw new AppException("Remove the 8D files first, then choose No.");
+            p.Include8D = inc;
+        }
     }
 
-    static object Snapshot(SequflohProject p) => new { p.Number, p.Name, p.Description, p.SiteId, Status = p.Status.ToString() };
+    static object Snapshot(SequflohProject p) => new { p.Number, p.Name, p.Description, p.SiteId, p.Include8D, Status = p.Status.ToString() };
 
     public async Task<object> CreateAsync(ProjectInput i, CancellationToken ct)
     {
@@ -228,7 +234,7 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
         var woNumbers = recs.ToDictionary(r => r.Id, r => (r.Number, r.Status));
         return new
         {
-            p.Id, p.Number, p.Name, p.Description, p.SiteId, Status = p.Status.ToString(), p.CreatedAt,
+            p.Id, p.Number, p.Name, p.Description, p.SiteId, Status = p.Status.ToString(), p.CreatedAt, p.Include8D,
             CanManage = await m.CanAnyAsync(Permissions.SequflohManageProjects, ct),
             WorkOrders = x.Rows,
             InspectionRequests = reqs.Select(r => new

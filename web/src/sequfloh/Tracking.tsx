@@ -1,5 +1,6 @@
 import { setupOptions } from '../components/SetupLink';
 import { PICK_PROJECT, ProjectField, ProjectLink } from './Projects';
+import { EightDBlock, EightDCreate, noEightD, uploadEightD } from './EightD';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -140,6 +141,8 @@ interface WiOpt { id: string; number: string; revision: string; title: string; t
 export function NewTrackingPage() {
   const [projectId, setProjectId] = useState(new URLSearchParams(window.location.search).get('project') ?? '');
   const [linkProject, setLinkProject] = useState(!!projectId);
+  const [with8D, setWith8D] = useState(false);
+  const [files8D, setFiles8D] = useState<File[]>([]);
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const { can } = useAuth();
@@ -196,7 +199,8 @@ export function NewTrackingPage() {
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
-        maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId) });
+        maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId), include8D: with8D && !noEightD(type) });
+      if (with8D && !noEightD(type)) for (const x of files8D) { try { await uploadEightD('work-orders', r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
       nav(`/sequfloh/record/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -256,6 +260,7 @@ export function NewTrackingPage() {
           {fld('serialNumber', 'Serial number')}{fld('lotNumber', 'Lot number')}
           {fld('workOrder', 'Work order')}{type === 'Repair' && fld('repairOrder', 'Repair order')}
           <Box sx={{ gridColumn: '1 / -1' }}><ProjectLink value={projectId} onChange={setProjectId} yes={linkProject} onYes={setLinkProject} /></Box>
+          {!noEightD(type) && <Box sx={{ gridColumn: '1 / -1' }}><EightDCreate yes={with8D} onYes={setWith8D} files={files8D} onFiles={setFiles8D} /></Box>}
           {type === 'Repair' && fld('customerReturnReference', 'Customer-return reference')}
           {fld('operation', 'Operation')}
           {fld('plannedStart', 'Expected start date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
@@ -407,6 +412,7 @@ export function TrackingRecordPage() {
             <TextField size="small" type="datetime-local" label="Due date" value={local(s(doc.dueAt))} disabled={!plan} InputLabelProps={{ shrink: true }} onChange={(e) => upd({ dueAt: e.target.value ? new Date(e.target.value).toISOString() : null })} />
           </Grid>
         </Paper>
+        {!noEightD(rec.type) && <EightDBlock kind="work-orders" id={rec.id} />}
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Results and evidence">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Results and evidence</Typography>
           {!q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Results are recorded while the record is in progress or pending inspection.</Typography>}

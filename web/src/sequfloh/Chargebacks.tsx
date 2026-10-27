@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, Checkbox, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, useSqf, useUnsaved } from './common';
+import { eightDUrl } from './EightD';
 import { RecordActions } from '../components/RecordActions';
 import { otherNumbers, usePartSearch } from './partSearch';
 import { partNo } from './partLabel';
@@ -30,7 +31,7 @@ interface Report { locked?: boolean;
 }
 type Form = Record<string, string>;
 interface SectionOpt { key: string; label: string; default: boolean }
-interface Block { key: string; heading: string; fields?: { label: string; value: string }[] | null; columns?: string[] | null; rows?: (string | null)[][] | null; photos?: string[] | null }
+interface Block { key: string; heading: string; fields?: { label: string; value: string }[] | null; columns?: string[] | null; rows?: (string | null)[][] | null; photos?: string[] | null; links?: { id: string; fileName: string }[] | null }
 const useSectionOptions = () => useQuery({ queryKey: ['sqf-cb-sections'], queryFn: () => get<SectionOpt[]>(`${S}/chargebacks/sections`), staleTime: Infinity });
 
 const crumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Reports', to: '/sequfloh/reports/task-performance' }, { label: 'Chargeback Reports', to: '/sequfloh/chargebacks' }, { label }];
@@ -311,7 +312,7 @@ function ReportBlocks({ id, title, supplier }: { id: string; title: string; supp
       </Box>}
       {b.columns && <Table size="small"><TableHead><TableRow>{b.columns.map((c) => <TableCell key={c} sx={{ fontWeight: 600 }}>{c}</TableCell>)}</TableRow></TableHead>
         <TableBody>{(b.rows ?? []).map((r, j) => <TableRow key={j}>{r.map((c, k) => <TableCell key={k} sx={r[0] === 'Total' ? { fontWeight: 600 } : undefined}>
-          {b.columns?.[k] === 'Chart' ? <Box data-testid="chart-bar" sx={{ height: 12, bgcolor: 'primary.main', borderRadius: 0.5, width: `${(c ?? '').length * 5}%` }} /> : c}</TableCell>)}</TableRow>)}</TableBody></Table>}
+          {b.links?.[j] && k === 0 ? <Link href={eightDUrl(b.links[j].id)} target="_blank" rel="noopener" data-testid="eightd-link">{c}</Link> : b.columns?.[k] === 'Chart' ? <Box data-testid="chart-bar" sx={{ height: 12, bgcolor: 'primary.main', borderRadius: 0.5, width: `${(c ?? '').length * 5}%` }} /> : c}</TableCell>)}</TableRow>)}</TableBody></Table>}
       {b.photos?.map((p) => <Typography key={p} variant="body2" sx={{ px: 1 }}>Photo: {p}</Typography>)}
     </Box>)}
   </Paper>;
