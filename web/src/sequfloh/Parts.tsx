@@ -12,6 +12,7 @@ import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, getBlob, post, put } from '../api';
 import { otherNumbers, usePartSearch } from './partSearch';
+import { usePartFieldScan } from '../scan/ScanProvider';
 import { useAuth } from '../auth';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
@@ -68,6 +69,8 @@ export function PartMasterPage() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
   const view = sp.get('view') ?? '';
+  // a scanned number with no part opens Add part with that number (the drawing is linked by hand afterward)
+  const addFromScan = sp.get('add') ?? '';
   const home = !view && [...sp.keys()].length === 0;
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('partNumber:asc');
   const v = (k: string) => sp.get(k) ?? '';
@@ -119,7 +122,7 @@ export function PartMasterPage() {
   const allCols = [...lead.map((k) => baseCols.find((c) => c.key === k)!).filter(Boolean), ...baseCols.filter((c) => !lead.includes(c.key))];
   const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
   const dialogs = <>
-    <PartDialog open={open} onClose={() => setOpen(false)} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
+    <PartDialog open={open || !!addFromScan} prefill={addFromScan || undefined} onClose={() => { setOpen(false); if (addFromScan) set('add', ''); }} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
     <ImportPartsDialog open={importing} onClose={() => setImporting(false)} preset={preset} />
     {canChange && <ChangeFamilyDialog open={changing} onClose={() => setChanging(false)} families={types.data ?? []} defs={attrDefs.data ?? []} ticked={ticked}
       filters={{ q: v('q'), partType: v('partType'), status: v('status'), tag: v('tag') }} currentFamily={v('partType') && v('partType') !== 'none' ? v('partType') : undefined} onDone={() => setTicked([])} />}
@@ -202,7 +205,7 @@ interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record
   revisions: { id: string; revision: string; reason: string; createdAt: string }[]; partsLists: { id: string; number: string; title: string; revision: string; status: string; listType: string }[];
   related: { partsLists: number }; canEdit: boolean; canEditMaster: boolean }
 
-function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: PartDetail['part'] }) {
+function PartDialog({ open, onClose, onSaved, edit, prefill }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: PartDetail['part']; prefill?: string }) {
   const sites = useSites();
   const { can } = useAuth();
   const drawingsOk = can('sequfloh.manage_drawings');
@@ -225,7 +228,7 @@ function PartDialog({ open, onClose, onSaved, edit }: { open: boolean; onClose: 
     setLinks([]); setInline(null); setTypeId(edit?.typeId ?? ''); setAttrs({ ...(edit?.attributes ?? {}) }); setHidden(edit?.hiddenFields ?? []);
     if (edit && drawingsOk) get<PartDrawing[]>(`/api/drawings/for-part?partId=${edit.id}`).then((l) => setLinks(l.map((d) => ({ id: d.id, label: `${d.drawingNumber ? d.drawingNumber + ' · ' : ''}${d.title} (rev ${d.currentRevision})` })))).catch(() => undefined);
     const lc = (e?: PartDetail['part']) => (e ? (e.lotControl || (e.isLotControlled ? 'Yes' : 'No')) : '');
-    setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, siteId: sites.data?.[0]?.id ?? '' }); };
+    setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, partNumber: prefill ?? '', siteId: sites.data?.[0]?.id ?? '' }); };
   const familyLabels = (types.data ?? []).filter((t) => t.isActive).map((t) => t.label);
   const yn = (k: 'isAssembly' | 'isRepairable') => ({ value: f[k] ? 'Yes' : 'No', onChange: (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value === 'Yes' }) });
   const s = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
@@ -336,6 +339,7 @@ export function PartDetailPage() {
         {q.data?.canEdit && <Button color={p.status === 'Inactive' ? 'primary' : 'error'} onClick={() => setConfirm(true)}>{p.status === 'Inactive' ? 'Reactivate' : 'Deactivate'}</Button>}
       </RecordActions>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : p && <>
+        <LatestActivity partId={p.id} />
         {p.notes && <Alert severity="warning" icon={false} sx={{ mb: 2, whiteSpace: 'pre-wrap' }} data-testid="part-notes"><Typography variant="subtitle2">Notes</Typography>{p.notes}</Alert>}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="part-drawings-box"><Typography variant="subtitle2" sx={{ mb: 1 }}>Drawings</Typography><PartDrawingLinks partId={p.id} /></Paper>
         <InventoryNote />
@@ -408,11 +412,12 @@ function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChan
   // the chosen part may not be on the current page of matches, so read it on its own
   const chosen = useQuery({ queryKey: ['sqf-part-one', value], enabled: !!value, queryFn: () => get<{ part: PartRow }>(`${S}/parts/${value}`) });
   const current = value ? (parts.items.find((p) => p.id === value) ?? chosen.data?.part ?? null) : null;
-  return <Autocomplete size="small" options={parts.items} value={current} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} loading={parts.loading}
+  const scan = usePartFieldScan((p) => { setText(''); onChange(p.id, p.partNumber); });
+  return <Box {...scan}><Autocomplete size="small" options={parts.items} value={current} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} loading={parts.loading}
     getOptionLabel={(p) => partOption(p)} noOptionsText={text ? 'No part matches' : 'Type a part number'}
     renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partOption(p)}</Typography>{otherNumbers(p) && <Typography variant="caption" color="text.secondary">{otherNumbers(p)}</Typography>}</Box></li>}
     onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, p) => onChange(p?.id ?? '', p?.partNumber)}
-    renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by part number, DWG #, NAPA, DMA or JH PN" />} />;
+    renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by part number, DWG #, NAPA, DMA or JH PN" />} /></Box>;
 }
 
 interface ListDetail { list: { id: string; number: string; title: string; parentPartId?: string; revision: string; status: string; description?: string; listType: string; releasedAt?: string; releasedBy: string;
@@ -640,4 +645,21 @@ export function RevisionHistoryPage() {
           { key: 'reason', label: 'Reason', render: (r) => r.reason ?? '—' }, { key: 'at', label: 'Date', render: (r) => fmtDateTime(r.at) }]} />
     </SqfPage>
   );
+}
+
+interface Activity { kind: string; id: string; number: string; type: string; status: string; createdAt: string; link: string; detail?: string | null }
+
+/** Work orders of every type and inspection requests for this part, newest first. */
+function LatestActivity({ partId }: { partId: string }) {
+  const q = useQuery({ queryKey: ['sqf-part-activity', partId], queryFn: () => get<{ items: Activity[]; canCreateRepair: boolean }>(`${S}/parts/${partId}/activity`) });
+  const items = q.data?.items ?? [];
+  return <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="part-activity">
+    <Stack direction="row" alignItems="center" sx={{ mb: 1 }}><Typography variant="subtitle2" sx={{ flex: 1 }}>Latest activity</Typography>
+      {q.data?.canCreateRepair && <Button size="small" variant="outlined" component={RouterLink} to={`/sequfloh/tracking/new?type=Repair&partId=${partId}`} data-testid="part-new-repair">New Repair / Rework work order</Button>}</Stack>
+    {q.isLoading ? <Loading /> : items.length === 0 ? <Typography variant="body2" color="text.secondary">No work orders or inspection requests for this part yet.</Typography> :
+      <Stack gap={0.5}>{items.map((a) => <Box key={a.kind + a.id} component={RouterLink} to={a.link} data-testid="activity-row"
+        sx={{ display: 'flex', gap: 2, color: 'inherit', textDecoration: 'none', py: 0.5, '&:hover': { bgcolor: 'action.hover' } }}>
+        <Mono>{a.number}</Mono><Typography variant="body2" sx={{ flex: 1 }}>{a.type}{a.detail ? ` · ${a.detail}` : ''}</Typography>
+        <SqfStatus status={a.status} /><Typography variant="caption" color="text.secondary">{fmtDateTime(a.createdAt)}</Typography></Box>)}</Stack>}
+  </Paper>;
 }

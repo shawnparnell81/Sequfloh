@@ -166,6 +166,11 @@ export function NewTrackingPage() {
   const [wi, setWi] = useState<WiOpt | null>(null);
   const [wiText, setWiText] = useState('');
   const [part, setPart] = useState<{ id: string; partNumber: string; name?: string } | null>(null);
+  // opened from a part page or a scan: start with that part
+  useEffect(() => {
+    const pid = sp.get('partId'); if (!pid || part) return;
+    get<{ part: { id: string; partNumber: string; name: string } }>(`${S}/parts/${pid}`).then((r) => setPart({ id: r.part.id, partNumber: r.part.partNumber, name: r.part.name })).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = useState<Record<string, string>>({ priority: 'Normal' });
   const [siteId, setSiteId] = useState(''); const [departmentId, setDepartmentId] = useState(''); const [assigned, setAssigned] = useState('');
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);

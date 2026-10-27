@@ -13,7 +13,7 @@ public sealed record PrintTable(IReadOnlyList<(string Name, double Weight)> Colu
 
 /// <summary>Header and footer of a SEQUFLOH printed document (organization, module, title, number, revision, status, controlled-copy notice).</summary>
 public sealed record PrintHeader(string Organization, string DocumentTitle, string DocumentNumber, string? Revision, string Status, string? EffectiveDate, string? Applicability,
-    string ControlledCopyNotice, string PrintedBy, string PrintedAt, string? Watermark);
+    string ControlledCopyNotice, string PrintedBy, string PrintedAt, string? Watermark, string? Barcode = null);
 
 /// <summary>
 /// Controlled printed documents for SEQUFLOH (work instructions, tracking records, audit summaries), drawn with the application's own PDF canvas:
@@ -79,8 +79,14 @@ public static class SequflohPdfRenderer
         p.Text(M + lw + 10, M + 14, 8, "SEQUFLOH · Enterprise Execution Engine", new TextStyle(Colour: Grey));
         var right = $"{h.DocumentNumber}{(h.Revision is null ? "" : " rev " + h.Revision)}";
         p.TextAligned(W - M - 160, M + 1, 10, 160, right, new TextStyle(true), "right");
-        p.TextAligned(W - M - 160, M + 14, 8, 160, h.Status, new TextStyle(Colour: Brand), "right");
         var y = M + 30;
+        if (string.IsNullOrWhiteSpace(h.Barcode)) p.TextAligned(W - M - 160, M + 14, 8, 160, h.Status, new TextStyle(Colour: Brand), "right");
+        else
+        {
+            // Code 128 of the exact record number, top right, so scanning the paper opens the record
+            p.Text(M + lw + 10, M + 26, 8, h.Status, new TextStyle(Colour: Brand));
+            y = M + 14 + Code128.Draw(p, W - M, M + 14, h.Barcode.Trim()) + 2;
+        }
         p.Line(M, y, W - M, y, 1.2, Brand);
         y += 8;
         foreach (var l in PdfCanvas.Wrap(h.DocumentTitle, 13, c.Inner).Take(2)) { p.Text(M, y, 13, l, true); y += 16; }

@@ -152,6 +152,7 @@ interface Report { id: string; number: string; type: string; status: string; tit
   timeLog: { name: string; kind: string; at: string }[]; findings: Findings; costLines: CostLine[]; options: Opts; attachments: Att[]; photos: Att[];
   workInstructionNumber: string; workInstructionRevision: string; partsCost: number; otherCost: number; eightD?: EightDFile[] }
 
+import { RecordBarcode } from '../scan/RecordBarcode';
 const hrs = (s: number) => (s / 3600).toFixed(2);
 const money = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const SECTIONS: [keyof Opts, string][] = [['perTech', 'Per-technician summary'], ['timeLog', 'Detailed time log'], ['findings', 'Findings'],
@@ -207,6 +208,7 @@ export function JobReportPage() {
       {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}
       {saved && <Alert severity="success" sx={{ mt: 1 }} onClose={() => setSaved(false)}>Saved to Reports.</Alert>}</Paper>
     {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : r && <Paper variant="outlined" className="job-report" sx={{ p: 3 }} data-testid="job-report">
+      <RecordBarcode value={r.number} />
       <Typography variant="h5" sx={{ color: '#1257C4' }}>Chargeback job report</Typography>
       <Typography variant="body2" color="text.secondary" gutterBottom>Generated {fmtDateTime(r.generatedAt)}</Typography>
       <Sec title="Chargeback"><Rows rows={[['Supplier', blank(supplier || fd.supplier)], ['Reference / PO', blank(reference || fd.purchaseOrder)]]} /></Sec>
