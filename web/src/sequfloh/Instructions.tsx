@@ -190,13 +190,14 @@ function RowActions({ row }: { row: WiRow }) {
 interface PartOpt { drawingNumber?: string | null; id: string; partNumber: string; name: string; description?: string | null; revision: string; productFamily?: string; assemblyType?: string; partType: string; status: string; isRepairable?: boolean ; attributes?: string | null }
 export function PartPicker({ value, label, onChange, disabled, repairable }: { value: { id: string; partNumber: string; name?: string } | null; label: string; onChange: (p: PartOpt | null) => void; disabled?: boolean; repairable?: boolean }) {
   const [text, setText] = useState('');
-  const q = usePartSearch<PartOpt>(text, { status: 'Active', view: repairable ? 'repairable' : undefined });
+  // every status is listed so a part that is not Active shows up (and can't be picked) instead of looking missing
+  const q = usePartSearch<PartOpt>(text, { view: repairable ? 'repairable' : undefined });
   const opts: PartOpt[] = q.items;
   const listbox = useSetupListbox('sqfPart');
   const current = value ? (opts.find((o) => o.id === value.id) ?? ({ id: value.id, partNumber: value.partNumber, name: value.name ?? '', revision: '', partType: '', status: 'Active' } as PartOpt)) : null;
   return <Autocomplete size="small" options={opts} value={current} slots={{ listbox }} noOptionsText={text ? 'No matching part' : 'Type a part number, JH PN, DWG #, NAPA or DMA'} disabled={disabled} loading={q.loading} filterOptions={(x) => x}
-    isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => partOption(o)}
-    renderOption={(props, o) => <li {...props} key={o.id} data-testid="part-option"><Box><Typography variant="body2">{partOption(o)}</Typography>{otherNumbers(o) && <Typography variant="caption" color="text.secondary">{otherNumbers(o)}</Typography>}</Box></li>}
+    isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => partOption(o)} getOptionDisabled={(o) => !!o.status && o.status !== 'Active'}
+    renderOption={(props, o) => <li {...props} key={o.id} data-testid="part-option"><Box><Typography variant="body2">{partOption(o)}{o.status && o.status !== 'Active' ? ` (${o.status}: make it Active in the Part Master to use it)` : ''}</Typography>{otherNumbers(o) && <Typography variant="caption" color="text.secondary">{otherNumbers(o)}</Typography>}</Box></li>}
     onInputChange={(_, t, reason) => { if (reason === 'input') setText(t); }} onChange={(_, o) => onChange(o)}
     renderInput={(p) => <TextField {...p} label={label} helperText={q.hint} />} />;
 }
