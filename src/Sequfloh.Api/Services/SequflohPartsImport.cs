@@ -202,7 +202,19 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     /// <summary>Key is the row's mapped values, used to find exact duplicates; Position tells parts with the same OR # apart.</summary>
-    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null);
+    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null, string? Drawing = null, Dictionary<string, string>? Attrs = null);
+
+    /// <summary>The numbers an update would replace: an existing real DWG # or number field is never overwritten by a different value.</summary>
+    static List<string> KeptNumbers(Part t, string? dwg, IReadOnlyDictionary<string, string>? attrs)
+    {
+        var kept = new List<string>();
+        if (dwg is not null && !PartFields.IsBlank(t.DrawingNumber) && !string.Equals(t.DrawingNumber!.Trim(), dwg.Trim(), StringComparison.OrdinalIgnoreCase)) kept.Add($"Drawing number stays {t.DrawingNumber} (the file has {dwg}).");
+        var have = PartAttributes.Read(t.Attributes);
+        foreach (var (k, v) in attrs ?? new Dictionary<string, string>())
+            if (PartAttributes.Find(k) is { } d && IsNumber(d) && have.GetValueOrDefault(k) is { } old && !PartFields.IsBlank(old) && !string.Equals(old.Trim(), v.Trim(), StringComparison.OrdinalIgnoreCase))
+                kept.Add($"{d.Label} stays {old} (the file has {v}).");
+        return kept;
+    }
 
     /// <summary>Attribute fields that hold a number used to find the same part again; descriptive fields are left out.</summary>
     public static bool IsNumberKey(string key) => key is "partNumber" or "drawingNumber" || (key.StartsWith("attr:", StringComparison.Ordinal) && PartAttributes.Find(key[5..]) is { } d && IsNumber(d));
@@ -294,17 +306,20 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (pclass is not null) p.PartClass = pclass;
                 if (asm is not null) p.IsAssembly = asm.Value;
                 if (mat is not null) p.Material = mat;
-                if (dwg is not null) p.DrawingNumber = dwg;
+                // an existing real number is never replaced by a different one; blanks and placeholders are filled
+                if (dwg is not null && PartFields.IsBlank(p.DrawingNumber)) p.DrawingNumber = dwg;
                 if (spec is not null) p.Specification = spec;
                 if (rep is not null) p.IsRepairable = rep.Value;
                 if (rp is not null) p.IsRepairPart = rp.Value;
                 if (lot is not null) { p.LotControl = lot; p.IsLotControlled = lot == "Yes"; }
                 if (typeId is not null) { p.TypeId = typeId; p.ProductFamily = partTypes.First(x => x.Id == typeId).Label; }
-                PartAttributes.Merge(p, attrs);
+                var have = PartAttributes.Read(p.Attributes);
+                PartAttributes.Merge(p, attrs.Where(kv => !(PartAttributes.Find(kv.Key) is { } d && IsNumber(d) && have.GetValueOrDefault(kv.Key) is { } old && !PartFields.IsBlank(old)))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value));
                 var hidden = PartFields.Read(p.HiddenFields);
                 if (p.HiddenFields is null && p.TypeId is { } ft) hidden.AddRange(PartFields.Read(familyHidden.GetValueOrDefault(ft)));
                 p.HiddenFields = PartFields.Write(hidden.Concat(blanks));
-            }, key, attrs.GetValueOrDefault("position"), numbers));
+            }, key, attrs.GetValueOrDefault("position"), numbers, dwg, attrs));
         }
         return list;
     }
@@ -365,7 +380,13 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (!r.UpdateExisting) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, ["Already in the Part Master."]));
                 else if (!await m.CanAsync(Permissions.MasterDataEdit, match.SiteId, match.DepartmentId, ct) || !await m.CanAsync(Permissions.SequflohEditParts, match.SiteId, match.DepartmentId, ct))
                     rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, ["You cannot edit this existing part."]));
-                else { rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, PartFields.IsBlank(match.PartNumber) ? [$"Part number \"{match.PartNumber}\" becomes {p.PartNumber}."] : [])); targets[p.Row] = match; }
+                else
+                {
+                    var msgs = PartFields.IsBlank(match.PartNumber) ? new List<string> { $"Part number \"{match.PartNumber}\" becomes {p.PartNumber}." }
+                        : !string.Equals(match.PartNumber, p.PartNumber, StringComparison.OrdinalIgnoreCase) ? [$"Part number stays {match.PartNumber} (the file has {p.PartNumber})."] : [];
+                    msgs.AddRange(KeptNumbers(match, p.Drawing, p.Attrs));
+                    rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, msgs)); targets[p.Row] = match;
+                }
                 continue;
             }
             var used = repeatOf is not null || existing.ContainsKey(p.PartNumber);
@@ -401,8 +422,15 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             {
                 var t = targets[row.Row];
                 // a part left numbered "/" (or another placeholder) by an earlier import takes the row's part number; a real number is never changed
+                var before = t.PartNumber;
                 if (PartFields.IsBlank(t.PartNumber) && p.PartNumber is not null) t.PartNumber = p.PartNumber;
                 p.Apply(t); saved.Add(t.Id);
+                db.AuditEntries.Add(new AuditEntry
+                {
+                    OccurredAt = m.Now, UserId = m.UserId, UserName = m.Current.UserName, Action = "Import", EntityType = "Part", EntityId = t.Id, SiteId = t.SiteId,
+                    Description = $"Updated part {t.PartNumber} from {Path.GetFileName(r.FileName)} (row {row.Row})." + (before != t.PartNumber ? $" Part number changed from \"{before}\" to {t.PartNumber}." : "")
+                        + (row.Messages.Where(x => x.Contains(" stays ")) is var k && k.Any() ? " " + string.Join(" ", k) : ""),
+                });
             }
         }
         var file = Path.GetFileName(r.FileName);
