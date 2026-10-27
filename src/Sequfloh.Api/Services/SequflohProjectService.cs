@@ -16,7 +16,7 @@ public sealed record ProjectLinkInput(Guid? ProjectId);
 
 /// <summary>
 /// Projects group work orders of any type and inspection requests. Anyone who can open SEQUFLOH can see them and pick one; creating, editing,
-/// closing and deleting need the projects permission. The number is typed by the user and never generated. A project can be deleted only when nothing is linked.
+/// closing and deleting need the projects permission. A new project is numbered PRJ-{yy}-001, PRJ-{yy}-002 and so on unless the user types a number; existing numbers never change. A project can be deleted only when nothing is linked.
 /// </summary>
 public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, SequflohFoundationService f, SequflohCrewService crew, SequflohTrackingService tracking)
 {
@@ -56,9 +56,28 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
         });
     }
 
-    async Task FillAsync(SequflohProject p, ProjectInput i, CancellationToken ct)
+    static readonly TimeZoneInfo Eastern = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
+
+    /// <summary>The next free number PRJ-{yy}-{nnn} for the Eastern-time year of <paramref name="now"/>: one more than the highest used this year, skipping any number already taken.</summary>
+    public static string NextNumber(IEnumerable<string> used, DateTimeOffset now)
     {
-        var number = T(i.Number, 60) ?? throw new AppException("Enter the project number.");
+        var prefix = $"PRJ-{TimeZoneInfo.ConvertTime(now, Eastern).Year % 100:00}-";
+        var taken = used.Select(u => u.Trim().ToUpperInvariant()).ToHashSet();
+        var max = taken.Where(u => u.StartsWith(prefix, StringComparison.Ordinal)).Select(u => int.TryParse(u[prefix.Length..], out var k) ? k : 0).DefaultIfEmpty(0).Max();
+        var n = max + 1;
+        while (taken.Contains($"{prefix}{n:000}")) n++;
+        return $"{prefix}{n:000}";
+    }
+
+    public async Task<string> NextNumberAsync(CancellationToken ct)
+    {
+        await RequireViewAsync(ct);
+        return NextNumber(await db.SequflohProjects.AsNoTracking().Where(x => x.Number.StartsWith("PRJ-")).Select(x => x.Number).ToListAsync(ct), DateTimeOffset.UtcNow);
+    }
+
+    async Task FillAsync(SequflohProject p, ProjectInput i, CancellationToken ct, bool isNew = false)
+    {
+        var number = T(i.Number, 60) ?? (isNew ? await NextNumberAsync(ct) : throw new AppException("Enter the project number."));
         var name = T(i.Name, 200) ?? throw new AppException("Enter the project name.");
         if (await db.SequflohProjects.AnyAsync(x => x.Id != p.Id && x.Number.ToLower() == number.ToLower(), ct)) throw new ConflictException($"A project numbered {number} already exists.");
         if (i.SiteId is { } s && !await db.Sites.AnyAsync(x => x.Id == s, ct)) throw new AppException("Unknown site.");
@@ -71,7 +90,7 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
     {
         await RequireManageAsync(ct);
         var p = new SequflohProject { Status = ProjectStatus.Open };
-        await FillAsync(p, i, ct);
+        await FillAsync(p, i, ct, true);
         db.SequflohProjects.Add(p);
         f.Audit("ProjectCreated", EntityType, p.Id, $"Project {p.Number} {p.Name} created", p.SiteId, context: new { before = (object?)null, after = Snapshot(p) });
         await db.SaveChangesAsync(ct);

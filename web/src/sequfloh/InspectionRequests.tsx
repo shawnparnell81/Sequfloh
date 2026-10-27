@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ProjectName, ProjectPicker } from './Projects';
+import { PICK_PROJECT, ProjectLink, ProjectName } from './Projects';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
@@ -80,7 +80,8 @@ const body = (f: Form) => ({ number: f.number?.trim() || null, siteId: f.siteId,
 export function InspectionRequestDialog({ open, onClose, initial, id }: { open: boolean; onClose: () => void; initial?: Form; id?: string }) {
   const qc = useQueryClient(); const nav = useNavigate();
   const [f, setF] = useState<Form>(initial ?? blank); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setF(initial ?? blank); setErr(null); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [linkProject, setLinkProject] = useState(false);
+  useEffect(() => { if (open) { setF(initial ?? blank); setErr(null); setLinkProject(!!initial?.projectId); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const [auto, setAuto] = useState('');
   useEffect(() => {
     if (id || !open || !f.siteId || (!f.partId && !f.partNumber.trim())) return;
@@ -96,6 +97,7 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
     if (!id && !f.number?.trim()) return setErr('Enter the number.');
     if (!f.partNumber.trim()) return setErr('Enter a part number.');
     if (!f.siteId) return setErr('Choose a site.');
+    if (linkProject && !f.projectId) return setErr(PICK_PROJECT);
     setBusy(true); setErr(null);
     try {
       const r = id ? await put<InspectionRequest>(`${A}/${id}`, body(f)) : await post<InspectionRequest>(A, body(f));
@@ -109,7 +111,7 @@ export function InspectionRequestDialog({ open, onClose, initial, id }: { open: 
       <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
         {!id && <NumberField fullWidth sx={{ mt: 1, mb: 2 }} value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'ir-number', maxLength: 40 }} />}
         <RequestForm value={f} onChange={setF} />
-        <Box sx={{ mt: 2 }}><ProjectPicker value={f.projectId ?? ''} onChange={(v) => setF({ ...f, projectId: v })} testId="ir-project" /></Box></DialogContent>
+        <Box sx={{ mt: 2 }}><ProjectLink value={f.projectId ?? ''} onChange={(v) => setF({ ...f, projectId: v })} yes={linkProject} onYes={setLinkProject} testId="ir-project" /></Box></DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={busy}>{id ? 'Save' : 'Submit request'}</Button></DialogActions>
     </Dialog>
   );

@@ -98,7 +98,16 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
             wiLabel = $"{wi.Number} rev {wi.Revision} {wi.Title}";
         }
         r.PartId = partId; r.PartNumber = pn; r.PartDescription = desc; r.Quantity = x.Quantity; r.Reason = reason; r.Requirement = T(x.Requirement, 4000);
-        if (x.ProjectId != r.ProjectId) { if (await tracking.OpenProjectAsync(x.ProjectId, ct) is { } proj) f.Audit("ProjectLinked", EntityType, r.Id, $"Inspection request linked to project {proj.Number}", r.SiteId); r.ProjectId = x.ProjectId; }
+        if (x.ProjectId != r.ProjectId)
+        {
+            if (await tracking.OpenProjectAsync(x.ProjectId, ct) is { } proj) f.Audit("ProjectLinked", EntityType, r.Id, $"Inspection request linked to project {proj.Number}", r.SiteId);
+            else if (r.ProjectId is { } was)
+            {
+                var old = await db.SequflohProjects.AsNoTracking().Where(p => p.Id == was).Select(p => p.Number).FirstOrDefaultAsync(ct);
+                f.Audit("ProjectLinked", EntityType, r.Id, $"Inspection request {r.Number} removed from project {old}", r.SiteId);
+            }
+            r.ProjectId = x.ProjectId;
+        }
         r.WorkInstructionId = x.WorkInstructionId; r.WorkInstructionLabel = wiLabel; r.RequestedDate = x.RequestedDate; r.Priority = priority;
     }
 
