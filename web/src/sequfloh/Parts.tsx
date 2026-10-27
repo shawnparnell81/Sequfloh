@@ -17,6 +17,7 @@ import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { ImportPartsDialog } from './PartsImport';
 import { ChangeFamilyDialog } from './ChangeFamily';
+import { PartLinksPanel } from './PartLinks';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, ViewDrawingButton, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { InventoryNote } from './Job';
 import { partOption } from './partLabel';
@@ -328,7 +329,7 @@ export function PartDetailPage() {
   const refresh = () => { qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); qc.invalidateQueries({ queryKey: ['sqf-part', id] }); };
   return (
     <SqfPage title={p ? `${p.partNumber} · ${p.name}` : 'Part'} crumbs={crumbs('Part Master', { label: p?.partNumber ?? '…' })} recent={p ? { label: `Part ${p.partNumber}`, itemType: 'Part', recordId: p.id } : null}
-      tabs={[{ label: 'Overview', value: 'overview' }, { label: 'Parts lists', value: 'lists' }]} tab={tab} onTab={setTab}
+      tabs={[{ label: 'Overview', value: 'overview' }, { label: 'Parts list', value: 'lists' }, { label: 'Repair parts', value: 'repair' }]} tab={tab} onTab={setTab}
       actions={p && <RecordActions surface="part" edit={!!q.data?.canEdit && { onClick: () => setEdit(true) }}
         del={{ what: `part ${p.partNumber}`, url: `${S}/parts/${p.id}`, to: '/sequfloh/parts',
           extra: "Links to drawings are removed; the drawings stay. Parts used by work instructions, work orders or parts lists can't be deleted; deactivate them instead." }}>
@@ -356,7 +357,10 @@ export function PartDetailPage() {
           <Typography variant="subtitle2" sx={{ mt: 2 }}>Related SEQUFLOH records</Typography>
           <Typography variant="body2">Parts lists: {q.data!.related.partsLists}</Typography>
         </Paper>}
-        {tab === 'lists' && (q.data!.partsLists.length === 0 ? <Empty text="No parts lists use this part." /> : <SimpleTable head={['Number', 'Title', 'Rev', 'Type', 'Status']}
+        {tab === 'lists' && <PartLinksPanel partId={p.id} list="parts-list" canEdit={!!q.data!.canEditMaster && !!q.data!.canEdit} />}
+        {tab === 'repair' && <PartLinksPanel partId={p.id} list="repair-parts" canEdit={!!q.data!.canEditMaster && !!q.data!.canEdit} />}
+        {tab === 'lists' && q.data!.partsLists.length > 0 && <Typography variant="subtitle2" sx={{ mb: 1 }}>Controlled parts lists that use this part</Typography>}
+        {tab === 'lists' && (q.data!.partsLists.length === 0 ? null : <SimpleTable head={['Number', 'Title', 'Rev', 'Type', 'Status']}
           rows={q.data!.partsLists.map((l) => [<Link key="n" component={RouterLink} to={`/sequfloh/parts-lists/${l.id}`}><Mono>{l.number}</Mono></Link>, l.title, l.revision, words(l.listType), <SqfStatus key="s" status={l.status} />])} />)}
         <PartDialog open={edit} edit={p} onClose={() => setEdit(false)} onSaved={refresh} />
         <Confirm open={confirm} title={p.status === 'Inactive' ? 'Reactivate part' : 'Deactivate part'} confirm={p.status === 'Inactive' ? 'Reactivate' : 'Deactivate'} danger={p.status !== 'Inactive'}

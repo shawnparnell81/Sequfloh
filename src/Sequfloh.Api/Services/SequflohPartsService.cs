@@ -440,4 +440,139 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
     public async Task<object> HistoryAsync(string entityType, Guid id, CancellationToken ct) =>
         await db.AuditEntries.AsNoTracking().Where(a => a.EntityType == entityType && a.EntityId == id).OrderByDescending(a => a.OccurredAt)
             .Select(a => new { a.OccurredAt, a.UserName, a.Action, a.Description, a.Changes, a.Reason }).Take(300).ToListAsync(ct);
+
+    // ------------------------------------------------------------------ a part's Parts list and Repair parts (links to other parts)
+    public sealed record PartLinkInput(Guid? PartId, string? PartNumber, string? Description, decimal? Quantity = null, string? Notes = null);
+
+    static string KindWords(PartLinkKind k) => k == PartLinkKind.RepairParts ? "Repair parts" : "Parts list";
+
+    async Task<string> MeAsync(CancellationToken ct) => await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
+
+    /// <summary>The existing part (picked, or with exactly this number) or a new Repair part with the typed number; any part used this way is flagged Repair part.</summary>
+    async Task<Part> ResolveRepairPartAsync(Part parent, PartLinkInput r, CancellationToken ct)
+    {
+        Part? p;
+        if (r.PartId is { } pid) p = await db.Parts.FirstOrDefaultAsync(x => x.Id == pid, ct) ?? throw new AppException("The part does not exist in the Part Master.");
+        else
+        {
+            var pn = r.PartNumber?.Trim();
+            if (string.IsNullOrEmpty(pn) || PartFields.IsBlank(pn)) throw new AppException("Pick a part or type its part number.");
+            if (pn.Length > 60) throw new AppException("The part number is limited to 60 characters.");
+            var up = pn.ToUpperInvariant();
+            p = await db.Parts.FirstOrDefaultAsync(x => x.PartNumber.Trim().ToUpper() == up, ct);
+            if (p is null)
+            {
+                var desc = r.Description?.Trim();
+                if (desc is { Length: > 4000 }) throw new AppException("The description is limited to 4000 characters.");
+                p = new Part { PartNumber = pn, Name = parent.Name, Description = string.IsNullOrEmpty(desc) ? null : desc, UnitOfMeasure = "Each", SiteId = parent.SiteId, DepartmentId = parent.DepartmentId,
+                    Status = MasterStatus.Active, PartType = PartType.Component, IsRepairPart = true, TypeId = parent.TypeId, ProductFamily = parent.ProductFamily };
+                db.Parts.Add(p);
+                db.PartRevisions.Add(new PartRevision { PartId = p.Id, Revision = p.Revision, Reason = "Initial release (added as a repair part)", EffectiveOn = await m.TodayAsync(parent.SiteId, ct) });
+                f.Audit("Create", "Part", p.Id, $"Created repair part {pn} while adding it to {parent.PartNumber}.", p.SiteId);
+                return p;
+            }
+        }
+        if (!p.IsRepairPart)
+        {
+            p.IsRepairPart = true;
+            f.Audit("Update", "Part", p.Id, $"Marked {p.PartNumber} as a repair part while adding it to {parent.PartNumber}.", p.SiteId);
+        }
+        return p;
+    }
+
+    /// <summary>Links a part onto the parent's list once; returns false when it was already there.</summary>
+    async Task<bool> LinkAsync(Part parent, Part child, PartLinkKind kind, string how, CancellationToken ct)
+    {
+        if (child.Id == parent.Id) throw new AppException("A part can't be on its own list.");
+        if (await db.PartComponentLinks.AnyAsync(x => x.PartId == parent.Id && x.ComponentPartId == child.Id && x.Kind == kind, ct)) return false;
+        db.PartComponentLinks.Add(new PartComponentLink { PartId = parent.Id, ComponentPartId = child.Id, Kind = kind, CreatedAt = m.Now, CreatedBy = await MeAsync(ct) });
+        f.Audit("Link", "Part", parent.Id, $"Added {child.PartNumber} to the {KindWords(kind)} of {parent.PartNumber}{how}.", parent.SiteId);
+        return true;
+    }
+
+    async Task<Part> EditablePartAsync(Guid id, CancellationToken ct)
+    {
+        var p = await db.Parts.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Part");
+        if (!await m.CanAsync(Permissions.MasterDataEdit, p.SiteId, p.DepartmentId, ct) || !await m.CanAsync(Permissions.SequflohEditParts, p.SiteId, p.DepartmentId, ct)) throw new ForbiddenException();
+        return p;
+    }
+
+    public async Task<object> LinksAsync(Guid id, PartLinkKind kind, CancellationToken ct)
+    {
+        var p = await db.Parts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Part");
+        await m.RequireAsync(Permissions.SequflohAccess, p.SiteId, p.DepartmentId, ct);
+        return await (from l in db.PartComponentLinks.AsNoTracking() where l.PartId == id && l.Kind == kind
+                      join c in db.Parts.AsNoTracking() on l.ComponentPartId equals c.Id
+                      orderby c.PartNumber
+                      select new { c.Id, c.PartNumber, c.Name, c.Description, Status = c.Status.ToString(), c.IsRepairPart, l.CreatedAt, l.CreatedBy }).ToListAsync(ct);
+    }
+
+    public async Task AddLinkAsync(Guid id, PartLinkKind kind, PartLinkInput r, CancellationToken ct)
+    {
+        var parent = await EditablePartAsync(id, ct);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var child = await ResolveRepairPartAsync(parent, r, ct);
+        await LinkAsync(parent, child, kind, "", ct);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    public async Task RemoveLinkAsync(Guid id, PartLinkKind kind, Guid componentId, CancellationToken ct)
+    {
+        var parent = await EditablePartAsync(id, ct);
+        var l = await db.PartComponentLinks.FirstOrDefaultAsync(x => x.PartId == id && x.ComponentPartId == componentId && x.Kind == kind, ct) ?? throw new NotFoundException("Linked part");
+        var pn = await db.Parts.Where(x => x.Id == componentId).Select(x => x.PartNumber).FirstOrDefaultAsync(ct);
+        db.PartComponentLinks.Remove(l);
+        f.Audit("Unlink", "Part", id, $"Removed {pn} from the {KindWords(kind)} of {parent.PartNumber}. The part stays in the Part Master.", parent.SiteId);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// A part replaced on a Repair work order: it is made a Repair part in the Part Master (created with the typed number when new), put on the repaired part's
+    /// Repair parts list once, and added to the work order's Repair parts rows. Closed work orders can't be changed.
+    /// </summary>
+    public async Task AddWorkOrderRepairPartAsync(Guid recordId, PartLinkInput r, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var rec = await db.SequflohTrackingRecords.FirstOrDefaultAsync(x => x.Id == recordId, ct) ?? throw new NotFoundException("Tracking record");
+        await m.RequireAsync(Permissions.SequflohAccess, rec.SiteId, rec.DepartmentId, ct);
+        if (rec.Type != TrackingType.Repair) throw new AppException("Repair parts are added on Repair work orders.");
+        SequflohTrackingService.RequireOpen(rec);
+        var parent = rec.PartId is { } ppid ? await db.Parts.FirstOrDefaultAsync(x => x.Id == ppid, ct) : null;
+        if (parent is null) throw new AppException("Choose the part being repaired on this work order first.");
+        if (r.Quantity is <= 0) throw new AppException("The quantity must be greater than zero.");
+        var notes = r.Notes?.Trim(); if (notes is { Length: > 2000 }) throw new AppException("The notes are limited to 2000 characters.");
+        var child = await ResolveRepairPartAsync(parent, r, ct);
+        await LinkAsync(parent, child, PartLinkKind.RepairParts, $" from work order {rec.Number}", ct);
+        var rows = System.Text.Json.Nodes.JsonNode.Parse(rec.PartsRows)!.AsArray();
+        if (rows.Any(x => (string?)x?["partId"] == child.Id.ToString() || string.Equals(((string?)x?["replacementPartNumber"])?.Trim(), child.PartNumber, StringComparison.OrdinalIgnoreCase)))
+            throw new ConflictException($"Part {child.PartNumber} is already on this work order.");
+        var desc = string.IsNullOrWhiteSpace(r.Description) ? child.Description ?? child.Name : r.Description.Trim();
+        var row = new System.Text.Json.Nodes.JsonObject
+        {
+            ["id"] = Guid.NewGuid().ToString(), ["partId"] = child.Id.ToString(), ["replacementPartNumber"] = child.PartNumber, ["description"] = desc.Length > 500 ? desc[..500] : desc,
+            ["quantity"] = r.Quantity ?? 1, ["required"] = true, ["added"] = true,
+        };
+        if (!string.IsNullOrEmpty(notes)) row["notes"] = notes;
+        rows.Add(row);
+        rec.PartsRows = rows.ToJsonString();
+        f.Audit("Update", "TrackingRecord", rec.Id, $"{rec.Number}: added repair part {child.PartNumber} (qty {r.Quantity ?? 1}).", rec.SiteId);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>Removes a row added on the work order; the part stays on the repaired part's Repair parts and in the Part Master.</summary>
+    public async Task RemoveWorkOrderRepairPartAsync(Guid recordId, string rowId, CancellationToken ct)
+    {
+        var rec = await db.SequflohTrackingRecords.FirstOrDefaultAsync(x => x.Id == recordId, ct) ?? throw new NotFoundException("Tracking record");
+        await m.RequireAsync(Permissions.SequflohAccess, rec.SiteId, rec.DepartmentId, ct);
+        SequflohTrackingService.RequireOpen(rec);
+        var rows = System.Text.Json.Nodes.JsonNode.Parse(rec.PartsRows)!.AsArray();
+        var row = rows.OfType<System.Text.Json.Nodes.JsonObject>().FirstOrDefault(x => x["id"]?.ToString() == rowId) ?? throw new NotFoundException("Repair part row");
+        if (row["added"]?.GetValue<bool>() != true) throw new AppException("Rows from the work instruction can't be removed.");
+        rows.Remove(row);
+        rec.PartsRows = rows.ToJsonString();
+        f.Audit("Update", "TrackingRecord", rec.Id, $"{rec.Number}: removed repair part {row["replacementPartNumber"]} from the work order. It stays on the part's Repair parts.", rec.SiteId);
+        await db.SaveChangesAsync(ct);
+    }
 }

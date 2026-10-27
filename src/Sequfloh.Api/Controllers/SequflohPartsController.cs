@@ -63,6 +63,13 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         };
     }
 
+    static PartLinkKind Kind(string list) => list switch { "parts-list" => PartLinkKind.PartsList, "repair-parts" => PartLinkKind.RepairParts, _ => throw new global::Sequfloh.Application.Abstractions.NotFoundException("List") };
+    [HttpGet("parts/{id:guid}/links/{list}")] public Task<object> Links(Guid id, string list, CancellationToken ct) => parts.LinksAsync(id, Kind(list), ct);
+    [HttpPost("parts/{id:guid}/links/{list}")] public async Task<object> AddLink(Guid id, string list, SequflohPartsService.PartLinkInput r, CancellationToken ct) { await parts.AddLinkAsync(id, Kind(list), r, ct); return await parts.LinksAsync(id, Kind(list), ct); }
+    [HttpDelete("parts/{id:guid}/links/{list}/{componentId:guid}")] public async Task<IActionResult> RemoveLink(Guid id, string list, Guid componentId, CancellationToken ct) { await parts.RemoveLinkAsync(id, Kind(list), componentId, ct); return NoContent(); }
+    [HttpPost("tracking/{id:guid}/repair-parts")] public async Task<IActionResult> AddRepairPart(Guid id, SequflohPartsService.PartLinkInput r, CancellationToken ct) { await parts.AddWorkOrderRepairPartAsync(id, r, ct); return NoContent(); }
+    [HttpDelete("tracking/{id:guid}/repair-parts/{rowId}")] public async Task<IActionResult> RemoveRepairPart(Guid id, string rowId, CancellationToken ct) { await parts.RemoveWorkOrderRepairPartAsync(id, rowId, ct); return NoContent(); }
+
     [HttpGet("parts")]
     public async Task<object> Parts([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
         [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
