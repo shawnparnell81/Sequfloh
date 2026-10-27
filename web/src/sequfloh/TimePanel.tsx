@@ -48,7 +48,8 @@ export function AssigneesPanel({ recordId, people, canAssign }: { recordId: stri
 }
 
 /** Job time per person. Anyone signed in can clock on and off a job. Job time only, not a payroll clock. */
-export function TimePanel({ recordId, closed = false }: { recordId: string; closed?: boolean }) {
+/** notStarted: the hint shown when clocking on is not possible yet because the work order has not been started. */
+export function TimePanel({ recordId, closed = false, notStarted }: { recordId: string; closed?: boolean; notStarted?: string }) {
   const qc = useQueryClient();
   const key = ['sqf-time', recordId];
   const q = useQuery({ queryKey: key, queryFn: () => get<TimeSummary>(`${S}/tracking/${recordId}/time`), refetchInterval: 30000 });
@@ -58,9 +59,10 @@ export function TimePanel({ recordId, closed = false }: { recordId: string; clos
   const [showLog, setShowLog] = useState(false);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const d = q.data;
-  const skew = d ? q.dataUpdatedAt - new Date(d.serverTime).getTime() : 0;
-  const live = (p: TimePerson) => p.seconds + (p.runningSince ? Math.max(0, (now - skew - new Date(p.runningSince).getTime()) / 1000) : 0);
-  const livePaused = (p: TimePerson) => p.pausedSeconds + (p.pausedSince ? Math.max(0, (now - skew - new Date(p.pausedSince).getTime()) / 1000) : 0);
+  // the server's seconds already count a running entry up to its answer, so only the time since that answer is added here
+  const since = Math.max(0, (now - q.dataUpdatedAt) / 1000);
+  const live = (p: TimePerson) => p.seconds + (p.runningSince ? since : 0);
+  const livePaused = (p: TimePerson) => p.pausedSeconds + (p.pausedSince ? since : 0);
   const total = d ? d.people.reduce((a, p) => a + live(p), 0) : 0;
   const go = async (what: 'start' | 'stop' | 'pause' | 'resume', reason?: 'Break' | 'Lunch') => {
     setBusy(true); setErr(null);
@@ -82,7 +84,8 @@ export function TimePanel({ recordId, closed = false }: { recordId: string; clos
           </>)}
         {d && (d.mineRunning
           ? <Tooltip describeChild title="Stop logging your time on this job."><Button variant="contained" color="error" disabled={busy} data-testid="stop-timer" onClick={() => go('stop')}>Clock off job</Button></Tooltip>
-          : !closed && <Tooltip describeChild title="Start logging your time on this job. Job time only, not payroll."><Button variant="contained" color="success" disabled={busy} data-testid="start-timer" onClick={() => go('start')}>Clock on job</Button></Tooltip>)}
+          : !closed && <Tooltip describeChild title="Start logging your time on this job. Job time only, not payroll."><Button variant="contained" color="success" disabled={busy || !!notStarted} data-testid="start-timer" onClick={() => go('start')}>Clock on job</Button></Tooltip>)}
+        {!closed && notStarted && <Typography variant="body2" color="text.secondary" data-testid="clock-on-hint">{notStarted}</Typography>}
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
       {d && (d.people.length === 0 ? <Typography variant="body2" color="text.secondary">No time logged yet. Anyone can clock on this job.</Typography> :
