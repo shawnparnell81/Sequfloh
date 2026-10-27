@@ -2802,6 +2802,14 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("Upc")
+                        .HasMaxLength(14)
+                        .HasColumnType("character varying(14)");
+
+                    b.Property<string>("UpcKey")
+                        .HasMaxLength(14)
+                        .HasColumnType("character varying(14)");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2817,6 +2825,10 @@ namespace Sequfloh.Data.Migrations
                     b.HasIndex("SiteId");
 
                     b.HasIndex("TypeId");
+
+                    b.HasIndex("UpcKey")
+                        .IsUnique()
+                        .HasFilter("\"UpcKey\" IS NOT NULL");
 
                     b.HasIndex("Status", "PartNumber");
 

@@ -56,7 +56,7 @@ const withCurrent = (list: string[], current?: string) => (current && !list.some
 
 // ------------------------------------------------------------------ Part Master
 interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; partClass?: string | null; isAssembly?: boolean; lotControl?: string | null; unitOfMeasure: string;
-  status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; specification?: string; updatedAt: string;
+  status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; upc?: string; specification?: string; updatedAt: string;
   typeId?: string | null; typeName?: string | null; attributes?: string | null; notes?: string | null }
 const viewHelp: Record<string, string> = {
   repairable: 'Parts marked Repairable: the part itself can be repaired and can be the subject of a repair work order.',
@@ -71,6 +71,8 @@ export function PartMasterPage() {
   const view = sp.get('view') ?? '';
   // a scanned number with no part opens Add part with that number (the drawing is linked by hand afterward)
   const addFromScan = sp.get('add') ?? '';
+  // a scanned box-label barcode that is on no part: Add part with the UPC filled in and the part number left for the user
+  const addUpc = sp.get('addUpc') ?? '';
   const home = !view && [...sp.keys()].length === 0;
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('partNumber:asc');
   const v = (k: string) => sp.get(k) ?? '';
@@ -122,7 +124,7 @@ export function PartMasterPage() {
   const allCols = [...lead.map((k) => baseCols.find((c) => c.key === k)!).filter(Boolean), ...baseCols.filter((c) => !lead.includes(c.key))];
   const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
   const dialogs = <>
-    <PartDialog open={open || !!addFromScan} prefill={addFromScan || undefined} onClose={() => { setOpen(false); if (addFromScan) set('add', ''); }} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
+    <PartDialog open={open || !!addFromScan || !!addUpc} prefill={addFromScan || undefined} prefillUpc={addUpc || undefined} onClose={() => { setOpen(false); if (addFromScan) set('add', ''); if (addUpc) set('addUpc', ''); }} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
     <ImportPartsDialog open={importing} onClose={() => setImporting(false)} preset={preset} />
     {canChange && <ChangeFamilyDialog open={changing} onClose={() => setChanging(false)} families={types.data ?? []} defs={attrDefs.data ?? []} ticked={ticked}
       filters={{ q: v('q'), partType: v('partType'), status: v('status'), tag: v('tag') }} currentFamily={v('partType') && v('partType') !== 'none' ? v('partType') : undefined} onDone={() => setTicked([])} />}
@@ -205,7 +207,7 @@ interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record
   revisions: { id: string; revision: string; reason: string; createdAt: string }[]; partsLists: { id: string; number: string; title: string; revision: string; status: string; listType: string }[];
   related: { partsLists: number }; canEdit: boolean; canEditMaster: boolean }
 
-function PartDialog({ open, onClose, onSaved, edit, prefill }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: PartDetail['part']; prefill?: string }) {
+function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: PartDetail['part']; prefill?: string; prefillUpc?: string }) {
   const sites = useSites();
   const { can } = useAuth();
   const drawingsOk = can('sequfloh.manage_drawings');
@@ -221,14 +223,14 @@ function PartDialog({ open, onClose, onSaved, edit, prefill }: { open: boolean; 
   const typeCode = types.data?.find((t) => t.id === typeId)?.code;
   const shownAttrs = (attrDefs.data ?? []).filter((d) => attrFor(d, typeCode));
   const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'Each', material: '', siteId: '', status: 'Active',
-    productFamily: '', assemblyType: '', partClass: '', isAssembly: false, lotControl: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, notes: '', drawingNumber: '', specification: '' };
+    productFamily: '', assemblyType: '', partClass: '', isAssembly: false, lotControl: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, notes: '', drawingNumber: '', upc: '', specification: '' };
   const [f, setF] = useState(blank);
   const [err, setErr] = useState<string | null>(null);
   const init = () => {
     setLinks([]); setInline(null); setTypeId(edit?.typeId ?? ''); setAttrs({ ...(edit?.attributes ?? {}) }); setHidden(edit?.hiddenFields ?? []);
     if (edit && drawingsOk) get<PartDrawing[]>(`/api/drawings/for-part?partId=${edit.id}`).then((l) => setLinks(l.map((d) => ({ id: d.id, label: `${d.drawingNumber ? d.drawingNumber + ' · ' : ''}${d.title} (rev ${d.currentRevision})` })))).catch(() => undefined);
     const lc = (e?: PartDetail['part']) => (e ? (e.lotControl || (e.isLotControlled ? 'Yes' : 'No')) : '');
-    setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, partNumber: prefill ?? '', siteId: sites.data?.[0]?.id ?? '' }); };
+    setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, partNumber: prefill ?? '', upc: prefillUpc ?? '', siteId: sites.data?.[0]?.id ?? '' }); };
   const familyLabels = (types.data ?? []).filter((t) => t.isActive).map((t) => t.label);
   const yn = (k: 'isAssembly' | 'isRepairable') => ({ value: f[k] ? 'Yes' : 'No', onChange: (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value === 'Yes' }) });
   const s = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
@@ -240,7 +242,7 @@ function PartDialog({ open, onClose, onSaved, edit, prefill }: { open: boolean; 
       execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isRepairPart: f.isRepairPart, isSerialized: f.isSerialized, isLotControlled: f.lotControl === 'Yes',
         partClass: nul(f.partClass), isAssembly: f.isAssembly, lotControl: nul(f.lotControl),
         drawingNumber: nul(f.drawingNumber), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 },
-      typeId: typeId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])), notes: f.notes, hiddenFields: edit || hidden.length ? hidden : null };
+      typeId: typeId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])), notes: f.notes, hiddenFields: edit || hidden.length ? hidden : null, upc: f.upc.trim() };
     try {
       let id = edit?.id;
       if (edit) await put(`${S}/parts/${edit.id}`, body); else id = (await post<{ id: string }>(`${S}/parts`, body)).id;
@@ -277,6 +279,8 @@ function PartDialog({ open, onClose, onSaved, edit, prefill }: { open: boolean; 
           <TextField select label="Repairable" {...yn('isRepairable')} inputProps={{ 'data-testid': 'part-repairable' }} helperText="Yes: the part can be repaired if required.">{['Yes', 'No'].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
           <TextField select label="Status" value={f.status} onChange={s('status')}>{masterStatuses.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
           {typeCode !== FUEL_PUMP && <TextField label={DWG_LABEL} value={f.drawingNumber} onChange={s('drawingNumber')} />}
+          <TextField label="UPC / Barcode" value={f.upc} onChange={(e) => setF({ ...f, upc: e.target.value.replace(/\s/g, '') })} inputProps={{ inputMode: 'numeric', 'data-testid': 'part-upc' }}
+            helperText="The digits under the box-label barcode (8, 12, 13 or 14 digits). Optional." />
           <TextField label="Specification" value={f.specification} onChange={s('specification')} />
           <TextField label="Material" value={f.material} onChange={s('material')} />
         </Grid>
@@ -355,7 +359,7 @@ export function PartDetailPage() {
             <Field label="Repairable" hide={hid('isRepairable')}>{yes(p.isRepairable)}</Field><Field label="Repair part" hide={hid('isRepairPart')}>{yes(!!p.isRepairPart)}</Field><Field label="Serialized" hide={hid('isSerialized')}>{yes(p.isSerialized)}</Field><Field label="Lot controlled" hide={hid('isLotControlled')}>{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material" hide={hid('material')}>{p.material}</Field>
             {(attrDefs.data ?? []).filter((d) => attrFor(d, code)).map((d) => <Field key={d.key} label={d.label} hide={hid(d.key)}>{p.attributes?.[d.key]}</Field>)}
             {(attrDefs.data ?? []).filter((d) => !attrFor(d, code) && p.attributes?.[d.key]).map((d) => <Field key={d.key} label={`${d.label} (kept from another family)`}>{p.attributes?.[d.key]}</Field>)}
-            {code !== FUEL_PUMP && <Field label={DWG_LABEL} hide={hid('drawingNumber')}>{p.drawingNumber}</Field>}<Field label="Specification" hide={hid('specification')}>{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
+            {code !== FUEL_PUMP && <Field label={DWG_LABEL} hide={hid('drawingNumber')}>{p.drawingNumber}</Field>}<Field label="UPC / Barcode"><span data-testid="part-upc-value">{p.upc}</span>{q.data?.canEdit && <BarcodeButton partId={p.id} upc={p.upc} onSaved={refresh} />}</Field><Field label="Specification" hide={hid('specification')}>{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && !hid('description') && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}
           <Typography variant="subtitle2" sx={{ mt: 2 }}>Related SEQUFLOH records</Typography>
@@ -662,4 +666,29 @@ function LatestActivity({ partId }: { partId: string }) {
         <Mono>{a.number}</Mono><Typography variant="body2" sx={{ flex: 1 }}>{a.type}{a.detail ? ` · ${a.detail}` : ''}</Typography>
         <SqfStatus status={a.status} /><Typography variant="caption" color="text.secondary">{fmtDateTime(a.createdAt)}</Typography></Box>)}</Stack>}
   </Paper>;
+}
+
+/** Add barcode / Change barcode: scan the box label (or type its digits) into the box and save it on this part. The scan goes into the box, not the global scan. */
+function BarcodeButton({ partId, upc, onSaved }: { partId: string; upc?: string | null; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try { await put(`${S}/parts/${partId}/upc`, { upc: v.trim() }); setOpen(false); onSaved(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return <>
+    <Button size="small" sx={{ ml: 1 }} data-testid="part-barcode-button" onClick={() => { setV(upc ?? ''); setErr(null); setOpen(true); }}>{upc ? 'Change barcode' : 'Add barcode'}</Button>
+    <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
+      <FormDialogTitle>{upc ? 'Change barcode' : 'Add barcode'}</FormDialogTitle>
+      <DialogContent>
+        <TextField autoFocus fullWidth sx={{ mt: 1 }} label="UPC / Barcode" value={v} onChange={(e) => setV(e.target.value.replace(/\s/g, ''))}
+          inputProps={{ inputMode: 'numeric', 'data-testid': 'part-barcode-input' }} onKeyDown={(e) => { if (e.key === 'Enter' && v.trim()) { e.preventDefault(); void save(); } }}
+          helperText="Scan the box label now, or type the digits under the barcode." />
+        {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}
+      </DialogContent>
+      <DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" disabled={!v.trim() || busy} onClick={save} data-testid="part-barcode-save">Save</Button></DialogActions>
+    </Dialog>
+  </>;
 }

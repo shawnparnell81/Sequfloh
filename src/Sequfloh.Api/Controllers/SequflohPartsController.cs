@@ -79,7 +79,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         return await Paging.PageAsync(query.Select(p => new
         {
             p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
-            p.DrawingNumber, p.Specification, p.Notes, p.SiteId, p.UpdatedAt, p.TypeId, TypeName = types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes
+            p.DrawingNumber, p.Upc, p.Specification, p.Notes, p.SiteId, p.UpdatedAt, p.TypeId, TypeName = types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes
         }), page, pageSize, ct);
     }
 
@@ -101,7 +101,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         var rows = await query.Take(50_000).ToListAsync(ct);
         var head = new List<string> { "Part number", "Name", "Description", "Product family" };
         head.AddRange(PartAttributes.All.Select(a => a.Label));
-        head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "DWG #", "Specification", "Status"]);
+        head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "DWG #", "UPC / Barcode", "Specification", "Status"]);
         var sb = new System.Text.StringBuilder();
         sb.Append(string.Join(",", head.Select(Csv))).Append("\r\n");
         foreach (var p in rows)
@@ -110,7 +110,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : p.ProductFamily };
             cells.AddRange(PartAttributes.All.Select(a => attrs.GetValueOrDefault(a.Key)));
             cells.AddRange([p.PartClass, p.IsAssembly ? "Yes" : "No", p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.LotControl ?? (p.IsLotControlled ? "Yes" : "No"),
-                p.DrawingNumber, p.Specification, p.Status.ToString()]);
+                p.DrawingNumber, p.Upc, p.Specification, p.Status.ToString()]);
             sb.Append(string.Join(",", cells.Select(Csv))).Append("\r\n");
         }
         return File(System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray(), "text/csv", "parts.csv");
@@ -154,7 +154,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             Part = new
             {
                 p.Id, p.PartNumber, p.Name, p.Description, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
-                p.ProductFamily, p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Specification, p.Notes, p.RowVersion, p.CreatedAt, p.UpdatedAt,
+                p.ProductFamily, p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Upc, p.Specification, p.Notes, p.RowVersion, p.CreatedAt, p.UpdatedAt,
                 p.TypeId, TypeName = await db.SequflohReferenceValues.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefaultAsync(ct), Attributes = PartAttributes.Read(p.Attributes), HiddenFields = PartFields.Read(p.HiddenFields),
                 CreatedBy = Name(p.CreatedById), UpdatedBy = Name(p.UpdatedById)
             },
@@ -174,6 +174,10 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     public async Task<object> CreatePart(SqfPartInput r, CancellationToken ct) { var p = await parts.CreatePartAsync(r, ct); return new { p.Id, p.PartNumber }; }
     [HttpPut("parts/{id:guid}")] [RequirePermission(Permissions.SequflohEditParts)]
     public async Task<IActionResult> UpdatePart(Guid id, SqfPartInput r, CancellationToken ct) { await parts.UpdatePartAsync(id, r, ct); return NoContent(); }
+    public sealed record UpcInput(string? Upc);
+    /// <summary>Links a scanned box-label barcode to an existing part (or clears it). Audited.</summary>
+    [HttpPut("parts/{id:guid}/upc")] [RequirePermission(Permissions.SequflohEditParts)]
+    public async Task<IActionResult> SetUpc(Guid id, UpcInput r, CancellationToken ct) { await parts.SetUpcAsync(id, r.Upc, ct); return NoContent(); }
     [HttpPut("parts/{id:guid}/execution")] [RequirePermission(Permissions.SequflohEditParts)]
     public async Task<IActionResult> Execution(Guid id, PartExecutionInput r, CancellationToken ct) { await parts.ApplyExecutionAsync(id, r, ct); return NoContent(); }
     [HttpPost("parts/{id:guid}/deactivate")] [RequirePermission(Permissions.SequflohEditParts)]

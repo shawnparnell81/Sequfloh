@@ -7,6 +7,7 @@ using Sequfloh.Domain.Security;
 using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Modules.Quality;
 using Sequfloh.Infrastructure.Persistence;
+using Sequfloh.Infrastructure.Services;
 
 namespace Sequfloh.Api.Controllers.Sequfloh;
 
@@ -33,6 +34,17 @@ public sealed class SequflohScanController(AppDbContext db, ModuleSupport m) : C
         var canAdd = await m.CanAnyAsync(Permissions.SequflohEditParts, ct);
         if (c is null) return new { Code = (code ?? "").Trim(), MatchedOn = (string?)null, Matches = Array.Empty<object>(), Records = Array.Empty<object>(), CanAdd = false };
         var scoped = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
+        // box-label barcodes (UPC-E, UPC-A, EAN-13, GTIN-14) match only the part's UPC / Barcode, in any of its equivalent forms; never part numbers or other fields
+        if (Gtin.IsBarcode(c))
+        {
+            var key = Gtin.Key(c);
+            var byUpc = key is null ? [] : await scoped.Where(x => x.UpcKey == key).OrderBy(x => x.PartNumber).Take(20).ToListAsync(ct);
+            return new
+            {
+                Records = Array.Empty<object>(), Code = c, MatchedOn = byUpc.Count > 0 ? "UPC / Barcode" : null, CanAdd = canAdd, IsBarcode = true,
+                Matches = byUpc.Select(x => new { x.Id, x.PartNumber, x.Name, x.Description, x.ProductFamily, Status = x.Status.ToString(), x.DrawingNumber }).ToList(),
+            };
+        }
         var upper = c.ToUpperInvariant();
         var hits = await scoped.Where(x => x.PartNumber.Trim().ToUpper() == upper).OrderBy(x => x.PartNumber).Take(20).ToListAsync(ct);
         var on = "Part number";
@@ -58,7 +70,7 @@ public sealed class SequflohScanController(AppDbContext db, ModuleSupport m) : C
         }
         return new
         {
-            Records = records, Code = c, MatchedOn = hits.Count > 0 ? on : null, CanAdd = canAdd,
+            Records = records, Code = c, MatchedOn = hits.Count > 0 ? on : null, CanAdd = canAdd, IsBarcode = false,
             Matches = hits.Select(x => new { x.Id, x.PartNumber, x.Name, x.Description, x.ProductFamily, Status = x.Status.ToString(), x.DrawingNumber }).ToList(),
         };
     }

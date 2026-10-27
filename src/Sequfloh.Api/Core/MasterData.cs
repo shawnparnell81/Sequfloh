@@ -41,6 +41,10 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public bool IsSerialized { get; set; }
     public bool IsLotControlled { get; set; }
     public string? DrawingNumber { get; set; }
+    /// <summary>UPC / barcode from the box label, exactly the digits entered (UPC-E, UPC-A, EAN-13 or GTIN-14).</summary>
+    public string? Upc { get; set; }
+    /// <summary>The same code as a 14-digit GTIN, so UPC-A, EAN-13 and GTIN-14 forms of one code match and stay unique.</summary>
+    public string? UpcKey { get; set; }
     public string? Specification { get; set; }
     /// <summary>Part type from the admin-managed part types list (for example Fuel Pump or Strut). Empty on parts added before part types existed.</summary>
     public Guid? TypeId { get; set; }
