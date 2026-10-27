@@ -8,6 +8,7 @@ import MoreVert from '@mui/icons-material/MoreVert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { otherNumbers, usePartSearch } from './partSearch';
+import { usePartFieldScan } from '../scan/ScanProvider';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
@@ -195,11 +196,12 @@ export function PartPicker({ value, label, onChange, disabled, repairable }: { v
   const opts: PartOpt[] = q.items;
   const listbox = useSetupListbox('sqfPart');
   const current = value ? (opts.find((o) => o.id === value.id) ?? ({ id: value.id, partNumber: value.partNumber, name: value.name ?? '', revision: '', partType: '', status: 'Active' } as PartOpt)) : null;
-  return <Autocomplete size="small" options={opts} value={current} slots={{ listbox }} noOptionsText={text ? 'No matching part' : 'Type a part number, JH PN, DWG #, NAPA or DMA'} disabled={disabled} loading={q.loading} filterOptions={(x) => x}
+  const scan = usePartFieldScan((p) => { if (!disabled && p.status === 'Active') { setText(''); onChange({ ...p, revision: '', partType: '' } as PartOpt); } });
+  return <Box {...scan}><Autocomplete size="small" options={opts} value={current} slots={{ listbox }} noOptionsText={text ? 'No matching part' : 'Type a part number, JH PN, DWG #, NAPA or DMA'} disabled={disabled} loading={q.loading} filterOptions={(x) => x}
     isOptionEqualToValue={(a, b) => a.id === b.id} getOptionLabel={(o) => partOption(o)} getOptionDisabled={(o) => !!o.status && o.status !== 'Active'}
     renderOption={(props, o) => <li {...props} key={o.id} data-testid="part-option"><Box><Typography variant="body2">{partOption(o)}{o.status && o.status !== 'Active' ? ` (${o.status}: make it Active in the Part Master to use it)` : ''}</Typography>{otherNumbers(o) && <Typography variant="caption" color="text.secondary">{otherNumbers(o)}</Typography>}</Box></li>}
     onInputChange={(_, t, reason) => { if (reason === 'input') setText(t); }} onChange={(_, o) => onChange(o)}
-    renderInput={(p) => <TextField {...p} label={label} helperText={q.hint} />} />;
+    renderInput={(p) => <TextField {...p} label={label} helperText={q.hint} />} /></Box>;
 }
 
 export function NewInstructionPage() {

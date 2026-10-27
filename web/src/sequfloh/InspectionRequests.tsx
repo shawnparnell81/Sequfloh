@@ -9,6 +9,7 @@ import AddTaskOutlined from '@mui/icons-material/AddTaskOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { otherNumbers, usePartSearch } from './partSearch';
+import { usePartFieldScan } from '../scan/ScanProvider';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { FilesPanel } from '../components/Files';
@@ -42,17 +43,18 @@ function RequestForm({ value, onChange }: { value: Form; onChange: (v: Form) => 
   const [wiText, setWiText] = useState('');
   const wis = useQuery({ queryKey: ['sqf-ir-wi', wiText], queryFn: () => get<{ items: WiOpt[] }>(`${S}/instructions?${qs({ folder: 'released', q: wiText, pageSize: 20, sort: 'number:asc' })}`) });
   const set = (p: Partial<Form>) => onChange({ ...value, ...p });
+  const scan = usePartFieldScan((o) => { setText(o.partNumber); set({ partNumber: o.partNumber, partId: o.id, partDescription: o.name ?? o.description ?? value.partDescription }); });
   useEffect(() => { if (!value.siteId && sites.data?.length) set({ siteId: sites.data[0].id }); }, [sites.data]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Stack gap={2} sx={{ pt: 1 }}>
       {(sites.data?.length ?? 0) > 1 && <TextField select label="Site" required value={value.siteId} onChange={(e) => set({ siteId: e.target.value })}>
         {sites.data!.map((s) => <MenuItem key={s.id} value={s.id}>{s.code} — {s.name}</MenuItem>)}</TextField>}
-      <Autocomplete freeSolo options={parts.items} inputValue={text} filterOptions={(x) => x}
+      <Box {...scan}><Autocomplete freeSolo options={parts.items} inputValue={text} filterOptions={(x) => x}
         getOptionLabel={(o) => (typeof o === 'string' ? o : o.partNumber)}
         renderOption={(props, o) => <li {...props} key={o.id}><Box><Mono>{partNo(o)}</Mono><Typography variant="caption" display="block" color="text.secondary">{o.description || o.name}{otherNumbers(o) ? ` · ${otherNumbers(o)}` : ''}</Typography></Box></li>}
         onInputChange={(_, v, reason) => { setText(v); if (reason === 'input') set({ partNumber: v, partId: null }); }}
         onChange={(_, o) => { if (o && typeof o !== 'string') set({ partNumber: o.partNumber, partId: o.id, partDescription: o.name ?? o.description ?? value.partDescription }); }}
-        renderInput={(p) => <TextField {...p} required label="Part number" helperText="Pick from the Part Master to fill the description, or type any part number." />} />
+        renderInput={(p) => <TextField {...p} required label="Part number" helperText="Pick from the Part Master to fill the description, or type any part number." />} /></Box>
       <TextField label="Part description" value={value.partDescription} onChange={(e) => set({ partDescription: e.target.value })} />
       <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}>
         <TextField label="Qty (per NetSuite)" type="number" value={value.quantity} onChange={(e) => set({ quantity: e.target.value })} sx={{ flex: 1 }} inputProps={{ min: 0, step: 'any' }} />

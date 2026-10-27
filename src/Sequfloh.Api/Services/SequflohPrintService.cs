@@ -214,7 +214,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
             events.Select(e => new[] { local(e.CreatedAt), W(e.EventType), W(e.FromStatus), W(e.ToStatus), e.UserName, e.Reason ?? e.Comment }).ToList()));
         var terminal = x.Status is TrackingStatus.Completed or TrackingStatus.Failed or TrackingStatus.Canceled;
         var header = new PrintHeader(await OrganizationAsync(ct), $"{typeTitle}: {(string.IsNullOrEmpty(x.WorkInstructionTitle) ? x.Number : x.WorkInstructionTitle)}", x.Number, x.WorkInstructionRevision, W(x.Status), null,
-            x.PartNumber is null ? null : $"Part {x.PartNumber}{(x.PartDescription is null ? "" : " " + x.PartDescription)}", settings.WorkInstructions.PrintFooter, current.UserName, printed, terminal ? null : W(x.Status));
+            x.PartNumber is null ? null : $"Part {x.PartNumber}{(x.PartDescription is null ? "" : " " + x.PartDescription)}", settings.WorkInstructions.PrintFooter, current.UserName, printed, terminal ? null : W(x.Status), x.Number);
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("TrackingRecordPrinted", SequflohTrackingService.EntityType, x.Id, $"Printed {x.Number} ({W(x.Status).ToLowerInvariant()})", x.SiteId);
         await db.SaveChangesAsync(ct);

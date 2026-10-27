@@ -455,7 +455,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         blocks.Add(new PrintHeading("Sign-off"));
         blocks.Add(new PrintFields([("Prepared by", "________________"), ("Date", "________"), ("Supplier acknowledgement", "________________")]));
         var header = new PrintHeader(org, $"Chargeback Report: {x.PartNumber ?? x.Title}", x.Number, null, x.Status, null, string.IsNullOrWhiteSpace(supplier) ? null : $"Supplier: {supplier.Trim()}",
-            "Job report", current.UserName ?? "", printed, null);
+            "Job report", current.UserName ?? "", printed, null, x.Number);
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("JobReportPrinted", SequflohTrackingService.EntityType, rec.Id, $"Printed the job report for {x.Number}", rec.SiteId);
         await db.SaveChangesAsync(ct);

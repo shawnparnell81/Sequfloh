@@ -11,6 +11,7 @@ import { useAuth, useBranding } from './auth';
 import { LoginPage, SetupPage, ChangePasswordPage } from './pages/SignIn';
 import { TabbedWorkspace } from './tabs/Workspace';
 
+import { ScanBox, ScanProvider } from './scan/ScanProvider';
 const Preferences = lazy(() => import('./pages/Account').then((m) => ({ default: m.PreferencesPage })));
 
 const SqfDrawings = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingsPage })));
@@ -70,7 +71,7 @@ const Spinner = () => <Stack alignItems="center" sx={{ py: 10 }}><CircularProgre
 
 /** Top bar on every signed-in page: name, Home, and the person's menu. Back lives on each page, so it follows that tab. */
 function TopBar() {
-  const { me, logout } = useAuth();
+  const { me, logout, can } = useAuth();
   const branding = useBranding();
   const nav = useNavigate();
   const loc = useLocation();
@@ -89,6 +90,7 @@ function TopBar() {
         </Box>
         <Button startIcon={<HomeOutlined />} component={RouterLink} to="/sequfloh" variant={atHome ? 'contained' : 'text'} size="small">Home</Button>
         <Box sx={{ flex: 1 }} />
+        {can('sequfloh.access') && <ScanBox />}
         <Tooltip title="Your account"><Button data-testid="user-menu" onClick={(e) => setAnchor(e.currentTarget)} startIcon={<AccountCircleOutlined />} size="small" color="inherit">{me?.displayName}</Button></Tooltip>
         <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
           <MenuItem disabled><Typography variant="body2">{me?.email}</Typography></MenuItem>
@@ -103,7 +105,7 @@ function TopBar() {
 }
 
 function Signed({ children }: { children: ReactNode }) {
-  return <><TopBar />{children}</>;
+  return <ScanProvider><TopBar />{children}</ScanProvider>;
 }
 
 export function App() {
