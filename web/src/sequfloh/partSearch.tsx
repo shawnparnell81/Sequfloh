@@ -26,7 +26,9 @@ export function usePartSearch<T>(text: string, extra: Record<string, string | un
   });
   const total = q ? r.data?.total ?? 0 : 0, items = q ? r.data?.items ?? [] : [];
   const hint = total > items.length ? `Showing ${items.length} of ${total.toLocaleString('en-US')} parts. Type a part number, DWG #, NAPA, DMA or JH PN to find any part.` : undefined;
-  return { items, total, loading: q.length > 0 && r.isLoading, hint };
+  // still typing (not yet settled) counts as searching, so "No matching part" is shown only after the server answered
+  const loading = (text.trim().length > 0 && text.trim() !== q) || (q.length > 0 && r.isFetching && !r.data);
+  return { items, total, loading, hint };
 }
 
 /** The other numbers of a part, shown under its OR # so a match on a NAPA or DMA PN is visible. */

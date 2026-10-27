@@ -82,7 +82,8 @@ export const setupOptions = (kind: SetupKind, rows: readonly unknown[] | undefin
  */
 export function useSetupListbox(kind: SetupKind) {
   return useMemo(() => forwardRef<HTMLUListElement, HTMLAttributes<HTMLElement> & { ownerState?: unknown }>(function SetupListbox({ children, ownerState: _ownerState, ...props }, ref) {
-    return <ul {...props} ref={ref}><li role="presentation"><SetupRow kind={kind} count={1} /></li>{children}</ul>;
+    // a custom listbox drops the Autocomplete's own styles, so the height cap and scrolling are set here
+    return <ul {...props} ref={ref} style={{ maxHeight: '40vh', overflow: 'auto', margin: 0, padding: '8px 0', listStyle: 'none', ...props.style }}><li role="presentation"><SetupRow kind={kind} count={1} /></li>{children}</ul>;
   }), [kind]);
 }
 
