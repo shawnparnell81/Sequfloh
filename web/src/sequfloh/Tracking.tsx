@@ -4,10 +4,10 @@ import { EightDBlock, EightDCreate, noEightD, uploadEightD } from './EightD';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { get, post, put } from '../api';
+import { del, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
@@ -22,6 +22,7 @@ import { ProblemList } from './Designer';
 import { FindingsPanel } from './Findings';
 import { InventoryNote, JobPanel } from './Job';
 import { PartPicker } from './Instructions';
+import { AddPartDialog } from './PartLinks';
 import { ViewDrawingButton } from './Drawings';
 import { PartDrawingLinks, RecordDrawings } from './Drawings';
 import { DEVELOPMENT_LINES, useFamilies } from './Imports';
@@ -298,6 +299,7 @@ export function TrackingRecordPage() {
   const tab = sp.get('tab') ?? 'record';
   const q = useQuery({ queryKey: ['sqf-tr-one', id], queryFn: () => get<TrResponse>(`${S}/tracking/${id}`) });
   const [doc, setDoc] = useState<TrRecord | null>(null);
+  const [addPart, setAddPart] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
@@ -330,6 +332,11 @@ export function TrackingRecordPage() {
     await refresh(); setMsg({ sev: 'success', text: `${a.label}: done.` });
   };
   const enter = q.data.canEnter && !busy;
+  // pull the server's parts rows in while keeping anything typed into existing rows
+  const syncParts = async () => {
+    const fresh = (await q.refetch()).data?.record.partsRows ?? [];
+    setDoc((d) => d && { ...d, partsRows: fresh.map((f) => ({ ...f, ...((d.partsRows ?? []).find((x) => x.id === f.id) ?? {}) })) });
+  };
   // clocking on needs a started work order (the server refuses it too); clocking off is always possible
   const clockHint = closed || rec.status === 'Failed' || rec.status === 'InProgress' ? undefined : rec.status === 'NotStarted' || rec.status === 'Assigned' ? 'Press Start on this work order before clocking on.' : 'Resume this work order before clocking on.';
   const plan = q.data.canPlan && !busy;
@@ -459,6 +466,18 @@ export function TrackingRecordPage() {
           <TableCell><TextField size="small" label="NC reference" value={s(r.nonconformanceReference)} disabled={!enter} onChange={(e) => setRow('characteristics', i, { nonconformanceReference: e.target.value })} /></TableCell>
         </>} />}
 
+      {tab === 'parts' && rec.type === 'Repair' && <Box sx={{ mb: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
+        {q.data.canEnter && <Button variant="contained" size="small" data-testid="wo-add-part" disabled={closed || busy || !rec.partId} onClick={() => setAddPart(true)}>Add part</Button>}
+        {closed ? <Typography variant="body2" color="text.secondary">This work order is {rec.status.toLowerCase()}; its parts are locked.</Typography>
+          : !rec.partId && <Typography variant="body2" color="text.secondary">Choose the part being repaired first.</Typography>}
+        {(doc.partsRows ?? []).some((r) => r.added === true) && !closed && q.data.canEnter && <Typography variant="caption" color="text.secondary">Added parts can be removed with the bin icon below.</Typography>}
+      </Box>}
+      {tab === 'parts' && (doc.partsRows ?? []).filter((r) => r.added === true).length > 0 && !closed && q.data.canEnter && <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
+        {(doc.partsRows ?? []).filter((r) => r.added === true).map((r) => <Chip key={s(r.id)} size="small" label={s(r.replacementPartNumber)} data-testid="wo-added-part"
+          onDelete={async () => { await del(`${S}/tracking/${rec.id}/repair-parts/${s(r.id)}`); await syncParts(); }} />)}
+      </Stack>}
+      <AddPartDialog open={addPart} withQty title="Add part to this repair" onClose={() => setAddPart(false)}
+        onAdd={async (r) => { await post(`${S}/tracking/${rec.id}/repair-parts`, r); await syncParts(); }} />
       {tab === 'parts' && <EntryTable title="Repair parts" rows={doc.partsRows} disabled={!enter}
         cols={[['replacementPartNumber', 'Part number'], ['description', 'Description'], ['quantity', 'Planned qty'], ['required', 'Required']]}
         entryHead={['Issued', 'Used', 'Returned', 'Lot', 'Serial']}

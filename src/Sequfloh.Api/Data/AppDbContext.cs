@@ -35,6 +35,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : DbCo
         ConfigureSequfloh(b);
         ConfigureImports(b);
         ConfigureDrawings(b);
+        ConfigurePartComponents(b);
 
         foreach (var et in b.Model.GetEntityTypes().Where(t => typeof(Entity).IsAssignableFrom(t.ClrType)))
             b.Entity(et.ClrType).Property(nameof(Entity.RowVersion)).IsRowVersion();

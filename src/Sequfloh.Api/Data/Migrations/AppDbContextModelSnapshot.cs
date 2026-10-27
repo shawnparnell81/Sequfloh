@@ -2816,6 +2816,31 @@ namespace Sequfloh.Data.Migrations
                     b.ToTable("parts", "sqf");
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.MasterData.PartComponentLink", b =>
+                {
+                    b.Property<Guid>("PartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ComponentPartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("PartId", "Kind", "ComponentPartId");
+
+                    b.HasIndex("ComponentPartId");
+
+                    b.ToTable("part_component_links", "sqf");
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.MasterData.PartRevision", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3680,6 +3705,21 @@ namespace Sequfloh.Data.Migrations
                         .WithMany()
                         .HasForeignKey("SiteId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.MasterData.PartComponentLink", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.MasterData.Part", null)
+                        .WithMany()
+                        .HasForeignKey("ComponentPartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Sequfloh.Domain.MasterData.Part", null)
+                        .WithMany()
+                        .HasForeignKey("PartId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
