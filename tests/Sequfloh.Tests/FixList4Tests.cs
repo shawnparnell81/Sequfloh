@@ -169,6 +169,7 @@ public sealed class FixList4Tests(TestApp app)
         var site = await app.CreateSiteAsync();
         var (_, c) = await app.CreateUserAsync(Planner, site);
         var id = (await (await c.PostOkAsync(T, new { type = "SaltSpray", siteId = site })).JsonAsync()).Id();
+        await c.StartAsync(id);
         var rec = (await c.GetElAsync($"{T}/{id}")).GetProperty("record");
         Assert.Equal("SaltSpray", rec.Str("type"));
         Assert.Equal([id], Ids(await c.GetElAsync($"{T}?folder=salt-spray&site={site}")));

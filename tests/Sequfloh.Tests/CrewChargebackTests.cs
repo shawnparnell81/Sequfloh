@@ -37,6 +37,7 @@ public sealed class CrewChargebackTests(TestApp app)
             wi = w.Id;
         }
         var id = (await (await lead.PostOkAsync(U, new { type = "Production", workInstructionId = wi, siteId = site })).JsonAsync()).Id();
+        await lead.StartAsync(id);
         return (site, id, lead, plain, plainId);
     }
 
@@ -333,7 +334,6 @@ public sealed class CrewChargebackTests(TestApp app)
     {
         var (_, id, lead, plain, plainId) = await JobAsync();
         async Task<int> Ver() => (await lead.GetElAsync($"{U}/{id}")).GetProperty("record").GetProperty("stateVersion").GetInt32();
-        await lead.PostOkAsync($"{U}/{id}/actions/start", new { operationId = Guid.NewGuid(), stateVersion = await Ver() });
         await lead.PostOkAsync($"{U}/{id}/actions/pause", new { operationId = Guid.NewGuid(), stateVersion = await Ver(), reason = "Waiting for made-up parts" });
         await lead.PostOkAsync($"{U}/{id}/actions/resume", new { operationId = Guid.NewGuid(), stateVersion = await Ver() });
         var day = new DateTimeOffset(2001, 2, 14, 12, 0, 0, TimeSpan.Zero);

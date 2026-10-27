@@ -330,6 +330,8 @@ export function TrackingRecordPage() {
     await refresh(); setMsg({ sev: 'success', text: `${a.label}: done.` });
   };
   const enter = q.data.canEnter && !busy;
+  // clocking on needs a started work order (the server refuses it too); clocking off is always possible
+  const clockHint = closed || rec.status === 'Failed' || rec.status === 'InProgress' ? undefined : rec.status === 'NotStarted' || rec.status === 'Assigned' ? 'Press Start on this work order before clocking on.' : 'Resume this work order before clocking on.';
   const plan = q.data.canPlan && !busy;
   const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox', Test: 'test' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
@@ -365,8 +367,8 @@ export function TrackingRecordPage() {
       {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
 
       {tab === 'record' && <Stack gap={2}>
-        <TimePanel recordId={rec.id} closed={closed} />
-        <CrewPanel recordId={rec.id} />
+        <TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} />
+        <CrewPanel recordId={rec.id} notStarted={clockHint} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         <RecordDrawings recordId={rec.id} />
         {(vf || q.data.canAttachForm) && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
@@ -479,7 +481,7 @@ export function TrackingRecordPage() {
       </Stack>}
 
       {tab === 'job' && <JobPanel id={rec.id} canWork={!closed} />}
-      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} closed={closed} /><CrewPanel recordId={rec.id} /></Stack>}
+      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} /><CrewPanel recordId={rec.id} notStarted={clockHint} /></Stack>}
       {tab === 'findings' && <FindingsPanel id={rec.id} canWork={!closed} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />

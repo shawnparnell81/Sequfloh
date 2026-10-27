@@ -76,6 +76,7 @@ public sealed class DeleteAndTimeTests(TestApp app)
         var wi = await ReleasedAsync(site);
         var empty = (await (await deleter.PostOkAsync(U, new { type = "Production", workInstructionId = wi, siteId = site })).JsonAsync()).Id();
         var worked = (await (await deleter.PostOkAsync(U, new { type = "Production", workInstructionId = wi, siteId = site })).JsonAsync()).Id();
+        await deleter.StartAsync(worked);
 
         var conflict = await deleter.DeleteAsync($"/api/sequfloh/instructions/{wi}");
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
@@ -179,6 +180,7 @@ public sealed class DeleteAndTimeTests(TestApp app)
         Assert.Equal(HttpStatusCode.Forbidden, (await helper.PutAsync($"{U}/{id}/assignees", new { userIds = new[] { leadId } })).StatusCode);
 
         // timers: three people at once, including one without any permission
+        await planner.StartAsync(id);
         await planner.PostOkAsync($"{U}/{id}/time/start");
         await helper.PostOkAsync($"{U}/{id}/time/start");
         await stranger.PostOkAsync($"{U}/{id}/time/start");

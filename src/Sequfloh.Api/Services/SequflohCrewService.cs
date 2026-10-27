@@ -104,6 +104,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     public async Task StartAsync(Guid id, int crewSize, CancellationToken ct, Guid? workerId = null)
     {
         var r = await EditableAsync(id, ct);
+        SequflohTrackingService.RequireStarted(r);
         var w = await WorkerAsync(id, workerId, ct);
         if (w is not null) crewSize = 1;
         CheckCrew(crewSize);

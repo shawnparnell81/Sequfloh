@@ -43,6 +43,7 @@ public sealed class JobReportDetailTests(TestApp app)
     public async Task Paused_time_is_logged_per_technician_and_left_out_of_man_hours()
     {
         var (id, _, plain) = await JobAsync();
+        await plain.StartAsync(id);
         await plain.PostOkAsync($"{U}/{id}/time/start");
         Assert.Equal(HttpStatusCode.BadRequest, (await plain.PostAsync($"{U}/{id}/time/pause", new { reason = "Payroll" })).StatusCode);
         await plain.PostOkAsync($"{U}/{id}/time/pause", new { reason = "Lunch" });

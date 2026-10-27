@@ -79,6 +79,14 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
 
     /// <summary>True when the work order is Completed or Canceled and nothing on it can be changed until it is reopened.</summary>
     public static bool IsClosed(SequflohTrackingRecord r) => r.Status is TrackingStatus.Completed or TrackingStatus.Canceled;
+    /// <summary>Clocking on needs a started record; clocking off a running entry is always allowed.</summary>
+    public static void RequireStarted(SequflohTrackingRecord r)
+    {
+        RequireOpen(r);
+        if (r.Status is TrackingStatus.NotStarted or TrackingStatus.Assigned) throw new ConflictException("Press Start on this work order before clocking on.");
+        if (r.Status != TrackingStatus.InProgress) throw new ConflictException($"{r.Number} is {Words(r.Status)}. Resume it before clocking on.");
+    }
+
     public static void RequireOpen(SequflohTrackingRecord r)
     {
         if (IsClosed(r)) throw new ConflictException($"{r.Number} is {Words(r.Status)} and cannot be changed.");

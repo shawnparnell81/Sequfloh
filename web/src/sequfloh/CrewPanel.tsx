@@ -36,7 +36,7 @@ function Big({ label, value, testid, strong }: { label: string; value: string; t
  * Crew time: a number of workers with no names, clocked together. One Start / Pause / Continue / Stop applies to the whole crew.
  * Registered people keep using their own Clock on job buttons; their hours are shown next to the crew hours and added into the total.
  */
-export function CrewPanel({ recordId }: { recordId: string }) {
+export function CrewPanel({ recordId, notStarted }: { recordId: string; notStarted?: string }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['sqf-crew', recordId], queryFn: () => get<CrewSummary>(`${S}/tracking/${recordId}/crew`), refetchInterval: 30000 });
   const [crew, setCrew] = useState('1');
@@ -77,7 +77,7 @@ export function CrewPanel({ recordId }: { recordId: string }) {
           </>
           : <>
             <TextField size="small" type="number" label="Crew size (workers)" value={crew} onChange={(e) => setCrew(e.target.value)} inputProps={{ min: 1, max: 500, 'data-testid': 'crew-size' }} sx={{ width: 170 }} />
-            <Button variant="contained" color="success" disabled={busy || !(Number(crew) >= 1)} data-testid="crew-start" onClick={() => go('start')}>Start crew</Button>
+            <Button variant="contained" color="success" disabled={busy || !!notStarted || !(Number(crew) >= 1)} title={notStarted} data-testid="crew-start" onClick={() => go('start')}>Start crew</Button>
           </>)}
         {d?.canEdit && <Button variant="outlined" data-testid="crew-add-past" onClick={() => setEdit('new')}>Add past time</Button>}
         {d?.canEdit && <Button variant="outlined" data-testid="crew-bulk" onClick={() => setBulk(true)}>Bulk entry</Button>}
@@ -107,7 +107,7 @@ export function CrewPanel({ recordId }: { recordId: string }) {
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
         Labor hours = (elapsed − paused) × crew size. Total personnel = largest crew + each day worker with time + each registered person who clocked on. Every change is kept in History.
       </Typography>
-      {d && <DayWorkers recordId={recordId} d={d} now={live} onEdit={setEdit} onAddPast={setEditWorker} onError={setErr} refresh={refresh} />}
+      {d && <DayWorkers recordId={recordId} notStarted={notStarted} d={d} now={live} onEdit={setEdit} onAddPast={setEditWorker} onError={setErr} refresh={refresh} />}
       {editWorker && <SessionDialog recordId={recordId} session={null} workerId={editWorker} workerName={d?.workers?.find((w) => w.id === editWorker)?.name} onClose={() => setEditWorker(null)} onSaved={async () => { setEditWorker(null); await refresh(); }} />}
       {edit && <SessionDialog recordId={recordId} session={edit === 'new' ? null : edit} workerId={edit !== 'new' ? edit.workerId : null} workerName={edit !== 'new' ? edit.workerName : null} onClose={() => setEdit(null)} onSaved={async () => { setEdit(null); await refresh(); }} />}
       {bulk && <BulkDialog recordId={recordId} onClose={() => setBulk(false)} onSaved={async () => { setBulk(false); await refresh(); }} />}
@@ -207,7 +207,7 @@ function BulkDialog({ recordId, onClose, onSaved }: { recordId: string; onClose:
 const clock = (sec: number) => { const t = Math.floor(sec); return `${Math.floor(t / 3600)}:${pad(Math.floor((t % 3600) / 60))}:${pad(t % 60)}`; };
 
 /** Day workers: typed names on this work order only (no account or login), each with their own Start / Pause / Continue / Stop and their own times. */
-function DayWorkers({ recordId, d, now, onEdit, onAddPast, onError, refresh }: { recordId: string; d: CrewSummary; now: number; onEdit: (s: Session) => void; onAddPast: (workerId: string) => void;
+function DayWorkers({ recordId, notStarted, d, now, onEdit, onAddPast, onError, refresh }: { recordId: string; notStarted?: string; d: CrewSummary; now: number; onEdit: (s: Session) => void; onAddPast: (workerId: string) => void;
   onError: (m: string) => void; refresh: () => Promise<unknown> }) {
   const [name, setName] = useState(''); const [busy, setBusy] = useState(false);
   const call = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); await refresh(); } catch (e) { onError((e as Error).message); } finally { setBusy(false); } };
@@ -241,7 +241,7 @@ function DayWorkers({ recordId, d, now, onEdit, onAddPast, onError, refresh }: {
                     ? <Button size="small" variant="contained" disabled={busy} data-testid="day-worker-continue" onClick={() => go(w, 'continue')}>Continue</Button>
                     : <Button size="small" variant="outlined" disabled={busy} data-testid="day-worker-pause" onClick={() => go(w, 'pause')}>Pause</Button>}
                   <Button size="small" color="error" variant="contained" sx={{ ml: 1 }} disabled={busy} data-testid="day-worker-stop" onClick={() => go(w, 'stop')}>Stop</Button></>
-                : <Button size="small" color="success" variant="contained" disabled={busy} data-testid="day-worker-start" onClick={() => go(w, 'start')}>Start</Button>)}
+                : <Button size="small" color="success" variant="contained" disabled={busy || !!notStarted} title={notStarted} data-testid="day-worker-start" onClick={() => go(w, 'start')}>Start</Button>)}
             </TableCell>
             <TableCell align="right" data-testid="day-worker-hours">{hrs(w.seconds + (w.running && !w.running.pausedAt ? now : 0))}</TableCell>
             <TableCell sx={{ whiteSpace: 'nowrap' }} align="right">{d.canEdit && <>

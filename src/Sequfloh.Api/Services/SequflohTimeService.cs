@@ -24,7 +24,7 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
     public async Task StartAsync(Guid id, CancellationToken ct)
     {
         var rec = await RecordAsync(id, ct);
-        SequflohTrackingService.RequireOpen(rec);
+        SequflohTrackingService.RequireStarted(rec);
         if (await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == id && e.UserId == UserId && e.StoppedAt == null, ct))
             throw new ConflictException("You are already clocked on this job.");
         var name = await db.Users.Where(u => u.Id == UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? me.UserName ?? "";
