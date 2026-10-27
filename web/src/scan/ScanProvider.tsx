@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Dialog, DialogActions, DialogContent, InputAdornment, List, ListItemButton, ListItemText, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Button, Dialog, DialogActions, DialogContent, InputAdornment, List, ListItemButton, ListItemText, TextField, Typography } from '@mui/material';
 import QrCodeScanner from '@mui/icons-material/QrCodeScanner';
-import { get } from '../api';
+import { get, put } from '../api';
+import { usePartSearch } from '../sequfloh/partSearch';
 import { useAuth } from '../auth';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useQuery } from '@tanstack/react-query';
@@ -10,7 +11,7 @@ import { createScanDetector, isTypingTarget, normalizeScan } from './detector';
 
 export interface ScanPart { id: string; partNumber: string; name: string; description?: string | null; productFamily?: string | null; status: string; drawingNumber?: string | null }
 export interface ScanRecord { kind: string; id: string; number: string; title?: string | null; link: string }
-export interface ScanResult { code: string; matchedOn: string | null; matches: ScanPart[]; records: ScanRecord[]; canAdd: boolean }
+export interface ScanResult { code: string; matchedOn: string | null; matches: ScanPart[]; records: ScanRecord[]; canAdd: boolean; isBarcode?: boolean }
 
 /** Looks a scanned code up: exact part numbers (then exact DWG #, DMA PN or JH PN), and with records, exact work order, inspection request and project numbers. */
 export const lookupScan = (code: string, partsOnly = false) =>
@@ -20,7 +21,7 @@ export const lookupScan = (code: string, partsOnly = false) =>
 export const SCAN_PART_ATTR = 'data-scan-part';
 export const SCAN_EVENT = 'sqf-part-scan';
 
-type Ctx = { scan: (code: string) => Promise<void>; notFound: (r: ScanResult) => void };
+type Ctx = { scan: (code: string) => Promise<void>; notFound: (r: ScanResult, onLinked?: (p: ScanPart) => void) => void };
 const ScanCtx = createContext<Ctx>({ scan: async () => {}, notFound: () => {} });
 export const useScan = () => useContext(ScanCtx);
 
@@ -61,11 +62,13 @@ export function ScanProvider({ children }: { children: ReactNode }) {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [enabled, scan]);
-  const notFound = useCallback((r: ScanResult) => setResult(r), []);
-  const none = result && result.matches.length + result.records.length === 0;
+  const linked = useRef<((p: ScanPart) => void) | null>(null);
+  const notFound = useCallback((r: ScanResult, onLinked?: (p: ScanPart) => void) => { linked.current = onLinked ?? null; setResult(r); }, []);
+  const none = result && result.matches.length + result.records.length === 0 && !result.isBarcode;
+  const unlinked = result && result.isBarcode && result.matches.length === 0 ? result : null;
   return <ScanCtx.Provider value={{ scan, notFound }}>
     {children}
-    <Dialog open={!!result || !!err} onClose={() => { setResult(null); setErr(''); }} maxWidth="xs" fullWidth data-testid="scan-dialog">
+    <Dialog open={(!!result && !unlinked) || !!err} onClose={() => { setResult(null); setErr(''); }} maxWidth="xs" fullWidth data-testid="scan-dialog">
       <FormDialogTitle>{none ? 'Not found' : 'Choose what you scanned'}</FormDialogTitle>
       <DialogContent>
         {err && <Alert severity="error">{err}</Alert>}
@@ -82,6 +85,8 @@ export function ScanProvider({ children }: { children: ReactNode }) {
         {none && result!.canAdd && <Button variant="contained" data-testid="scan-add-part" onClick={() => open(`/sequfloh/parts?add=${encodeURIComponent(result!.code)}`)}>Add part</Button>}
       </DialogActions>
     </Dialog>
+    {unlinked && <UnlinkedBarcode r={unlinked} onClose={() => setResult(null)} onLinked={(p) => { setResult(null); const cb = linked.current; linked.current = null; if (cb) cb(p); else setMenu(p); }}
+      onAdd={() => open(`/sequfloh/parts?addUpc=${encodeURIComponent(unlinked.code)}`)} />}
     {menu && <PartMenu part={menu} onClose={() => setMenu(null)} go={(l) => { setMenu(null); nav(l); }} />}
   </ScanCtx.Provider>;
 }
@@ -107,7 +112,8 @@ export function usePartFieldScan(onPart: (p: ScanPart) => void) {
       const code = normalizeScan((e as CustomEvent<string>).detail ?? ''); if (!code) return;
       const r = await lookupScan(code, true);
       if (r.matches.length === 1) cb.current(r.matches[0]);
-      else if (r.matches.length === 0) notFound(r);
+      // a part number with no part offers Add; a barcode on no part offers to link it to a part, which is then selected here
+      else if (r.matches.length === 0) notFound(r, r.isBarcode ? cb.current : undefined);
     };
     el.addEventListener(SCAN_EVENT, on);
     return () => el.removeEventListener(SCAN_EVENT, on);
@@ -146,5 +152,38 @@ function PartMenu({ part, onClose, go }: { part: ScanPart; onClose: () => void; 
         : <Typography variant="body2">No drawings linked to this part.</Typography>)}
     </DialogContent>
     <DialogActions>{show !== 'menu' && <Button onClick={() => setShow('menu')}>Back</Button>}<Button onClick={onClose}>Close</Button></DialogActions>
+  </Dialog>;
+}
+
+/** A box-label barcode that is on no part: link it to an existing part, or add a new part with it. Never a part named after the digits. */
+function UnlinkedBarcode({ r, onClose, onLinked, onAdd }: { r: ScanResult; onClose: () => void; onLinked: (p: ScanPart) => void; onAdd: () => void }) {
+  const [text, setText] = useState('');
+  const [pick, setPick] = useState<ScanPart | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const q = usePartSearch<ScanPart>(text, {}, r.canAdd);
+  const link = async () => {
+    if (!pick) return;
+    setBusy(true); setErr('');
+    try { await put(`/api/sequfloh/parts/${pick.id}/upc`, { upc: r.code }); onLinked(pick); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return <Dialog open onClose={onClose} maxWidth="xs" fullWidth data-testid="scan-unlinked">
+    <FormDialogTitle>Barcode not linked</FormDialogTitle>
+    <DialogContent>
+      <Typography data-testid="scan-unlinked-text">Barcode <b>{r.code}</b> isn't linked to a part.{r.canAdd ? ' Link to a part?' : ''}</Typography>
+      {!r.canAdd && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Ask someone who can edit parts to link it.</Typography>}
+      {r.canAdd && <>
+        <Autocomplete size="small" options={q.items} value={pick} filterOptions={(x) => x} loading={q.loading} isOptionEqualToValue={(a, b) => a.id === b.id}
+          getOptionLabel={(o) => `${o.partNumber} · ${o.name}`} noOptionsText={text ? 'No matching part' : 'Type a part number'}
+          onInputChange={(_, t, reason) => { if (reason === 'input') setText(t); }} onChange={(_, o) => setPick(o)}
+          renderInput={(p) => <TextField {...p} sx={{ mt: 2 }} label="Part number" inputProps={{ ...p.inputProps, 'data-testid': 'scan-link-search' }} />} />
+        {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}
+      </>}
+    </DialogContent>
+    <DialogActions>
+      <Button onClick={onClose}>Close</Button>
+      {r.canAdd && <Button data-testid="scan-add-new-part" onClick={onAdd}>Add new part</Button>}
+      {r.canAdd && <Button variant="contained" disabled={!pick || busy} data-testid="scan-link-part" onClick={link}>Link</Button>}
+    </DialogActions>
   </Dialog>;
 }

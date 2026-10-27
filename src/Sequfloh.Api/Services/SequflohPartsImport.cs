@@ -1,3 +1,4 @@
+using Sequfloh.Infrastructure.Services;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -48,6 +49,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         ("isAssembly", "Assembly", ["assembly", "is assembly", "assembly type"]),
         ("material", "Material", ["material"]),
         ("drawingNumber", "DWG #", ["sensen", "sensen #", "sensen#", "sensen no", "sensen number", "dwg #", "dwg#", "drawing number", "drawing", "drawing no", "dwg"]),
+        ("upc", "UPC / Barcode", ["upc", "upc / barcode", "upc code", "barcode", "bar code", "ean", "gtin", "upc-a", "ean-13"]),
         ("specification", "Specification", ["specification", "spec"]),
         ("isRepairable", "Repairable", ["repairable", "can be repaired"]),
         ("isRepairPart", "Repair part", ["repair part", "repair parts", "spare part"]),
@@ -202,7 +204,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     /// <summary>Key is the row's mapped values, used to find exact duplicates; Position tells parts with the same OR # apart.</summary>
-    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null, string? Drawing = null, Dictionary<string, string>? Attrs = null);
+    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null, string? Drawing = null, Dictionary<string, string>? Attrs = null, string? Upc = null);
 
     /// <summary>The numbers an update would replace: an existing real DWG # or number field is never overwritten by a different value.</summary>
     static List<string> KeptNumbers(Part t, string? dwg, IReadOnlyDictionary<string, string>? attrs)
@@ -282,6 +284,9 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             if (Get("unitOfMeasure") is { Length: > 0 } u && (uom = PartChoices.Unit(u)) is null) errors.Add($"Unit of measure \"{u}\" must be Each, Lot, Batch or Skid.");
             var asm = FlagOf("isAssembly", "Assembly");
             var mat = Text("material", "Material", 200); var dwg = Text("drawingNumber", "Drawing number", 100); var spec = Text("specification", "Specification", 200);
+            // UPC / Barcode: digits only, a UPC-E, UPC-A, EAN-13 or GTIN-14 length, with a right check digit
+            var upc = Raw("upc") is { Length: > 0 } uv && !PartFields.IsBlank(uv) ? uv : null;
+            if (upc is not null && (!Gtin.IsBarcode(upc) || !Gtin.CheckDigitOk(upc))) { errors.Add($"UPC / Barcode \"{upc}\" must be 8, 12, 13 or 14 digits with a right check digit."); upc = null; }
             var rep = FlagOf("isRepairable", "Repairable"); var rp = FlagOf("isRepairPart", "Repair part"); string? lot = null;
             if (Get("isLotControlled") is { Length: > 0 } lv && (lot = PartChoices.Lot(lv)) is null) errors.Add($"Lot controlled \"{lv}\" must be Yes, No or Not applicable.");
             Guid? typeId = r.DefaultTypeId;
@@ -309,6 +314,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 // an existing real number is never replaced by a different one; blanks and placeholders are filled
                 if (dwg is not null && PartFields.IsBlank(p.DrawingNumber)) p.DrawingNumber = dwg;
                 if (spec is not null) p.Specification = spec;
+                // a UPC is only filled in where the part has none; an existing one is never replaced
+                if (upc is not null && string.IsNullOrEmpty(p.Upc)) { p.Upc = upc; p.UpcKey = Gtin.Key(upc); }
                 if (rep is not null) p.IsRepairable = rep.Value;
                 if (rp is not null) p.IsRepairPart = rp.Value;
                 if (lot is not null) { p.LotControl = lot; p.IsLotControlled = lot == "Yes"; }
@@ -319,7 +326,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 var hidden = PartFields.Read(p.HiddenFields);
                 if (p.HiddenFields is null && p.TypeId is { } ft) hidden.AddRange(PartFields.Read(familyHidden.GetValueOrDefault(ft)));
                 p.HiddenFields = PartFields.Write(hidden.Concat(blanks));
-            }, key, attrs.GetValueOrDefault("position"), numbers, dwg, attrs));
+            }, key, attrs.GetValueOrDefault("position"), numbers, dwg, attrs, Upc: upc));
         }
         return list;
     }
@@ -394,6 +401,25 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var where = repeatOf is { } rr ? $"row {rr}" : "a part already in the Part Master";
             if (!r.KeepRepeats) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Same Part number as {where} with different values. Turn on \"Keep rows that repeat a Part number but differ\" to add it as its own part."]));
             else rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [$"Same Part number as {where}; added as its own part."], Repeat: true));
+        }
+        // a UPC / Barcode can be on one part only: not one already on another part, and not twice in the file
+        var byUpc = all.Where(x => x.UpcKey != null).ToDictionary(x => x.UpcKey!);
+        var upcRow = new Dictionary<string, int>();
+        var parsedByRow = parsed.GroupBy(x => x.Row).ToDictionary(g => g.Key, g => g.First());
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row.Action is not ("Add" or "Update") || parsedByRow.GetValueOrDefault(row.Row)?.Upc is not { } u) continue;
+            var k = Gtin.Key(u)!;
+            var target = targets.GetValueOrDefault(row.Row);
+            if (target is not null && !string.IsNullOrEmpty(target.Upc))
+            {
+                if (target.UpcKey != k) rows[i] = row with { Messages = [.. row.Messages, $"UPC / Barcode stays {target.Upc} (the file has {u})."] };
+                continue;
+            }
+            if (byUpc.TryGetValue(k, out var owner) && owner.Id != target?.Id) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is already on part {owner.PartNumber}."] }; targets.Remove(row.Row); continue; }
+            if (upcRow.TryGetValue(k, out var first)) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is also on row {first}. A barcode can be on one part only."] }; targets.Remove(row.Row); continue; }
+            upcRow[k] = row.Row;
         }
         return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error")), parsed, targets);
     }

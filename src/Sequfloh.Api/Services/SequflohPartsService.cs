@@ -15,7 +15,8 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false,
     string? PartClass = null, bool? IsAssembly = null, string? LotControl = null);
 /// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
-public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null, List<string>? HiddenFields = null);
+/// <summary>Upc: null keeps the part's UPC / Barcode, an empty value clears it.</summary>
+public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null, List<string>? HiddenFields = null, string? Upc = null);
 public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0, string? Number = null);
 public sealed record PartsListItemInput(Guid? PartId, string? PartNumber, string? Description, decimal Quantity, string? Unit, bool Required, string? AlternatePartNumber,
     TraceabilityRequirement Traceability, string? Notes);
@@ -43,9 +44,11 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await CheckTypeAsync(r.TypeId, null, ct);
         await CheckChoicesAsync(r.Execution, null, ct);
         if (r.Attributes is not null) PartAttributes.Clean(r.Attributes); // checked before anything is saved
+        var upc = await CheckUpcAsync(r.Upc, null, ct);
         var p = await master.SavePartAsync(null, r.Part, ct); // shared Part Master rules: masterdata.edit, unique number, initial revision
         await ApplyExecutionAsync(p.Id, r.Execution with { RowVersion = 0 }, ct);
         await ApplyTypeAndAttributesAsync(p.Id, r, ct, isNew: true);
+        if (upc is not null) await SetUpcAsync(p.Id, upc, ct);
         await drawingLinks.LinkPartsAsync([p.Id], ct);
         return p;
     }
@@ -67,10 +70,39 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
             if (others.Any(a => string.Equals(PartAttributes.Read(a).GetValueOrDefault("position")?.Trim() ?? "", pos, StringComparison.OrdinalIgnoreCase)))
                 throw new ConflictException(pos.Length > 0 ? $"A part with this part number and Position {pos} already exists." : "A part with this part number already exists. Give the part a Position that differs from the others.");
         }
+        if (r.Upc is not null) await CheckUpcAsync(r.Upc, id, ct);
         await master.SavePartAsync(id, r.Part, ct, numberChecked: true);
         await ApplyExecutionAsync(id, r.Execution with { RowVersion = 0 }, ct);
         await ApplyTypeAndAttributesAsync(id, r, ct);
+        if (r.Upc is not null) await SetUpcAsync(id, r.Upc, ct);
         await drawingLinks.LinkPartsAsync([id], ct);
+    }
+
+    /// <summary>Checks a UPC / Barcode before saving: digits only, a UPC-E, UPC-A, EAN-13 or GTIN-14 length, a right check digit, and on no other part. Returns the digits, or null for none.</summary>
+    public async Task<string?> CheckUpcAsync(string? raw, Guid? partId, CancellationToken ct)
+    {
+        var v = raw?.Trim();
+        if (string.IsNullOrEmpty(v)) return null;
+        if (!Gtin.IsBarcode(v)) throw new AppException("A UPC / Barcode is the digits under the barcode: 8 (UPC-E), 12 (UPC-A), 13 (EAN-13) or 14 (GTIN-14) digits.");
+        if (!Gtin.CheckDigitOk(v)) throw new AppException($"UPC / Barcode {v} doesn't look right: its last (check) digit doesn't match. Check the digits on the label.");
+        var key = Gtin.Key(v);
+        var other = await db.Parts.AsNoTracking().Where(x => x.UpcKey == key && x.Id != partId).Select(x => x.PartNumber).FirstOrDefaultAsync(ct);
+        if (other is not null) throw new ConflictException($"UPC / Barcode {v} is already on part {other}. A barcode can be on one part only.");
+        return v;
+    }
+
+    /// <summary>Sets or clears a part's UPC / Barcode (audited). Needs permission to edit the part.</summary>
+    public async Task SetUpcAsync(Guid id, string? raw, CancellationToken ct)
+    {
+        var p = await db.Parts.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Part");
+        await m.RequireAsync(Permissions.SequflohEditParts, p.SiteId, p.DepartmentId, ct);
+        var v = await CheckUpcAsync(raw, id, ct);
+        if (v == p.Upc) return;
+        var was = p.Upc;
+        p.Upc = v; p.UpcKey = Gtin.Key(v);
+        f.Audit("Update", "Part", p.Id, v is null ? $"{p.PartNumber}: removed UPC / Barcode {was}." : was is null ? $"{p.PartNumber}: UPC / Barcode set to {v}." : $"{p.PartNumber}: UPC / Barcode changed from {was} to {v}.", p.SiteId);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) { throw new ConflictException($"UPC / Barcode {v} was just added to another part. A barcode can be on one part only."); }
     }
 
     /// <summary>A new or changed product family must be an active value of the product families list; a part may keep a family that was deactivated later.</summary>
