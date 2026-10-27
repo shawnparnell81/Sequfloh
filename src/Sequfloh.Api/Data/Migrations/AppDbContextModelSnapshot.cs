@@ -1853,6 +1853,13 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
+                    b.Property<Guid?>("FamilyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FamilyName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("FinalDisposition")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

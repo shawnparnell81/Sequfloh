@@ -214,6 +214,7 @@ public partial class AppDbContext
             e.Property(x => x.PartsReplaced).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.Property(x => x.ReportOptions).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
             e.Property(x => x.Findings).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+            e.Property(x => x.FamilyName).HasMaxLength(200);
             e.Property(x => x.CostLines).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.HasIndex(x => x.PartId);
             e.HasOne<SequflohWorkInstruction>().WithMany().HasForeignKey(x => x.WorkInstructionId).OnDelete(DeleteBehavior.Restrict);

@@ -53,6 +53,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Development', path: '/sequfloh/tracking/development' },
         { label: 'Rebox', path: '/sequfloh/tracking/rebox' },
         { label: 'Test', path: '/sequfloh/tracking/test' },
+        { label: 'Weight', path: '/sequfloh/tracking/weight' },
         { label: 'Production', path: '/sequfloh/tracking/production' },
         { label: 'Completed Work Orders', path: '/sequfloh/tracking/completed' },
       ] },

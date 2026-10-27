@@ -169,7 +169,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         var names = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         string? N(Guid? u) => u is { } g && names.TryGetValue(g, out var n) ? n : null;
         var site = await db.Sites.AsNoTracking().Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefaultAsync(ct);
-        var typeTitle = x.Type switch { TrackingType.Fai => "Validation / FAI Tracking Record", TrackingType.SaltSpray => "Salt Spray Test Tracking Record", TrackingType.Inspection => "Inspection Tracking Record", TrackingType.Warranty => "Warranty Tracking Record", TrackingType.Repair => "Repair / Rework Tracking Record", TrackingType.Production => "Production Task", TrackingType.Development => "Development Tracking Record", TrackingType.Rebox => "Rebox Tracking Record", TrackingType.Test => "Test Tracking Record", _ => "Validation / FAI Tracking Record" };
+        var typeTitle = x.Type switch { TrackingType.Fai => "Validation / FAI Tracking Record", TrackingType.SaltSpray => "Salt Spray Test Tracking Record", TrackingType.Inspection => "Inspection Tracking Record", TrackingType.Warranty => "Warranty Tracking Record", TrackingType.Repair => "Repair / Rework Tracking Record", TrackingType.Production => "Production Task", TrackingType.Development => "Development Tracking Record", TrackingType.Rebox => "Rebox Tracking Record", TrackingType.Test => "Test Tracking Record", TrackingType.Weight => "Weight Tracking Record", _ => "Validation / FAI Tracking Record" };
         var blocks = new List<PrintBlock>
         {
             new PrintHeading("Record"),
