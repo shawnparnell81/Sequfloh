@@ -28,13 +28,13 @@ import { PartDrawingLinks, RecordDrawings } from './Drawings';
 import { DEVELOPMENT_LINES, useFamilies } from './Imports';
 
 /** Work order type names. Validation and FAI are one type to the user: records stored as either show as Validation / FAI. */
-export const trackingTypes: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox', Test: 'Test' };
+export const trackingTypes: Record<string, string> = { Validation: 'Validation / FAI', Fai: 'Validation / FAI', Repair: 'Repair / Rework', Production: 'Production', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox', Test: 'Test', Weight: 'Weight' };
 /** One entry per type for type pickers and filters (Validation / FAI listed once). */
-export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Production', 'Production']];
+export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Weight', 'Weight'], ['Production', 'Production']];
 /** Types offered by the New work order builder; Production stays available for links that ask for it. */
-const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox', Test: 'Test' };
+const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox', Test: 'Test', Weight: 'Weight' };
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
-const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task', SaltSpray: 'sequfloh.create_production_task', Development: 'sequfloh.create_production_task', Rebox: 'sequfloh.create_production_task', Test: 'sequfloh.create_production_task' };
+const createPerm: Record<string, string> = { Validation: 'sequfloh.create_validation_record', Fai: 'sequfloh.create_fai_record', Repair: 'sequfloh.create_repair_record', Production: 'sequfloh.create_production_task', Inspection: 'sequfloh.create_production_task', Warranty: 'sequfloh.create_production_task', SaltSpray: 'sequfloh.create_production_task', Development: 'sequfloh.create_production_task', Rebox: 'sequfloh.create_production_task', Test: 'sequfloh.create_production_task', Weight: 'sequfloh.create_production_task' };
 export const trCrumbs = (label: string, folder?: { label: string; to: string }) =>
   [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work Orders', to: '/sequfloh/tracking/open' }, ...(folder ? [folder] : []), { label }];
 /** The one way to start a work order: the type is chosen inside the builder. */
@@ -71,6 +71,7 @@ const folders: Record<string, { title: string; description: string; type?: strin
   development: { title: 'Development', type: 'Development', description: 'Development work orders for the Engineering, Development product lines.' },
   rebox: { title: 'Rebox', type: 'Rebox', description: 'Rebox work orders, with the same clock, crew and day-worker time as every other work order.' },
   test: { title: 'Test', type: 'Test', description: 'Test work orders, with the drawing of the part, its validation form and the same clock, crew and day-worker time as every other work order.' },
+  weight: { title: 'Weight', type: 'Weight', description: 'Weight work orders: a product family task with no part number, no drawing and no work instruction, numbered WO-WGH-year-001.' },
   open: { title: 'Open Work Orders', description: 'Every work order that is not completed, failed or canceled.' },
   completed: { title: 'Completed Work Orders', description: 'Completed work orders.' },
 };
@@ -161,6 +162,7 @@ export function NewTrackingPage() {
   const famForm = forms.data?.families.find((x) => x.id === familyId);
   const famBlank = famForm?.blankFormId ? forms.data?.blanks.find((b) => b.id === famForm.blankFormId) : undefined;
   const isInsp = type === 'Inspection' || type === 'Warranty';
+  const isWeight = type === 'Weight';
   const [wi, setWi] = useState<WiOpt | null>(null);
   const [wiText, setWiText] = useState('');
   const [part, setPart] = useState<{ id: string; partNumber: string; name?: string } | null>(null);
@@ -196,8 +198,9 @@ export function NewTrackingPage() {
       if (linkProject && !projectId) throw new Error(PICK_PROJECT);
       const auto = !!suggested && f.number.trim() === suggested;
       if (isInsp && !f.subType) throw new Error('Choose the inspection sub-type.');
-      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' || type === 'Test' || type === 'Development' ? nul(familyId) : null, developmentLine: type === 'Development' ? nul(devLine) : null,
-        inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: wi?.id, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, assignedUserId: nul(assigned),
+      if (isWeight && !familyId) throw new Error('Choose the product family (product class) for this Weight work order.');
+      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' || type === 'Test' || type === 'Development' || isWeight ? nul(familyId) : null, developmentLine: type === 'Development' ? nul(devLine) : null,
+        inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp ? nul(f.inspectionDescription) : null, workInstructionId: isWeight ? null : wi?.id, siteId, departmentId: nul(departmentId), partId: isWeight ? null : part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
         maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId), include8D: with8D && !noEightD(type) });
@@ -224,12 +227,15 @@ export function NewTrackingPage() {
           <NumberField size="small" value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'new-wo-number', maxLength: 200 }} />
           <TextField select size="small" label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }} inputProps={{ 'data-testid': 'new-wo-type' }}>
             {allowed.map((t) => <MenuItem key={t} value={t}>{builderTypes[t] ?? trackingTypes[t]}</MenuItem>)}</TextField>
-          <Autocomplete size="small" options={wis.data ?? []} value={wi} loading={wis.isLoading} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
+          {isWeight && <TextField select size="small" required label="Product family (product class)" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
+            helperText="Required. A Weight work order has no part number, drawing or work instruction.">
+            {(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
+          {!isWeight && <Autocomplete size="small" options={wis.data ?? []} value={wi} loading={wis.isLoading} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} onInputChange={(_, t, r) => { if (r === 'input') setWiText(t); }}
             onChange={(_, o) => { setWi(o); if (o?.partId) setPart({ id: o.partId, partNumber: o.partNumber ?? '', name: o.partDescription }); if (o?.operation && !f.operation) setF({ ...f, operation: o.operation }); }}
-            renderInput={(p) => <TextField {...p} label="Work instruction number (optional)" inputProps={{ ...p.inputProps, 'data-testid': 'new-wo-wi' }} helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type. You can create the work order without one.' : 'Optional how-to steps for the technician.'} />} />
-          <PartPicker label={type === 'Repair' ? 'Repairable part' : 'Part'} repairable={type === 'Repair'} value={part} onChange={(p) => setPart(p)} />
-          <TextField size="small" label="Part description" value={part?.name ?? ''} disabled InputLabelProps={{ shrink: true }} />
+            renderInput={(p) => <TextField {...p} label="Work instruction number (optional)" inputProps={{ ...p.inputProps, 'data-testid': 'new-wo-wi' }} helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type. You can create the work order without one.' : 'Optional how-to steps for the technician.'} />} />}
+          {!isWeight && <PartPicker label={type === 'Repair' ? 'Repairable part' : 'Part'} repairable={type === 'Repair'} value={part} onChange={(p) => setPart(p)} />}
+          {!isWeight && <TextField size="small" label="Part description" value={part?.name ?? ''} disabled InputLabelProps={{ shrink: true }} />}
           {fld('quantity', 'Qty', { type: 'number', inputProps: { min: 0, 'data-testid': 'new-wo-qty' } })}
           {type === 'Development' && <TextField select size="small" label="Development line" value={devLine} onChange={(e) => { setDevLine(e.target.value); setWi(null); }} inputProps={{ 'data-testid': 'new-wo-dev-line' }}>
             <MenuItem value=""><em>None</em></MenuItem>{DEVELOPMENT_LINES.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}</TextField>}
@@ -246,7 +252,7 @@ export function NewTrackingPage() {
           {isInsp && <TextField select size="small" label="Inspection sub-type" value={subTypes.data ? f.subType ?? '' : ''} onChange={(e) => setF({ ...f, subType: e.target.value })} inputProps={{ 'data-testid': 'new-wo-subtype' }}>
             {(subTypes.data ?? []).map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}</TextField>}
           {isInsp && <Box sx={{ gridColumn: '1 / -1' }}>{fld('inspectionDescription', 'Description of the inspection', { multiline: true, minRows: 2, fullWidth: true, inputProps: { 'data-testid': 'new-wo-description' } })}</Box>}
-          {part && <Box sx={{ gridColumn: { md: 'span 2' } }} data-testid="new-record-drawings">
+          {part && !isWeight && <Box sx={{ gridColumn: { md: 'span 2' } }} data-testid="new-record-drawings">
             <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 0.5 }}>
               Drawings for this exact part number (attached to the work order when it is created)</Typography>
             <PartDrawingLinks partId={part.id} /></Box>}
@@ -340,7 +346,7 @@ export function TrackingRecordPage() {
   // clocking on needs a started work order (the server refuses it too); clocking off is always possible
   const clockHint = closed || rec.status === 'Failed' || rec.status === 'InProgress' ? undefined : rec.status === 'NotStarted' || rec.status === 'Assigned' ? 'Press Start on this work order before clocking on.' : 'Resume this work order before clocking on.';
   const plan = q.data.canPlan && !busy;
-  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox', Test: 'test' }[rec.type] ?? 'open';
+  const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox', Test: 'test', Weight: 'weight' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
   const vf = (rec.details as unknown as { validationForm?: { familyId?: string; family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
@@ -377,7 +383,7 @@ export function TrackingRecordPage() {
         <TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} />
         <CrewPanel recordId={rec.id} notStarted={clockHint} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
-        <RecordDrawings recordId={rec.id} />
+        {rec.type !== 'Weight' && <RecordDrawings recordId={rec.id} />}
         {(vf || q.data.canAttachForm) && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
           <Typography variant="h3" sx={{ mb: 1 }}>{vf?.test ? `${vf.test} form` : `Validation form${vf?.family ? ` — ${vf.family}` : ''}`}</Typography>
           {!vf && <Typography variant="body2" color="text.secondary">No validation form is attached to this work order yet.</Typography>}
@@ -394,8 +400,9 @@ export function TrackingRecordPage() {
             ...(rec.inspectionSubType ? [['Inspection sub-type', s(rec.inspectionSubType)] as [string, ReactNode]] : []),
             ...(rec.inspectionDescription ? [['Description', s(rec.inspectionDescription)] as [string, ReactNode]] : []),
             ...(rec.quantityTarget != null ? [['Qty', s(rec.quantityTarget)] as [string, ReactNode]] : []),
-            ['Work instruction', <InstructionRef key="wi" rec={rec} canChange={['NotStarted', 'Assigned'].includes(rec.status) && !dirty} onSaved={refresh} />],
-            ['Part', rec.partNumber ? <span key="p">{`${s(rec.partNumber)} — ${s(rec.partDescription)}`}<ViewDrawingButton partId={rec.partId as string | undefined} partNumber={s(rec.partNumber)} /></span> : '—'], ['Status', <SqfStatus status={rec.status} />],
+            ...(rec.type === 'Weight' ? [['Product family', s(rec.familyName) || '—'] as [string, ReactNode]] : [
+            ['Work instruction', <InstructionRef key="wi" rec={rec} canChange={['NotStarted', 'Assigned'].includes(rec.status) && !dirty} onSaved={refresh} />] as [string, ReactNode],
+            ['Part', rec.partNumber ? <span key="p">{`${s(rec.partNumber)} — ${s(rec.partDescription)}`}<ViewDrawingButton partId={rec.partId as string | undefined} partNumber={s(rec.partNumber)} /></span> : '—'] as [string, ReactNode]]), ['Status', <SqfStatus status={rec.status} />],
             ['Assigned people', rec.assignees?.length ? rec.assignees.map((a) => a.displayName).join(', ') : s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
             ['Site', s(rec.site) || '—'], ['Owner', s(rec.owner) || '—'], ['Created', `${fmtDateTime(rec.createdAt)}${rec.createdBy ? ' · ' + s(rec.createdBy) : ''}`],
             ['Updated', `${fmtDateTime(s(rec.updatedAt))}${rec.updatedBy ? ' · ' + s(rec.updatedBy) : ''}`],

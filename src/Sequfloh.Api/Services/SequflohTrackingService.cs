@@ -52,6 +52,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         TrackingType.Validation or TrackingType.Fai or TrackingType.Test => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.Procedure],
         TrackingType.Repair => [WorkInstructionType.RepairWork, WorkInstructionType.Procedure],
         TrackingType.Development => [WorkInstructionType.Procedure],
+        TrackingType.Weight => [],
         _ => [WorkInstructionType.Validation, WorkInstructionType.ValidationFai, WorkInstructionType.Fai, WorkInstructionType.RepairTest, WorkInstructionType.RepairWork, WorkInstructionType.Inspection, WorkInstructionType.Procedure]
     };
 
@@ -109,9 +110,11 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         {
             TrackingType.Validation or TrackingType.Fai => t.Tracking.ValidationNumberCode, TrackingType.Repair => t.Tracking.RepairNumberCode, TrackingType.Inspection => t.Tracking.InspectionNumberCode,
             TrackingType.Warranty => t.Tracking.WarrantyNumberCode, TrackingType.SaltSpray => t.Tracking.SaltSprayNumberCode,
-            TrackingType.Development => t.Tracking.DevelopmentNumberCode, TrackingType.Rebox => t.Tracking.ReboxNumberCode, TrackingType.Test => t.Tracking.TestNumberCode, _ => null,
+            TrackingType.Development => t.Tracking.DevelopmentNumberCode, TrackingType.Rebox => t.Tracking.ReboxNumberCode, TrackingType.Test => t.Tracking.TestNumberCode, TrackingType.Weight => t.Tracking.WeightNumberCode, _ => null,
         });
         if (typeCode is null) return null;
+        // Weight is a product family task: WO-WGH-26-001, no family code in the number
+        if (type == TrackingType.Weight) return $"WO-{typeCode}-{YearCode(await DbNowAsync(ct), await m.ZoneAsync(siteId, ct))}-";
         return await FamilyPrefixAsync($"WO-{typeCode}-", familyId, partId, siteId, ct);
     }
 
@@ -227,6 +230,16 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         if (r.MinBenchmarkMinutes is { } mn && r.MaxBenchmarkMinutes is { } mx && mn > mx) throw new AppException("The minimum benchmark cannot be greater than the maximum benchmark.");
         if (r.PlannedStart is { } ps && r.DueAt is { } du && du < ps) throw new AppException("The due date cannot be before the planned start.");
         var partId = r.PartId ?? wi?.PartId;
+        string? familyName = null;
+        if (r.Type == TrackingType.Weight)
+        {
+            // a product family task: no part, no drawing, no work instruction
+            if (wi is not null) throw new AppException("A Weight work order has no work instruction.");
+            partId = null;
+            if (r.FamilyId is null) throw new AppException("Choose the product family (product class) for this Weight work order.");
+            familyName = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == r.FamilyId && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.Label).FirstOrDefaultAsync(ct)
+                ?? throw new AppException("The product family does not exist. Choose one from the Product Families list.");
+        }
         if (r.Quantity is < 0) throw new AppException("The quantity can't be negative.");
         var subType = T(r.InspectionSubType, 100);
         if (r.Type is TrackingType.Inspection or TrackingType.Warranty && subType is not null) await f.RequireOptionAsync(SequflohCatalog.InspectionSubTypes, subType, "Inspection sub-type", ct);
@@ -252,7 +265,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             SerialNumber = T(r.SerialNumber, 100), LotNumber = T(r.LotNumber, 100), WorkOrder = T(r.WorkOrder, 100), RepairOrder = T(r.RepairOrder, 100),
             CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi?.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
             Status = r.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned, CurrentStateStartedAt = now, LastTransitionAt = now,
-            ProjectId = project?.Id, Include8D = r.Include8D,
+            ProjectId = project?.Id, Include8D = r.Include8D, FamilyId = familyName is null ? null : r.FamilyId, FamilyName = familyName,
             QuantityTarget = r.Quantity, DevelopmentLine = devLine, InspectionSubType = r.Type is TrackingType.Inspection or TrackingType.Warranty ? subType : null,
             InspectionDescription = r.Type is TrackingType.Inspection or TrackingType.Warranty ? T(r.InspectionDescription, 4000) : null,
             ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi?.RepairDescription, FaiType = wi?.FaiType,
@@ -281,7 +294,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         if (rec.PartId is { } attachFor) await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct);
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, wi is null ? "Created without a work instruction" : $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
         f.Audit("TrackingRecordCreated", EntityType, rec.Id, wi is null ? $"{rec.Number} ({Label(r.Type)}) created without a work instruction" : $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}", rec.SiteId,
-            context: new { trackingType = r.Type.ToString(), workInstruction = wi?.Number, revision = wi?.Revision, part = rec.PartNumber });
+            context: new { trackingType = r.Type.ToString(), workInstruction = wi?.Number, revision = wi?.Revision, part = rec.PartNumber, family = familyName });
         if (project is not null) f.Audit("ProjectLinked", EntityType, rec.Id, $"Work order {rec.Number} linked to project {project.Number}", rec.SiteId);
         if (r.CreateClockStartedAt is { } clockFrom)
         {
@@ -765,7 +778,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     }
 
     async Task<string> NameAsync(Guid? id, CancellationToken ct) => id is null ? "nobody" : await db.Users.Where(u => u.Id == id).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "unknown";
-    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI", TrackingType.Validation => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray Test", TrackingType.Repair => "Repair / Rework", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", TrackingType.Development => "Development", TrackingType.Rebox => "Rebox", TrackingType.Test => "Test", _ => "production" };
+    public static string Label(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI", TrackingType.Validation => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray Test", TrackingType.Repair => "Repair / Rework", TrackingType.Inspection => "inspection", TrackingType.Warranty => "warranty", TrackingType.Development => "Development", TrackingType.Rebox => "Rebox", TrackingType.Test => "Test", TrackingType.Weight => "Weight", _ => "production" };
     public static string Words(TrackingStatus s) => SequflohInstructionService.Words(s.ToString());
     static string Words(string s) => SequflohInstructionService.Words(s);
     static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
