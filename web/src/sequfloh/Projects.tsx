@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, FormControlLabel, Radio, RadioGroup, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { Empty, ErrorState, Loading, S, SqfPage, qs, useSqf } from './common';
@@ -27,20 +27,37 @@ const crumbs = (last?: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { lab
 /** Optional project picker for work orders and inspection requests. Only open projects are offered; the current one stays listed. */
 export function ProjectPicker({ value, onChange, testId = 'project-picker' }: { value: string; onChange: (id: string) => void; testId?: string }) {
   const q = useProjects();
-  const rows = (q.data ?? []).filter((p) => p.status === 'Open' || p.id === value);
-  return <TextField select size="small" label="Project (optional)" value={q.data ? value : ''} onChange={(e) => onChange(e.target.value)} inputProps={{ 'data-testid': testId }}>
-    <MenuItem value="">None</MenuItem>
-    {rows.map((p) => <MenuItem key={p.id} value={p.id}>{p.number} {p.name}{p.status === 'Closed' ? ' (closed)' : ''}</MenuItem>)}
-  </TextField>;
+  const rows = (q.data ?? []).filter((p) => p.status === 'Open' || p.id === value).sort((a, b) => (a.status === b.status ? a.number.localeCompare(b.number) : a.status === 'Open' ? -1 : 1));
+  const picked = rows.find((p) => p.id === value) ?? null;
+  return <Autocomplete size="small" options={rows} value={picked} loading={q.isLoading} isOptionEqualToValue={(a, b) => a.id === b.id} sx={{ minWidth: 260 }}
+    getOptionLabel={(p) => `${p.number}, ${p.name}${p.status === 'Closed' ? ' (closed)' : ''}`} onChange={(_, p) => onChange(p?.id ?? '')}
+    noOptionsText="No projects match" renderInput={(p) => <TextField {...p} label="Project reference" placeholder="Pick a project" inputProps={{ ...p.inputProps, 'data-testid': testId }} />} />;
 }
+
+/** "Link to a project?" No / Yes; the project list shows only after Yes. Choosing No clears the project. */
+export function ProjectLink({ value, onChange, yes, onYes, testId = 'project-picker' }: { value: string; onChange: (id: string) => void; yes: boolean; onYes: (yes: boolean) => void; testId?: string }) {
+  return <Stack gap={1}>
+    <Stack direction="row" alignItems="center" gap={2}>
+      <Typography variant="body2">Link to a project?</Typography>
+      <RadioGroup row value={yes ? 'yes' : 'no'} onChange={(e) => { const y = e.target.value === 'yes'; onYes(y); if (!y) onChange(''); }} data-testid={`${testId}-ask`}>
+        <FormControlLabel value="no" control={<Radio size="small" />} label="No" />
+        <FormControlLabel value="yes" control={<Radio size="small" />} label="Yes" />
+      </RadioGroup>
+    </Stack>
+    {yes && <ProjectPicker value={value} onChange={onChange} testId={testId} />}
+  </Stack>;
+}
+export const PICK_PROJECT = 'Pick the project to link, or choose No for Link to a project.';
 
 function ProjectDialog({ open, onClose, initial }: { open: boolean; onClose: (id?: string) => void; initial?: ProjectRow | ProjectDetail }) {
   const sites = useSites();
   const [f, setF] = useState({ number: initial?.number ?? '', name: initial?.name ?? '', description: initial?.description ?? '', siteId: initial?.siteId ?? '' });
   const [err, setErr] = useState<string | null>(null);
+  const next = useQuery({ queryKey: ['sqf-project-next'], queryFn: () => get<{ number: string }>(`${S}/projects/next-number`), enabled: open && !initial, staleTime: 0 });
+  useEffect(() => { if (!initial && next.data?.number) setF((cur) => (cur.number ? cur : { ...cur, number: next.data.number })); }, [next.data?.number]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
     setErr(null);
-    const body = { number: f.number.trim(), name: f.name.trim(), description: f.description.trim() || null, siteId: f.siteId || null };
+    const body = { number: f.number.trim() || null, name: f.name.trim(), description: f.description.trim() || null, siteId: f.siteId || null };
     try {
       if (initial) { await put(`${S}/projects/${initial.id}`, body); onClose(initial.id); }
       else { const r = await post<{ id: string }>(`${S}/projects`, body); onClose(r.id); }
@@ -50,14 +67,14 @@ function ProjectDialog({ open, onClose, initial }: { open: boolean; onClose: (id
     <DialogTitle>{initial ? 'Edit project' : 'New project'}</DialogTitle>
     <DialogContent><Stack gap={2} sx={{ mt: 1 }}>
       {err && <Alert severity="error">{err}</Alert>}
-      <TextField label="Project number" required value={f.number} onChange={(e) => setF({ ...f, number: e.target.value })} helperText="Your own number, exactly as your company writes it" inputProps={{ 'data-testid': 'project-number' }} />
+      <TextField label="Project number" required={!!initial} value={f.number} onChange={(e) => setF({ ...f, number: e.target.value })} helperText={initial ? 'The project number' : 'Filled in with the next number. You can change it; left blank, the next number is given when you save.'} inputProps={{ 'data-testid': 'project-number' }} />
       <TextField label="Project name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} inputProps={{ 'data-testid': 'project-name' }} />
       <TextField label="Description (optional)" multiline minRows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
       <TextField select label="Site (optional)" value={f.siteId} onChange={(e) => setF({ ...f, siteId: e.target.value })}>
         <MenuItem value="">Any site</MenuItem>{(sites.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
       </TextField>
     </Stack></DialogContent>
-    <DialogActions><Button onClick={() => onClose()}>Cancel</Button><Button variant="contained" onClick={save} disabled={!f.number.trim() || !f.name.trim()} data-testid="project-save">Save</Button></DialogActions>
+    <DialogActions><Button onClick={() => onClose()}>Cancel</Button><Button variant="contained" onClick={save} disabled={(!!initial && !f.number.trim()) || !f.name.trim()} data-testid="project-save">Save</Button></DialogActions>
   </Dialog>;
 }
 
@@ -162,12 +179,15 @@ export function ProjectPage() {
 export function ProjectField({ kind, recordId, projectId, label, canEdit }: { kind: 'work-orders' | 'inspection-requests'; recordId: string; projectId?: string | null; label?: string | null; canEdit: boolean }) {
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
+  const [yes, setYes] = useState(!!projectId);
   if (!canEdit) return <Typography variant="body2" data-testid="project-label">Project: {projectId ? <Link component={RouterLink} to={`/sequfloh/project/${projectId}`}>{label ?? 'open'}</Link> : '—'}</Typography>;
   return <Stack direction="row" gap={1} alignItems="center">
-    <ProjectPicker value={projectId ?? ''} testId="project-link" onChange={async (v) => {
+    <ProjectLink value={projectId ?? ''} testId="project-link" yes={yes} onYes={setYes} onChange={async (v) => {
       setErr(null);
+      if (!v && !projectId) return;
       try { await put(`${S}/projects/${kind}/${recordId}`, { projectId: v || null }); qc.invalidateQueries(); } catch (e) { setErr((e as Error).message); }
     }} />
+    {yes && !projectId && <Typography variant="caption" color="text.secondary">Pick a project to link it.</Typography>}
     {projectId && <Link component={RouterLink} to={`/sequfloh/project/${projectId}`}>Open project</Link>}
     {err && <Alert severity="error">{err}</Alert>}
   </Stack>;
