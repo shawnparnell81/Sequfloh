@@ -415,7 +415,7 @@ export function TrackingRecordPage() {
         {!noEightD(rec.type) && <EightDBlock kind="work-orders" id={rec.id} />}
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Results and evidence">
           <Typography variant="h3" sx={{ mb: 1.5 }}>Results and evidence</Typography>
-          {!q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Results are recorded while the record is in progress or pending inspection.</Typography>}
+          {!q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Start the work order to record results. They can be entered while it is in progress.</Typography>}
           <Grid cols={2}>
             {rec.type === 'Validation' && <>{det('sampleIdentification', 'Sample identification')}{det('controlledConditions', 'Controlled conditions (recorded)')}</>}
             {rec.type === 'Fai' && <>{det('materialVerification', 'Material verification')}{det('specialProcessVerification', 'Special-process verification')}{det('certificateReview', 'Certificate review')}
@@ -433,6 +433,7 @@ export function TrackingRecordPage() {
         </Paper>
       </Stack>}
 
+      {tab === 'steps' && !q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }} data-testid="steps-start-hint">Start the work order to enter step results. Steps come from the work instruction.</Typography>}
       {tab === 'steps' && <EntryTable title={rec.type === 'Repair' ? 'Operations' : 'Steps'} rows={doc.steps} disabled={!enter}
         cols={[['sequence', 'Seq'], [rec.type === 'Repair' ? 'operationStep' : 'title', rec.type === 'Repair' ? 'Operation' : 'Title'], ['spec', 'Specification / limits'], ['expectedResult', 'Expected result']]}
         entry={(r, i) => <>
