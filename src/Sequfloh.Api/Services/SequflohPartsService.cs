@@ -133,7 +133,15 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
             // values of fields the part's family does not show are not on the form; they are kept, so nothing is lost when a part changes family and back
             var code = p.TypeId is { } tid ? await db.SequflohReferenceValues.Where(x => x.Id == tid).Select(x => x.Code).FirstOrDefaultAsync(ct) : null;
             var kept = PartAttributes.Read(p.Attributes).Where(kv => !r.Attributes.ContainsKey(kv.Key) && PartAttributes.Find(kv.Key) is { } d && !PartAttributes.AppliesTo(d, code));
+            var before = PartAttributes.Read(p.Attributes);
             PartAttributes.Write(p, new Dictionary<string, string?>(r.Attributes.Concat(kept.Select(kv => new KeyValuePair<string, string?>(kv.Key, kv.Value)))));
+            var after = PartAttributes.Read(p.Attributes);
+            foreach (var d in PartAttributes.All)
+            {
+                var was = before.GetValueOrDefault(d.Key); var now = after.GetValueOrDefault(d.Key);
+                if (isNew || was == now) continue;
+                f.Audit("Update", "Part", p.Id, now is null ? $"{p.PartNumber}: removed {d.Label} {was}." : was is null ? $"{p.PartNumber}: {d.Label} set to {now}." : $"{p.PartNumber}: {d.Label} changed from {was} to {now}.", p.SiteId);
+            }
         }
         if (r.HiddenFields is not null) p.HiddenFields = PartFields.Write(r.HiddenFields);
         else if (isNew && r.TypeId is { } ft) // a new part starts with its family's Not applicable fields

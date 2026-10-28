@@ -7,9 +7,10 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 /// One cross-reference number or other attribute of a part. Types lists the part type codes the field belongs to (null means every type); NotTypes lists codes it is not shown for.
 /// Words are the column headings that suggest the field in Parts import.
 /// </summary>
+/// MatchKey false: a supplier number that is never used to find a part (import matching, the part number of a row, scanning).
 /// Verbatim fields keep a placeholder such as "/" as written; it is shown as is and is still never a match key.
 /// DrawingNumber marks the field that holds the drawing number for the part types it belongs to, so drawings named with that number link to the part.
-public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null, string[]? NotTypes = null, bool DrawingNumber = false, bool Verbatim = false);
+public sealed record PartAttributeDef(string Key, string Label, string[] Words, int MaxLength = 100, string[]? Types = null, string[]? NotTypes = null, bool DrawingNumber = false, bool Verbatim = false, bool MatchKey = true);
 
 /// <summary>
 /// The attribute fields of a part. The SENSEN # is the drawing number, so it is not an attribute.
@@ -29,6 +30,8 @@ public static class PartAttributes
         new("nissanVa", "Nissan VA #", ["nissan va", "nissan va #", "nissan va no", "nissan va number", "nissan va part number"], NotTypes: FuelPump),
         new("napaUs", "NAPA US #", ["napa us", "napa us #", "napa us no", "napa us number", "napa usa"], NotTypes: FuelPump),
         new("napaCa", "NAPA CA #", ["napa ca", "napa ca #", "napa ca no", "napa ca number", "napa canada"], NotTypes: FuelPump),
+        // the Linyi supplier part number, for example 3.TY.BC.039; looked up in search but never a match key
+        new("linyiPn", "LINYI PN", ["linyi pn", "linyi", "linyi #", "linyi part number", "linyi part #"], MatchKey: false),
         new("keyApplication", "Key Application", ["key application", "key applications", "key app", "application", "applications"], 1000, NotTypes: FuelPump),
         new("position", "Position", ["position", "pos", "location on vehicle", "mounting position"], NotTypes: FuelPump),
         // the columns of the fuel pump sheet besides OR PN
