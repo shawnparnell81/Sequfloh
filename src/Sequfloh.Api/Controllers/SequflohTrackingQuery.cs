@@ -38,6 +38,7 @@ internal static class SequflohTrackingQuery
             "rebox" => query.Where(x => x.Type == TrackingType.Rebox),
             "test" => query.Where(x => x.Type == TrackingType.Test),
             "weight" => query.Where(x => x.Type == TrackingType.Weight),
+            "research" => query.Where(x => x.Type == TrackingType.Research),
             "open" => query.Where(x => SequflohTrackingService.Open.Contains(x.Status)),
             "completed" => query.Where(x => x.Status == TrackingStatus.Completed),
             "on-hold" => query.Where(x => x.Status == TrackingStatus.Paused), // old links; holds are handled in the ERP
@@ -75,7 +76,7 @@ internal static class SequflohTrackingQuery
         {
             var like = $"%{p.Q.Trim()}%";
             query = query.Where(x => EF.Functions.ILike(x.Number + " " + x.WorkInstructionNumber + " " + x.WorkInstructionTitle + " " + (x.PartNumber ?? "") + " " + (x.SerialNumber ?? "") + " "
-                + (x.LotNumber ?? "") + " " + (x.WorkOrder ?? "") + " " + (x.RepairOrder ?? "") + " " + (x.Project ?? "") + " " + (x.Operation ?? ""), like));
+                + (x.LotNumber ?? "") + " " + (x.WorkOrder ?? "") + " " + (x.RepairOrder ?? "") + " " + (x.Project ?? "") + " " + (x.Operation ?? "") + " " + (x.FamilyName ?? "") + " " + (x.InspectionDescription ?? ""), like));
         }
         var defaultSort = p.Folder switch { "dispatch" or "mine" => "queue", "overdue" => "dueAt:asc", "finished" => "actualCompletion:desc", "paused" => "pausedAt:asc", "station" => "station", _ => "createdAt:desc" };
         query = (p.Sort ?? defaultSort) switch
