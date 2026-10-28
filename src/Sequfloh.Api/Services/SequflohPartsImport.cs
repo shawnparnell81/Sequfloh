@@ -219,13 +219,17 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     /// <summary>Attribute fields that hold a number used to find the same part again; descriptive fields are left out.</summary>
-    public static bool IsNumberKey(string key) => key is "partNumber" or "drawingNumber" || (key.StartsWith("attr:", StringComparison.Ordinal) && PartAttributes.Find(key[5..]) is { } d && IsNumber(d));
+    public static bool IsNumberKey(string key) => key is "partNumber" or "drawingNumber" || (key.StartsWith("attr:", StringComparison.Ordinal) && PartAttributes.Find(key[5..]) is { } d && IsMatchNumber(d));
+    /// <summary>Number columns whose "/" and similar placeholders are read as blank, supplier numbers included.</summary>
+    static bool IsPlaceholderKey(string key) => IsNumberKey(key) || (key.StartsWith("attr:", StringComparison.Ordinal) && PartAttributes.Find(key[5..]) is { } d && IsNumber(d));
+    /// <summary>Numbers that find the same part again; supplier numbers such as the LINYI PN are not.</summary>
+    static bool IsMatchNumber(PartAttributeDef a) => IsNumber(a) && a.MatchKey;
 
     static bool IsNumber(PartAttributeDef a) => a.Key is not ("keyApplication" or "position" or "boxSize");
 
     /// <summary>The real numbers of an existing part: its part number, drawing number and cross-reference numbers.</summary>
     static IEnumerable<string> NumbersOf(Part x) => new[] { x.PartNumber, x.DrawingNumber ?? "" }
-        .Concat(PartAttributes.Read(x.Attributes).Where(kv => PartAttributes.Find(kv.Key) is { } d && IsNumber(d)).Select(kv => kv.Value))
+        .Concat(PartAttributes.Read(x.Attributes).Where(kv => PartAttributes.Find(kv.Key) is { } d && IsMatchNumber(d)).Select(kv => kv.Value))
         .Select(v => v.Trim()).Where(v => !PartFields.IsBlank(v)).Distinct(StringComparer.OrdinalIgnoreCase);
 
     static bool? Flag(string v) => Norm(v) switch
@@ -253,7 +257,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var row = r.Rows[i];
             string Raw(string key) => r.Fixed?.GetValueOrDefault(key) is { Length: > 0 } fx ? fx.Trim() : r.Mapping.TryGetValue(key, out var c) && c >= 0 && c < row.Count ? (row[c] ?? "").Trim() : "";
             // in a number column a placeholder such as "/", "-" or "N/A" reads as an empty cell, so it is never a part number or a match key
-            string Get(string key) => Raw(key) is var v && IsNumberKey(key) && PartFields.IsBlank(v) ? "" : v;
+            string Get(string key) => Raw(key) is var v && IsPlaceholderKey(key) && PartFields.IsBlank(v) ? "" : v;
             var errors = new List<string>();
             string? Text(string key, string label, int max) { var v = Get(key); if (v.Length == 0) return null; if (v.Length > max) { errors.Add($"{label} is longer than {max} characters."); return null; } return v; }
             string? Verbatim(string key, string label, int max) { var v = Raw(key); if (v.Length == 0) return null; if (v.Length > max) { errors.Add($"{label} is longer than {max} characters."); return null; } return v; }
@@ -263,7 +267,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             foreach (var a in PartAttributes.All)
                 if ((a.Verbatim ? Verbatim("attr:" + a.Key, a.Label, a.MaxLength) : Text("attr:" + a.Key, a.Label, a.MaxLength)) is { } av) attrs[a.Key] = av;
             // every real number in the row
-            var numbers = new[] { Get("partNumber"), Get("drawingNumber") }.Concat(PartAttributes.All.Where(IsNumber).Select(a => attrs.GetValueOrDefault(a.Key) ?? ""))
+            var numbers = new[] { Get("partNumber"), Get("drawingNumber") }.Concat(PartAttributes.All.Where(IsMatchNumber).Select(a => attrs.GetValueOrDefault(a.Key) ?? ""))
                 .Where(v => !PartFields.IsBlank(v)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var pn = Text("partNumber", "Part number", 60);
             // no Part number: the OR #, else the first real number of the other mapped number columns, in column order
@@ -420,6 +424,20 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             if (byUpc.TryGetValue(k, out var owner) && owner.Id != target?.Id) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is already on part {owner.PartNumber}."] }; targets.Remove(row.Row); continue; }
             if (upcRow.TryGetValue(k, out var first)) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is also on row {first}. A barcode can be on one part only."] }; targets.Remove(row.Row); continue; }
             upcRow[k] = row.Row;
+        }
+        // a supplier LINYI PN is not a match key; one already on another part or repeated in the file is pointed out for a check, not refused
+        var byLinyi = all.Select(x => (Part: x, V: PartAttributes.Read(x.Attributes).GetValueOrDefault("linyiPn")?.Trim())).Where(x => !PartFields.IsBlank(x.V))
+            .GroupBy(x => x.V!, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Select(x => x.Part).ToList(), StringComparer.OrdinalIgnoreCase);
+        var linyiRow = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row.Action is not ("Add" or "Update") || parsedByRow.GetValueOrDefault(row.Row)?.Attrs?.GetValueOrDefault("linyiPn")?.Trim() is not { Length: > 0 } v) continue;
+            var target = targets.GetValueOrDefault(row.Row);
+            if (target is not null && !PartFields.IsBlank(PartAttributes.Read(target.Attributes).GetValueOrDefault("linyiPn"))) continue;
+            if (byLinyi.GetValueOrDefault(v)?.Where(x => x.Id != target?.Id).Select(x => x.PartNumber).ToList() is { Count: > 0 } owners) rows[i] = row = row with { Messages = [.. row.Messages, $"LINYI PN {v} is already on part {string.Join(", ", owners)}. Check this is right."] };
+            if (linyiRow.TryGetValue(v, out var first)) rows[i] = row with { Messages = [.. row.Messages, $"LINYI PN {v} is also on row {first}. Check this is right."] };
+            else linyiRow[v] = row.Row;
         }
         return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error")), parsed, targets);
     }
