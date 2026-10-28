@@ -15,7 +15,7 @@ import { useSites } from '../components/Kit';
 import { useProjects } from './Projects';
 
 interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null; projectId?: string | null }
-const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Weight', 'Weight'], ['Production', 'Production']];
+const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Weight', 'Weight'], ['Research', 'Research'], ['Production', 'Production']];
 
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null; attributes?: string | null }
 interface WoOpt { id: string; number: string; workOrder?: string | null; partNumber?: string | null; workInstructionTitle?: string | null }

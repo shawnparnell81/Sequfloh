@@ -54,6 +54,7 @@ public sealed class TrackingSettings
     public string? ReboxNumberCode { get; set; } = "RBX";
     public string? TestNumberCode { get; set; } = "TST";
     public string? WeightNumberCode { get; set; } = "WGH";
+    public string? ResearchNumberCode { get; set; } = "RSH";
     /// <summary>Code used in automatic inspection request numbers, "{code}-{family}{yy}-001". Blank means the number is typed.</summary>
     public string? InspectionRequestNumberCode { get; set; } = "INSP";
 }

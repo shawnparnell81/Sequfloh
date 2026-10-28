@@ -26,9 +26,9 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     /// <summary>Released work instructions a record of this type can execute (the exact revision is stored on the record).</summary>
     /// <summary>The suggested automatic number for a new work order, or null when the type or the family has no code.</summary>
     [HttpGet("next-number")]
-    public async Task<object> NextNumber([FromQuery] TrackingType type, [FromQuery] Guid? familyId, [FromQuery] Guid? partId, [FromQuery] Guid siteId, CancellationToken ct)
+    public async Task<object> NextNumber([FromQuery] TrackingType type, [FromQuery] Guid? familyId, [FromQuery] Guid? partId, [FromQuery] Guid siteId, CancellationToken ct, [FromQuery] bool multiple = false)
     {
-        var prefix = await tracking.NumberPrefixAsync(type, familyId, partId, siteId, ct);
+        var prefix = await tracking.NumberPrefixAsync(type, familyId, partId, siteId, ct, multiple);
         return new { Number = prefix is null ? null : await tracking.NextNumberAsync(prefix, false, ct) };
     }
     [HttpGet("instructions")]

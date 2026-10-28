@@ -169,7 +169,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         var names = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         string? N(Guid? u) => u is { } g && names.TryGetValue(g, out var n) ? n : null;
         var site = await db.Sites.AsNoTracking().Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefaultAsync(ct);
-        var typeTitle = x.Type switch { TrackingType.Fai => "Validation / FAI Tracking Record", TrackingType.SaltSpray => "Salt Spray Test Tracking Record", TrackingType.Inspection => "Inspection Tracking Record", TrackingType.Warranty => "Warranty Tracking Record", TrackingType.Repair => "Repair / Rework Tracking Record", TrackingType.Production => "Production Task", TrackingType.Development => "Development Tracking Record", TrackingType.Rebox => "Rebox Tracking Record", TrackingType.Test => "Test Tracking Record", TrackingType.Weight => "Weight Tracking Record", _ => "Validation / FAI Tracking Record" };
+        var typeTitle = x.Type switch { TrackingType.Fai => "Validation / FAI Tracking Record", TrackingType.SaltSpray => "Salt Spray Test Tracking Record", TrackingType.Inspection => "Inspection Tracking Record", TrackingType.Warranty => "Warranty Tracking Record", TrackingType.Repair => "Repair / Rework Tracking Record", TrackingType.Production => "Production Task", TrackingType.Development => "Development Tracking Record", TrackingType.Rebox => "Rebox Tracking Record", TrackingType.Test => "Test Tracking Record", TrackingType.Weight => "Weight Tracking Record", TrackingType.Research => "Research Tracking Record", _ => "Validation / FAI Tracking Record" };
         var blocks = new List<PrintBlock>
         {
             new PrintHeading("Record"),
@@ -177,7 +177,8 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
                 ("Work instruction", (string.IsNullOrEmpty(x.WorkInstructionNumber) ? "—" : $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision}")), ("Instruction title", x.WorkInstructionTitle), ("Site", site), ("Owner", N(x.OwnerId)), ("Assigned", N(x.AssignedUserId))]),
             new PrintHeading("References"),
             new PrintFields([("Part number", x.PartNumber), ("Part description", x.PartDescription), ("Serial number", x.SerialNumber), ("Lot number", x.LotNumber), ("Work order", x.WorkOrder),
-                ("Repair order", x.RepairOrder), ("Customer return", x.CustomerReturnReference), ("Project", x.Project), ("Operation", x.Operation), ("FAI type", x.FaiType)]),
+                ("Repair order", x.RepairOrder), ("Customer return", x.CustomerReturnReference), ("Project", x.Project), ("Operation", x.Operation), ("FAI type", x.FaiType),
+                ("Product family", x.FamilyName), ("Description", x.InspectionDescription)]),
             new PrintHeading("Timing"),
             new PrintFields([("Planned start", local(x.PlannedStart)), ("Due", local(x.DueAt)), ("Actual start", local(x.ActualStart)), ("Actual completion", local(x.ActualCompletion)),
                 ("Active time", Min(x.ActiveSeconds)), ("Paused time", Min(x.PausedSeconds)), ("On hold time", Min(x.HoldSeconds)),
