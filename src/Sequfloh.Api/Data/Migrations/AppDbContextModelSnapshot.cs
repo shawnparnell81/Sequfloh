@@ -1867,6 +1867,10 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("CreatedById")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CustomFields")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<uint>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()

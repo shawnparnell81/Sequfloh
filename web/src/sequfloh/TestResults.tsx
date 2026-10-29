@@ -7,7 +7,7 @@ import { S } from './common';
 import { nyTime } from './JobNotes';
 import { DrawingPicker, PartDrawingLinks, type PartDrawing } from './Drawings';
 
-interface Field { key: string; label: string; defaultUnit: string }
+interface Field { key: string; label: string; defaultUnit: string; added?: boolean }
 interface SpecRow { key: string; label: string; value: string; unit: string }
 interface PartRow { id: string; partIndex: number; note?: string | null; recordedBy: string; recordedAt: string; editedAt?: string | null; editedBy?: string | null; values: { key: string; value: string }[] }
 interface Removed { partIndex: number; removedAt: string; removedBy?: string; removeReason?: string }
@@ -44,13 +44,16 @@ export function TestResultsPanel({ id }: { id: string }) {
   if (!d) return null;
   if (!d.template) return <Typography variant="body2" color="text.secondary" data-testid="test-none">No test fields set up for this product family yet.</Typography>;
   const spec = d.spec ?? [];
+  const added = d.template.fields.filter((f) => f.added);
   return <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Test work instruction results" data-testid="test-results">
     <Typography variant="h3" sx={{ mb: 0.5 }}>Test work instruction results</Typography>
     <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5 }}>Enter the drawing spec once, then add each tested part's own results. Every part prints as its own section on the test report. There is no automatic pass or fail.</Typography>
     {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
     <SpecEditor key={JSON.stringify(spec)} spec={spec} d={d} busy={busy} onSave={(values, reason) => run(() => put(`${S}/tracking/${id}/test/spec`, { values, reason }))} />
+    {spec.length === 0 && <Typography variant="body2" color="text.secondary" data-testid="test-no-fields">No spec fields yet. Use Add spec field to add the ones on the drawing.</Typography>}
+    <SpecFields id={id} d={d} added={added} busy={busy} run={run} />
     <Stack gap={2} sx={{ mt: 2 }}>
-      {(d.parts ?? []).map((p) => <PartEditor key={p.id + (p.editedAt ?? '')} p={p} spec={spec} d={d} busy={busy}
+      {(d.parts ?? []).map((p) => <PartEditor key={p.id + (p.editedAt ?? '') + spec.map((x) => x.key + x.label + x.unit).join()} p={p} spec={spec} d={d} busy={busy}
         onSave={(values, note, reason) => run(() => put(`${S}/tracking/test/parts/${p.id}`, { values, note, reason }))}
         onRemove={(reason) => run(() => post(`${S}/tracking/test/parts/${p.id}/remove`, { reason }))} />)}
     </Stack>
@@ -121,4 +124,39 @@ function PartEditor({ p, spec, d, busy, onSave, onRemove }: { p: PartRow; spec: 
         <Button color="error" variant="contained" disabled={busy || !rmWhy.trim()} data-testid="test-part-remove-confirm" onClick={async () => { if (await onRemove(rmWhy)) setRm(false); }}>Remove</Button></DialogActions>
     </Dialog>
   </Paper>;
+}
+
+/** Spec fields added on this order only (the family template is not changed): anyone working the open order can add one; renaming or removing needs the correct test results permission and a reason. */
+function SpecFields({ id, d, added, busy, run }: { id: string; d: TestData; added: Field[]; busy: boolean; run: (fn: () => Promise<unknown>) => Promise<boolean> }) {
+  const [dlg, setDlg] = useState<null | { mode: 'add' | 'edit' | 'remove'; key?: string; label: string; unit: string; value: string; reason: string }>(null);
+  const set = (k: string, v: string) => setDlg(dlg && { ...dlg, [k]: v });
+  const save = async () => {
+    if (!dlg) return;
+    const ok = await run(() => dlg.mode === 'add' ? post(`${S}/tracking/${id}/test/fields`, { label: dlg.label, unit: dlg.unit, value: dlg.value })
+      : dlg.mode === 'edit' ? put(`${S}/tracking/${id}/test/fields/${dlg.key}`, { label: dlg.label, unit: dlg.unit, reason: dlg.reason })
+      : post(`${S}/tracking/${id}/test/fields/${dlg.key}/remove`, { reason: dlg.reason }));
+    if (ok) setDlg(null);
+  };
+  const ready = dlg && (dlg.mode === 'add' ? !!dlg.label.trim() : dlg.mode === 'edit' ? !!dlg.label.trim() && !!dlg.reason.trim() : !!dlg.reason.trim());
+  return <Box sx={{ mt: 1 }}>
+    {added.length > 0 && <Stack gap={0.5} sx={{ mb: 1 }} data-testid="test-added-fields">{added.map((f) => <Stack key={f.key} direction="row" alignItems="center" gap={1}>
+      <Chip size="small" variant="outlined" label={`Added on this order: ${f.label}${f.defaultUnit ? ` (${f.defaultUnit})` : ''}`} />
+      {d.canCorrect && <><Button size="small" data-testid={`test-field-edit-${f.label}`} onClick={() => setDlg({ mode: 'edit', key: f.key, label: f.label, unit: f.defaultUnit, value: '', reason: '' })}>Rename</Button>
+        <Button size="small" color="error" data-testid={`test-field-remove-${f.label}`} onClick={() => setDlg({ mode: 'remove', key: f.key, label: f.label, unit: f.defaultUnit, value: '', reason: '' })}>Remove</Button></>}
+    </Stack>)}</Stack>}
+    {d.open && <Button size="small" variant="outlined" disabled={busy} data-testid="test-add-field" onClick={() => setDlg({ mode: 'add', label: '', unit: '', value: '', reason: '' })}>Add spec field</Button>}
+    <Dialog open={!!dlg} onClose={() => setDlg(null)} maxWidth="xs" fullWidth>
+      <FormDialogTitle>{dlg?.mode === 'add' ? 'Add spec field' : dlg?.mode === 'edit' ? 'Rename spec field' : `Remove ${dlg?.label}?`}</FormDialogTitle>
+      <DialogContent><Stack gap={1.5} sx={{ pt: 1 }}>
+        {dlg?.mode === 'add' && <Typography variant="body2" color="text.secondary">Added to this work order only. It shows in the drawing spec and in every part's results.</Typography>}
+        {dlg?.mode === 'remove' && <Typography variant="body2" color="text.secondary">The field and any values entered stay in history.</Typography>}
+        {dlg?.mode !== 'remove' && <><TextField size="small" required label="Field name" value={dlg?.label ?? ''} onChange={(e) => set('label', e.target.value)} inputProps={{ maxLength: 80, 'data-testid': 'test-field-label' }} />
+          <TextField size="small" label="Unit" value={dlg?.unit ?? ''} onChange={(e) => set('unit', e.target.value)} inputProps={{ maxLength: 20, 'data-testid': 'test-field-unit' }} /></>}
+        {dlg?.mode === 'add' && <TextField size="small" label="Drawing spec" value={dlg.value} onChange={(e) => set('value', e.target.value)} inputProps={{ inputMode: 'decimal', 'data-testid': 'test-field-value' }} />}
+        {dlg?.mode !== 'add' && <TextField size="small" required label="Reason" value={dlg?.reason ?? ''} onChange={(e) => set('reason', e.target.value)} inputProps={{ maxLength: 500, 'data-testid': 'test-field-reason' }} />}
+      </Stack></DialogContent>
+      <DialogActions><Button onClick={() => setDlg(null)}>Cancel</Button>
+        <Button variant="contained" color={dlg?.mode === 'remove' ? 'error' : 'primary'} disabled={busy || !ready} data-testid="test-field-save" onClick={save}>{dlg?.mode === 'add' ? 'Add field' : dlg?.mode === 'edit' ? 'Save' : 'Remove'}</Button></DialogActions>
+    </Dialog>
+  </Box>;
 }

@@ -27,6 +27,7 @@ public static class SequflohTestTemplates
     [
         new(FuelPump, "Fuel pump test", [
             new("testPressure", "Test pressure", "psi"),
+            new("shutoffPressure", "Shutoff pressure", "psi"),
             new("flowRate", "Flow rate", "L/h"),
             new("floatFull", "Float arm resistance - Full", "ohms"),
             new("floatEmpty", "Float arm resistance - Empty", "ohms"),
@@ -37,7 +38,11 @@ public static class SequflohTestTemplates
     /// <summary>Links the fuel pump template to the family named exactly "Fuel Pump" (case and outer spaces ignored) that has no template yet. Nothing else on the family changes.</summary>
     public const string LinkFuelPumpSql = "UPDATE sqf.sequfloh_reference_values SET \"TestTemplate\" = 'fuel-pump' WHERE \"ListKey\" = 'product-families' AND \"TestTemplate\" IS NULL AND lower(btrim(\"Label\")) = 'fuel pump';";
 
-    public static TestTemplate? Find(string? key) => key is null ? null : All.FirstOrDefault(t => t.Key == key);
+    /// <summary>The key a Test order uses when its family has no template; its fields are only the ones added on the order.</summary>
+    public const string OrderOnly = "order-only";
+    static readonly TestTemplate Blank = new(OrderOnly, "Test", []);
+
+    public static TestTemplate? Find(string? key) => key is null ? null : key == OrderOnly ? Blank : All.FirstOrDefault(t => t.Key == key);
 
     /// <summary>The template a seeded product family starts with (only Fuel Pump has one). Administrators' own families start with none.</summary>
     public static string? SeedFor(string listKey, string seedLabel) => listKey == SequflohCatalog.ProductFamilies && seedLabel == "Fuel Pump" ? FuelPump : null;
@@ -47,6 +52,7 @@ public sealed record TestValueInput(string Key, string? Value, string? Unit);
 public sealed record TestSpecInput(List<TestValueInput>? Values, string? Reason);
 public sealed record TestPartInput(List<TestValueInput>? Values, string? Note, string? Reason);
 public sealed record TestRemoveInput(string? Reason);
+public sealed record TestFieldInput(string? Label, string? Unit, string? Value, string? Reason);
 public sealed record DrawingAttachInput(Guid DrawingId);
 
 /// <summary>
@@ -58,6 +64,8 @@ public sealed record DrawingAttachInput(Guid DrawingId);
 public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohFoundationService f)
 {
     sealed record Val(string Key, decimal? Value, string? Unit);
+    sealed record Custom(string Key, string Label, string DefaultUnit, string AddedBy, DateTimeOffset AddedAt, DateTimeOffset? RemovedAt = null, string? RemovedBy = null, string? RemoveReason = null);
+    static List<Custom> ReadCustom(string? json) => string.IsNullOrEmpty(json) ? [] : JsonSerializer.Deserialize<List<Custom>>(json, J) ?? [];
     static readonly JsonSerializerOptions J = new(JsonSerializerDefaults.Web);
     static List<Val> Read(string json) => JsonSerializer.Deserialize<List<Val>>(json, J) ?? [];
     static string Write(List<Val> v) => JsonSerializer.Serialize(v, J);
@@ -71,8 +79,15 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
     public async Task<TestTemplate?> TemplateForAsync(SequflohTrackingRecord r, CancellationToken ct)
     {
         if (r.Type != TrackingType.Test) return null;
-        var saved = await db.SequflohTestSpecs.AsNoTracking().Where(s => s.TrackingRecordId == r.Id).Select(s => s.TemplateKey).FirstOrDefaultAsync(ct);
-        if (saved is not null) return SequflohTestTemplates.Find(saved);
+        var saved = await db.SequflohTestSpecs.AsNoTracking().Where(s => s.TrackingRecordId == r.Id).Select(s => new { s.TemplateKey, s.CustomFields }).FirstOrDefaultAsync(ct);
+        var baseT = saved is not null ? SequflohTestTemplates.Find(saved.TemplateKey) : await FamilyTemplateAsync(r, ct);
+        baseT ??= SequflohTestTemplates.Find(SequflohTestTemplates.OrderOnly)!;
+        var added = ReadCustom(saved?.CustomFields).Where(c => c.RemovedAt is null).Select(c => new TestTemplateField(c.Key, c.Label, c.DefaultUnit));
+        return baseT with { Fields = [.. baseT.Fields, .. added] };
+    }
+
+    async Task<TestTemplate?> FamilyTemplateAsync(SequflohTrackingRecord r, CancellationToken ct)
+    {
         if (r.FamilyId is null) return null;
         var key = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == r.FamilyId && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.TestTemplate).FirstOrDefaultAsync(ct);
         return SequflohTestTemplates.Find(key);
@@ -104,7 +119,8 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         var parts = await db.SequflohTestPartResults.IgnoreQueryFilters().AsNoTracking().Where(p => p.TrackingRecordId == id).OrderBy(p => p.PartIndex).ToListAsync(ct);
         return new
         {
-            Template = new { t.Key, t.Label, Fields = t.Fields.Select(x => new { x.Key, x.Label, x.DefaultUnit }) },
+            Template = new { t.Key, t.Label, Fields = t.Fields.Select(x => new { x.Key, x.Label, x.DefaultUnit, Added = x.Key.StartsWith("u-") }) },
+            AddedFields = ReadCustom(spec?.CustomFields).Select(c => new { c.Key, c.Label, c.DefaultUnit, c.AddedBy, c.AddedAt, c.RemovedAt, c.RemovedBy, c.RemoveReason }),
             r.FamilyName,
             Spec = t.Fields.Select(x => { var v = sv.FirstOrDefault(s => s.Key == x.Key); return new { x.Key, x.Label, Value = N(v?.Value), Unit = v?.Unit ?? x.DefaultUnit }; }),
             SpecSaved = spec is not null, SpecUpdatedAt = spec?.UpdatedAt ?? spec?.CreatedAt,
@@ -136,12 +152,13 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
             if (was?.Value is not null || spec is not null && unit != wasUnit) corrected = true;
             lines.Add(was?.Value is null ? $"Spec {fd.Label.ToLowerInvariant()} set to {WithUnit(val, unit)}" : $"Spec {fd.Label.ToLowerInvariant()} changed from {WithUnit(was.Value, wasUnit)} to {WithUnit(val, unit)}");
         }
+        next.AddRange(old.Where(o => t.Fields.All(fd => fd.Key != o.Key)));
         if (lines.Count == 0) return;
         if (corrected) await m.RequireAsync(Permissions.SequflohCorrectTestResults, r.SiteId, r.DepartmentId, ct);
         else SequflohTrackingService.RequireOpen(r);
         var why = Reason(x.Reason);
         if (corrected && why is null) throw new AppException("Enter the reason for the correction.");
-        if (spec is null) { spec = new SequflohTestSpec { TrackingRecordId = r.Id, TrackingNumber = r.Number, TemplateKey = t.Key }; db.SequflohTestSpecs.Add(spec); }
+        spec ??= await SpecRowAsync(r, t, ct);
         spec.Values = Write(next);
         var who = await WhoAsync(ct);
         foreach (var l in lines) f.Audit(corrected ? "TestSpecCorrected" : "TestSpecSet", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: {l} by {who}", r.SiteId, why);
@@ -153,6 +170,7 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
     {
         var (r, t) = await TestOrderAsync(id, ct);
         SequflohTrackingService.RequireOpen(r);
+        if (t.Fields.Count == 0) throw new AppException("Add a spec field first.");
         var vals = t.Fields.Select(fd => new Val(fd.Key, Parse(x.Values?.FirstOrDefault(v => v.Key == fd.Key)?.Value, $"Actual {fd.Label.ToLowerInvariant()}"), null)).ToList();
         var units = await UnitsAsync(id, t, ct);
         var who = await WhoAsync(ct);
@@ -193,6 +211,7 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
             if (was is not null) corrected = true;
             lines.Add(was is null ? $"Actual {fd.Label.ToLowerInvariant()} set to {WithUnit(val, units[fd.Key])}" : $"Actual {fd.Label.ToLowerInvariant()} changed from {WithUnit(was, units[fd.Key])} to {WithUnit(val, units[fd.Key])}");
         }
+        next.AddRange(old.Where(o => t.Fields.All(fd => fd.Key != o.Key)));
         var note = x.Note is null ? p.Note : Note(x.Note);
         if (note != p.Note) { if (p.Note is not null) corrected = true; lines.Add(p.Note is null ? $"note set to \"{note}\"" : $"note changed from \"{p.Note}\" to \"{note ?? ""}\""); }
         if (lines.Count == 0) return;
@@ -219,6 +238,79 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         var who = await WhoAsync(ct);
         p.RemovedAt = DateTimeOffset.UtcNow; p.RemovedBy = who; p.RemoveReason = why;
         f.Audit("TestPartRemoved", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: Part {p.PartIndex} test results removed by {who}. Reason: {why}", r.SiteId, why);
+        await db.SaveChangesAsync(ct);
+    }
+
+    async Task<SequflohTestSpec> SpecRowAsync(SequflohTrackingRecord r, TestTemplate t, CancellationToken ct)
+    {
+        var spec = await db.SequflohTestSpecs.FirstOrDefaultAsync(s => s.TrackingRecordId == r.Id, ct);
+        if (spec is not null) return spec;
+        var baseKey = (await FamilyTemplateAsync(r, ct))?.Key ?? SequflohTestTemplates.OrderOnly;
+        spec = new SequflohTestSpec { TrackingRecordId = r.Id, TrackingNumber = r.Number, TemplateKey = baseKey };
+        db.SequflohTestSpecs.Add(spec);
+        return spec;
+    }
+
+    static string Label(string? s) => string.IsNullOrWhiteSpace(s) ? throw new AppException("Enter the spec field name.") : s.Trim()[..Math.Min(s.Trim().Length, 80)];
+
+    /// <summary>Adds a spec field to this order only (the family template is not changed). Open to anyone working the open order. It shows in the spec and in every part's results.</summary>
+    public async Task AddFieldAsync(Guid id, TestFieldInput x, CancellationToken ct)
+    {
+        var (r, t) = await TestOrderAsync(id, ct);
+        SequflohTrackingService.RequireOpen(r);
+        var label = Label(x.Label); var unit = Unit(x.Unit) ?? "";
+        if (t.Fields.Any(fd => string.Equals(fd.Label, label, StringComparison.OrdinalIgnoreCase))) throw new ConflictException($"{label} is already a spec field on this order.");
+        var val = Parse(x.Value, $"Spec {label.ToLowerInvariant()}");
+        var spec = await SpecRowAsync(r, t, ct);
+        var who = await WhoAsync(ct);
+        var list = ReadCustom(spec.CustomFields);
+        var key = "u-" + Guid.NewGuid().ToString("N")[..10];
+        list.Add(new(key, label, unit, who, DateTimeOffset.UtcNow));
+        spec.CustomFields = JsonSerializer.Serialize(list, J);
+        f.Audit("TestFieldAdded", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: spec field \"{label}\"{(unit == "" ? "" : $" ({unit})")} added to this order by {who}", r.SiteId);
+        if (val is not null)
+        {
+            var vals = Read(spec.Values); vals.Add(new(key, val, unit == "" ? null : unit)); spec.Values = Write(vals);
+            f.Audit("TestSpecSet", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: Spec {label.ToLowerInvariant()} set to {WithUnit(val, unit)} by {who}", r.SiteId);
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    async Task<(SequflohTrackingRecord R, SequflohTestSpec S, List<Custom> L, int I)> CustomAsync(Guid id, string key, CancellationToken ct)
+    {
+        var r = await tracking.LoadAsync(id, false, ct);
+        await m.RequireAsync(Permissions.SequflohCorrectTestResults, r.SiteId, r.DepartmentId, ct);
+        var spec = await db.SequflohTestSpecs.FirstOrDefaultAsync(s => s.TrackingRecordId == id, ct) ?? throw new NotFoundException("Spec field");
+        var list = ReadCustom(spec.CustomFields);
+        var i = list.FindIndex(c => c.Key == key && c.RemovedAt is null);
+        if (i < 0) throw new NotFoundException("Spec field");
+        return (r, spec, list, i);
+    }
+
+    /// <summary>Renames a field added on the order, or changes its unit. Needs the correct test results permission and a reason.</summary>
+    public async Task UpdateFieldAsync(Guid id, string key, TestFieldInput x, CancellationToken ct)
+    {
+        var (r, spec, list, i) = await CustomAsync(id, key, ct);
+        var why = Reason(x.Reason) ?? throw new AppException("Enter the reason for the change.");
+        var c = list[i]; var label = x.Label is null ? c.Label : Label(x.Label); var unit = x.Unit is null ? c.DefaultUnit : Unit(x.Unit) ?? "";
+        if (label == c.Label && unit == c.DefaultUnit) return;
+        if (label != c.Label && (await TemplateForAsync(r, ct))!.Fields.Any(fd => fd.Key != key && string.Equals(fd.Label, label, StringComparison.OrdinalIgnoreCase))) throw new ConflictException($"{label} is already a spec field on this order.");
+        list[i] = c with { Label = label, DefaultUnit = unit };
+        spec.CustomFields = JsonSerializer.Serialize(list, J);
+        var who = await WhoAsync(ct);
+        f.Audit("TestFieldChanged", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: spec field \"{c.Label}\" ({c.DefaultUnit}) changed to \"{label}\" ({unit}) by {who}. Reason: {why}", r.SiteId, why);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Removes a field added on the order. Soft: the field and any values entered stay in history. Needs the correct test results permission and a reason.</summary>
+    public async Task RemoveFieldAsync(Guid id, string key, TestRemoveInput x, CancellationToken ct)
+    {
+        var (r, spec, list, i) = await CustomAsync(id, key, ct);
+        var why = Reason(x.Reason) ?? throw new AppException("Enter the reason for removing this spec field.");
+        var who = await WhoAsync(ct);
+        list[i] = list[i] with { RemovedAt = DateTimeOffset.UtcNow, RemovedBy = who, RemoveReason = why };
+        spec.CustomFields = JsonSerializer.Serialize(list, J);
+        f.Audit("TestFieldRemoved", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: spec field \"{list[i].Label}\" removed from this order by {who}. Entered values are kept in history. Reason: {why}", r.SiteId, why);
         await db.SaveChangesAsync(ct);
     }
 
@@ -250,6 +342,7 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         string Spec(string k) => sv.FirstOrDefault(v => v.Key == k)?.Value is { } d ? $"{N(d)} {units[k]}".Trim() : "Not entered";
         var blocks = new List<PrintBlock> { new PrintHeading("Drawing spec"), new PrintFields([.. t.Fields.Select(fd => (fd.Label, (string?)Spec(fd.Key)))]) };
         var parts = await db.SequflohTestPartResults.AsNoTracking().Where(p => p.TrackingRecordId == r.Id).OrderBy(p => p.PartIndex).ToListAsync(ct);
+        if (t.Fields.Count == 0 && parts.Count == 0) return [];
         if (parts.Count == 0) blocks.Add(new PrintParagraph("No part test results recorded."));
         foreach (var p in parts)
         {
