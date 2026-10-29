@@ -189,7 +189,7 @@ function NumberingPage() {
 
 // ------------------------------------------------------------------ reference data
 interface ListInfo { key: string; label: string; description: string; total: number; active: number }
-interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null; numberCode?: string | null }
+interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null; numberCode?: string | null; testTemplate?: string | null }
 const useLists = () => useQuery({ queryKey: ['sqf-lists'], queryFn: () => get<ListInfo[]>(`${S}/reference`) });
 
 export function ReferenceDataPage() {
@@ -222,6 +222,7 @@ export function DropdownsPage() {
   const [history, setHistory] = useState<RefValue | null>(null);
   const [naFor, setNaFor] = useState<RefValue | null>(null);
   const [codeFor, setCodeFor] = useState<RefValue | null>(null);
+  const [tplFor, setTplFor] = useState<RefValue | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; text: string; run: () => Promise<unknown> } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-values', key] }); qc.invalidateQueries({ queryKey: ['sqf-lists'] }); qc.invalidateQueries({ queryKey: ['sqf-options', key] }); };
@@ -280,12 +281,14 @@ export function DropdownsPage() {
                 : <Button size="small" onClick={() => act(() => post(`${S}/reference/values/${v.id}/activate`))}>Activate</Button>}
               {key === 'product-families' && <Button size="small" data-testid="family-na-fields" onClick={() => setNaFor(v)}>Not applicable fields</Button>}
               {key === 'product-families' && <Button size="small" data-testid="family-number-code" onClick={() => setCodeFor(v)}>Number code{v.numberCode ? `: ${v.numberCode}` : ''}</Button>}
+              {key === 'product-families' && <Button size="small" data-testid="family-test-template" onClick={() => setTplFor(v)}>Test template{v.testTemplate ? ' set' : ': none'}</Button>}
               <Button size="small" onClick={() => setHistory(v)}>History</Button>
               <Button size="small" color="error" data-testid="reference-delete" onClick={() => setConfirm({ title: 'Delete value', text: `Delete "${v.label}" permanently? This can't be undone.`, run: () => del(`${S}/reference/values/${v.id}`) })}>Delete</Button>
             </TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
       <ValueDialog listKey={key} value={edit} onClose={() => setEdit(null)} onSaved={refresh} />
       <FamilyCodeDialog value={codeFor} onClose={() => setCodeFor(null)} onSaved={() => { setCodeFor(null); refresh(); }} />
+      <FamilyTemplateDialog value={tplFor} onClose={() => setTplFor(null)} onSaved={() => { setTplFor(null); refresh(); }} />
       <HistoryDialog value={history} onClose={() => setHistory(null)} />
       <FamilyFieldsDialog value={naFor} onClose={() => setNaFor(null)} onSaved={() => { setNaFor(null); refresh(); }} />
       <Confirm open={!!confirm} title={confirm?.title ?? ''} text={confirm?.text ?? ''} confirm="Confirm" danger onClose={() => setConfirm(null)} onConfirm={async () => { await confirm!.run(); refresh(); }} />
@@ -440,6 +443,24 @@ function FamilyCodeDialog({ value, onClose, onSaved }: { value: RefValue | null;
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Used in automatic work order numbers. Leave blank for no automatic number.</Typography>
       <TextField size="small" fullWidth label="Code" value={code} onChange={(e) => setCode(e.target.value)} inputProps={{ 'data-testid': 'family-number-code-input', maxLength: 10 }} /></DialogContent>
     <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Save</Button></DialogActions>
+  </Dialog>;
+}
+
+/** The test template whose fields Test work orders of a product family record, for example the fuel pump spec and part results. None: no test fields. */
+function FamilyTemplateDialog({ value, onClose, onSaved }: { value: RefValue | null; onClose: () => void; onSaved: () => void }) {
+  const tpls = useQuery({ queryKey: ['sqf-test-templates'], queryFn: () => get<{ key: string; label: string; fields: string[] }[]>(`${S}/test-templates`), enabled: !!value });
+  const [key, setKey] = useState(''); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setKey(value?.testTemplate ?? ''); setErr(null); }, [value]);
+  const save = async () => { try { await put(`${S}/reference/values/${value!.id}/test-template`, { key: key || null }); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  const t = tpls.data?.find((x) => x.key === key);
+  return <Dialog open={!!value} onClose={onClose} fullWidth maxWidth="xs">
+    <FormDialogTitle>Test template · {value?.label}</FormDialogTitle>
+    <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>The test fields Test work orders of this product family record. None: no test fields.</Typography>
+      <TextField select size="small" fullWidth label="Test template" value={tpls.data ? key : ''} onChange={(e) => setKey(e.target.value)} inputProps={{ 'data-testid': 'family-test-template-input' }}>
+        <MenuItem value=""><em>None</em></MenuItem>{(tpls.data ?? []).map((x) => <MenuItem key={x.key} value={x.key}>{x.label}</MenuItem>)}</TextField>
+      {t && <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>Fields: {t.fields.join(', ')}</Typography>}</DialogContent>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} data-testid="family-test-template-save">Save</Button></DialogActions>
   </Dialog>;
 }
 

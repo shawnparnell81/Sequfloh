@@ -34,6 +34,9 @@ public static class SequflohTestTemplates
         ]),
     ];
 
+    /// <summary>Links the fuel pump template to the family named exactly "Fuel Pump" (case and outer spaces ignored) that has no template yet. Nothing else on the family changes.</summary>
+    public const string LinkFuelPumpSql = "UPDATE sqf.sequfloh_reference_values SET \"TestTemplate\" = 'fuel-pump' WHERE \"ListKey\" = 'product-families' AND \"TestTemplate\" IS NULL AND lower(btrim(\"Label\")) = 'fuel pump';";
+
     public static TestTemplate? Find(string? key) => key is null ? null : All.FirstOrDefault(t => t.Key == key);
 
     /// <summary>The template a seeded product family starts with (only Fuel Pump has one). Administrators' own families start with none.</summary>

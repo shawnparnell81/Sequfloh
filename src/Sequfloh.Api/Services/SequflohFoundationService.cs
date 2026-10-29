@@ -287,6 +287,20 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Sets the test template a product family's Test work orders record (null: no test fields). The family itself is not changed otherwise.</summary>
+    public async Task SetFamilyTestTemplateAsync(Guid id, string? key, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
+        var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == id && x.ListKey == SequflohCatalog.ProductFamilies, ct) ?? throw new NotFoundException("Product family");
+        var clean = string.IsNullOrWhiteSpace(key) ? null : key.Trim();
+        var t = clean is null ? null : SequflohTestTemplates.Find(clean) ?? throw new AppException("That test template does not exist.");
+        var before = SequflohTestTemplates.Find(v.TestTemplate);
+        if (v.TestTemplate == clean) return;
+        v.TestTemplate = clean;
+        Audit("FamilyTestTemplateChanged", nameof(SequflohReferenceValue), v.Id, $"Test template of product family {v.Label} changed from {before?.Label ?? "none"} to {t?.Label ?? "none"}");
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task SetActiveAsync(Guid id, bool active, CancellationToken ct)
     {
         await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
