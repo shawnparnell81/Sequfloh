@@ -8,7 +8,7 @@ import { nyTime } from './JobNotes';
 import { DrawingPicker, PartDrawingLinks, type PartDrawing } from './Drawings';
 
 interface Field { key: string; label: string; defaultUnit: string; added?: boolean }
-interface SpecRow { key: string; label: string; value: string; unit: string }
+interface SpecRow { key: string; label: string; value: string; unit: string; min?: number | null; max?: number | null; strict?: boolean }
 interface PartRow { id: string; partIndex: number; note?: string | null; recordedBy: string; recordedAt: string; editedAt?: string | null; editedBy?: string | null; values: { key: string; value: string }[] }
 interface Removed { partIndex: number; removedAt: string; removedBy?: string; removeReason?: string }
 export interface TestData {
@@ -32,6 +32,9 @@ export function TestDrawingSection({ partId, picked, onPick }: { partId?: string
 export const attachDrawings = async (id: string, ids: string[]) => { for (const d of ids) await post(`${S}/tracking/${id}/drawings`, { drawingId: d }); };
 
 const blank = (v?: string | null) => !v || !v.trim();
+/** A saved actual outside the typed spec range is flagged in orange; there is still no pass or fail. */
+const outside = (s: SpecRow, v?: string | null) => { if (blank(v) || (s.min == null && s.max == null)) return false; const n = Number(v); if (!Number.isFinite(n)) return false;
+  return s.strict ? (s.min != null && n <= s.min) || (s.max != null && n >= s.max) : (s.min != null && n < s.min) || (s.max != null && n > s.max); };
 
 /** The test work instruction results on a Test work order: the drawing spec once, then Part 1, Part 2, ... each against the spec. No automatic pass or fail. */
 export function TestResultsPanel({ id }: { id: string }) {
@@ -73,7 +76,7 @@ function SpecEditor({ spec, d, busy, onSave }: { spec: SpecRow[]; d: TestData; b
     <Typography variant="subtitle2" sx={{ mb: 1 }}>Drawing spec</Typography>
     <Stack gap={1}>{rows.map((r, i) => <Stack key={r.key} direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
       <Typography variant="body2" sx={{ minWidth: 230 }}>{r.label}</Typography>
-      <TextField size="small" label={`Spec ${r.label}`} value={r.value} disabled={locked(i)} inputProps={{ inputMode: 'decimal', 'data-testid': `spec-${r.key}` }}
+      <TextField size="small" label={`Spec ${r.label}`} value={r.value} disabled={locked(i)} placeholder="60, 320-360, ≥95 or ≤6.0" inputProps={{ maxLength: 40, 'data-testid': `spec-${r.key}` }}
         onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} />
       <TextField size="small" label="Unit" value={r.unit} disabled={locked(i) || (!!d.specSaved && !d.canCorrect)} sx={{ width: 110 }} inputProps={{ maxLength: 20, 'data-testid': `spec-unit-${r.key}` }}
         onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, unit: e.target.value } : x))} />
@@ -104,11 +107,12 @@ function PartEditor({ p, spec, d, busy, onSave, onRemove }: { p: PartRow; spec: 
         <TableCell>{s.label}</TableCell>
         <TableCell>{blank(s.value) ? <Typography variant="body2" color="text.secondary">Not entered</Typography> : `${s.value} ${s.unit}`}</TableCell>
         <TableCell><Stack direction="row" alignItems="center" gap={1}>
-          <TextField size="small" label={`Actual ${s.label}`} value={v} disabled={locked(i)} color={blank(v) ? 'warning' : undefined} focused={blank(v) ? true : undefined}
+          <TextField size="small" label={`Actual ${s.label}`} value={v} disabled={locked(i)} color={blank(v) || outside(s, p.values[i]?.value) ? 'warning' : undefined} focused={blank(v) || outside(s, p.values[i]?.value) ? true : undefined}
             inputProps={{ inputMode: 'decimal', 'data-testid': `part-${p.partIndex}-${s.key}` }} sx={{ width: 160 }}
             onChange={(e) => setVals(vals.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} />
           <Typography variant="body2">{unit(s.key)}</Typography>
           {blank(p.values[i]?.value) && <Chip size="small" color="warning" variant="outlined" label="Blank" />}
+          {outside(s, p.values[i]?.value) && <Chip size="small" color="warning" variant="outlined" label="Outside spec" data-testid={`part-${p.partIndex}-${s.key}-outside`} />}
         </Stack></TableCell></TableRow>; })}</TableBody></Table>
     <TextField sx={{ mt: 1 }} fullWidth size="small" multiline label="Note (optional)" value={note} disabled={!!p.note && !d.canCorrect} onChange={(e) => setNote(e.target.value)} inputProps={{ maxLength: 2000, 'data-testid': `part-${p.partIndex}-note` }} />
     <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>Recorded by {p.recordedBy}, {nyTime(p.recordedAt)}{p.editedAt ? ` · last changed by ${p.editedBy}, ${nyTime(p.editedAt)}` : ''}</Typography>
@@ -152,7 +156,7 @@ function SpecFields({ id, d, added, busy, run }: { id: string; d: TestData; adde
         {dlg?.mode === 'remove' && <Typography variant="body2" color="text.secondary">The field and any values entered stay in history.</Typography>}
         {dlg?.mode !== 'remove' && <><TextField size="small" required label="Field name" value={dlg?.label ?? ''} onChange={(e) => set('label', e.target.value)} inputProps={{ maxLength: 80, 'data-testid': 'test-field-label' }} />
           <TextField size="small" label="Unit" value={dlg?.unit ?? ''} onChange={(e) => set('unit', e.target.value)} inputProps={{ maxLength: 20, 'data-testid': 'test-field-unit' }} /></>}
-        {dlg?.mode === 'add' && <TextField size="small" label="Drawing spec" value={dlg.value} onChange={(e) => set('value', e.target.value)} inputProps={{ inputMode: 'decimal', 'data-testid': 'test-field-value' }} />}
+        {dlg?.mode === 'add' && <TextField size="small" label="Drawing spec" value={dlg.value} onChange={(e) => set('value', e.target.value)} placeholder="60, 320-360, ≥95 or ≤6.0" inputProps={{ maxLength: 40, 'data-testid': 'test-field-value' }} />}
         {dlg?.mode !== 'add' && <TextField size="small" required label="Reason" value={dlg?.reason ?? ''} onChange={(e) => set('reason', e.target.value)} inputProps={{ maxLength: 500, 'data-testid': 'test-field-reason' }} />}
       </Stack></DialogContent>
       <DialogActions><Button onClick={() => setDlg(null)}>Cancel</Button>

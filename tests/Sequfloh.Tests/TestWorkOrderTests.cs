@@ -55,6 +55,7 @@ public sealed class TestWorkOrderTests(TestApp app)
         var up = await c.Http.PostAsync("/api/imported-files", new MultipartFormDataContent { { new ByteArrayContent(Encoding.UTF8.GetBytes("Check,Result\nTorque,\n")), "file", $"Test family {tag} form.csv" }, { new StringContent(site.ToString()), "siteId" }, { new StringContent("true"), "blankForm" } });
         Assert.True(up.IsSuccessStatusCode, await up.Content.ReadAsStringAsync());
         Assert.True((await admin.PutAsync($"/api/sequfloh/validation-forms/{fam}", new { blankFormId = (await up.JsonAsync()).Id() })).IsSuccessStatusCode);
+        await c.PutOkAsync($"{T}/{r2.Id()}/validation-form/choice", new { attach = true }); // default is No
         var att = await c.PostAsync($"{T}/{r2.Id()}/validation-form", new { number = $"TSF-{tag}-1", familyId = fam });
         Assert.True(att.IsSuccessStatusCode, await att.Content.ReadAsStringAsync());
         var fileId = Guid.Parse((await c.GetElAsync($"{T}/{r2.Id()}")).GetProperty("record").GetProperty("details").GetProperty("validationForm").GetProperty("fileId").GetString()!);
