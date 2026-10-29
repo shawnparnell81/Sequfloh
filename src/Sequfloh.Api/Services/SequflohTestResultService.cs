@@ -392,4 +392,28 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         }
         return blocks;
     }
+
+    /// <summary>The test results as one compact table for the work order print: spec, then one column per part (up to six).</summary>
+    public async Task<List<PrintBlock>> CompactBlocksAsync(SequflohTrackingRecord r, CancellationToken ct)
+    {
+        var t = await TemplateForAsync(r, ct);
+        if (t is null || t.Fields.Count == 0) return [];
+        var spec = await db.SequflohTestSpecs.AsNoTracking().FirstOrDefaultAsync(s => s.TrackingRecordId == r.Id, ct);
+        var sv = spec is null ? [] : Read(spec.Values);
+        var units = t.Fields.ToDictionary(fd => fd.Key, fd => sv.FirstOrDefault(v => v.Key == fd.Key)?.Unit ?? fd.DefaultUnit);
+        var parts = await db.SequflohTestPartResults.AsNoTracking().Where(p => p.TrackingRecordId == r.Id).OrderBy(p => p.PartIndex).ToListAsync(ct);
+        var shown = parts.Take(6).Select(p => (p.PartIndex, Vals: Read(p.Values))).ToList();
+        var cols = new List<(string, double)> { ("Test", 2.4), ("Spec", 1.6) };
+        cols.AddRange(shown.Select(p => ($"Part {p.PartIndex}", 1.0)));
+        var rows = t.Fields.Select(fd =>
+        {
+            var row = new List<string?> { fd.Label, ST(sv.FirstOrDefault(v => v.Key == fd.Key)) is { Length: > 0 } d ? $"{d} {units[fd.Key]}".Trim() : "-" };
+            row.AddRange(shown.Select(p => p.Vals.FirstOrDefault(v => v.Key == fd.Key)?.Value is { } a ? N(a) : "-"));
+            return row.ToArray();
+        }).ToList();
+        var blocks = new List<PrintBlock> { new PrintHeading("Test results"), new PrintTable(cols, rows) };
+        if (parts.Count == 0) blocks.Add(new PrintParagraph("No part test results recorded yet."));
+        if (parts.Count > shown.Count) blocks.Add(new PrintParagraph($"{parts.Count - shown.Count} more part(s) recorded; see the full record."));
+        return blocks;
+    }
 }

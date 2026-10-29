@@ -250,6 +250,15 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
             .OrderByDescending(a => a.OccurredAt).Select(a => new { a.OccurredAt, a.UserName, a.Action, a.Description, a.Changes, a.Reason }).Take(1000).ToListAsync(ct);
     }
 
+    /// <summary>The everyday work order print (one page, two for big orders), opened inline in the browser for printing. Audited.</summary>
+    [HttpGet("{id:guid}/print/work-order")]
+    public async Task<IActionResult> PrintWorkOrder(Guid id, CancellationToken ct)
+    {
+        var (pdf, name) = await print.WorkOrderAsync(id, ct);
+        Response.Headers.ContentDisposition = $"inline; filename=\"{name}\"";
+        return File(pdf, "application/pdf");
+    }
+
     /// <summary>Printable tracking record (PDF from the application's renderer), opened inline in the browser for printing. Audited.</summary>
     [HttpGet("{id:guid}/print")]
     public async Task<IActionResult> Print(Guid id, CancellationToken ct)
