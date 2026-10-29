@@ -52,6 +52,8 @@ public static class Permissions
     public const string SequflohManageModuleAccess = "sequfloh.manage_module_access";
     public const string SequflohDeleteRecords = "sequfloh.delete_records";
     public const string SequflohManageCrewTime = "sequfloh.manage_crew_time";
+    public const string SequflohTransferTime = "sequfloh.transfer_time";
+    public const string SequflohRemoveTime = "sequfloh.remove_time";
     public const string SequflohManageChargebacks = "sequfloh.manage_chargebacks";
     public const string SequflohManageProjects = "sequfloh.manage_projects";
     public const string SequflohReopenCompleted = "sequfloh.reopen_completed";

@@ -469,6 +469,12 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("TaskDescription")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("TimeChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TimeChangedNote")
+                        .HasColumnType("text");
+
                     b.Property<decimal?>("TotalHours")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");
@@ -565,6 +571,17 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VoidedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<Guid?>("WorkerId")
                         .HasColumnType("uuid");
@@ -1749,6 +1766,17 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<string>("UserName")
                         .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VoidedBy")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 

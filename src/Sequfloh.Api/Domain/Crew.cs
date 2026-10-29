@@ -24,6 +24,10 @@ public class SequflohCrewSession : Entity, IAudited
     /// <summary>The named day worker this time is for; null for the nameless crew.</summary>
     public Guid? WorkerId { get; set; }
     public string? WorkerName { get; set; }
+    /// <summary>Set when the time was removed as a correction: it no longer counts anywhere but stays in the record's history.</summary>
+    public DateTimeOffset? VoidedAt { get; set; }
+    public string? VoidedBy { get; set; }
+    public string? VoidReason { get; set; }
     public string AuditLabel => $"crew time on {TrackingNumber}";
 }
 
@@ -74,6 +78,9 @@ public class SequflohChargebackReport : Entity, IAudited
     /// <summary>The period and filters (JSON ReportPeriod) when the report covers a day, week, month or custom range; null for a single work order report.</summary>
     public string? Period { get; set; }
     public string CreatedByName { get; set; } = "";
+    /// <summary>Set when time on its work order was moved or removed after the report was saved, so it should be regenerated.</summary>
+    public DateTimeOffset? TimeChangedAt { get; set; }
+    public string? TimeChangedNote { get; set; }
     public string AuditLabel => $"chargeback report {WorkOrderNumber}";
 }
 

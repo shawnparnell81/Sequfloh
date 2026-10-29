@@ -89,7 +89,7 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
     {
         var t = await db.SequflohTrackingRecords.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Work order");
         await RequireAsync(t, ct);
-        if (HasTime(t) || await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == id, ct) || await db.SequflohCrewSessions.AnyAsync(e => e.TrackingRecordId == id, ct))
+        if (HasTime(t) || await db.SequflohTimeEntries.IgnoreQueryFilters().AnyAsync(e => e.TrackingRecordId == id, ct) || await db.SequflohCrewSessions.IgnoreQueryFilters().AnyAsync(e => e.TrackingRecordId == id, ct))
             throw new ConflictException($"Time has been logged on {t.Number} and is kept for chargebacks, so it can't be deleted. Cancel it instead.");
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var keys = await AttachmentKeysAsync(nameof(SequflohTrackingRecord), [id], ct);
