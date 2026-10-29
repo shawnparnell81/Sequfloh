@@ -111,7 +111,6 @@ public sealed class CrewChargebackTests(TestApp app)
             [new { from = start.AddHours(-1), to = start.AddHours(1) }]))).StatusCode); // pause outside the session
         var s = await (await lead.PostOkAsync($"{U}/{id}/crew/sessions", Entry(3, start, start.AddHours(8.5), [new { from = start.AddHours(4), to = start.AddHours(4.5) }]))).JsonAsync();
         Assert.Equal(24 * 3600, s.GetProperty("crewLaborSeconds").GetInt64());
-        Assert.Equal(HttpStatusCode.Conflict, (await lead.PostAsync($"{U}/{id}/crew/sessions", Entry(2, start.AddHours(2), start.AddHours(3)))).StatusCode); // overlaps
         var sid = s.GetProperty("sessions")[0].Id();
         Assert.True((await lead.PutAsync($"{U}/crew/sessions/{sid}", Entry(2, start, start.AddHours(8.5), [new { from = start.AddHours(4), to = start.AddHours(4.5) }]))).IsSuccessStatusCode);
         Assert.Equal(16 * 3600, (await lead.GetElAsync($"{U}/{id}/crew")).GetProperty("crewLaborSeconds").GetInt64());

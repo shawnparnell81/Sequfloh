@@ -27,6 +27,9 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
         SequflohTrackingService.RequireStarted(rec);
         if (await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == id && e.UserId == UserId && e.StoppedAt == null, ct))
             throw new ConflictException("You are already clocked on this job.");
+        // one job at a time: a person can't be clocked on to two jobs at once
+        if (await db.SequflohTimeEntries.AsNoTracking().Where(e => e.UserId == UserId && e.StoppedAt == null && e.TrackingRecordId != id).Select(e => e.TrackingNumber).FirstOrDefaultAsync(ct) is { } other)
+            throw new ConflictException($"You're already clocked on to {other}. Clock off there first.");
         var name = await db.Users.Where(u => u.Id == UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? me.UserName ?? "";
         var at = await NowAsync(ct);
         var entry = new SequflohTimeEntry { TrackingRecordId = id, TrackingNumber = rec.Number, UserId = UserId, UserName = name, StartedAt = at };
