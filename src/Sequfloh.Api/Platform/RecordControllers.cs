@@ -147,10 +147,18 @@ public sealed class FilesController(AppDbContext db, IFileStorage storage, IAcce
         await RequireViewAsync(site, dept, ct);
         var s = await storage.GetAsync(a.StorageKey, ct) ?? throw new NotFoundException("File content");
         Response.Headers["X-Content-Type-Options"] = "nosniff";
-        var safeInline = inline && (a.ContentType.StartsWith("image/") && a.ContentType != "image/svg+xml" || a.ContentType == "application/pdf");
-        // shown inside the app's own pages, so the file may be framed by the same site only
-        if (safeInline) { Response.Headers["X-Frame-Options"] = "SAMEORIGIN"; Response.Headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; object-src 'self'; frame-ancestors 'self'"; }
-        return File(s, a.ContentType, safeInline ? null : a.FileName);
+        var text = a.ContentType.StartsWith("text/plain");
+        var safeInline = inline && (a.ContentType.StartsWith("image/") && a.ContentType != "image/svg+xml" || a.ContentType == "application/pdf" || text);
+        if (safeInline)
+        {
+            // opens in the browser tab (inline, with the file's name), framed by the same site only; images and text are fully sandboxed, a PDF keeps the browser's own viewer
+            Response.Headers.ContentDisposition = new System.Net.Mime.ContentDisposition { Inline = true, FileName = a.FileName }.ToString();
+            Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
+            Response.Headers["Content-Security-Policy"] = a.ContentType == "application/pdf" ? "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; object-src 'self'; frame-ancestors 'self'"
+                : "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox";
+            return File(s, text ? "text/plain; charset=utf-8" : a.ContentType);
+        }
+        return File(s, a.ContentType, a.FileName);
     }
 
     [HttpPost("api/files/{id:guid}/archive")]

@@ -90,9 +90,11 @@ public sealed class FixListTests(TestApp app)
         Assert.Contains(hist, h => h.Contains("work instruction changed from none to"));
         Assert.Contains(hist, h => h.Contains("to none"));
 
-        // started work keeps its instruction as it is
+        // started work with no instruction can have one attached again; after that it is kept as it is (only Remove WI from order takes it off)
         var ver = rec.GetProperty("stateVersion").GetInt32();
         Assert.True((await c.PostAsync($"{T}/{id}/actions/start", new { operationId = Guid.NewGuid(), stateVersion = ver })).IsSuccessStatusCode);
+        Assert.True((await c.PutAsync($"{T}/{id}/instruction", new { workInstructionId = wi })).IsSuccessStatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await c.PutAsync($"{T}/{id}/instruction", new { workInstructionId = (Guid?)null })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await c.PutAsync($"{T}/{id}/instruction", new { workInstructionId = wi })).StatusCode);
         // a draft instruction can't be attached
         var id2 = (await (await c.PostOkAsync(T, new { type = "Production", siteId = site })).JsonAsync()).Id();

@@ -22,6 +22,8 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     [System.ComponentModel.DataAnnotations.MaxLength(300)]
     public string? StatusNote { get; set; }
     public Guid FamilyId { get; set; }
+    /// <summary>True when the instruction is an uploaded file (imported in All WI / Procedures). Its file is the instruction: the built-in content, layout and steps are not shown or copied onto work orders.</summary>
+    public bool IsUploadedFile { get; set; }
     /// <summary>True when imported in Engineering › Validation / FAI › Validation instructions. Those are listed only there and in Released validation instructions.</summary>
     public bool ValidationFolder { get; set; }
     /// <summary>The Engineering, Development product line it was imported or created in (see DevelopmentLines). Those are listed only in that line and used on Development work orders.</summary>

@@ -4,7 +4,7 @@ import { EightDBlock, EightDCreate, noEightD, uploadEightD } from './EightD';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, Link as MuiLink, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
@@ -350,7 +350,8 @@ interface TrRecord extends J { id: string; number: string; type: string; status:
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
-interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string }
+interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string;
+  instruction?: { isUploadedFile: boolean; file?: { id: string; fileName: string; contentType: string } | null } | null; canRemoveInstruction?: boolean }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
 const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'nonconformanceReferences', 'reportedCondition', 'observedCondition', 'finalDisposition', 'varianceReason', 'result', 'qualityComments',
   'engineeringComments', 'engineeringConclusion'];
@@ -408,7 +409,7 @@ export function TrackingRecordPage() {
   const folder = { Validation: 'validation-fai', Fai: 'validation-fai', Repair: 'repair', Production: 'production', Inspection: 'inspection', Warranty: 'warranty', SaltSpray: 'salt-spray', Development: 'development', Rebox: 'rebox', Test: 'test', Weight: 'weight', Research: 'research' }[rec.type] ?? 'open';
   const title = `${rec.number} — ${trackingTypes[rec.type]} work order`;
   const vf = (rec.details as unknown as { validationForm?: { familyId?: string; family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
-  const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
+  const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length || rec.type === 'Inspection' ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
     { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings / Nonconformance', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
   const setRow = (list: 'steps' | 'characteristics' | 'partsRows', i: number, patch: J) => upd({ [list]: doc[list].map((r, j) => (j === i ? { ...r, ...patch } : r)) } as Partial<TrRecord>);
@@ -464,8 +465,8 @@ export function TrackingRecordPage() {
             ...(rec.inspectionSubType ? [['Inspection sub-type', s(rec.inspectionSubType)] as [string, ReactNode]] : []),
             ...(rec.inspectionDescription ? [['Description', s(rec.inspectionDescription)] as [string, ReactNode]] : []),
             ...(rec.quantityTarget != null ? [['Qty', s(rec.quantityTarget)] as [string, ReactNode]] : []),
-            ...(rec.type === 'Research' ? [['Product family', s(rec.familyName) || '—'] as [string, ReactNode], ['Work instruction', <InstructionRef key="wi" rec={rec} canChange={['NotStarted', 'Assigned'].includes(rec.status) && !dirty} onSaved={refresh} />] as [string, ReactNode]] : rec.type === 'Weight' ? [['Product family', s(rec.familyName) || '—'] as [string, ReactNode]] : [
-            ['Work instruction', <InstructionRef key="wi" rec={rec} canChange={['NotStarted', 'Assigned'].includes(rec.status) && !dirty} onSaved={refresh} />] as [string, ReactNode],
+            ...(rec.type === 'Research' ? [['Product family', s(rec.familyName) || '—'] as [string, ReactNode], ['Work instruction', <InstructionRef key="wi" rec={rec} info={q.data.instruction} canRemove={!!q.data.canRemoveInstruction && !dirty} canChange={(['NotStarted', 'Assigned'].includes(rec.status) || (!closed && !rec.workInstructionId)) && !dirty} onSaved={refresh} />] as [string, ReactNode]] : rec.type === 'Weight' ? [['Product family', s(rec.familyName) || '—'] as [string, ReactNode]] : [
+            ['Work instruction', <InstructionRef key="wi" rec={rec} info={q.data.instruction} canRemove={!!q.data.canRemoveInstruction && !dirty} canChange={(['NotStarted', 'Assigned'].includes(rec.status) || (!closed && !rec.workInstructionId)) && !dirty} onSaved={refresh} />] as [string, ReactNode],
             ['Part', rec.partNumber ? <span key="p">{`${s(rec.partNumber)} — ${s(rec.partDescription)}`}<ViewDrawingButton partId={rec.partId as string | undefined} partNumber={s(rec.partNumber)} /></span> : '—'] as [string, ReactNode]]), ['Status', <SqfStatus status={rec.status} />],
             ['Assigned people', rec.assignees?.length ? rec.assignees.map((a) => a.displayName).join(', ') : s(rec.assignedUser) || '—'], ['Active operator', s(rec.activeOperator) || '—'], ['Department', s(rec.department) || '—'],
             ['Site', s(rec.site) || '—'], ['Owner', s(rec.owner) || '—'], ['Created', `${fmtDateTime(rec.createdAt)}${rec.createdBy ? ' · ' + s(rec.createdBy) : ''}`],
@@ -513,8 +514,9 @@ export function TrackingRecordPage() {
         </Paper>
       </Stack>}
 
-      {tab === 'steps' && !q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }} data-testid="steps-start-hint">Start the work order to enter step results. Steps come from the work instruction.</Typography>}
-      {tab === 'steps' && <EntryTable title={rec.type === 'Repair' ? 'Operations' : 'Steps'} rows={doc.steps} disabled={!enter}
+      {tab === 'steps' && !doc.steps.length && <Typography variant="body2" color="text.secondary" data-testid="steps-none">No steps - link a WI / Procedure to load steps.</Typography>}
+      {tab === 'steps' && !!doc.steps.length && !q.data.canEnter && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }} data-testid="steps-start-hint">Start the work order to enter step results. Steps come from the work instruction.</Typography>}
+      {tab === 'steps' && !!doc.steps.length && <EntryTable title={rec.type === 'Repair' ? 'Operations' : 'Steps'} rows={doc.steps} disabled={!enter}
         cols={[['sequence', 'Seq'], [rec.type === 'Repair' ? 'operationStep' : 'title', rec.type === 'Repair' ? 'Operation' : 'Title'], ['spec', 'Specification / limits'], ['expectedResult', 'Expected result']]}
         entry={(r, i) => <>
           <TableCell><TextField select size="small" label="Result" value={s(r.result)} disabled={!enter} sx={{ minWidth: 130 }} onChange={(e) => setRow('steps', i, { result: e.target.value })}>
@@ -579,7 +581,6 @@ export function TrackingRecordPage() {
   );
 }
 
-const Link = ({ to, children }: { to: string; children: ReactNode }) => <RouterLink to={to} style={{ color: 'inherit' }}>{children}</RouterLink>;
 const local = (iso: string) => { if (!iso) return ''; const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 /** Inspection and warranty results: qty good, qty bad (feeds the chargeback report), further inspection and the quarantine flag. Saved on its own and audited. */
@@ -759,19 +760,33 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
 }
 
 /** The optional work instruction of a work order: shown as a link (or a dash), with Add, Change and Remove before work starts. */
-function InstructionRef({ rec, canChange, onSaved }: { rec: TrRecord; canChange: boolean; onSaved: () => void }) {
+function InstructionRef({ rec, info, canChange, canRemove, onSaved }: { rec: TrRecord; info?: TrResponse['instruction']; canChange: boolean; canRemove: boolean; onSaved: () => void }) {
+  const [rm, setRm] = useState(false); const [why, setWhy] = useState('');
+  const remove = async () => { setErr(null); try { await post(`${S}/tracking/${rec.id}/instruction/remove`, { reason: why }); setRm(false); setWhy(''); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  // an uploaded instruction opens its file in a new tab, like a drawing; an app-built one opens read-only in a new tab
+  const file = info?.isUploadedFile ? info.file : null;
+  const href = file ? `/api/files/${file.id}` : `/sequfloh/instruction/${rec.workInstructionId}`;
   const [open, setOpen] = useState(false); const [wi, setWi] = useState<WiOpt | null>(null); const [text, setText] = useState(''); const [err, setErr] = useState<string | null>(null);
   const wis = useQuery({ queryKey: ['sqf-tr-wi', rec.type, rec.developmentLine, text], queryFn: () => get<WiOpt[]>(`${S}/tracking/instructions?${qs({ type: rec.type, line: (rec.developmentLine as string | null) ?? undefined, q: text })}`), enabled: open });
   const set = async (id: string | null) => { setErr(null); try { await put(`${S}/tracking/${rec.id}/instruction`, { workInstructionId: id }); setOpen(false); onSaved(); } catch (e) { setErr((e as Error).message); } };
   return <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" component="span" data-testid="wo-instruction">
-    {rec.workInstructionId ? <span><Link to={`/sequfloh/instruction/${rec.workInstructionId}`}><Mono>{rec.workInstructionNumber}</Mono></Link> rev {rec.workInstructionRevision} — {rec.workInstructionTitle}</span> : <span>—</span>}
+    {rec.workInstructionId ? <span><MuiLink href={href} target="_blank" rel="noopener" data-testid="wo-instruction-open" title={file ? `Open ${file.fileName}` : 'Open the work instruction (read only)'}><Mono>{rec.workInstructionNumber}</Mono></MuiLink> rev {rec.workInstructionRevision} — {rec.workInstructionTitle}</span> : <span>—</span>}
     {canChange && <Button size="small" data-testid="wo-instruction-change" onClick={() => { setWi(null); setErr(null); setOpen(true); }}>{rec.workInstructionId ? 'Change' : 'Add work instruction'}</Button>}
-    {canChange && rec.workInstructionId && <Button size="small" color="error" data-testid="wo-instruction-remove" onClick={() => set(null)}>Remove</Button>}
+    {canRemove && rec.workInstructionId && <Button size="small" color="error" data-testid="wo-instruction-remove" onClick={() => { setErr(null); setRm(true); }}>Remove WI from order</Button>}
+    <Dialog open={rm} onClose={() => setRm(false)} fullWidth maxWidth="sm">
+      <FormDialogTitle>Remove WI from order</FormDialogTitle>
+      <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
+        {err && <Alert severity="error">{err}</Alert>}
+        <Typography variant="body2" color="text.secondary">{rec.workInstructionNumber} rev {rec.workInstructionRevision} is taken off this work order. Steps that already have results stay on the order; steps with nothing recorded are taken off. Edit the instruction under its revision rules, then attach it again with Add work instruction.</Typography>
+        <TextField label="Reason" required multiline minRows={2} value={why} onChange={(e) => setWhy(e.target.value)} inputProps={{ 'data-testid': 'wo-instruction-remove-reason' }} />
+      </Stack></DialogContent>
+      <DialogActions><Button onClick={() => setRm(false)}>Cancel</Button><Button variant="contained" color="error" disabled={!why.trim()} data-testid="wo-instruction-remove-confirm" onClick={remove}>Remove</Button></DialogActions>
+    </Dialog>
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
       <FormDialogTitle>Work instruction</FormDialogTitle>
       <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
         {err && <Alert severity="error">{err}</Alert>}
-        <Typography variant="body2" color="text.secondary">Its steps, characteristics and parts are copied onto this work order. Nothing else on the work order changes.</Typography>
+        <Typography variant="body2" color="text.secondary">The current revision's steps, characteristics and parts are copied onto this work order (an uploaded-file instruction has none; its file opens from the link). Nothing else on the work order changes.</Typography>
         <Autocomplete options={wis.data ?? []} value={wi} onChange={(_, o) => setWi(o)} onInputChange={(_, v, rs) => { if (rs === 'input') setText(v); }} filterOptions={(x) => x}
           getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} isOptionEqualToValue={(a, b) => a.id === b.id}
           renderInput={(p) => <TextField {...p} label="Released work instruction" helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type.' : undefined} />} />

@@ -96,7 +96,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
         {
             Instruction = new
             {
-                x.Id, x.FamilyId, x.Number, x.Type, x.Title, x.Revision, x.Status, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.PartId, x.PartNumber, x.PartDescription,
+                x.Id, x.FamilyId, x.IsUploadedFile, x.Number, x.Type, x.Title, x.Revision, x.Status, x.SiteId, x.DepartmentId, x.OwnerId, x.AuthorId, x.PartId, x.PartNumber, x.PartDescription,
                 x.ProductFamily, x.Assembly, x.Model, x.Variant, x.Process, x.Operation, x.Workstation, x.Location, x.ValidationType, x.FaiType, x.RepairCategory, x.RepairType, x.RepairDescription,
                 x.SourcePartsListId, x.ResultStatus, x.EffectiveDate, x.SupersededAt, x.ObsoleteAt, x.ReleasedAt, x.RevisionReason, x.CreatedAt, x.UpdatedAt, x.RowVersion,
                 x.AssignedEngineerId, x.TargetCompletionDate, x.Project, x.EngineeringNotes, x.DevelopmentStatus,
@@ -135,6 +135,8 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             var target = current.Status == WorkInstructionStatus.Released ? await wi.ReviseAsync(current.Id, new ReviseInput("New file imported"), ct) : current;
             await wi.ArchiveFilesAsync(target.Id, ct);
             await global::Sequfloh.Platform.FilesController.AttachAsync(db, storage, "SequflohWorkInstruction", target.Id, target.SiteId, file, ct);
+            await db.SequflohWorkInstructions.Where(w => w.Id == target.Id).ExecuteUpdateAsync(u => u.SetProperty(w => w.IsUploadedFile, true), ct);
+            if (db.Entry(target).State != EntityState.Detached) await db.Entry(target).ReloadAsync(ct);
             return new { target.Id, target.Number, Title = title, Revised = true };
         }
         // the file was checked above; creating the draft runs in its own transaction, so a failed attach takes the new draft away again
@@ -147,6 +149,8 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
             if (made is not null) { db.SequflohWorkInstructions.Remove(made); await db.SaveChangesAsync(CancellationToken.None); }
             throw;
         }
+        await db.SequflohWorkInstructions.Where(w => w.Id == x.Id).ExecuteUpdateAsync(u => u.SetProperty(w => w.IsUploadedFile, true), ct);
+        if (db.Entry(x).State != EntityState.Detached) await db.Entry(x).ReloadAsync(ct); else x.IsUploadedFile = true;
         if (developmentLine is not null)
         {
             f.Audit("WorkInstructionImportedToDevelopment", "SequflohWorkInstruction", x.Id, $"{x.Number} rev {x.Revision} imported from {file.FileName} into {DevelopmentLines.All[developmentLine]}", x.SiteId);

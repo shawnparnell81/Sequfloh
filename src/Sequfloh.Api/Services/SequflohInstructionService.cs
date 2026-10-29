@@ -280,6 +280,13 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
     public async Task<List<string>> ReleaseProblemsAsync(SequflohWorkInstruction wi, bool forRelease, CancellationToken ct)
     {
         var problems = new List<string>();
+        if (wi.IsUploadedFile)
+        {
+            // an uploaded instruction is its file: only the file is checked, never built-in steps or content
+            if (!await db.Attachments.AnyAsync(a => a.OwnerType == "SequflohWorkInstruction" && a.OwnerId == wi.Id && !a.IsArchived, ct)) problems.Add("Attach the instruction file.");
+            if (forRelease && (await f.GetSettingsAsync(ct)).WorkInstructions.EffectiveDateRequired && wi.EffectiveDate is null) problems.Add("Enter the effective date before release.");
+            return problems;
+        }
         var schema = SequflohDesigner.Schemas[wi.Type];
         var steps = JsonNode.Parse(wi.Steps)!.AsArray();
         var content = JsonNode.Parse(wi.Content)!.AsObject();
@@ -453,7 +460,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
 
     SequflohWorkInstruction Copy(SequflohWorkInstruction s) => new()
     {
-        Type = s.Type, ValidationFolder = s.ValidationFolder, DevelopmentLine = s.DevelopmentLine, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId,
+        Type = s.Type, IsUploadedFile = s.IsUploadedFile, ValidationFolder = s.ValidationFolder, DevelopmentLine = s.DevelopmentLine, Title = s.Title, Status = WorkInstructionStatus.Draft, SiteId = s.SiteId, DepartmentId = s.DepartmentId, OwnerId = s.OwnerId, AuthorId = m.UserId,
         PartId = s.PartId, PartNumber = s.PartNumber, PartDescription = s.PartDescription, ProductFamily = s.ProductFamily, Assembly = s.Assembly, Model = s.Model,
         Variant = s.Variant, Process = s.Process, Operation = s.Operation, Workstation = s.Workstation, Location = s.Location, ValidationType = s.ValidationType, FaiType = s.FaiType,
         RepairCategory = s.RepairCategory, RepairType = s.RepairType, RepairDescription = s.RepairDescription, SourcePartsListId = s.SourcePartsListId,
