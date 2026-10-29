@@ -26,7 +26,7 @@ public sealed record ReportOptions(bool PerTech = false, bool TimeLog = false, b
 /// <summary>Findings / nonconformance for a supplier chargeback. Every field is optional.</summary>
 public sealed record JobFindings(string? DiscoveryMethod = null, DateOnly? DateDiscovered = null, string? DiscoveredBy = null, string? Site = null, string? Supplier = null,
     string? SupplierPartNumber = null, string? LotDateCodes = null, string? PurchaseOrder = null, int? QtyInspected = null, int? QtyNonconforming = null, int? QtyAffected = null,
-    string? Description = null, string? WarrantyClaim = null, string? AlertRecall = null, string? ErpReference = null, string? RepairMethod = null, string? RootCause = null);
+    string? Description = null, string? WarrantyClaim = null, string? AlertRecall = null, string? ErpReference = null, string? RepairMethod = null, string? RootCause = null, bool? HasFindings = null);
 public sealed record TestColumnMap(string? ResultColumn, List<string>? PassValues, List<string>? ValueColumns, string? BatchColumn, string? DateColumn);
 public sealed record QuantityInput(int? Completed, int? NotRepaired, int? Target, bool ClearTarget = false, string? Note = null);
 public sealed record KeyValue(string Column, decimal Min, decimal Average, decimal Max, int Count);
@@ -41,9 +41,16 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     const long MaxFile = 25 * 1024 * 1024;
     static readonly string[] Allowed = [".csv", ".xlsx", ".pdf", ".txt"];
     static readonly string[] Photo = [".jpg", ".jpeg", ".png"];
-    static readonly string[] Attach = [".csv", ".xlsx", ".pdf", ".txt", ".docx", ".jpg", ".jpeg", ".png"];
+    static readonly string[] Attach = [".csv", ".xlsx", ".xls", ".pdf", ".txt", ".docx", ".doc", ".pptx", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"];
     public static ReportOptions Options(string json) => JsonSerializer.Deserialize<ReportOptions>(json, SequflohJson.Options) ?? new();
-    public static JobFindings FindingsOf(string json) => JsonSerializer.Deserialize<JobFindings>(json, SequflohJson.Options) ?? new();
+    public static JobFindings FindingsOf(string json)
+    {
+        var x = JsonSerializer.Deserialize<JobFindings>(json, SequflohJson.Options) ?? new();
+        // orders saved before the Yes/No question: Yes when anything is already filled in
+        return x.HasFindings is null ? x with { HasFindings = AnyFindings(x) } : x;
+    }
+    /// <summary>True when any finding or nonconformance detail is filled in.</summary>
+    public static bool AnyFindings(JobFindings x) => (x with { HasFindings = null }) != new JobFindings();
     static List<CostLine> Lines(string json) => JsonSerializer.Deserialize<List<CostLine>>(json, SequflohJson.Options) ?? [];
 
     public async Task SaveOptionsAsync(Guid id, ReportOptions o, CancellationToken ct)
@@ -61,9 +68,18 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         var clean = new JobFindings(T(x.DiscoveryMethod, 100), x.DateDiscovered, T(x.DiscoveredBy, 200), T(x.Site, 200), T(x.Supplier, 200), T(x.SupplierPartNumber, 100), T(x.LotDateCodes, 300),
             T(x.PurchaseOrder, 100), x.QtyInspected, x.QtyNonconforming, x.QtyAffected, T(x.Description, 4000), T(x.WarrantyClaim, 100), T(x.AlertRecall, 100), T(x.ErpReference, 100),
             T(x.RepairMethod, 4000), T(x.RootCause, 4000));
+        var before = FindingsOf(r.Findings);
+        var any = AnyFindings(clean);
+        var yes = x.HasFindings ?? (any || before.HasFindings == true);
+        if (!yes && any) throw new AppException($"{r.Number} has findings filled in. Clear them first, or keep the answer at Yes.");
+        clean = clean with { HasFindings = yes };
         if (clean.DiscoveryMethod is { } dm) await f.RequireOptionAsync("discovery-methods", dm, "Discovery method", ct);
         r.Findings = JsonSerializer.Serialize(clean, SequflohJson.Options);
-        f.Audit("FindingsUpdated", SequflohTrackingService.EntityType, r.Id, $"Findings on {r.Number} updated", r.SiteId);
+        var who = current.UserName ?? "";
+        if (before.HasFindings != yes)
+            f.Audit("FindingsAnswerChanged", SequflohTrackingService.EntityType, r.Id, $"{who} answered {(yes ? "Yes" : "No")} to \"Findings / nonconformance?\" on {r.Number} (was {(before.HasFindings == true ? "Yes" : "No")})", r.SiteId);
+        if (any || AnyFindings(before))
+            f.Audit("FindingsUpdated", SequflohTrackingService.EntityType, r.Id, $"Findings on {r.Number} updated by {who}", r.SiteId);
         await db.SaveChangesAsync(ct);
     }
 
@@ -91,8 +107,11 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     {
         var r = await tracking.LoadAsync(id, false, ct);
         var files = await db.SequflohTestFiles.AsNoTracking().Where(x => x.TrackingRecordId == id).OrderBy(x => x.CreatedAt).ToListAsync(ct);
+        var removed = await db.SequflohTestFiles.IgnoreQueryFilters().AsNoTracking().Where(x => x.TrackingRecordId == id && x.RemovedAt != null).OrderByDescending(x => x.RemovedAt).ToListAsync(ct);
         return new
         {
+            RemovedFiles = removed.Select(x => new { x.Id, x.FileName, x.Kind, x.UploadedByName, UploadedAt = x.CreatedAt, x.RemovedAt, x.RemovedBy, x.RemoveReason }),
+            CanRemoveFiles = await m.CanAsync(Permissions.SequflohRemoveFiles, r.SiteId, r.DepartmentId, ct),
             r.QuantityTarget, r.QuantityCompleted, r.QuantityNotRepaired,
             Parts = Parts(r.PartsReplaced).Select(p => new { p.PartNumber, p.Description, p.PerAssembly, p.Quantity, p.UnitCost, Total = Total(p, r.QuantityCompleted) }),
             Columns = Map(r.TestColumns),
@@ -238,7 +257,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         {
             var safe = Path.GetFileName(name);
             if (!allowed.Contains(Path.GetExtension(safe).ToLowerInvariant()))
-                throw new AppException(kind == "evidence" ? $"{safe}: photos must be JPG or PNG." : kind == "attachment" ? $"{safe}: attachments must be PDF, Word, Excel, CSV, text, JPG or PNG." : $"{safe}: result files must be CSV, XLSX, PDF or TXT.");
+                throw new AppException(kind == "evidence" ? $"{safe}: photos must be JPG or PNG." : kind == "attachment" ? $"{safe}: files must be pictures (JPG, PNG, GIF, WEBP, HEIC), PDF, Word, Excel, PowerPoint, CSV or text." : $"{safe}: result files must be CSV, XLSX, PDF or TXT.");
             if (bytes.Length > MaxFile) throw new AppException($"{safe} is larger than 25 MB.");
             var x = new SequflohTestFile
             {
@@ -250,6 +269,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             using (var s = new MemoryStream(bytes)) await storage.PutAsync(x.StorageKey, s, x.ContentType, ct);
             db.SequflohTestFiles.Add(x);
             added.Add(x);
+            f.Audit("FileUploaded", SequflohTrackingService.EntityType, r.Id, $"{who} uploaded {x.FileName} ({(x.SizeBytes / 1024.0):0.#} KB, {(kind == "evidence" ? "photo" : kind == "attachment" ? "attachment" : "test result file")}) to {r.Number}", r.SiteId);
         }
         await db.SaveChangesAsync(ct);
         return added.Select(FileDto).ToList();
@@ -257,7 +277,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
 
     async Task<(SequflohTestFile File, SequflohTrackingRecord Record)> FileAsync(Guid fileId, bool track, CancellationToken ct)
     {
-        var q = track ? db.SequflohTestFiles : db.SequflohTestFiles.AsNoTracking();
+        var q = (track ? db.SequflohTestFiles : db.SequflohTestFiles.AsNoTracking()).IgnoreQueryFilters();
         var x = await q.FirstOrDefaultAsync(e => e.Id == fileId, ct) ?? throw new NotFoundException("Test file");
         return (x, await tracking.LoadAsync(x.TrackingRecordId, track, ct));
     }
@@ -303,14 +323,63 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeleteFileAsync(Guid fileId, CancellationToken ct)
+    /// <summary>Removes a file from the work order. The file is kept in history (and can still be downloaded from there) but is no longer shown or reported.</summary>
+    public async Task DeleteFileAsync(Guid fileId, CancellationToken ct, string? reason = null)
     {
         var (x, r) = await FileAsync(fileId, true, ct);
-        SequflohTrackingService.RequireOpen(r);
-        db.SequflohTestFiles.Remove(x);
+        if (x.RemovedAt is not null) return;
+        await m.RequireAsync(Permissions.SequflohRemoveFiles, r.SiteId, r.DepartmentId, ct);
+        var who = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? current.UserName ?? "";
+        var why = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 500)];
+        x.RemovedAt = DateTimeOffset.UtcNow; x.RemovedBy = who; x.RemoveReason = why;
+        f.Audit("FileRemoved", SequflohTrackingService.EntityType, r.Id, $"{who} removed {x.FileName} from {r.Number}" + (why is null ? "" : $". Reason: {why}"), r.SiteId, why);
         await db.SaveChangesAsync(ct);
-        await storage.DeleteAsync(x.StorageKey, ct);
     }
+
+    // ---- job notes ----
+
+    static object NoteDto(SequflohJobNote n) => new { n.Id, n.Text, n.AuthorName, n.CreatedAt, n.EditedAt, n.EditedBy, Mine = false };
+
+    /// <summary>Job notes on the work order, newest first.</summary>
+    public async Task<object> NotesAsync(Guid id, CancellationToken ct)
+    {
+        await tracking.LoadAsync(id, false, ct);
+        var notes = await db.SequflohJobNotes.AsNoTracking().Where(x => x.TrackingRecordId == id).OrderByDescending(x => x.CreatedAt).ToListAsync(ct);
+        return notes.Select(n => new { n.Id, n.Text, n.AuthorName, n.CreatedAt, n.EditedAt, n.EditedBy, Mine = n.CreatedById == m.UserId });
+    }
+
+    /// <summary>Adds a job note. Notes can be added on any work order the person can see, open or closed.</summary>
+    public async Task<object> AddNoteAsync(Guid id, string? text, CancellationToken ct)
+    {
+        var r = await tracking.LoadAsync(id, false, ct);
+        var t = (text ?? "").Trim();
+        if (t.Length == 0) throw new AppException("Type a note first.");
+        if (t.Length > 4000) throw new AppException("A note can be up to 4000 characters.");
+        var who = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? current.UserName ?? "";
+        var n = new SequflohJobNote { TrackingRecordId = r.Id, TrackingNumber = r.Number, Text = t, AuthorName = who };
+        db.SequflohJobNotes.Add(n);
+        f.Audit("JobNoteAdded", SequflohTrackingService.EntityType, r.Id, $"{who} added a job note on {r.Number}: \"{Short(t)}\"", r.SiteId);
+        await db.SaveChangesAsync(ct);
+        return NoteDto(n);
+    }
+
+    /// <summary>Corrects the text of your own job note. The earlier text is kept in the audit.</summary>
+    public async Task EditNoteAsync(Guid noteId, string? text, CancellationToken ct)
+    {
+        var n = await db.SequflohJobNotes.FirstOrDefaultAsync(x => x.Id == noteId, ct) ?? throw new NotFoundException("Job note");
+        var r = await tracking.LoadAsync(n.TrackingRecordId, false, ct);
+        if (n.CreatedById != m.UserId) throw new AppException("Only the person who wrote a note can change it. Add a new note instead.");
+        var t = (text ?? "").Trim();
+        if (t.Length == 0) throw new AppException("A note can't be empty.");
+        if (t.Length > 4000) throw new AppException("A note can be up to 4000 characters.");
+        if (t == n.Text) return;
+        var who = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? current.UserName ?? "";
+        f.Audit("JobNoteEdited", SequflohTrackingService.EntityType, r.Id, $"{who} edited a job note on {r.Number}. Was: \"{Short(n.Text)}\". Now: \"{Short(t)}\"", r.SiteId);
+        n.Text = t; n.EditedAt = DateTimeOffset.UtcNow; n.EditedBy = who;
+        await db.SaveChangesAsync(ct);
+    }
+
+    static string Short(string s) => s.Length > 300 ? s[..300] + "…" : s;
 
     // ---- report ----
 
@@ -324,7 +393,8 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         List<ReportPart> Parts, decimal PartsTotal, List<ReportFile> Files, int Tested, int Passed, int Failed, DateTimeOffset GeneratedAt,
         long PausedSeconds = 0, List<ReportTimeEvent>? TimeLog = null, JobFindings? Findings = null, List<CostLine>? CostLines = null, ReportOptions? Options = null,
         List<ReportAttachment>? Attachments = null, List<ReportAttachment>? Photos = null, string? WorkInstructionNumber = null, string? WorkInstructionRevision = null,
-        decimal PartsCost = 0, decimal OtherCost = 0, List<EightDFile>? EightD = null);
+        decimal PartsCost = 0, decimal OtherCost = 0, List<EightDFile>? EightD = null, List<ReportNote>? Notes = null);
+    public sealed record ReportNote(string Text, string AuthorName, DateTimeOffset At, DateTimeOffset? EditedAt);
 
     public async Task<JobReport> ReportAsync(Guid id, CancellationToken ct)
     {
@@ -357,7 +427,8 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             [.. all.Where(x => x.Kind == "attachment").OrderBy(x => x.CreatedAt).Select(A)], [.. all.Where(x => x.Kind == "evidence").OrderBy(x => x.CreatedAt).Select(A)],
             r.WorkInstructionNumber, r.WorkInstructionRevision,
             parts.Sum(p => p.UnitCost is { } u ? Math.Round(u * p.Quantity, 2) : 0), lines.Sum(l => l.Amount),
-            SequflohEightDService.Excluded(r.Type) ? [] : await SequflohEightDService.FilesOfAsync(db, "work-orders", [r.Id], ct));
+            SequflohEightDService.Excluded(r.Type) ? [] : await SequflohEightDService.FilesOfAsync(db, "work-orders", [r.Id], ct),
+            await db.SequflohJobNotes.AsNoTracking().Where(n => n.TrackingRecordId == id).OrderByDescending(n => n.CreatedAt).Select(n => new ReportNote(n.Text, n.AuthorName, n.CreatedAt, n.EditedAt)).ToListAsync(ct));
     }
 
     public static string Hours(long seconds) => (seconds / 3600m).ToString("0.00", CultureInfo.InvariantCulture);
@@ -400,6 +471,11 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
                  ["Total", "", "", "", N(x.PartsTotal)]]));
         }
         if (o.Findings && HasFindings(fd)) AddFindings(blocks, fd, x);
+        if (x.Notes is { Count: > 0 } notes)
+        {
+            blocks.Add(new PrintHeading("Job notes"));
+            blocks.Add(new PrintTable([("Date / time", 1.6), ("By", 1.6), ("Note", 5)], [.. notes.Select(n => new string?[] { local(n.At), n.AuthorName, n.Text + (n.EditedAt is null ? "" : " (edited)") })]));
+        }
         if (o.PerTech && x.People.Count > 0)
         {
             blocks.Add(new PrintHeading("Man hours by technician"));
@@ -517,7 +593,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         return (x.Pdf, x.FileName);
     }
 
-    public static bool HasFindings(JobFindings f) => f with { ErpReference = null } != new JobFindings();
+    public static bool HasFindings(JobFindings f) => f.HasFindings != false && f with { ErpReference = null, HasFindings = null } != new JobFindings();
 
     static void AddFindings(List<PrintBlock> blocks, JobFindings fd, JobReport x)
     {

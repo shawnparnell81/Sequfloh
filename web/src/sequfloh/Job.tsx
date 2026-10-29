@@ -32,7 +32,7 @@ export function downloadCsv(name: string, head: string[], rows: (string | number
 interface PartLine { partNumber: string; description?: string | null; perAssembly: number; quantity?: number | null; unitCost?: number | null; total?: number }
 interface TestFile { id: string; kind?: string; fileName: string; batch?: string; testDate?: string; uploadedAt: string; tested?: number; passed?: number; failed?: number }
 interface ColumnMap { resultColumn?: string | null; passValues?: string[] | null; valueColumns?: string[] | null; batchColumn?: string | null; dateColumn?: string | null }
-interface JobData { quantityTarget?: number | null; quantityCompleted: number; quantityNotRepaired: number; parts: PartLine[]; columns: ColumnMap; files: TestFile[];
+interface JobData { quantityTarget?: number | null; quantityCompleted: number; quantityNotRepaired: number; parts: PartLine[]; columns: ColumnMap; files: TestFile[]; canRemoveFiles?: boolean;
   tests: { tested: number; passed: number; failed: number } }
 
 export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
@@ -107,7 +107,7 @@ export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
           <TableCell><a href={`${S}/tracking/job/test-files/${f.id}`}>{f.fileName}</a></TableCell><TableCell>{f.batch ?? '—'}</TableCell><TableCell>{f.testDate ?? '—'}</TableCell>
           <TableCell>{f.tested ?? '—'}</TableCell><TableCell>{f.passed ?? '—'}</TableCell><TableCell>{f.failed ?? '—'}</TableCell><TableCell>{fmtDateTime(f.uploadedAt)}</TableCell>
           <TableCell sx={{ whiteSpace: 'nowrap' }}>{canWork && f.tested != null && <Button size="small" onClick={() => setMapFile(f.id)}>Columns</Button>}
-            {canWork && <IconButton aria-label={`Remove ${f.fileName}`} onClick={() => run(() => del(`${S}/tracking/job/test-files/${f.id}`))}><DeleteOutline /></IconButton>}</TableCell>
+            {j.canRemoveFiles && <IconButton aria-label={`Remove ${f.fileName}`} onClick={() => { const why = window.prompt(`Remove ${f.fileName}? It is kept in the history. Reason:`); if (why !== null) void run(() => del(`${S}/tracking/job/test-files/${f.id}?reason=${encodeURIComponent(why)}`)); }}><DeleteOutline /></IconButton>}</TableCell>
         </TableRow>)}</TableBody></Table>}
     </Paper>
     {mapFile && <ColumnsDialog id={id} fileId={mapFile} onClose={() => setMapFile(null)} onSaved={refresh} />}

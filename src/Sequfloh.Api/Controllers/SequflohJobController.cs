@@ -33,7 +33,12 @@ public sealed class SequflohJobController(SequflohJobService job, SequflohPrintS
     [HttpGet("job/test-files/{fileId:guid}")]
     public async Task<IActionResult> Download(Guid fileId, CancellationToken ct) { var (b, n, t) = await job.DownloadAsync(fileId, ct); return File(b, t, n); }
     [HttpGet("job/test-files/{fileId:guid}/columns")] public Task<object> FileColumns(Guid fileId, CancellationToken ct) => job.ColumnsAsync(fileId, ct);
-    [HttpDelete("job/test-files/{fileId:guid}")] public async Task<IActionResult> DeleteFile(Guid fileId, CancellationToken ct) { await job.DeleteFileAsync(fileId, ct); return NoContent(); }
+    [HttpDelete("job/test-files/{fileId:guid}")] public async Task<IActionResult> DeleteFile(Guid fileId, [FromQuery] string? reason, CancellationToken ct) { await job.DeleteFileAsync(fileId, ct, reason); return NoContent(); }
+
+    public sealed record NoteRequest(string? Text);
+    [HttpGet("{id:guid}/job/notes")] public Task<object> Notes(Guid id, CancellationToken ct) => job.NotesAsync(id, ct);
+    [HttpPost("{id:guid}/job/notes")] public Task<object> AddNote(Guid id, NoteRequest r, CancellationToken ct) => job.AddNoteAsync(id, r.Text, ct);
+    [HttpPut("job/notes/{noteId:guid}")] public async Task<IActionResult> EditNote(Guid noteId, NoteRequest r, CancellationToken ct) { await job.EditNoteAsync(noteId, r.Text, ct); return NoContent(); }
 
     [HttpPut("{id:guid}/job/findings")] public async Task<object> SaveFindings(Guid id, JobFindings r, CancellationToken ct) { await job.SaveFindingsAsync(id, r, ct); return await job.GetAsync(id, ct); }
     [HttpPut("{id:guid}/job/cost-lines")] public async Task<object> SaveCostLines(Guid id, List<CostLine> r, CancellationToken ct) { await job.SaveCostLinesAsync(id, r, ct); return await job.GetAsync(id, ct); }
