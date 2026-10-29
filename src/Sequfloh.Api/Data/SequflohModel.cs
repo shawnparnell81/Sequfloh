@@ -296,6 +296,10 @@ public partial class AppDbContext
             e.Property(x => x.Note).HasMaxLength(300);
             e.Property(x => x.WorkerName).HasMaxLength(120);
             e.HasIndex(x => x.WorkerId);
+            e.Property(x => x.VoidedBy).HasMaxLength(200);
+            e.Property(x => x.VoidReason).HasMaxLength(500);
+            // removed (voided) time never counts; read it with IgnoreQueryFilters for the history
+            e.HasQueryFilter(x => x.VoidedAt == null);
         });
         b.Entity<SequflohDayWorker>(e =>
         {
@@ -339,6 +343,9 @@ public partial class AppDbContext
         {
             e.ToTable("sequfloh_time_entries");
             e.HasIndex(x => new { x.UserId, x.StartedAt });
+            e.Property(x => x.VoidedBy).HasMaxLength(200);
+            e.Property(x => x.VoidReason).HasMaxLength(500);
+            e.HasQueryFilter(x => x.VoidedAt == null);
             // one open clock-on per person per work order
             e.HasIndex(x => new { x.TrackingRecordId, x.UserId }, "IX_sequfloh_time_entries_running").HasFilter("\"StoppedAt\" IS NULL").IsUnique();
             e.HasIndex(x => x.TrackingRecordId);

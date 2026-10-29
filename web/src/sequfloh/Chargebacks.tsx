@@ -27,7 +27,7 @@ interface Report { locked?: boolean;
   totalPersonnel?: number | null; totalHours?: number | null; crewHours?: number | null; userHours?: number | null; dateFrom?: string | null; dateTo?: string | null; hourlyRate?: number | null;
   laborCost?: number | null; discoveryMethod?: string | null; supplierPartNumber?: string | null; lotDateCodes?: string | null; rootCause?: string | null; correctiveAction?: string | null;
   parts: { partNumber: string; description?: string | null; quantity: number; unitCost?: number | null }[]; costLines: { description: string; amount: number }[]; notes?: string | null;
-  sections: string[]; period?: Period | null; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string;
+  sections: string[]; period?: Period | null; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string; timeChangedAt?: string | null; timeChangedNote?: string | null;
 }
 type Form = Record<string, string>;
 interface SectionOpt { key: string; label: string; default: boolean }
@@ -56,7 +56,7 @@ export function ChargebackListPage() {
         <TableBody>{q.data.map((r) => <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => openChargebackPdf(r.id)}>
           <TableCell><Mono>{r.workOrderNumber}</Mono></TableCell><TableCell>{r.supplier ?? '—'}</TableCell><TableCell><Mono>{r.partNumber ?? '—'}</Mono></TableCell><TableCell>{r.result ?? '—'}</TableCell>
           <TableCell align="right">{num(r.qtyInspected)}</TableCell><TableCell align="right">{num(r.qtyBad)}</TableCell><TableCell align="right">{num(r.totalPersonnel)}</TableCell>
-          <TableCell align="right">{num(r.totalHours, 2)}</TableCell><TableCell align="right">{money(r.total)}</TableCell><TableCell>{fmtDateTime(r.createdAt)} · {r.createdByName}</TableCell>
+          <TableCell align="right">{num(r.totalHours, 2)}</TableCell><TableCell align="right">{money(r.total)}</TableCell><TableCell>{fmtDateTime(r.createdAt)} · {r.createdByName}{r.timeChangedAt && <Box component="span" sx={{ color: 'warning.main', display: 'block' }}>Time changed, regenerate</Box>}</TableCell>
           <TableCell onClick={(e) => e.stopPropagation()}>{canEdit && !r.locked && <Button size="small" onClick={() => nav(`/sequfloh/chargebacks/${r.id}`)} data-testid="cb-row-edit">Edit</Button>}</TableCell>
         </TableRow>)}</TableBody>
       </Table></Paper>}
@@ -166,6 +166,9 @@ export function ChargebackEditPage() {
     </RecordActions>}>
     <Stack gap={2} sx={{ maxWidth: 1100 }} data-testid="chargeback-form">
       {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
+      {existing.data?.timeChangedAt && <Alert severity="warning" data-testid="cb-time-changed"
+        action={wo && <Button color="inherit" size="small" onClick={() => void prefill(wo.id)} data-testid="cb-refresh-hours">Refresh hours</Button>}>
+        Time changed after this chargeback was created ({existing.data.timeChangedNote}). Refresh the hours from the work order and save to regenerate it.</Alert>}
       <Section title="Job">
         {row(
           <TextField key="wo" label={period ? 'Report number' : 'Work order #'} required={period?.kind !== 'Project'} value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText={period ? 'Your own number for this report, exactly as your company writes it' : 'Your own work order number'} inputProps={{ 'data-testid': 'cb-wo' }} />,
@@ -288,6 +291,7 @@ export function ChargebackViewPage() {
       del={{ what: `chargeback report for work order ${r.workOrderNumber}`, url: `${S}/chargebacks/${r.id}`, to: '/sequfloh/chargebacks', perm: 'sequfloh.manage_chargebacks', show: canEdit && !r.locked }}>
       <Button variant="outlined" href={`${S}/chargebacks/${r.id}/xlsx`} data-testid="cb-xlsx">Export Excel</Button>
     </RecordActions>}>
+    {r.timeChangedAt && <Alert severity="warning" sx={{ mb: 2 }} data-testid="cb-time-changed">Time changed after this chargeback was created ({r.timeChangedNote}). Edit the report, refresh the hours and save to regenerate it.</Alert>}
     <ReportBlocks id={r.id} title={`Chargeback Report: ${r.partNumber ?? r.workOrderNumber}`} supplier={r.supplier} />
   </SqfPage>;
 }

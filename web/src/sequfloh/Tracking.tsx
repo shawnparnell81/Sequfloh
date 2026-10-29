@@ -13,6 +13,7 @@ import { Facts, useSites, useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { AssigneesPanel, TimePanel, type Person } from './TimePanel';
 import { CrewPanel } from './CrewPanel';
+import { MOVE_KEY, TimeCorrections, type MoveSelection } from './TimeCorrections';
 import { Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, numOrNull, qs, useOptions, useUnsaved, words } from './common';
 import { NewInspectionRequestButton } from './InspectionRequests';
 import { SimpleTable } from './Parts';
@@ -159,7 +160,7 @@ export function NewTrackingPage() {
   const [familyId, setFamilyId] = useState('');
   const [devLine, setDevLine] = useState(() => sp.get('line') ?? '');
   // optional clock for the time spent creating the order; asked once when the screen opens
-  const [clockAsk, setClockAsk] = useState(true);
+  const [clockAsk, setClockAsk] = useState(() => !sp.get('from'));
   const [clockFrom, setClockFrom] = useState<string | null>(null);
   const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
   const forms = useQuery({ queryKey: ['sqf-validation-forms'], queryFn: () => get<ValidationForms>(`${S}/validation-forms`), enabled: type === 'Validation' || type === 'Test' || type === 'SaltSpray' });
@@ -179,6 +180,24 @@ export function NewTrackingPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = useState<Record<string, string>>({ priority: 'Normal' });
   const [siteId, setSiteId] = useState(''); const [departmentId, setDepartmentId] = useState(''); const [assigned, setAssigned] = useState('');
+  // "Transfer to a new work order": start from the source order's details, and move the selected time once it is created
+  const fromId = sp.get('from');
+  const move = (() => { try { const m = JSON.parse(sessionStorage.getItem(MOVE_KEY) ?? 'null') as MoveSelection | null; return m && m.from === fromId ? m : null; } catch { return null; } })();
+  useEffect(() => {
+    if (!fromId) return;
+    setClockAsk(false);
+    get<{ record: Record<string, unknown> }>(`${S}/tracking/${fromId}`).then(({ record: r }) => {
+      const str = (k: string) => (r[k] === null || r[k] === undefined ? undefined : String(r[k]));
+      if (str('type') && allowed.includes(str('type')!)) setType(str('type')!);
+      if (str('familyId')) setFamilyId(str('familyId')!);
+      if (str('siteId')) setSiteId(str('siteId')!);
+      if (str('departmentId')) setDepartmentId(str('departmentId')!);
+      if (str('partId')) setPart({ id: str('partId')!, partNumber: str('partNumber') ?? '', name: str('partDescription') });
+      setF((cur) => ({ ...cur, subType: str('inspectionSubType') ?? '', inspectionDescription: str('inspectionDescription') ?? '', workOrder: str('workOrder') ?? '', serialNumber: str('serialNumber') ?? '',
+        lotNumber: str('lotNumber') ?? '', repairOrder: str('repairOrder') ?? '', customerReturnReference: str('customerReturnReference') ?? '', priority: str('priority') ?? cur.priority,
+        formNumber: str('formNumber') ?? '', reportedCondition: str('reportedCondition') ?? '', quantity: str('quantityTarget') ?? '', min: str('minBenchmarkMinutes') ?? '', max: str('maxBenchmarkMinutes') ?? '' }));
+    }).catch(() => {});
+  }, [fromId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
   // automatic number when the type and the product family both have a code; it stays editable
@@ -218,6 +237,12 @@ export function NewTrackingPage() {
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
         maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId), include8D: with8D && !noEightD(type) });
       if (with8D && !noEightD(type)) for (const x of files8D) { try { await uploadEightD('work-orders', r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
+      if (move) {
+        try {
+          await post(`${S}/tracking/${move.from}/time-corrections/transfer`, { targetId: r.id, crewSessionIds: move.crewSessionIds, timeEntryIds: move.timeEntryIds, reason: move.reason });
+          sessionStorage.removeItem(MOVE_KEY);
+        } catch (e) { window.alert(`The work order was created, but the time was not moved from ${move.fromNumber}: ${(e as Error).message}`); }
+      }
       nav(`/sequfloh/record/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -226,6 +251,7 @@ export function NewTrackingPage() {
       description="Choose the type, then fill in the work order. A work instruction is optional: when you add one, its steps are copied onto the work order. The drawing for the exact part number is attached automatically.">
       <Paper variant="outlined" sx={{ p: 3, maxWidth: 980 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        {move && <Alert severity="info" sx={{ mb: 2 }} data-testid="new-wo-move">Filled in from {move.fromNumber}. Check the details, then click Create: the selected time moves from {move.fromNumber} to the new work order.</Alert>}
         {clockFrom && <Alert severity="info" sx={{ mb: 2 }} data-testid="create-clock-running" action={<Button color="inherit" size="small" onClick={() => setClockFrom(null)} data-testid="create-clock-stop">Don't clock</Button>}>
           Clocking the time to create this work order since {new Date(clockFrom).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. It stops when you click Create and is saved as time on the work order.</Alert>}
         <Dialog open={clockAsk} onClose={() => setClockAsk(false)} maxWidth="xs" fullWidth>
@@ -525,7 +551,7 @@ export function TrackingRecordPage() {
       </Stack>}
 
       {tab === 'job' && <JobPanel id={rec.id} canWork={!closed} />}
-      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} /><CrewPanel recordId={rec.id} notStarted={clockHint} /></Stack>}
+      {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} /><CrewPanel recordId={rec.id} notStarted={clockHint} /><TimeCorrections recordId={rec.id} number={rec.number} /></Stack>}
       {tab === 'findings' && <FindingsPanel id={rec.id} canWork={!closed} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
       {tab === 'events' && <TaskEvents events={q.data.events} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />

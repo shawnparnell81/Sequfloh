@@ -117,7 +117,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         {
             Locked = x.TrackingRecordId is { } t && closed.Contains(t),
             x.Id, x.WorkOrderNumber, x.TrackingNumber, x.Supplier, x.PartNumber, x.Result, x.QtyInspected, x.QtyBad, x.TotalPersonnel, x.TotalHours, x.DateFrom, x.DateTo,
-            Total = Total(x), x.CreatedAt, x.CreatedByName,
+            Total = Total(x), x.CreatedAt, x.CreatedByName, x.TimeChangedAt, x.TimeChangedNote,
         });
     }
 
@@ -143,7 +143,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         x.Id, x.WorkOrderNumber, x.TrackingRecordId, x.TrackingNumber, x.Supplier, x.SupplierReference, x.PartId, x.PartNumber, x.PartDescription, x.TaskDescription, x.Result,
         x.QtyInspected, x.QtyBad, x.TotalPersonnel, x.TotalHours, x.CrewHours, x.UserHours, x.DateFrom, x.DateTo, x.HourlyRate, LaborCost = LaborCost(x.TotalHours, x.HourlyRate),
         x.DiscoveryMethod, x.SupplierPartNumber, x.LotDateCodes, x.RootCause, x.CorrectiveAction, Parts = PartsOf(x.Parts), CostLines = LinesOf(x.CostLines), x.Notes,
-        Sections = SectionsOf(x.Sections), Period = PeriodOf(x.Period), PartsCost = PartsCost(PartsOf(x.Parts)), OtherCost = LinesOf(x.CostLines).Sum(l => l.Amount), Total = Total(x), x.CreatedAt, x.CreatedByName,
+        Sections = SectionsOf(x.Sections), Period = PeriodOf(x.Period), PartsCost = PartsCost(PartsOf(x.Parts)), OtherCost = LinesOf(x.CostLines).Sum(l => l.Amount), Total = Total(x), x.CreatedAt, x.CreatedByName, x.TimeChangedAt, x.TimeChangedNote,
     };
 
     string Snapshot(SequflohChargebackReport x) => JsonSerializer.Serialize(Dto(x), SequflohJson.Options);
@@ -230,6 +230,8 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         await RequireUnlockedAsync(x, ct);
         var before = Snapshot(x);
         await FillAsync(x, i, ct);
+        // saving the report again with the current hours clears the "time changed" flag
+        x.TimeChangedAt = null; x.TimeChangedNote = null;
         f.Audit("ChargebackReportUpdated", Entity, x.Id, $"Chargeback report for work order {x.WorkOrderNumber} updated", x.SiteId, context: new { before, after = Snapshot(x) });
         await db.SaveChangesAsync(ct);
         return Dto(x);

@@ -179,6 +179,10 @@ public class SequflohTimeEntry : Entity, IAudited
     public DateTimeOffset? PausedAt { get; set; }
     /// <summary>Start, pause, resume and stop with their times (JSON array of kind and at).</summary>
     public string Events { get; set; } = "[]";
+    /// <summary>Set when the time was removed as a correction: it no longer counts anywhere but stays in the record's history.</summary>
+    public DateTimeOffset? VoidedAt { get; set; }
+    public string? VoidedBy { get; set; }
+    public string? VoidReason { get; set; }
     public string AuditLabel => $"time on {TrackingNumber} for {UserName}";
 }
 
