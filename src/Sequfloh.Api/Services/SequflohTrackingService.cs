@@ -309,8 +309,10 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             rec.PartId = p.Id; rec.PartNumber = p.PartNumber; rec.PartDescription = p.Name;
         }
         // the instruction revision's content is copied (execution fields start empty)
-        rec.Steps = Snapshot(wi?.Steps ?? "[]"); rec.Characteristics = Snapshot(wi?.Characteristics ?? "[]"); rec.PartsRows = Snapshot(wi?.PartsRows ?? "[]");
-        var content = JsonNode.Parse(wi?.Content ?? "{}")!.AsObject();
+        // an uploaded-file instruction is only its file: nothing built-in is copied onto the order
+        var built = wi is { IsUploadedFile: false } ? wi : null;
+        rec.Steps = Snapshot(built?.Steps ?? "[]"); rec.Characteristics = Snapshot(built?.Characteristics ?? "[]"); rec.PartsRows = Snapshot(built?.PartsRows ?? "[]");
+        var content = JsonNode.Parse(built?.Content ?? "{}")!.AsObject();
         var details = new JsonObject();
         if (content["samples"] is JsonObject smp) details["samplePlan"] = smp.DeepClone();
         if (content["conditions"] is JsonObject cnd) details["conditionLimits"] = cnd.DeepClone();
@@ -341,31 +343,80 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
     }
 
     /// <summary>
-    /// Attaches a released work instruction to a work order, replaces it, or removes it (null), before work has started. Attaching copies the instruction's
-    /// steps onto the order; removing clears them. Nothing else on the work order changes.
+    /// Attaches a released work instruction to a work order, replaces it, or removes it (null). Before work starts anything goes. Once work has started the
+    /// instruction can be removed only through RemoveInstructionAsync (its own permission and a reason); an order with no instruction can then have one attached
+    /// again. Attaching copies the current revision's steps onto the order (none for an uploaded-file instruction). Rows that already hold recorded results are
+    /// never deleted: they stay on the order, marked with the instruction they came from. Closed orders cannot change.
     /// </summary>
     public async Task<SequflohTrackingRecord> SetInstructionAsync(Guid id, Guid? workInstructionId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var rec = await LockAsync(id, ct);
         await m.RequireAsync(CreatePermission(rec.Type), rec.SiteId, rec.DepartmentId, ct);
-        if (rec.Status is not (TrackingStatus.NotStarted or TrackingStatus.Assigned)) throw new ConflictException("The work instruction can only be changed before work starts.");
-        SequflohWorkInstruction? wi = null;
-        if (workInstructionId is { } wid)
-        {
-            wi = await db.SequflohWorkInstructions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == wid, ct) ?? throw new AppException("The work instruction does not exist.");
-            if (wi.Status != WorkInstructionStatus.Released) throw new AppException($"{wi.Number} rev {wi.Revision} is not released.");
-            if (!Accepts(rec.Type, rec.DevelopmentLine, wi)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(rec.Type)} record can use.");
-        }
+        RequireOpen(rec);
+        var started = rec.Status is not (TrackingStatus.NotStarted or TrackingStatus.Assigned);
+        if (started && (rec.WorkInstructionId is not null || workInstructionId is null))
+            throw new ConflictException("Work has started. Remove the work instruction from the order first (Remove WI from order), then attach the instruction again.");
+        var wi = await ReleasedFor(rec, workInstructionId, ct);
         var before = rec.WorkInstructionId is null ? "none" : $"{rec.WorkInstructionNumber} rev {rec.WorkInstructionRevision}";
-        rec.WorkInstructionId = wi?.Id; rec.WorkInstructionNumber = wi?.Number ?? ""; rec.WorkInstructionRevision = wi?.Revision ?? ""; rec.WorkInstructionTitle = wi?.Title ?? "";
-        rec.Steps = Snapshot(wi?.Steps ?? "[]"); rec.Characteristics = Snapshot(wi?.Characteristics ?? "[]"); rec.PartsRows = Snapshot(wi?.PartsRows ?? "[]");
+        var kept = Link(rec, wi);
         var after = wi is null ? "none" : $"{wi.Number} rev {wi.Revision}";
-        f.Audit("TrackingInstructionChanged", EntityType, rec.Id, $"{rec.Number} work instruction changed from {before} to {after}", rec.SiteId);
+        f.Audit("TrackingInstructionChanged", EntityType, rec.Id, $"{rec.Number} work instruction changed from {before} to {after}" + (kept > 0 ? $"; {kept} row(s) with recorded results kept" : ""), rec.SiteId);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return rec;
     }
+
+    /// <summary>
+    /// Removes the work instruction from an open work order at any stage, with a reason (its own admin-assigned permission). Steps, characteristics and parts rows
+    /// with recorded results stay on the order, marked with the instruction they came from; untouched rows are taken off. Audited with who, when and the reason.
+    /// </summary>
+    public async Task<SequflohTrackingRecord> RemoveInstructionAsync(Guid id, string? reason, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var rec = await LockAsync(id, ct);
+        await m.RequireAsync(Permissions.SequflohRemoveOrderInstruction, rec.SiteId, rec.DepartmentId, ct);
+        RequireOpen(rec);
+        var why = T(reason, 1000) ?? throw new AppException("Say why the work instruction is removed from this order.");
+        if (rec.WorkInstructionId is null) throw new AppException("This work order has no work instruction.");
+        var before = $"{rec.WorkInstructionNumber} rev {rec.WorkInstructionRevision}";
+        var kept = Link(rec, null);
+        f.Audit("TrackingInstructionRemoved", EntityType, rec.Id, $"{rec.Number}: work instruction {before} removed from the order. Reason: {why}" + (kept > 0 ? $". {kept} row(s) with recorded results kept on the order" : ""), rec.SiteId,
+            context: new { workInstruction = before, reason = why, keptRows = kept });
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return rec;
+    }
+
+    async Task<SequflohWorkInstruction?> ReleasedFor(SequflohTrackingRecord rec, Guid? workInstructionId, CancellationToken ct)
+    {
+        if (workInstructionId is not { } wid) return null;
+        var wi = await db.SequflohWorkInstructions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == wid, ct) ?? throw new AppException("The work instruction does not exist.");
+        if (wi.Status != WorkInstructionStatus.Released) throw new AppException($"{wi.Number} rev {wi.Revision} is not released.");
+        if (!Accepts(rec.Type, rec.DevelopmentLine, wi)) throw new AppException($"{wi.Number} is not a work instruction that a {Label(rec.Type)} record can use.");
+        return wi;
+    }
+
+    /// <summary>Points the order at an instruction (or none): rows with recorded results are kept and marked, the rest are replaced by the new revision's rows. Returns how many rows were kept.</summary>
+    int Link(SequflohTrackingRecord rec, SequflohWorkInstruction? wi)
+    {
+        var from = rec.WorkInstructionId is null ? null : $"{rec.WorkInstructionNumber} rev {rec.WorkInstructionRevision}";
+        var built = wi is { IsUploadedFile: false } ? wi : null;
+        var kept = 0;
+        string Merge(string current, string? source, string[] entry)
+        {
+            var keep = new JsonArray();
+            foreach (var r in JsonNode.Parse(current)!.AsArray().OfType<JsonObject>())
+                if (Recorded(r, entry)) { if (from is not null && r["keptFrom"] is null) r["keptFrom"] = from; keep.Add(r.DeepClone()); kept++; }
+            foreach (var r in JsonNode.Parse(Snapshot(source ?? "[]"))!.AsArray()) keep.Add(r!.DeepClone());
+            return keep.ToJsonString();
+        }
+        rec.Steps = Merge(rec.Steps, built?.Steps, StepEntry); rec.Characteristics = Merge(rec.Characteristics, built?.Characteristics, CharEntry); rec.PartsRows = Merge(rec.PartsRows, built?.PartsRows, PartsEntry);
+        rec.WorkInstructionId = wi?.Id; rec.WorkInstructionNumber = wi?.Number ?? ""; rec.WorkInstructionRevision = wi?.Revision ?? ""; rec.WorkInstructionTitle = wi?.Title ?? "";
+        return kept;
+    }
+
+    static bool Recorded(JsonObject r, string[] entry) => entry.Any(k => r[k] is JsonNode v && (v is JsonValue jv && jv.TryGetValue<bool>(out var b) ? b : !string.IsNullOrWhiteSpace(v.ToString())));
 
     /// <summary>Records the inspection results of an inspection or warranty work order: qty good and bad, further inspection, and the quarantine flag with its reason. Audited old to new.</summary>
     public async Task<SequflohTrackingRecord> SetInspectionResultsAsync(Guid id, InspectionResultsInput r, CancellationToken ct)

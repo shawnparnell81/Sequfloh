@@ -295,7 +295,7 @@ export function TemplatesPage() {
 // ------------------------------------------------------------------ designer
 interface WiDoc {
   statusTag?: string | null; statusNote?: string | null;
-  id: string; familyId: string; number: string; type: string; title: string; revision: string; status: string; siteId: string; departmentId?: string | null; ownerId?: string | null; authorId?: string | null;
+  id: string; familyId: string; isUploadedFile?: boolean; number: string; type: string; title: string; revision: string; status: string; siteId: string; departmentId?: string | null; ownerId?: string | null; authorId?: string | null;
   partId?: string | null; partNumber?: string | null; partDescription?: string | null; productFamily?: string | null; assembly?: string | null;
   model?: string | null; variant?: string | null; process?: string | null; operation?: string | null; workstation?: string | null; location?: string | null; validationType?: string | null; faiType?: string | null;
   repairCategory?: string | null; repairType?: string | null; repairDescription?: string | null; sourcePartsListId?: string | null; resultStatus?: string | null; effectiveDate?: string | null;
@@ -337,7 +337,8 @@ export function InstructionPage() {
   if (!doc || !q.data) return null;
   const schema = schemas.data!.find((s) => s.type === doc.type)!;
   const ro = !q.data.canEdit || busy;
-  const fileOnly = doc.type === 'Procedure';
+  // an uploaded instruction (and every Procedure Instruction) is its file: the built-in content, layout and steps are not shown
+  const fileOnly = doc.type === 'Procedure' || doc.isUploadedFile === true;
   const tab = tabParam ?? (fileOnly ? 'file' : 'control');
   const upd = (patch: Partial<WiDoc>) => setDoc({ ...doc, ...patch });
   const setContent = (section: string, key: string, v: Val) => setDoc({ ...doc, content: { ...doc.content, [section]: { ...(doc.content[section] ?? {}), [key]: v } } });
@@ -372,7 +373,7 @@ export function InstructionPage() {
     ...(schema.hasCharacteristics ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(schema.hasPartsRows ? [{ label: 'Repair parts', value: 'parts' }] : []),
     ...(q.data.canDevelop || doc.developmentStatus || doc.engineeringNotes ? [{ label: 'Development', value: 'development' }] : []),
     { label: 'Revisions', value: 'history' }];
-  const folder = schema.type === 'RepairWork' || schema.type === 'RepairTest' ? { label: 'Repair / Rework Work Instructions', to: '/sequfloh/instructions/repair' } : schema.type === 'Inspection' ? { label: 'Inspection Work Instructions', to: '/sequfloh/instructions/inspection' } : fileOnly ? { label: 'Procedure Instructions', to: '/sequfloh/instructions/procedure' } : { label: 'Validation / FAI Work Instructions', to: '/sequfloh/instructions/validation' };
+  const folder = schema.type === 'RepairWork' || schema.type === 'RepairTest' ? { label: 'Repair / Rework Work Instructions', to: '/sequfloh/instructions/repair' } : schema.type === 'Inspection' ? { label: 'Inspection Work Instructions', to: '/sequfloh/instructions/inspection' } : doc.type === 'Procedure' ? { label: 'Procedure Instructions', to: '/sequfloh/instructions/procedure' } : { label: 'Validation / FAI Work Instructions', to: '/sequfloh/instructions/validation' };
   return (
     <SqfPage title={<>{doc.number} rev {doc.revision} — {doc.title}</>} crumbs={wiCrumbs(`${doc.number} rev ${doc.revision}`, folder)} recent={{ label: `${doc.number} rev ${doc.revision} ${doc.title}`, itemType: 'Work instruction', recordId: doc.id }}
       tabs={tabs} tab={tab} onTab={setTab}
@@ -658,13 +659,14 @@ function ProcedureFile({ id }: { id: string }) {
   const files = useQuery({ queryKey: ['files', 'SequflohWorkInstruction', id, false], queryFn: () => get<{ id: string; fileName: string }[]>(`/api/records/SequflohWorkInstruction/${id}/files?history=false`) });
   const f = files.data?.[0];
   if (files.isLoading) return <Loading />;
-  if (!f) return <Empty text="No file is attached. Import the file again from Procedure Instructions." />;
+  if (!f) return <Empty text="No file is attached. Import the file again from All WI / Procedures." />;
   const src = `/api/files/${f.id}?inline=true`;
   const full = () => { const el = document.getElementById('procedure-file'); void el?.requestFullscreen?.(); };
   return <Stack gap={1} data-testid="procedure-file">
     <Stack direction="row" gap={1} alignItems="center"><Typography variant="body2" sx={{ flex: 1 }}>{f.fileName}</Typography>
+      <Button size="small" variant="contained" href={src} target="_blank" rel="noopener" data-testid="wi-file-open">Open</Button>
       <Button size="small" href={src} target="_blank" rel="noopener">Print</Button>
-      <Button size="small" href={`/api/files/${f.id}`} download={f.fileName}>Download</Button>
+      <Button size="small" href={`/api/files/${f.id}?inline=false`} download={f.fileName}>Download</Button>
       <Button size="small" onClick={full}>Full screen</Button></Stack>
     <Box id="procedure-file" component="iframe" title={f.fileName} src={src} sx={{ width: '100%', height: '75vh', border: 1, borderColor: 'divider', bgcolor: 'background.paper' }} />
   </Stack>;

@@ -285,6 +285,7 @@ public static class PermissionText
             "sequfloh.transfer_time" => "Move recorded time from one work order to another (corrections)",
             "sequfloh.remove_files" => "Remove pictures and files from a work order (kept in history)",
             "sequfloh.correct_test_results" => "Correct entered test spec values and part test results (audited)",
+            "sequfloh.remove_order_instruction" => "Remove a work instruction from a work order with a reason (recorded results stay on the order)",
             "sequfloh.remove_test_results" => "Remove a part's test results from a test work order (kept in history)",
             "sequfloh.remove_time" => "Remove recorded time from a work order with a reason (kept in history, no longer counted)",
             "sequfloh.manage_chargebacks" => "Create and edit chargeback reports",

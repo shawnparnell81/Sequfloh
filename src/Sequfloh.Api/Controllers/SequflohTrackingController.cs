@@ -78,6 +78,12 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
             },
             Events = events, ServerTime = now, CanEnter = canEnter,
+            Instruction = x.WorkInstructionId is { } wiId ? new
+            {
+                IsUploadedFile = db.SequflohWorkInstructions.Where(w => w.Id == wiId).Select(w => w.IsUploadedFile).FirstOrDefault(),
+                File = db.Attachments.Where(a => a.OwnerType == "SequflohWorkInstruction" && a.OwnerId == wiId && !a.IsArchived).OrderByDescending(a => a.CreatedAt).Select(a => new { a.Id, a.FileName, a.ContentType }).FirstOrDefault(),
+            } : null,
+            CanRemoveInstruction = x.WorkInstructionId is not null && !SequflohTrackingService.IsClosed(x) && await m.CanAsync(Permissions.SequflohRemoveOrderInstruction, x.SiteId, x.DepartmentId, ct),
             CanAssign = !SequflohTrackingService.Terminal.Contains(x.Status)
                 && (await m.CanAsync(Permissions.SequflohDispatchTask, x.SiteId, x.DepartmentId, ct) || await m.CanAsync(Permissions.SequflohReassignTask, x.SiteId, x.DepartmentId, ct)),
             CanDelete = await m.CanAsync(Permissions.SequflohDeleteRecords, x.SiteId, x.DepartmentId, ct) && !global::Sequfloh.Deletion.DeletionService.HasTime(x)
@@ -177,6 +183,10 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     public async Task<object> InspectionResults(Guid id, InspectionResultsInput r, CancellationToken ct) { var x = await tracking.SetInspectionResultsAsync(id, r, ct); return new { x.Id, x.QtyGood, x.QtyBad, x.FurtherInspection, x.Quarantine, x.QuarantineReason }; }
     public sealed record InstructionRefInput(Guid? WorkInstructionId);
     /// <summary>Attaches, replaces or removes the optional work instruction of a work order before work starts.</summary>
+    public sealed record RemoveInstructionInput(string? Reason);
+    /// <summary>Removes the work instruction from an open work order with a reason (Remove WI from order permission). Recorded results stay on the order.</summary>
+    [HttpPost("{id:guid}/instruction/remove")]
+    public async Task<object> RemoveInstruction(Guid id, RemoveInstructionInput r, CancellationToken ct) { var x = await tracking.RemoveInstructionAsync(id, r.Reason, ct); return new { x.Id, x.WorkInstructionId }; }
     [HttpPut("{id:guid}/instruction")]
     public async Task<object> SetInstruction(Guid id, InstructionRefInput r, CancellationToken ct) { var x = await tracking.SetInstructionAsync(id, r.WorkInstructionId, ct); return new { x.Id, x.WorkInstructionId }; }
     [HttpPut("{id:guid}")]
