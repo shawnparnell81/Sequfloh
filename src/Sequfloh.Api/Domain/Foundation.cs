@@ -45,6 +45,8 @@ public class SequflohReferenceValue : Entity, IAudited
     public Guid? ValidationFormId { get; set; }
     /// <summary>Product families only: the code used in automatic work order numbers, typed by an administrator. Blank means no automatic number.</summary>
     public string? NumberCode { get; set; }
+    /// <summary>Product families only: the key of the test template (see SequflohTestTemplates) whose fields Test work orders of this family record. Null means no test fields.</summary>
+    public string? TestTemplate { get; set; }
     public string AuditLabel => $"SEQUFLOH {ListKey} value {Code}";
 }
 

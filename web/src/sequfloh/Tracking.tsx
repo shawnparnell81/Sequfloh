@@ -27,6 +27,7 @@ import { PartPicker } from './Instructions';
 import { AddPartDialog } from './PartLinks';
 import { ViewDrawingButton } from './Drawings';
 import { PartDrawingLinks, RecordDrawings } from './Drawings';
+import { TestDrawingSection, TestResultsPanel, attachDrawings } from './TestResults';
 import { DEVELOPMENT_LINES, useFamilies } from './Imports';
 
 /** Work order type names. Validation and FAI are one type to the user: records stored as either show as Validation / FAI. */
@@ -152,6 +153,7 @@ export function NewTrackingPage() {
   const [with8D, setWith8D] = useState(false);
   const [files8D, setFiles8D] = useState<File[]>([]);
   const [woFiles, setWoFiles] = useState<File[]>([]);
+  const [pickedDrawings, setPickedDrawings] = useState<{ id: string; label: string }[]>([]);
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const { can } = useAuth();
@@ -233,12 +235,15 @@ export function NewTrackingPage() {
       if (isWeight && !familyId) throw new Error('Choose the product family (product class) for this Weight work order.');
       if (isResearch && !familyId) throw new Error('Choose the product family (product class) for this Research work order, or Multiple.');
       if (isResearch && !f.inspectionDescription?.trim()) throw new Error(RESEARCH_DESC);
+      if (type === 'Test' && !part?.id) throw new Error('Choose the part number for this Test work order.');
+      if (type === 'Test' && !familyId) throw new Error('Choose the product family for this Test work order.');
       const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' || type === 'Test' || type === 'Development' || isWeight || (isResearch && !multiple) ? nul(familyId) : null, multipleFamilies: multiple, developmentLine: type === 'Development' ? nul(devLine) : null,
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp || isResearch ? nul(f.inspectionDescription) : null, workInstructionId: isWeight ? null : wi?.id, siteId, departmentId: nul(departmentId), partId: isWeight || isResearch ? null : part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
         maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId), include8D: with8D && !noEightD(type) });
       if (with8D && !noEightD(type)) for (const x of files8D) { try { await uploadEightD('work-orders', r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
+      if (type === 'Test' && pickedDrawings.length) { try { await attachDrawings(r.id, pickedDrawings.map((x) => x.id)); } catch (e) { window.alert(`The work order was created, but the drawing was not attached: ${(e as Error).message}`); } }
       for (const x of woFiles) { try { await uploadRecordFile(r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
       if (move) {
         try {
@@ -279,21 +284,22 @@ export function NewTrackingPage() {
           {!isWeight && <Autocomplete size="small" options={wis.data ?? []} value={wi} loading={wis.isLoading} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number} rev ${o.revision} — ${o.title}`} onInputChange={(_, t, r) => { if (r === 'input') setWiText(t); }}
             onChange={(_, o) => { setWi(o); if (o?.partId) setPart({ id: o.partId, partNumber: o.partNumber ?? '', name: o.partDescription }); if (o?.operation && !f.operation) setF({ ...f, operation: o.operation }); }}
-            renderInput={(p) => <TextField {...p} label="Work instruction number (optional)" inputProps={{ ...p.inputProps, 'data-testid': 'new-wo-wi' }} helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type. You can create the work order without one.' : 'Optional how-to steps for the technician.'} />} />}
-          {!isWeight && !isResearch && <PartPicker label={type === 'Repair' ? 'Repairable part' : 'Part'} repairable={type === 'Repair'} value={part} onChange={(p) => setPart(p)} />}
+            renderInput={(p) => <TextField {...p} label={type === 'Test' ? 'Test work instruction (optional)' : 'Work instruction number (optional)'} inputProps={{ ...p.inputProps, 'data-testid': 'new-wo-wi' }} helperText={wis.data && wis.data.length === 0 ? 'No released instruction of a matching type. You can create the work order without one.' : 'Optional how-to steps for the technician.'} />} />}
+          {!isWeight && !isResearch && <PartPicker label={type === 'Repair' ? 'Repairable part' : type === 'Test' ? 'Part (required)' : 'Part'} repairable={type === 'Repair'} value={part} onChange={(p) => setPart(p)} />}
           {!isWeight && !isResearch && <TextField size="small" label="Part description" value={part?.name ?? ''} disabled InputLabelProps={{ shrink: true }} />}
           {fld('quantity', 'Qty', { type: 'number', inputProps: { min: 0, 'data-testid': 'new-wo-qty' } })}
           {type === 'Development' && <TextField select size="small" label="Development line" value={devLine} onChange={(e) => { setDevLine(e.target.value); setWi(null); }} inputProps={{ 'data-testid': 'new-wo-dev-line' }}>
             <MenuItem value=""><em>None</em></MenuItem>{DEVELOPMENT_LINES.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}</TextField>}
           {type === 'Development' && <TextField select size="small" label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}>
             <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
-          {(type === 'Validation' || type === 'Test') && <TextField select size="small" label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
-            helperText="The confirmed validation form for this family is attached as a copy to fill out.">
+          {(type === 'Validation' || type === 'Test') && <TextField select size="small" required={type === 'Test'} label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
+            helperText={type === 'Test' ? 'Required. The product family decides which test fields the work order records.' : 'The confirmed validation form for this family is attached as a copy to fill out.'}>
             <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
           {(type === 'Validation' || type === 'Test') && familyId && forms.data && <Box sx={{ gridColumn: '1 / -1' }}>
             {famBlank ? <Stack gap={1}><Alert severity="success" data-testid="new-wo-form-note">A copy of {famBlank.number} {famBlank.title} is attached to fill out once you type its number and file name. You can also attach it later on the work order.</Alert>
               {fld('formNumber', 'Validation form number and file name', { inputProps: { 'data-testid': 'new-wo-form-number', maxLength: 300 } })}</Stack>
               : <Alert severity="warning" data-testid="new-wo-form-note">No validation form is confirmed for this product family. An administrator can set one in Settings, Validation forms by product.</Alert>}</Box>}
+          {type === 'Test' && part?.id && <Box sx={{ gridColumn: '1 / -1' }}><TestDrawingSection partId={part.id} picked={pickedDrawings} onPick={setPickedDrawings} /></Box>}
           {type === 'SaltSpray' && fld('formNumber', 'Validation form number and file name', { helperText: 'Optional. The Salt Spray Test form is attached under this number; leave it blank to attach it later.', inputProps: { 'data-testid': 'new-wo-form-number', maxLength: 300 } })}
           {isInsp && <TextField select size="small" label="Inspection sub-type" value={subTypes.data ? f.subType ?? '' : ''} onChange={(e) => setF({ ...f, subType: e.target.value })} inputProps={{ 'data-testid': 'new-wo-subtype' }}>
             {(subTypes.data ?? []).map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}</TextField>}
@@ -437,6 +443,7 @@ export function TrackingRecordPage() {
           <JobNotesPanel id={rec.id} />
           <RecordFilesPanel id={rec.id} canWork={!closed} />
         </Box>
+        {rec.type === 'Test' && <TestResultsPanel id={rec.id} />}
         <TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} />
         <CrewPanel recordId={rec.id} notStarted={clockHint} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />

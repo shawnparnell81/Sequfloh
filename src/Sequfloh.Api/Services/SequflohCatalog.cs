@@ -30,7 +30,7 @@ public static class SequflohCatalog
             ["Inspection and diagnosis", "Disassembly", "Cleaning", "Component replacement", "Adjustment", "Rework", "Electrical repair", "Mechanical repair", "Cosmetic repair", "Leak correction",
              "Connector repair", "Fastener replacement", "Functional restoration", "Final testing", "Other controlled repair"]),
         new(InspectionSubTypes, "Inspection sub-types", "Kinds of inspection and warranty work orders.", ["AQL", "Supplier request", "Warranty claim", "Product alert", "Non-conformance"]),
-        new("repair-test-results", "Test results", "Results of a one-off test on a work order.", ["Pass", "Fail", "Retest required"]),
+        new("repair-test-results", "Test results", "Results of a test on a repair work order.", ["Pass", "Fail", "Retest required"]),
         new("repair-failure-reasons", "Repair failure reasons", "Why a repair or repair test failed.", ["Fault not found", "Repair ineffective", "Additional damage found", "Part not available", "Test equipment fault", "Workmanship"]),
         new("discovery-methods", "Discovery methods", "How a supplier nonconformance was found, on the work order findings and chargeback report.",
             ["AQL sampling inspection", "Warranty claim inspection", "Product alert", "Recall", "Incoming inspection", "In-process", "Customer complaint", "Other"]),

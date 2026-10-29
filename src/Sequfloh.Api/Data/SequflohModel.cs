@@ -26,6 +26,8 @@ public partial class AppDbContext
     public DbSet<SequflohTimeEntry> SequflohTimeEntries => Set<SequflohTimeEntry>();
     public DbSet<SequflohTestFile> SequflohTestFiles => Set<SequflohTestFile>();
     public DbSet<SequflohJobNote> SequflohJobNotes => Set<SequflohJobNote>();
+    public DbSet<SequflohTestSpec> SequflohTestSpecs => Set<SequflohTestSpec>();
+    public DbSet<SequflohTestPartResult> SequflohTestPartResults => Set<SequflohTestPartResult>();
     public DbSet<SequflohCrewSession> SequflohCrewSessions => Set<SequflohCrewSession>();
     public DbSet<SequflohDayWorker> SequflohDayWorkers => Set<SequflohDayWorker>();
     public DbSet<SequflohChargebackReport> SequflohChargebackReports => Set<SequflohChargebackReport>();
@@ -285,6 +287,28 @@ public partial class AppDbContext
             e.Property(x => x.Batch).HasMaxLength(100);
             e.Property(x => x.KeyValues).HasColumnType("jsonb");
             e.Property(x => x.Kind).HasMaxLength(20).HasDefaultValue("test");
+            e.Property(x => x.RemovedBy).HasMaxLength(200);
+            e.Property(x => x.RemoveReason).HasMaxLength(500);
+            e.HasQueryFilter(x => x.RemovedAt == null);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<SequflohTestSpec>(e =>
+        {
+            e.ToTable("sequfloh_test_specs");
+            e.HasIndex(x => x.TrackingRecordId).IsUnique();
+            e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            e.Property(x => x.TemplateKey).HasMaxLength(60);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<SequflohTestPartResult>(e =>
+        {
+            e.ToTable("sequfloh_test_part_results");
+            e.HasIndex(x => new { x.TrackingRecordId, x.PartIndex }).IsUnique();
+            e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            e.Property(x => x.TemplateKey).HasMaxLength(60);
+            e.Property(x => x.Note).HasMaxLength(2000);
+            e.Property(x => x.RecordedBy).HasMaxLength(200);
+            e.Property(x => x.EditedBy).HasMaxLength(200);
             e.Property(x => x.RemovedBy).HasMaxLength(200);
             e.Property(x => x.RemoveReason).HasMaxLength(500);
             e.HasQueryFilter(x => x.RemovedAt == null);

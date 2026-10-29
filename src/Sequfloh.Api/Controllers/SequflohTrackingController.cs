@@ -197,7 +197,9 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         // the work order's own entries plus its timers and test files
         var related = await db.SequflohTimeEntries.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).Select(e => e.Id)
             .Concat(db.SequflohTestFiles.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).Select(e => e.Id))
-            .Concat(db.SequflohJobNotes.Where(e => e.TrackingRecordId == id).Select(e => e.Id)).ToListAsync(ct);
+            .Concat(db.SequflohJobNotes.Where(e => e.TrackingRecordId == id).Select(e => e.Id))
+            .Concat(db.SequflohTestPartResults.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).Select(e => e.Id))
+            .Concat(db.SequflohTestSpecs.Where(e => e.TrackingRecordId == id).Select(e => e.Id)).ToListAsync(ct);
         return await db.AuditEntries.AsNoTracking().Where(a => (a.EntityType == SequflohTrackingService.EntityType && a.EntityId == id) || related.Contains(a.EntityId))
             .OrderByDescending(a => a.OccurredAt).Select(a => new { a.OccurredAt, a.UserName, a.Action, a.Description, a.Changes, a.Reason }).Take(1000).ToListAsync(ct);
     }
