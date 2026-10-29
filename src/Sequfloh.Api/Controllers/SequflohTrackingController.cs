@@ -93,6 +93,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
             CanAttachForm = CanAttachShape(x) && await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct),
             CanQualityComment = x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && await m.CanAsync(Permissions.SequflohEditQualityFolder, x.SiteId, x.DepartmentId, ct),
             CanEngineeringComment = x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && await m.CanAsync(Permissions.SequflohEditEngineeringFolder, x.SiteId, x.DepartmentId, ct),
+            CanChangeFormChoice = x.Type == TrackingType.Test && !SequflohTrackingService.IsClosed(x) && !HasForm(x) && await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct),
             Actions = await tracking.AvailableActionsAsync(x, ct),
             CompletionProblems = problems, NextAction = SequflohTrackingService.NextAction(x, problems)
         };
@@ -105,7 +106,21 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         object? form = null;
         var formNumber = (r.FormNumber ?? "").Trim();
         var typed = formNumber.Length > 0 && r.FamilyId is not null;
-        if (typed || (x.Type is TrackingType.Validation or TrackingType.Test && r.FamilyId is not null) || x.Type == TrackingType.SaltSpray)
+        // a Test order attaches its family's validation form only when Attach validation form? is Yes (default No)
+        var testYes = x.Type == TrackingType.Test && r.AttachValidationForm == true;
+        if (x.Type == TrackingType.Test)
+        {
+            if (testYes)
+            {
+                var info = await StartFormAsync(x.Type, x.Number, formNumber.Length > 0 ? formNumber : null, x.PartNumber, r.FamilyId, x.Id, ct);
+                await tracking.SetFormChoiceAsync(x.Id, true, info, ct);
+                form = info;
+            }
+            else await tracking.SetFormChoiceAsync(x.Id, false, null, ct);
+            f.Audit("ValidationFormChoice", SequflohTrackingService.EntityType, x.Id, $"{x.Number}: Attach validation form? {(testYes ? "Yes" : "No")}{(form is JsonObject fo ? fo["fileId"] is not null ? $" - form {fo["fileNumber"]} attached" : $" - {fo["message"]}" : "")}", x.SiteId);
+            await db.SaveChangesAsync(ct);
+        }
+        else if (typed || (x.Type == TrackingType.Validation && r.FamilyId is not null) || x.Type == TrackingType.SaltSpray)
         {
             // nothing is numbered for the user: without a typed number the form waits for Attach validation form
             var info = await StartFormAsync(x.Type, x.Number, formNumber.Length > 0 ? formNumber : null, x.PartNumber, r.FamilyId, x.Id, ct);
@@ -141,7 +156,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 try { Copy(info, await files.FillOutAsync(blankId, copyNumber, $"{family.Label} validation {number}", ct, partNumber, fam, workOrderId)); }
                 catch (Exception e) when (e is AppException) { info["message"] = $"The validation form for {family.Label} could not be started: {e.Message}"; }
             }
-            else info["message"] = $"No validation form is confirmed for {family?.Label ?? "this product family"}. An administrator can set one in Settings > Validation forms by product.";
+            else info["message"] = type == TrackingType.Test ? "No validation form set up for this product family." : $"No validation form is confirmed for {family?.Label ?? "this product family"}. An administrator can set one in Settings > Validation forms by product.";
             return info;
         }
     }
@@ -157,7 +172,8 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         return Guid.TryParse(v, out var g) ? g : null;
     }
     static bool HasForm(SequflohTrackingRecord x) => !string.IsNullOrEmpty(JsonNode.Parse(x.Details)?["validationForm"]?["fileId"]?.ToString());
-    bool CanAttachShape(SequflohTrackingRecord x) => x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && !HasForm(x);
+    bool CanAttachShape(SequflohTrackingRecord x) => x.Status is not (TrackingStatus.Completed or TrackingStatus.Canceled) && !HasForm(x) && (x.Type != TrackingType.Test || TestSaidYes(x));
+    static bool TestSaidYes(SequflohTrackingRecord x) => JsonNode.Parse(x.Details)?["validationForm"] is not null;
     /// <summary>The typed number and file name of the copy, and the product family whose validation form is used (the work order's own family when left out).</summary>
     public sealed record AttachFormInput(string? Number, Guid? FamilyId = null);
     /// <summary>Starts the confirmed form copy on a work order that has none yet, for example when the copy at create failed because the number was taken.</summary>
@@ -168,6 +184,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         await m.RequireAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct);
         SequflohTrackingService.RequireOpen(x);
         if (HasForm(x)) throw new ConflictException($"{x.Number} already has a form attached.");
+        if (x.Type == TrackingType.Test && !TestSaidYes(x)) throw new AppException("Set Attach validation form? to Yes first.");
         var number = (r.Number ?? "").Trim();
         if (number.Length == 0) throw new AppException("Type the number and file name of the form.");
         var fam = r.FamilyId ?? FormFamily(x);
@@ -176,6 +193,25 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         if (info["fileId"] is null) throw new AppException(info["message"]?.ToString() ?? "The form could not be started.");
         f.Audit("ValidationFormAttached", SequflohTrackingService.EntityType, x.Id, $"{x.Number} form {info["fileNumber"]} attached", x.SiteId, context: new { fileId = info["fileId"]?.ToString(), number });
         await tracking.SetValidationFormAsync(x.Id, info, ct);
+        return info;
+    }
+    public sealed record FormChoiceInput(bool Attach);
+    /// <summary>Changes a Test order's Attach validation form? while it is open. Yes runs the same confirmed-form step as create. No clears the form block, but is refused once a form copy is attached (copies are never detached or deleted).</summary>
+    [HttpPut("{id:guid}/validation-form/choice")]
+    public async Task<object?> FormChoice(Guid id, FormChoiceInput r, CancellationToken ct)
+    {
+        var x = await db.SequflohTrackingRecords.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct) ?? throw new NotFoundException("The work order");
+        if (x.Type != TrackingType.Test) throw new AppException("Attach validation form? is only on Test work orders.");
+        await m.RequireAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct);
+        SequflohTrackingService.RequireOpen(x);
+        var was = TestSaidYes(x);
+        if (was == r.Attach) return JsonNode.Parse(x.Details)?["validationForm"];
+        JsonObject? info = null;
+        if (r.Attach) info = await StartFormAsync(x.Type, x.Number, null, x.PartNumber, x.FamilyId, x.Id, ct);
+        else if (HasForm(x)) throw new ConflictException($"A validation form copy is already attached to {x.Number}, so it can't be switched to No. Attached form copies are kept with the work order and are never detached.");
+        await tracking.SetFormChoiceAsync(x.Id, r.Attach, info, ct);
+        f.Audit("ValidationFormChoice", SequflohTrackingService.EntityType, x.Id, $"{x.Number}: Attach validation form? changed from {(was ? "Yes" : "No")} to {(r.Attach ? "Yes" : "No")}{(info is null ? "" : $" - {info["message"] ?? "form attached"}")}", x.SiteId);
+        await db.SaveChangesAsync(ct);
         return info;
     }
     /// <summary>Records qty good and bad, further inspection and the quarantine flag of an inspection or warranty work order.</summary>

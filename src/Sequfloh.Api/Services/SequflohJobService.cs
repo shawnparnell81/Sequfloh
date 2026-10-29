@@ -393,7 +393,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         List<ReportPart> Parts, decimal PartsTotal, List<ReportFile> Files, int Tested, int Passed, int Failed, DateTimeOffset GeneratedAt,
         long PausedSeconds = 0, List<ReportTimeEvent>? TimeLog = null, JobFindings? Findings = null, List<CostLine>? CostLines = null, ReportOptions? Options = null,
         List<ReportAttachment>? Attachments = null, List<ReportAttachment>? Photos = null, string? WorkInstructionNumber = null, string? WorkInstructionRevision = null,
-        decimal PartsCost = 0, decimal OtherCost = 0, List<EightDFile>? EightD = null, List<ReportNote>? Notes = null);
+        decimal PartsCost = 0, decimal OtherCost = 0, List<EightDFile>? EightD = null, List<ReportNote>? Notes = null, string? FamilyName = null, string? ValidationForm = null);
     public sealed record ReportNote(string Text, string AuthorName, DateTimeOffset At, DateTimeOffset? EditedAt);
 
     public async Task<JobReport> ReportAsync(Guid id, CancellationToken ct)
@@ -428,7 +428,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             r.WorkInstructionNumber, r.WorkInstructionRevision,
             parts.Sum(p => p.UnitCost is { } u ? Math.Round(u * p.Quantity, 2) : 0), lines.Sum(l => l.Amount),
             SequflohEightDService.Excluded(r.Type) ? [] : await SequflohEightDService.FilesOfAsync(db, "work-orders", [r.Id], ct),
-            await db.SequflohJobNotes.AsNoTracking().Where(n => n.TrackingRecordId == id).OrderByDescending(n => n.CreatedAt).Select(n => new ReportNote(n.Text, n.AuthorName, n.CreatedAt, n.EditedAt)).ToListAsync(ct));
+            await db.SequflohJobNotes.AsNoTracking().Where(n => n.TrackingRecordId == id).OrderByDescending(n => n.CreatedAt).Select(n => new ReportNote(n.Text, n.AuthorName, n.CreatedAt, n.EditedAt)).ToListAsync(ct), r.FamilyName, r.Type is TrackingType.Test or TrackingType.Validation or TrackingType.SaltSpray ? SequflohTrackingService.FormLine(r) : null);
     }
 
     public static string Hours(long seconds) => (seconds / 3600m).ToString("0.00", CultureInfo.InvariantCulture);
@@ -458,7 +458,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             new PrintFields([("Supplier", Blank(supplier ?? fd.Supplier)), ("Our company", org), ("Supplier reference / PO", Blank(reference ?? fd.PurchaseOrder)), ("Report date", local(x.GeneratedAt))]),
             new PrintHeading("Job"),
             new PrintFields([("Work order", x.WorkOrder ?? x.Number), ("Record", x.Number), ("Job type", x.Type), ("Work instruction", (string.IsNullOrEmpty(x.WorkInstructionNumber) ? "—" : $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision} {x.Title}").Trim()),
-                ("Assembly part number", x.PartNumber ?? "—"), ("Description", x.PartDescription ?? "—"),
+                ("Assembly part number", x.PartNumber ?? "—"), ("Description", x.PartDescription ?? "—"), ("Product family", x.FamilyName), ("Validation form", x.ValidationForm),
                 ("Quantity target", x.QuantityTarget?.ToString(CultureInfo.InvariantCulture)), ("Quantity repaired", x.QuantityCompleted.ToString(CultureInfo.InvariantCulture)),
                 ("Could not repair", x.QuantityNotRepaired == 0 ? null : x.QuantityNotRepaired.ToString(CultureInfo.InvariantCulture)), ("Status", x.Status),
                 ("Total man hours", Hours(x.TotalSeconds) + " (paused time excluded)")]),

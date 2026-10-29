@@ -202,6 +202,7 @@ public sealed class PdfCanvas
         var sb = new StringBuilder();
         foreach (var ch in s ?? "")
         {
+            if (ch is '\u2265' or '\u2264') { sb.Append(ch == '\u2265' ? ">=" : "<="); continue; } // the standard PDF fonts have no ≥ / ≤
             var c = ch switch { '\u2013' or '\u2014' => '-', '\u2192' => '>', '\u2018' or '\u2019' => '\'', '\u201C' or '\u201D' => '"', _ => ch };
             if (c is '(' or ')' or '\\') sb.Append('\\').Append(c);
             else if (c < 32) sb.Append(' ');

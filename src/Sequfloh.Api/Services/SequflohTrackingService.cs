@@ -15,7 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null, string? DevelopmentLine = null, Guid? ProjectId = null, string? FormNumber = null, bool Include8D = false, bool MultipleFamilies = false);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null, string? DevelopmentLine = null, Guid? ProjectId = null, string? FormNumber = null, bool Include8D = false, bool MultipleFamilies = false, bool? AttachValidationForm = null);
 public sealed record InspectionResultsInput(int? QtyGood, int? QtyBad, bool? FurtherInspection, bool Quarantine, string? QuarantineReason);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
@@ -241,9 +241,13 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             // a product family task: no part, no drawing, no work instruction
             if (wi is not null) throw new AppException("A Weight work order has no work instruction.");
             partId = null;
-            if (r.FamilyId is null) throw new AppException("Choose the product family (product class) for this Weight work order.");
-            familyName = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == r.FamilyId && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.Label).FirstOrDefaultAsync(ct)
-                ?? throw new AppException("The product family does not exist. Choose one from the Product Families list.");
+            if (r.MultipleFamilies) { if (r.FamilyId is not null) throw new AppException("Choose either Multiple or one product family, not both."); familyName = MultipleFamilies; }
+            else
+            {
+                if (r.FamilyId is null) throw new AppException("Choose the product family (product class) for this Weight work order, or Multiple.");
+                familyName = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == r.FamilyId && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.Label).FirstOrDefaultAsync(ct)
+                    ?? throw new AppException("The product family does not exist. Choose one from the Product Families list.");
+            }
         }
         if (r.Type == TrackingType.Research)
         {
@@ -293,7 +297,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             SerialNumber = T(r.SerialNumber, 100), LotNumber = T(r.LotNumber, 100), WorkOrder = T(r.WorkOrder, 100), RepairOrder = T(r.RepairOrder, 100),
             CustomerReturnReference = T(r.CustomerReturnReference, 100), Project = T(r.Project, 100), Operation = T(r.Operation, 300) ?? wi?.Operation, PlannedStart = r.PlannedStart, DueAt = r.DueAt,
             Status = r.AssignedUserId is null ? TrackingStatus.NotStarted : TrackingStatus.Assigned, CurrentStateStartedAt = now, LastTransitionAt = now,
-            ProjectId = project?.Id, Include8D = r.Include8D, FamilyId = familyName is null || r.Type == TrackingType.Research && r.MultipleFamilies ? null : r.FamilyId, FamilyName = familyName,
+            ProjectId = project?.Id, Include8D = r.Include8D, FamilyId = familyName is null || r.Type is TrackingType.Research or TrackingType.Weight && r.MultipleFamilies ? null : r.FamilyId, FamilyName = familyName,
             QuantityTarget = r.Quantity, DevelopmentLine = devLine, InspectionSubType = r.Type is TrackingType.Inspection or TrackingType.Warranty ? subType : null,
             InspectionDescription = r.Type is TrackingType.Inspection or TrackingType.Warranty or TrackingType.Research ? T(r.InspectionDescription, 4000) : null,
             ReportedCondition = T(r.ReportedCondition, 4000), RepairDescription = wi?.RepairDescription, FaiType = wi?.FaiType,
@@ -436,6 +440,28 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return rec;
+    }
+
+    /// <summary>What the printout and job report show for the order's validation form: the attached copy, "No" when a Test order chose not to attach one, otherwise why nothing is attached.</summary>
+    public static string? FormLine(SequflohTrackingRecord x)
+    {
+        var d = JsonNode.Parse(x.Details);
+        var vf = d?["validationForm"];
+        if (vf?["fileId"] is not null) return $"{vf["fileNumber"]} {vf["fileTitle"]}".Trim();
+        if (x.Type == TrackingType.Test && vf is null) return "No - not attached";
+        return vf?["message"]?.ToString();
+    }
+
+    /// <summary>Stores the Yes / No choice of a Test order's "Attach validation form?" and what the form step did (null clears it).</summary>
+    public async Task SetFormChoiceAsync(Guid id, bool attach, JsonObject? info, CancellationToken ct)
+    {
+        var rec = await db.SequflohTrackingRecords.FirstAsync(x => x.Id == id, ct);
+        RequireOpen(rec);
+        var d = JsonNode.Parse(rec.Details)!.AsObject();
+        d["attachValidationForm"] = attach;
+        if (info is null) d.Remove("validationForm"); else d["validationForm"] = info;
+        rec.Details = d.ToJsonString();
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>Stores what the validation form step did on a new work order (the attached copy, or why nothing was attached).</summary>

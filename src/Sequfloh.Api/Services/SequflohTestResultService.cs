@@ -63,7 +63,40 @@ public sealed record DrawingAttachInput(Guid DrawingId);
 /// </summary>
 public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohFoundationService f)
 {
-    sealed record Val(string Key, decimal? Value, string? Unit);
+    /// <summary>A stored value. Actuals and single-number specs use Value; a spec typed as a range keeps Text exactly as typed with its Min and Max.</summary>
+    sealed record Val(string Key, decimal? Value, string? Unit, string? Text = null, decimal? Min = null, decimal? Max = null, bool? Strict = null);
+    sealed record SpecVal(decimal? Value, string? Text, decimal? Min, decimal? Max, bool Strict = false);
+    static readonly System.Text.RegularExpressions.Regex LimitRx = new($@"^\s*(≥|≤|>=|<=|＞=|＜=|≧|≦|>|<|＞|＜)\s*({Num})\s*$");
+    const string Num = @"[-+]?\d+(?:\.\d+)?";
+    static readonly System.Text.RegularExpressions.Regex RangeRx = new($@"^\s*({Num})\s*(?:-|–|to)\s*({Num})\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    static readonly System.Text.RegularExpressions.Regex TolRx = new($@"^\s*({Num})\s*(?:±|\+/-|\+-)\s*(\d+(?:\.\d+)?)\s*$");
+    static decimal D(string x) => decimal.Parse(x, NumberStyles.Number, CultureInfo.InvariantCulture);
+
+    /// <summary>A drawing spec as typed: one number (60), a range (320-360, 320 to 360) or a tolerance (45 ± 5, 45 +/- 5). Ranges keep the text exactly as typed.</summary>
+    static SpecVal? SpecOf(string? raw, string label)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var t = raw.Trim();
+        if (decimal.TryParse(t, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)) return new(d, null, null, null);
+        if (t.Length <= 40)
+        {
+            var m = RangeRx.Match(t);
+            if (m.Success) { var a = D(m.Groups[1].Value); var b = D(m.Groups[2].Value); return new(null, t, Math.Min(a, b), Math.Max(a, b)); }
+            m = TolRx.Match(t);
+            if (m.Success) { var c = D(m.Groups[1].Value); var e = D(m.Groups[2].Value); return new(null, t, c - e, c + e); }
+            m = LimitRx.Match(t);
+            if (m.Success)
+            {
+                var op = m.Groups[1].Value; var n = D(m.Groups[2].Value);
+                var lower = op is "≥" or ">=" or ">" or "＞" or "≧" or "＞=";
+                var strict = op is ">" or "<" or "＞" or "＜";
+                return new(null, t, lower ? n : null, lower ? null : n, strict);
+            }
+        }
+        throw new AppException($"{label} must be a number, a range such as 320-360, a tolerance such as 45 ± 5, or a limit such as ≥95 or ≤6.0.");
+    }
+    static string ST(Val? v) => v is null ? "" : v.Text ?? N(v.Value);
+    static string SpecUnit(string text, string? u) => text == "" ? "blank" : $"{text}{(string.IsNullOrWhiteSpace(u) ? "" : " " + u)}";
     sealed record Custom(string Key, string Label, string DefaultUnit, string AddedBy, DateTimeOffset AddedAt, DateTimeOffset? RemovedAt = null, string? RemovedBy = null, string? RemoveReason = null);
     static List<Custom> ReadCustom(string? json) => string.IsNullOrEmpty(json) ? [] : JsonSerializer.Deserialize<List<Custom>>(json, J) ?? [];
     static readonly JsonSerializerOptions J = new(JsonSerializerDefaults.Web);
@@ -122,7 +155,7 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
             Template = new { t.Key, t.Label, Fields = t.Fields.Select(x => new { x.Key, x.Label, x.DefaultUnit, Added = x.Key.StartsWith("u-") }) },
             AddedFields = ReadCustom(spec?.CustomFields).Select(c => new { c.Key, c.Label, c.DefaultUnit, c.AddedBy, c.AddedAt, c.RemovedAt, c.RemovedBy, c.RemoveReason }),
             r.FamilyName,
-            Spec = t.Fields.Select(x => { var v = sv.FirstOrDefault(s => s.Key == x.Key); return new { x.Key, x.Label, Value = N(v?.Value), Unit = v?.Unit ?? x.DefaultUnit }; }),
+            Spec = t.Fields.Select(x => { var v = sv.FirstOrDefault(s => s.Key == x.Key); return new { x.Key, x.Label, Value = ST(v), Min = v?.Text is null ? null : v.Min, Max = v?.Text is null ? null : v.Max, Strict = v?.Strict == true, Unit = v?.Unit ?? x.DefaultUnit }; }),
             SpecSaved = spec is not null, SpecUpdatedAt = spec?.UpdatedAt ?? spec?.CreatedAt,
             Parts = parts.Where(p => p.RemovedAt is null).Select(p => { var pv = Read(p.Values); return new { p.Id, p.PartIndex, p.Note, p.RecordedBy, RecordedAt = p.CreatedAt, p.EditedAt, p.EditedBy,
                 Values = t.Fields.Select(x => new { x.Key, Value = N(pv.FirstOrDefault(v => v.Key == x.Key)?.Value) }) }; }),
@@ -144,13 +177,17 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         {
             var inp = x.Values?.FirstOrDefault(v => v.Key == fd.Key);
             var was = old.FirstOrDefault(v => v.Key == fd.Key);
-            var val = inp is null ? was?.Value : Parse(inp.Value, $"Spec {fd.Label.ToLowerInvariant()}");
             var unit = inp is null ? was?.Unit ?? fd.DefaultUnit : Unit(inp.Unit) ?? fd.DefaultUnit;
-            next.Add(new(fd.Key, val, unit));
+            var sp = inp is null ? null : SpecOf(inp.Value, $"Spec {fd.Label.ToLowerInvariant()}");
+            var nv = inp is null ? (was is null ? new Val(fd.Key, null, unit) : was with { Unit = unit }) : new Val(fd.Key, sp?.Value, unit, sp?.Text, sp?.Min, sp?.Max, sp?.Strict == true ? true : null);
+            // an unchanged value is stored exactly as before
+            if (was is not null && ST(was) == ST(nv)) nv = was with { Unit = unit };
+            next.Add(nv);
             var wasUnit = was?.Unit ?? fd.DefaultUnit;
-            if (val == was?.Value && unit == wasUnit) continue;
-            if (was?.Value is not null || spec is not null && unit != wasUnit) corrected = true;
-            lines.Add(was?.Value is null ? $"Spec {fd.Label.ToLowerInvariant()} set to {WithUnit(val, unit)}" : $"Spec {fd.Label.ToLowerInvariant()} changed from {WithUnit(was.Value, wasUnit)} to {WithUnit(val, unit)}");
+            var (wt, nt) = (ST(was), ST(nv));
+            if (wt == nt && unit == wasUnit) continue;
+            if (wt != "" || spec is not null && unit != wasUnit) corrected = true;
+            lines.Add(wt == "" ? $"Spec {fd.Label.ToLowerInvariant()} set to {SpecUnit(nt, unit)}" : $"Spec {fd.Label.ToLowerInvariant()} changed from {SpecUnit(wt, wasUnit)} to {SpecUnit(nt, unit)}");
         }
         next.AddRange(old.Where(o => t.Fields.All(fd => fd.Key != o.Key)));
         if (lines.Count == 0) return;
@@ -260,7 +297,7 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         SequflohTrackingService.RequireOpen(r);
         var label = Label(x.Label); var unit = Unit(x.Unit) ?? "";
         if (t.Fields.Any(fd => string.Equals(fd.Label, label, StringComparison.OrdinalIgnoreCase))) throw new ConflictException($"{label} is already a spec field on this order.");
-        var val = Parse(x.Value, $"Spec {label.ToLowerInvariant()}");
+        var val = SpecOf(x.Value, $"Spec {label.ToLowerInvariant()}");
         var spec = await SpecRowAsync(r, t, ct);
         var who = await WhoAsync(ct);
         var list = ReadCustom(spec.CustomFields);
@@ -270,8 +307,9 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         f.Audit("TestFieldAdded", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: spec field \"{label}\"{(unit == "" ? "" : $" ({unit})")} added to this order by {who}", r.SiteId);
         if (val is not null)
         {
-            var vals = Read(spec.Values); vals.Add(new(key, val, unit == "" ? null : unit)); spec.Values = Write(vals);
-            f.Audit("TestSpecSet", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: Spec {label.ToLowerInvariant()} set to {WithUnit(val, unit)} by {who}", r.SiteId);
+            var nv = new Val(key, val.Value, unit == "" ? null : unit, val.Text, val.Min, val.Max, val.Strict ? true : null);
+            var vals = Read(spec.Values); vals.Add(nv); spec.Values = Write(vals);
+            f.Audit("TestSpecSet", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: Spec {label.ToLowerInvariant()} set to {SpecUnit(ST(nv), unit)} by {who}", r.SiteId);
         }
         await db.SaveChangesAsync(ct);
     }
@@ -339,7 +377,7 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         var spec = await db.SequflohTestSpecs.AsNoTracking().FirstOrDefaultAsync(s => s.TrackingRecordId == r.Id, ct);
         var sv = spec is null ? [] : Read(spec.Values);
         var units = t.Fields.ToDictionary(fd => fd.Key, fd => sv.FirstOrDefault(v => v.Key == fd.Key)?.Unit ?? fd.DefaultUnit);
-        string Spec(string k) => sv.FirstOrDefault(v => v.Key == k)?.Value is { } d ? $"{N(d)} {units[k]}".Trim() : "Not entered";
+        string Spec(string k) => ST(sv.FirstOrDefault(v => v.Key == k)) is { Length: > 0 } d ? $"{d} {units[k]}".Trim() : "Not entered";
         var blocks = new List<PrintBlock> { new PrintHeading("Drawing spec"), new PrintFields([.. t.Fields.Select(fd => (fd.Label, (string?)Spec(fd.Key)))]) };
         var parts = await db.SequflohTestPartResults.AsNoTracking().Where(p => p.TrackingRecordId == r.Id).OrderBy(p => p.PartIndex).ToListAsync(ct);
         if (t.Fields.Count == 0 && parts.Count == 0) return [];

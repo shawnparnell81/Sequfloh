@@ -5,7 +5,7 @@ import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, Link as MuiLink, MenuItem, Paper, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
+  TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { useAuth } from '../auth';
@@ -36,7 +36,7 @@ export const trackingTypes: Record<string, string> = { Validation: 'Validation /
 export const trackingTypeOptions: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Weight', 'Weight'], ['Research', 'Research'], ['Production', 'Production']];
 /** Types offered by the New work order builder; Production stays available for links that ask for it. */
 const builderTypes: Record<string, string> = { Validation: 'Validation / FAI', Repair: 'Repair / Rework', Inspection: 'Inspection', Warranty: 'Warranty', SaltSpray: 'Salt Spray Test', Development: 'Development', Rebox: 'Rebox', Test: 'Test', Weight: 'Weight', Research: 'Research' };
-/** The fixed Multiple choice of the Research product family picker; it is not a Product Families list entry. */
+/** The fixed Multiple choice of the Research and Weight product family pickers; it is not a Product Families list entry. */
 const MULTIPLE = '__multiple';
 const RESEARCH_DESC = 'Required. Explain clearly what is needed on this Research work order.';
 export const trackingStatuses = ['NotStarted', 'Assigned', 'InProgress', 'Paused', 'Completed', 'Failed', 'Canceled'];
@@ -171,9 +171,10 @@ export function NewTrackingPage() {
   const famForm = forms.data?.families.find((x) => x.id === familyId);
   const famBlank = famForm?.blankFormId ? forms.data?.blanks.find((b) => b.id === famForm.blankFormId) : undefined;
   const isInsp = type === 'Inspection' || type === 'Warranty';
+  const [testForm, setTestForm] = useState(false);
   const isWeight = type === 'Weight';
   const isResearch = type === 'Research';
-  const multiple = isResearch && familyId === MULTIPLE;
+  const multiple = (isResearch || isWeight) && familyId === MULTIPLE;
   const [wi, setWi] = useState<WiOpt | null>(null);
   const [wiText, setWiText] = useState('');
   const [part, setPart] = useState<{ id: string; partNumber: string; name?: string } | null>(null);
@@ -214,7 +215,7 @@ export function NewTrackingPage() {
     if (hit) setFamilyId(hit.id);
   }, [type, devLine, families.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const next = useQuery({ queryKey: ['sqf-tr-next', type, famForNumber, multiple, part?.id, siteId], enabled: !!type && !!siteId,
-    queryFn: () => get<{ number: string | null }>(`${S}/tracking/next-number?${qs({ type, familyId: famForNumber || undefined, partId: famForNumber || isResearch ? undefined : part?.id, siteId, multiple: multiple ? 'true' : undefined })}`) });
+    queryFn: () => get<{ number: string | null }>(`${S}/tracking/next-number?${qs({ type, familyId: famForNumber || undefined, partId: famForNumber || isResearch ? undefined : part?.id, siteId, multiple: multiple && isResearch ? 'true' : undefined })}`) });
   const [suggested, setSuggested] = useState('');
   useEffect(() => {
     const n = next.data?.number ?? '';
@@ -232,16 +233,16 @@ export function NewTrackingPage() {
       if (linkProject && !projectId) throw new Error(PICK_PROJECT);
       const auto = !!suggested && f.number.trim() === suggested;
       if (isInsp && !f.subType) throw new Error('Choose the inspection sub-type.');
-      if (isWeight && !familyId) throw new Error('Choose the product family (product class) for this Weight work order.');
+      if (isWeight && !familyId) throw new Error('Choose the product family (product class) for this Weight work order, or Multiple.');
       if (isResearch && !familyId) throw new Error('Choose the product family (product class) for this Research work order, or Multiple.');
       if (isResearch && !f.inspectionDescription?.trim()) throw new Error(RESEARCH_DESC);
       if (type === 'Test' && !part?.id) throw new Error('Choose the part number for this Test work order.');
       if (type === 'Test' && !familyId) throw new Error('Choose the product family for this Test work order.');
-      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' || type === 'Test' || type === 'Development' || isWeight || (isResearch && !multiple) ? nul(familyId) : null, multipleFamilies: multiple, developmentLine: type === 'Development' ? nul(devLine) : null,
+      const r = await post<{ id: string }>(`${S}/tracking`, { number: auto ? null : f.number.trim(), type, quantity: numOrNull(f.quantity), familyId: type === 'Validation' || type === 'Test' || type === 'Development' || ((isWeight || isResearch) && !multiple) ? nul(familyId) : null, multipleFamilies: multiple, developmentLine: type === 'Development' ? nul(devLine) : null,
         inspectionSubType: isInsp ? nul(f.subType) : null, inspectionDescription: isInsp || isResearch ? nul(f.inspectionDescription) : null, workInstructionId: isWeight ? null : wi?.id, siteId, departmentId: nul(departmentId), partId: isWeight || isResearch ? null : part?.id ?? null, assignedUserId: nul(assigned),
         serialNumber: nul(f.serialNumber), lotNumber: nul(f.lotNumber), workOrder: nul(f.workOrder), repairOrder: nul(f.repairOrder), customerReturnReference: nul(f.customerReturnReference),
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
-        maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId), include8D: with8D && !noEightD(type) });
+        maxBenchmarkMinutes: numOrNull(f.max), formNumber: type === 'Test' && !testForm ? null : nul(f.formNumber), attachValidationForm: type === 'Test' ? testForm : undefined, reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId), include8D: with8D && !noEightD(type) });
       if (with8D && !noEightD(type)) for (const x of files8D) { try { await uploadEightD('work-orders', r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
       if (type === 'Test' && pickedDrawings.length) { try { await attachDrawings(r.id, pickedDrawings.map((x) => x.id)); } catch (e) { window.alert(`The work order was created, but the drawing was not attached: ${(e as Error).message}`); } }
       for (const x of woFiles) { try { await uploadRecordFile(r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
@@ -275,7 +276,8 @@ export function NewTrackingPage() {
           <TextField select size="small" label="Work order type" value={type} onChange={(e) => { setType(e.target.value); setWi(null); }} inputProps={{ 'data-testid': 'new-wo-type' }}>
             {allowed.map((t) => <MenuItem key={t} value={t}>{builderTypes[t] ?? trackingTypes[t]}</MenuItem>)}</TextField>
           {isWeight && <TextField select size="small" required label="Product family (product class)" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
-            helperText="Required. A Weight work order has no part number, drawing or work instruction.">
+            helperText="Required. Choose Multiple for mixed product families. A Weight work order has no part number, drawing or work instruction.">
+            <MenuItem value={MULTIPLE} data-testid="new-wo-family-multiple">Multiple</MenuItem>
             {(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
           {isResearch && <TextField select size="small" required label="Product family (product class)" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
             helperText="Required. Choose Multiple for a pallet of mixed parts. A Research work order has no part number.">
@@ -295,10 +297,11 @@ export function NewTrackingPage() {
           {(type === 'Validation' || type === 'Test') && <TextField select size="small" required={type === 'Test'} label="Product family" value={families.data ? familyId : ''} onChange={(e) => setFamilyId(e.target.value)} inputProps={{ 'data-testid': 'new-wo-family' }}
             helperText={type === 'Test' ? 'Required. The product family decides which test fields the work order records.' : 'The confirmed validation form for this family is attached as a copy to fill out.'}>
             <MenuItem value=""><em>None</em></MenuItem>{(families.data ?? []).filter((x) => x.isActive !== false).map((x) => <MenuItem key={x.id} value={x.id}>{x.label}</MenuItem>)}</TextField>}
-          {(type === 'Validation' || type === 'Test') && familyId && forms.data && <Box sx={{ gridColumn: '1 / -1' }}>
+          {type === 'Test' && <Box sx={{ gridColumn: '1 / -1' }}><FormChoice value={testForm} onChange={setTestForm} /></Box>}
+          {(type === 'Validation' || (type === 'Test' && testForm)) && familyId && forms.data && <Box sx={{ gridColumn: '1 / -1' }}>
             {famBlank ? <Stack gap={1}><Alert severity="success" data-testid="new-wo-form-note">A copy of {famBlank.number} {famBlank.title} is attached to fill out once you type its number and file name. You can also attach it later on the work order.</Alert>
               {fld('formNumber', 'Validation form number and file name', { inputProps: { 'data-testid': 'new-wo-form-number', maxLength: 300 } })}</Stack>
-              : <Alert severity="warning" data-testid="new-wo-form-note">No validation form is confirmed for this product family. An administrator can set one in Settings, Validation forms by product.</Alert>}</Box>}
+              : <Alert severity="warning" data-testid="new-wo-form-note">{type === 'Test' ? 'No validation form set up for this product family' : 'No validation form is confirmed for this product family. An administrator can set one in Settings, Validation forms by product.'}</Alert>}</Box>}
           {type === 'Test' && part?.id && <Box sx={{ gridColumn: '1 / -1' }}><TestDrawingSection partId={part.id} picked={pickedDrawings} onPick={setPickedDrawings} /></Box>}
           {type === 'SaltSpray' && fld('formNumber', 'Validation form number and file name', { helperText: 'Optional. The Salt Spray Test form is attached under this number; leave it blank to attach it later.', inputProps: { 'data-testid': 'new-wo-form-number', maxLength: 300 } })}
           {isInsp && <TextField select size="small" label="Inspection sub-type" value={subTypes.data ? f.subType ?? '' : ''} onChange={(e) => setF({ ...f, subType: e.target.value })} inputProps={{ 'data-testid': 'new-wo-subtype' }}>
@@ -350,7 +353,7 @@ interface TrRecord extends J { id: string; number: string; type: string; status:
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
-interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string;
+interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canChangeFormChoice?: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string;
   instruction?: { isUploadedFile: boolean; file?: { id: string; fileName: string; contentType: string } | null } | null; canRemoveInstruction?: boolean }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
 const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'nonconformanceReferences', 'reportedCondition', 'observedCondition', 'finalDisposition', 'varianceReason', 'result', 'qualityComments',
@@ -449,7 +452,11 @@ export function TrackingRecordPage() {
         <CrewPanel recordId={rec.id} notStarted={clockHint} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
         {rec.type !== 'Weight' && rec.type !== 'Research' && <RecordDrawings recordId={rec.id} />}
-        {(vf || q.data.canAttachForm) && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
+        {rec.type === 'Test' && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Attach validation form" data-testid="wo-form-choice">
+          <FormChoice value={!!vf} disabled={!q.data.canChangeFormChoice || busy || dirty} onChange={async (v) => { setBusy(true); setMsg(null); try { await put(`${S}/tracking/${rec.id}/validation-form/choice`, { attach: v }); await refresh(); } catch (e) { setMsg({ sev: 'error', text: (e as Error).message }); } finally { setBusy(false); } }} />
+          {vf?.fileId && !closed && <Typography variant="caption" color="text.secondary" component="div">A form copy is attached, so this stays Yes. Attached copies are kept with the work order.</Typography>}
+        </Paper>}
+        {(vf || (q.data.canAttachForm && rec.type !== 'Test')) && <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Validation form" data-testid="wo-validation-form">
           <Typography variant="h3" sx={{ mb: 1 }}>{vf?.test ? `${vf.test} form` : `Validation form${vf?.family ? ` — ${vf.family}` : ''}`}</Typography>
           {!vf && <Typography variant="body2" color="text.secondary">No validation form is attached to this work order yet.</Typography>}
           {vf?.fileId && closed && <Alert severity="info" sx={{ mb: 1 }} data-testid="wo-form-locked">This work order is closed, so its form is locked and can't be changed.</Alert>}
@@ -793,5 +800,15 @@ function InstructionRef({ rec, info, canChange, canRemove, onSaved }: { rec: TrR
       </Stack></DialogContent>
       <DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" disabled={!wi} onClick={() => wi && set(wi.id)}>Save</Button></DialogActions>
     </Dialog>
+  </Stack>;
+}
+
+/** Attach validation form? on a Test work order: Yes attaches the family's confirmed validation form, No (the default) leaves the form block out. */
+function FormChoice({ value, onChange, disabled }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return <Stack direction="row" alignItems="center" gap={1.5}>
+    <Typography variant="body2">Attach validation form?</Typography>
+    <ToggleButtonGroup size="small" exclusive value={value ? 'yes' : 'no'} disabled={disabled} onChange={(_, v) => { if (v) onChange(v === 'yes'); }}>
+      <ToggleButton value="yes" data-testid="form-choice-yes">Yes</ToggleButton><ToggleButton value="no" data-testid="form-choice-no">No</ToggleButton>
+    </ToggleButtonGroup>
   </Stack>;
 }
