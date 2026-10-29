@@ -66,6 +66,11 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     public sealed record NumberCodeInput(string? Code);
     [HttpPut("reference/values/{id:guid}/number-code")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> FamilyNumberCode(Guid id, NumberCodeInput r, CancellationToken ct) { await f.SetFamilyNumberCodeAsync(id, r.Code, ct); return NoContent(); }
+    public sealed record TestTemplateInput(string? Key);
+    [HttpPut("reference/values/{id:guid}/test-template")] [RequirePermission(Permissions.SequflohManageDropdowns)]
+    public async Task<IActionResult> FamilyTestTemplate(Guid id, TestTemplateInput r, CancellationToken ct) { await f.SetFamilyTestTemplateAsync(id, r.Key, ct); return NoContent(); }
+    [HttpGet("test-templates")]
+    public object TestTemplates() => SequflohTestTemplates.All.Select(t => new { t.Key, t.Label, Fields = t.Fields.Select(x => x.Label) });
     [HttpPost("reference/values/{id:guid}/activate")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> Activate(Guid id, CancellationToken ct) { await f.SetActiveAsync(id, true, ct); return NoContent(); }
     [HttpPost("reference/values/{id:guid}/deactivate")] [RequirePermission(Permissions.SequflohManageDropdowns)]
