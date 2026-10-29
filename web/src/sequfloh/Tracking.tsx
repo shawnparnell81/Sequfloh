@@ -21,6 +21,7 @@ import { RecordActions } from '../components/RecordActions';
 import { NumberField } from '../components/RecordNumber';
 import { ProblemList } from './Designer';
 import { FindingsPanel } from './Findings';
+import { FILE_ACCEPT, JobNotesPanel, RecordFilesPanel, addJobNote, uploadRecordFile } from './JobNotes';
 import { InventoryNote, JobPanel } from './Job';
 import { PartPicker } from './Instructions';
 import { AddPartDialog } from './PartLinks';
@@ -150,6 +151,7 @@ export function NewTrackingPage() {
   const [linkProject, setLinkProject] = useState(!!projectId);
   const [with8D, setWith8D] = useState(false);
   const [files8D, setFiles8D] = useState<File[]>([]);
+  const [woFiles, setWoFiles] = useState<File[]>([]);
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const { can } = useAuth();
@@ -237,6 +239,7 @@ export function NewTrackingPage() {
         project: nul(f.project), operation: nul(f.operation), priority: nul(f.priority), plannedStart: iso(f.plannedStart), dueAt: iso(f.dueAt), minBenchmarkMinutes: numOrNull(f.min),
         maxBenchmarkMinutes: numOrNull(f.max), formNumber: nul(f.formNumber), reportedCondition: nul(f.reportedCondition), createClockStartedAt: clockFrom, projectId: nul(projectId), include8D: with8D && !noEightD(type) });
       if (with8D && !noEightD(type)) for (const x of files8D) { try { await uploadEightD('work-orders', r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
+      for (const x of woFiles) { try { await uploadRecordFile(r.id, x); } catch (e) { window.alert(`The work order was created, but ${x.name} was not added: ${(e as Error).message}`); } }
       if (move) {
         try {
           await post(`${S}/tracking/${move.from}/time-corrections/transfer`, { targetId: r.id, crewSessionIds: move.crewSessionIds, timeEntryIds: move.timeEntryIds, reason: move.reason });
@@ -311,6 +314,12 @@ export function NewTrackingPage() {
           {fld('serialNumber', 'Serial number')}{fld('lotNumber', 'Lot number')}
           {fld('workOrder', 'Work order')}{type === 'Repair' && fld('repairOrder', 'Repair order')}
           <Box sx={{ gridColumn: '1 / -1' }}><ProjectLink value={projectId} onChange={setProjectId} yes={linkProject} onYes={setLinkProject} /></Box>
+          <Box sx={{ gridColumn: '1 / -1' }} data-testid="new-wo-files"><Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap"><Box><Typography variant="subtitle1">Pictures and files (optional)</Typography>
+              <Typography variant="caption" color="text.secondary">Photos, drawings, PDFs, Word or Excel files the technician should see when they open this work order. Up to 25 MB each.</Typography></Box>
+              <Button variant="outlined" component="label" size="small">Add pictures or files<input hidden type="file" multiple accept={FILE_ACCEPT} data-testid="new-wo-files-input" onChange={(e) => { const l = e.target.files; if (l?.length) setWoFiles((cur) => [...cur, ...Array.from(l)]); e.target.value = ''; }} /></Button></Stack>
+            {woFiles.length > 0 && <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 1 }}>{woFiles.map((x, i) => <Chip key={i} size="small" label={x.name} onDelete={() => setWoFiles(woFiles.filter((_, k) => k !== i))} />)}</Stack>}
+          </Paper></Box>
           {!noEightD(type) && <Box sx={{ gridColumn: '1 / -1' }}><EightDCreate yes={with8D} onYes={setWith8D} files={files8D} onFiles={setFiles8D} /></Box>}
           {type === 'Repair' && fld('customerReturnReference', 'Customer-return reference')}
           {fld('operation', 'Operation')}
@@ -395,7 +404,7 @@ export function TrackingRecordPage() {
   const vf = (rec.details as unknown as { validationForm?: { familyId?: string; family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
-    { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
+    { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings / Nonconformance', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
   const setRow = (list: 'steps' | 'characteristics' | 'partsRows', i: number, patch: J) => upd({ [list]: doc[list].map((r, j) => (j === i ? { ...r, ...patch } : r)) } as Partial<TrRecord>);
   const det = (k: string, label: string, multiline = true) => <TextField size="small" label={label} value={doc.details[k] ?? ''} disabled={!enter} multiline={multiline} minRows={multiline ? 2 : undefined}
     onChange={(e) => upd({ details: { ...doc.details, [k]: e.target.value } })} />;
@@ -424,6 +433,10 @@ export function TrackingRecordPage() {
       {rec.status === 'InProgress' && <ProblemList title="Before this record can be completed:" problems={q.data.completionProblems} />}
 
       {tab === 'record' && <Stack gap={2}>
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, alignItems: 'start' }}>
+          <JobNotesPanel id={rec.id} />
+          <RecordFilesPanel id={rec.id} canWork={!closed} />
+        </Box>
         <TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} />
         <CrewPanel recordId={rec.id} notStarted={clockHint} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
@@ -678,11 +691,12 @@ const actionText: Record<string, string> = {
 };
 const reasonList: Record<string, string> = { cancel: 'cancellation-reasons', fail: 'repair-failure-reasons' };
 /** Action dialog: one operation ID per opening, so a double click cannot apply the action twice; the button is disabled while the request runs. */
-export function TaskActionDialog({ action, record, onClose, onRun }: { action: TrAction | null; record: { number: string; assignedUserId?: string | null; minBenchmarkMinutes?: unknown; maxBenchmarkMinutes?: unknown; status: string; type?: string };
+export function TaskActionDialog({ action, record, onClose, onRun }: { action: TrAction | null; record: { id?: string; number: string; assignedUserId?: string | null; minBenchmarkMinutes?: unknown; maxBenchmarkMinutes?: unknown; status: string; type?: string };
   onClose: () => void; onRun: (a: TrAction, input: J) => Promise<void> }) {
   const users = useUsers();
   const [reason, setReason] = useState(''); const [comment, setComment] = useState(''); const [user, setUser] = useState(''); const [variance, setVariance] = useState('');
   const [op, setOp] = useState(newOpId());
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   const options = useOptions(action && reasonList[action.action] && (action.action !== 'fail' || record.type === 'Repair') ? reasonList[action.action] : 'priorities');
   if (!action) return null;
@@ -690,8 +704,10 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
   const needsVariance = action.action === 'complete' && record.status === 'InProgress' && (record.minBenchmarkMinutes != null || record.maxBenchmarkMinutes != null);
   const opts = reasonList[action.action] && (action.action !== 'fail' || record.type === 'Repair') ? options.data ?? [] : [];
   const danger = ['fail', 'cancel'].includes(action.action);
+  // closing the order: a reminder to leave a job note, never required
+  const closing = !!record.id && ['complete', 'cancel', 'fail'].includes(action.action);
   return (
-    <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setReason(''); setComment(''); setVariance(''); setUser(action.action === 'dispatch' ? record.assignedUserId ?? '' : ''); setErr(null); setOp(newOpId()); } }}>
+    <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setReason(''); setComment(''); setVariance(''); setNote(''); setUser(action.action === 'dispatch' ? record.assignedUserId ?? '' : ''); setErr(null); setOp(newOpId()); } }}>
       <FormDialogTitle>{action.label} — {record.number}</FormDialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ mb: 2 }}>{actionText[action.action] ?? ''}</Typography>
@@ -703,10 +719,25 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
         {action.reasonRequired && opts.length === 0 && <TextField fullWidth size="small" label="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} sx={{ mb: 2 }} />}
         {needsVariance && <TextField fullWidth size="small" label="Variance reason (when outside the benchmark range)" value={variance} onChange={(e) => setVariance(e.target.value)} sx={{ mb: 2 }} />}
         <TextField fullWidth multiline minRows={2} size="small" label="Comment" value={comment} onChange={(e) => setComment(e.target.value)} />
+        {closing && <Paper variant="outlined" sx={{ p: 1.5, mt: 2, bgcolor: 'action.hover' }} data-testid="close-note-reminder">
+          <Typography variant="subtitle2">Add notes or comments before closing?</Typography>
+          <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>Just a reminder, in case something should be written down. It is added to the job notes on this work order.</Typography>
+          <TextField fullWidth multiline minRows={2} size="small" label="Job note (optional)" value={note} onChange={(e) => setNote(e.target.value)} inputProps={{ 'data-testid': 'close-note-text' }} />
+        </Paper>}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" color={danger ? 'error' : 'primary'} disabled={busy || (action.reasonRequired && !reason.trim()) || (needsUser && !user)}
+        {closing && <Button variant="outlined" color={danger ? 'error' : 'primary'} disabled={busy || (action.reasonRequired && !reason.trim()) || !note.trim()} data-testid="close-with-note"
+          onClick={async () => {
+            setBusy(true); setErr(null);
+            try {
+              await onRun(action, { operationId: op, reason: nul(reason), comment: nul(comment), varianceReason: nul(variance), assignedUserId: null, expectedAssignedUserId: null });
+              // closed first, so a refused close never leaves a stray note; notes can be added to a closed order
+              try { await addJobNote(record.id!, note); setNote(''); } catch (e) { window.alert(`${record.number} was closed, but the note was not saved: ${(e as Error).message}`); }
+              onClose();
+            } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+          }}>Add note and close</Button>}
+        <Button variant="contained" color={danger ? 'error' : 'primary'} disabled={busy || (action.reasonRequired && !reason.trim()) || (needsUser && !user)} data-testid="close-without-note"
           onClick={async () => {
             setBusy(true); setErr(null);
             try {
@@ -714,7 +745,7 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
                 expectedAssignedUserId: action.action === 'reassign' ? record.assignedUserId ?? null : null });
               onClose();
             } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
-          }}>{action.label}</Button>
+          }}>{closing ? 'Close without a note' : action.label}</Button>
       </DialogActions>
     </Dialog>
   );

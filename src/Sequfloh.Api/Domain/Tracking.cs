@@ -206,5 +206,21 @@ public class SequflohTestFile : Entity, IAudited
     public string KeyValues { get; set; } = "[]";
     /// <summary>test, attachment or evidence (photos).</summary>
     public string Kind { get; set; } = "test";
+    /// <summary>Set when the file was removed. Removed files are kept in history but no longer shown or reported.</summary>
+    public DateTimeOffset? RemovedAt { get; set; }
+    public string? RemovedBy { get; set; }
+    public string? RemoveReason { get; set; }
     public string AuditLabel => $"test file {FileName} on {TrackingNumber}";
+}
+
+/// <summary>A running job note on a work order, so the next technician sees what was done. Notes are added, never deleted; an edit keeps the earlier text in the audit.</summary>
+public class SequflohJobNote : Entity, IAudited
+{
+    public Guid TrackingRecordId { get; set; }
+    public string TrackingNumber { get; set; } = "";
+    public string Text { get; set; } = "";
+    public string AuthorName { get; set; } = "";
+    public DateTimeOffset? EditedAt { get; set; }
+    public string? EditedBy { get; set; }
+    public string AuditLabel => $"job note on {TrackingNumber}";
 }

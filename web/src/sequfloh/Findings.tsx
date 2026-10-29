@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Box, Button, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, FormControlLabel, IconButton, MenuItem, Radio, RadioGroup, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
@@ -9,10 +9,10 @@ import { ErrorState, Loading, S, useOptions } from './common';
 
 export interface Findings { discoveryMethod?: string | null; dateDiscovered?: string | null; discoveredBy?: string | null; site?: string | null; supplier?: string | null;
   supplierPartNumber?: string | null; lotDateCodes?: string | null; purchaseOrder?: string | null; qtyInspected?: number | null; qtyNonconforming?: number | null; qtyAffected?: number | null;
-  description?: string | null; warrantyClaim?: string | null; alertRecall?: string | null; erpReference?: string | null; repairMethod?: string | null; rootCause?: string | null }
+  description?: string | null; warrantyClaim?: string | null; alertRecall?: string | null; erpReference?: string | null; repairMethod?: string | null; rootCause?: string | null; hasFindings?: boolean | null }
 export interface CostLine { description: string; amount: number }
 interface FileRow { id: string; kind: string; fileName: string; uploadedAt: string }
-interface Data { findings: Findings; costLines: CostLine[]; files: FileRow[] }
+interface Data { findings: Findings; costLines: CostLine[]; files: FileRow[]; canRemoveFiles: boolean }
 
 type Key = keyof Findings;
 const text: [Key, string][] = [['discoveredBy', 'Discovered by'], ['site', 'Site'], ['supplier', 'Supplier'], ['supplierPartNumber', 'Supplier part #'], ['lotDateCodes', 'Lot / date codes'],
@@ -35,6 +35,13 @@ export function FindingsPanel({ id, canWork, wi }: { id: string; canWork: boolea
   const d = q.data!;
   const v = f ?? d.findings;
   const cl = lines ?? d.costLines;
+  const filled = Object.entries(v).some(([k, x]) => k !== 'hasFindings' && x !== null && x !== undefined && x !== '');
+  const yes = v.hasFindings ?? filled;
+  const answer = async (y: boolean) => {
+    if (!y && filled) { setErr('Findings are filled in on this work order. Clear them first, or keep the answer at Yes.'); return; }
+    const next = { ...v, hasFindings: y };
+    if (await run(() => put(`${S}/tracking/${id}/job/findings`, next))) setF(null);
+  };
   const set = (k: Key, val: string | number | null) => setF({ ...v, [k]: val === '' ? null : val });
   const tf = (k: Key, label: string, extra?: object) => <TextField key={k} size="small" label={label} value={v[k] ?? ''} disabled={!canWork} onChange={(e) => set(k, e.target.value)} {...extra} />;
   const upload = (kind: 'evidence' | 'attachment', accept: string) => canWork && <ImportButtons surface={kind === 'evidence' ? 'work-order-evidence' : 'work-order-attachments'} size="small"
@@ -44,10 +51,17 @@ export function FindingsPanel({ id, canWork, wi }: { id: string; canWork: boolea
   const files = (kind: string, empty: string) => list(kind).length === 0 ? <Typography variant="body2" color="text.secondary">{empty}</Typography>
     : <Stack gap={0.5}>{list(kind).map((x) => <Stack key={x.id} direction="row" alignItems="center" gap={1}>
       <a href={`${S}/tracking/job/test-files/${x.id}`}>{x.fileName}</a><Typography variant="caption" color="text.secondary">{fmtDateTime(x.uploadedAt)}</Typography>
-      {canWork && <IconButton size="small" aria-label={`Remove ${x.fileName}`} onClick={() => run(() => del(`${S}/tracking/job/test-files/${x.id}`))}><DeleteOutline fontSize="small" /></IconButton>}</Stack>)}</Stack>;
+      {d.canRemoveFiles && <IconButton size="small" aria-label={`Remove ${x.fileName}`} onClick={() => { const why = window.prompt(`Remove ${x.fileName}? It is kept in the history. Reason:`); if (why !== null) void run(() => del(`${S}/tracking/job/test-files/${x.id}?reason=${encodeURIComponent(why)}`)); }}><DeleteOutline fontSize="small" /></IconButton>}</Stack>)}</Stack>;
   return <Stack gap={2} data-testid="findings-panel">
     {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
-    <Paper variant="outlined" sx={{ p: 2 }}>
+    <Paper variant="outlined" sx={{ p: 2 }} data-testid="findings-question">
+      <Typography variant="subtitle1">Any findings or nonconformance on this work order?</Typography>
+      <RadioGroup row value={yes ? 'yes' : 'no'} onChange={(e) => void answer(e.target.value === 'yes')}>
+        <FormControlLabel value="no" control={<Radio size="small" />} label="No" disabled={!canWork} data-testid="findings-no" />
+        <FormControlLabel value="yes" control={<Radio size="small" />} label="Yes" disabled={!canWork} data-testid="findings-yes" />
+      </RadioGroup>
+    </Paper>
+    {yes && <Paper variant="outlined" sx={{ p: 2 }} data-testid="findings-section">
       <Typography variant="subtitle1">Findings / nonconformance</Typography>
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5 }}>All fields are optional. Fill in what helps the supplier approve the chargeback.</Typography>
       <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}>
@@ -66,7 +80,7 @@ export function FindingsPanel({ id, canWork, wi }: { id: string; canWork: boolea
         <Button variant="contained" disabled={!f} data-testid="save-findings" onClick={async () => { if (await run(() => put(`${S}/tracking/${id}/job/findings`, v))) { setF(null); setSaved(true); } }}>Save findings</Button>
         {f && <Button onClick={() => setF(null)}>Discard</Button>}{saved && <Typography variant="body2" color="success.main">Saved</Typography>}
       </Stack>}
-    </Paper>
+    </Paper>}
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}><Typography variant="subtitle1">Photos and evidence</Typography>{upload('evidence', '.jpg,.jpeg,.png')}</Stack>
       {files('evidence', 'No photos yet.')}
