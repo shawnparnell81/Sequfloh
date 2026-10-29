@@ -427,13 +427,14 @@ export function TrackingRecordPage() {
       actions={<RecordActions surface="work-order" dirty={dirty} busy={busy}
         save={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => void save() }}
         cancel={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => { setDoc(structuredClone(q.data!.record)); setDirty(false); } }}
-        print={{ href: `${S}/tracking/${rec.id}/print` }}
+        print={{ href: `${S}/tracking/${rec.id}/print/work-order`, testid: 'wo-print' }}
         rename={q.data.canPlan && { kind: 'work-order', id: rec.id, number: rec.number, onDone: () => { void q.refetch(); } }}
         del={{ what: `work order ${rec.number}`, url: `${S}/tracking/${rec.id}`, show: !!q.data.canDelete, to: `/sequfloh/tracking/${folder}`,
           extra: 'Use this for work orders made by mistake. Work orders with logged time are kept for chargebacks and can only be cancelled.' }}>
         <SqfStatus status={rec.status} />
         {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`}>Job report</Button>
+        <Button variant="outlined" href={`${S}/tracking/${rec.id}/print`} target="_blank" rel="noopener" data-testid="wo-print-full">Full record PDF</Button>
         <Button variant="outlined" href={`${S}/tracking/${rec.id}/job/report/view`} target="_blank" rel="noopener" data-testid="wo-open-file">Open as file</Button>
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?wo=${rec.id}`} data-testid="wo-create-chargeback">Create chargeback report</Button>
       </RecordActions>}>
