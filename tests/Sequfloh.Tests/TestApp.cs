@@ -103,6 +103,13 @@ public sealed class ApiClient(HttpClient http)
         return r;
     }
 
+    public async Task<HttpResponseMessage> PutOkAsync(string url, object body)
+    {
+        var r = await PutAsync(url, body);
+        if (!r.IsSuccessStatusCode) throw new InvalidOperationException($"PUT {url} failed: {(int)r.StatusCode} {await r.Content.ReadAsStringAsync()}");
+        return r;
+    }
+
     public async Task<T> GetJsonAsync<T>(string url)
     {
         var r = await http.GetAsync(url);

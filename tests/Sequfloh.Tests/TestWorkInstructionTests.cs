@@ -82,7 +82,8 @@ public sealed class TestWorkInstructionTests(TestApp app)
         var s = await SetupAsync();
         var id = await CreateAsync(s, s.Csa, s.CsaPart);
         var t = await s.C.GetElAsync($"{T}/{id}/test");
-        Assert.Equal(JsonValueKind.Null, t.GetProperty("template").ValueKind);
+        Assert.Equal("order-only", t.GetProperty("template").Str("key"));
+        Assert.Equal(0, t.GetProperty("template").GetProperty("fields").GetArrayLength());
         Assert.DoesNotContain("Flow rate", t.GetRawText());
         Assert.Equal(HttpStatusCode.BadRequest, (await s.C.PostAsync($"{T}/{id}/test/parts", new { values = Array.Empty<object>() })).StatusCode);
         var print = Encoding.Latin1.GetString(await (await s.C.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync());
@@ -111,7 +112,7 @@ public sealed class TestWorkInstructionTests(TestApp app)
         var id = await CreateAsync(s, s.Pump, s.PumpPart);
         var t = await s.C.GetElAsync($"{T}/{id}/test");
         Assert.Equal("fuel-pump", t.GetProperty("template").Str("key"));
-        Assert.Equal(new[] { "psi", "L/h", "ohms", "ohms", "A" }, t.GetProperty("spec").EnumerateArray().Select(x => x.Str("unit")).ToArray());
+        Assert.Equal(new[] { "psi", "psi", "L/h", "ohms", "ohms", "A" }, t.GetProperty("spec").EnumerateArray().Select(x => x.Str("unit")).ToArray());
         await s.C.PutAsync($"{T}/{id}/test/spec", new { values = new object[] { new { key = "testPressure", value = "60", unit = "psi" }, new { key = "flowRate", value = "100", unit = "L/h" },
             new { key = "floatFull", value = "250", unit = "ohms" }, new { key = "floatEmpty", value = "40", unit = "ohms" }, new { key = "amps", value = "6.5", unit = "A" } } });
         var p1 = (await (await s.C.PostOkAsync($"{T}/{id}/test/parts", new { values = Vals(("testPressure", "59"), ("flowRate", "95"), ("floatFull", "248"), ("floatEmpty", "41"), ("amps", "6.4")), note = "Made-up first pump" })).JsonAsync());

@@ -12,6 +12,9 @@ public sealed class SequflohTestResultsController(SequflohTestResultService test
 {
     [HttpGet("{id:guid}/test")] public Task<object> Get(Guid id, CancellationToken ct) => tests.GetAsync(id, ct);
     [HttpPut("{id:guid}/test/spec")] public async Task<object> Spec(Guid id, TestSpecInput r, CancellationToken ct) { await tests.SaveSpecAsync(id, r, ct); return await tests.GetAsync(id, ct); }
+    [HttpPost("{id:guid}/test/fields")] public async Task<object> AddField(Guid id, TestFieldInput r, CancellationToken ct) { await tests.AddFieldAsync(id, r, ct); return await tests.GetAsync(id, ct); }
+    [HttpPut("{id:guid}/test/fields/{key}")] public async Task<object> UpdateField(Guid id, string key, TestFieldInput r, CancellationToken ct) { await tests.UpdateFieldAsync(id, key, r, ct); return await tests.GetAsync(id, ct); }
+    [HttpPost("{id:guid}/test/fields/{key}/remove")] public async Task<object> RemoveField(Guid id, string key, TestRemoveInput r, CancellationToken ct) { await tests.RemoveFieldAsync(id, key, r, ct); return await tests.GetAsync(id, ct); }
     [HttpPost("{id:guid}/test/parts")] public Task<object> AddPart(Guid id, TestPartInput r, CancellationToken ct) => tests.AddPartAsync(id, r, ct);
     [HttpPut("test/parts/{partId:guid}")] public async Task<IActionResult> UpdatePart(Guid partId, TestPartInput r, CancellationToken ct) { await tests.UpdatePartAsync(partId, r, ct); return NoContent(); }
     [HttpPost("test/parts/{partId:guid}/remove")] public async Task<IActionResult> RemovePart(Guid partId, TestRemoveInput r, CancellationToken ct) { await tests.RemovePartAsync(partId, r, ct); return NoContent(); }

@@ -234,6 +234,8 @@ public class SequflohTestSpec : Entity, IAudited
     public string TemplateKey { get; set; } = "";
     /// <summary>JSON list of { key, value, unit }.</summary>
     public string Values { get; set; } = "[]";
+    /// <summary>JSON list of spec fields added on this order only: { key, label, defaultUnit, addedBy, addedAt, removedAt, removedBy, removeReason }. Removed ones stay for history.</summary>
+    public string CustomFields { get; set; } = "[]";
     public string AuditLabel => $"test spec on {TrackingNumber}";
 }
 
