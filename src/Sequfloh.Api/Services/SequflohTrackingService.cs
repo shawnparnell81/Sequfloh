@@ -258,6 +258,16 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
                     ?? throw new AppException("The product family does not exist. Choose one from the Product Families list.");
             }
         }
+        if (r.Type == TrackingType.Test)
+        {
+            // a test work order: the exact part and its product family are both required; the family decides which test fields appear
+            if (partId is null) throw new AppException("Choose the part number for this Test work order.");
+            // the part's own product family is used when none is chosen
+            r = r with { FamilyId = r.FamilyId ?? await db.Parts.AsNoTracking().Where(p => p.Id == partId).Select(p => p.TypeId).FirstOrDefaultAsync(ct) };
+            if (r.FamilyId is null) throw new AppException("Choose the product family for this Test work order.");
+            familyName = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == r.FamilyId && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.Label).FirstOrDefaultAsync(ct)
+                ?? throw new AppException("The product family does not exist. Choose one from the Product Families list.");
+        }
         if (r.Quantity is < 0) throw new AppException("The quantity can't be negative.");
         var subType = T(r.InspectionSubType, 100);
         if (r.Type is TrackingType.Inspection or TrackingType.Warranty && subType is not null) await f.RequireOptionAsync(SequflohCatalog.InspectionSubTypes, subType, "Inspection sub-type", ct);

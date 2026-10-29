@@ -12,7 +12,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 /// Controlled printed layouts for SEQUFLOH: Validation, Validation / FAI, FAI, Repair Test, Repair Work and Inspection Instructions,
 /// built from the designer schema so every printed section matches the designer. Each print is audited.
 /// </summary>
-public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohInstructionService wi, SequflohFoundationService f, SequflohTrackingService tracking)
+public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohInstructionService wi, SequflohFoundationService f, SequflohTrackingService tracking, SequflohTestResultService tests)
 {
     public async Task<string> OrganizationAsync(CancellationToken ct) => await db.OrganizationSettings.AsNoTracking().Select(s => s.OrganizationName).FirstOrDefaultAsync(ct) ?? "SEQUFLOH";
 
@@ -190,6 +190,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
                 ("Quality comments", x.QualityComments), ("Engineering comments", x.EngineeringComments), ("Engineering conclusion", x.EngineeringConclusion),
                 ("Pause reason", x.PauseReason), ("Failure reason", x.FailureReason), ("Cancel reason", x.CancelReason)]),
         };
+        blocks.AddRange(await tests.PrintBlocksAsync(x, local, ct));
         var steps = JsonNode.Parse(x.Steps)!.AsArray();
         blocks.Add(new PrintHeading("Steps"));
         blocks.Add(steps.Count == 0 ? new PrintParagraph("No steps.") : new PrintTable([("Seq", 0.5), ("Step", 2.6), ("Result", 0.9), ("Actual", 1), ("Comment", 2)],

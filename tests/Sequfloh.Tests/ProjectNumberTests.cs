@@ -51,7 +51,7 @@ public sealed class ProjectNumberTests(TestApp app)
         // the picker lists every open project as number and name; picking one links the record
         var list = (await mgr.GetElAsync(P)).EnumerateArray().ToList();
         Assert.Contains(list, p => p.GetProperty("id").GetGuid() == b.Id() && p.GetProperty("number").GetString() == $"PRJ-{yy}-{k + 2:000}");
-        var wo = (await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Test", siteId = site })).JsonAsync()).Id();
+        var wo = (await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Production", siteId = site })).JsonAsync()).Id();
         var req = (await (await mgr.PostOkAsync("/api/sequfloh/inspection-requests", new { siteId = site, partNumber = "MADE-UP-" + tag })).JsonAsync()).Id();
         Assert.Equal(HttpStatusCode.NoContent, (await mgr.PutAsync($"{P}/work-orders/{wo}", new { projectId = b.Id() })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await mgr.PutAsync($"{P}/inspection-requests/{req}", new { projectId = b.Id() })).StatusCode);

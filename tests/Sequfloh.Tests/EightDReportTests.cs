@@ -32,7 +32,7 @@ public sealed class EightDReportTests(TestApp app)
     public async Task Each_allowed_type_uploads_under_its_own_name_and_bad_files_are_refused()
     {
         var (site, mgr, tag) = await SetupAsync();
-        var wo = await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Test", siteId = site, include8D = true })).JsonAsync();
+        var wo = await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Production", siteId = site, include8D = true })).JsonAsync();
         var id = wo.Id();
         Assert.True((await mgr.GetElAsync($"/api/sequfloh/tracking/{id}")).GetProperty("record").GetProperty("include8D").GetBoolean());
         foreach (var (name, bytes) in new[] { ("Made-up 8D.pdf", Pdf), ("made-up.doc", Ole), ("made-up.docx", Zip), ("made-up.xls", Ole), ("made-up.xlsx", Zip), ("made-up.xlsm", Zip), ("made-up.csv", Encoding.UTF8.GetBytes("D1,Team\nD2,Problem\n")) })
@@ -79,7 +79,7 @@ public sealed class EightDReportTests(TestApp app)
     public async Task Completed_work_orders_lock_and_validation_fai_has_no_8d()
     {
         var (site, mgr, _) = await SetupAsync();
-        var id = (await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Test", siteId = site })).JsonAsync()).Id();
+        var id = (await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Production", siteId = site })).JsonAsync()).Id();
         Assert.False((await mgr.GetElAsync($"{E}/work-orders/{id}")).GetProperty("include").GetBoolean());
         Assert.Equal(HttpStatusCode.NoContent, (await mgr.PutAsync($"{E}/work-orders/{id}/include", new { include = true })).StatusCode);
         var f = (await (await mgr.Http.PostAsync($"{E}/work-orders/{id}", Form(Pdf, "made-up.pdf"))).JsonAsync()).Id();
@@ -91,7 +91,7 @@ public sealed class EightDReportTests(TestApp app)
         Assert.Equal(HttpStatusCode.OK, (await mgr.Http.GetAsync($"{E}/files/{f}")).StatusCode);
 
         // Validation / FAI: refused at create and on upload
-        var bad = await mgr.PostAsync("/api/sequfloh/tracking", new { type = "Test", siteId = site });
+        var bad = await mgr.PostAsync("/api/sequfloh/tracking", new { type = "Production", siteId = site });
         var vid = (await bad.JsonAsync()).Id();
         await WithDb(db => db.SequflohTrackingRecords.Where(r => r.Id == vid).ExecuteUpdateAsync(s => s.SetProperty(r => r.Type, TrackingType.Validation)));
         var up = await mgr.Http.PostAsync($"{E}/work-orders/{vid}", Form(Pdf, "made-up.pdf"));
@@ -119,7 +119,7 @@ public sealed class EightDReportTests(TestApp app)
         Assert.Equal(HttpStatusCode.BadRequest, pno.StatusCode);
 
         // a work order with an 8D, linked with the request to the project
-        var wo = await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Test", siteId = site, include8D = true, projectId = pid })).JsonAsync();
+        var wo = await (await mgr.PostOkAsync("/api/sequfloh/tracking", new { type = "Production", siteId = site, include8D = true, projectId = pid })).JsonAsync();
         var wf = (await (await mgr.Http.PostAsync($"{E}/work-orders/{wo.Id()}", Form(Ole, "WO 8D.doc"))).JsonAsync()).Id();
         Assert.Equal(HttpStatusCode.NoContent, (await mgr.PutAsync($"/api/sequfloh/projects/inspection-requests/{req}", new { projectId = pid })).StatusCode);
 

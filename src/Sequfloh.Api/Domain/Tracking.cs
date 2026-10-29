@@ -224,3 +224,34 @@ public class SequflohJobNote : Entity, IAudited
     public string? EditedBy { get; set; }
     public string AuditLabel => $"job note on {TrackingNumber}";
 }
+
+/// <summary>The drawing spec of a test work order, entered once per order: the values the product family's test template asks for, each with its unit.</summary>
+public class SequflohTestSpec : Entity, IAudited
+{
+    public Guid TrackingRecordId { get; set; }
+    public string TrackingNumber { get; set; } = "";
+    /// <summary>The template the spec was entered with (see SequflohTestTemplates), kept so the order reads the same if the family's template changes later.</summary>
+    public string TemplateKey { get; set; } = "";
+    /// <summary>JSON list of { key, value, unit }.</summary>
+    public string Values { get; set; } = "[]";
+    public string AuditLabel => $"test spec on {TrackingNumber}";
+}
+
+/// <summary>One tested part's actual results on a test work order: Part 1, Part 2, ... Numbers never change; a removed part keeps its number and stays in history.</summary>
+public class SequflohTestPartResult : Entity, IAudited
+{
+    public Guid TrackingRecordId { get; set; }
+    public string TrackingNumber { get; set; } = "";
+    public int PartIndex { get; set; }
+    public string TemplateKey { get; set; } = "";
+    /// <summary>JSON list of { key, value, unit }.</summary>
+    public string Values { get; set; } = "[]";
+    public string? Note { get; set; }
+    public string RecordedBy { get; set; } = "";
+    public DateTimeOffset? EditedAt { get; set; }
+    public string? EditedBy { get; set; }
+    public DateTimeOffset? RemovedAt { get; set; }
+    public string? RemovedBy { get; set; }
+    public string? RemoveReason { get; set; }
+    public string AuditLabel => $"Part {PartIndex} test results on {TrackingNumber}";
+}

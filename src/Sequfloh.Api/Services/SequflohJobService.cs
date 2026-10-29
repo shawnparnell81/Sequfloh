@@ -35,7 +35,7 @@ public sealed record KeyValue(string Column, decimal Min, decimal Average, decim
 /// Job-level quantity, parts replaced and tester result files for a work order, and the chargeback job report.
 /// Quantity belongs to the whole job, not to a person. Anyone who can see the work order can update it; every change is audited.
 /// </summary>
-public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohFoundationService f, IFileStorage storage)
+public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohFoundationService f, IFileStorage storage, SequflohTestResultService tests)
 {
     public static readonly string[] DefaultPassValues = ["PASS", "PASSED", "P", "OK", "GOOD", "TRUE", "1"];
     const long MaxFile = 25 * 1024 * 1024;
@@ -471,6 +471,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
                  ["Total", "", "", "", N(x.PartsTotal)]]));
         }
         if (o.Findings && HasFindings(fd)) AddFindings(blocks, fd, x);
+        blocks.AddRange(await tests.PrintBlocksAsync(rec, local, ct));
         if (x.Notes is { Count: > 0 } notes)
         {
             blocks.Add(new PrintHeading("Job notes"));

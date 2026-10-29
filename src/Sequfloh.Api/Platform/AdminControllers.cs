@@ -284,6 +284,8 @@ public static class PermissionText
             "sequfloh.manage_crew_time" => "Clock crew time and add or change past crew time on work orders",
             "sequfloh.transfer_time" => "Move recorded time from one work order to another (corrections)",
             "sequfloh.remove_files" => "Remove pictures and files from a work order (kept in history)",
+            "sequfloh.correct_test_results" => "Correct entered test spec values and part test results (audited)",
+            "sequfloh.remove_test_results" => "Remove a part's test results from a test work order (kept in history)",
             "sequfloh.remove_time" => "Remove recorded time from a work order with a reason (kept in history, no longer counted)",
             "sequfloh.manage_chargebacks" => "Create and edit chargeback reports",
             "sequfloh.manage_projects" => "Create, edit, close and delete projects",

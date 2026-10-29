@@ -96,6 +96,8 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         keys.AddRange(await db.SequflohTestFiles.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).Select(e => e.StorageKey).ToListAsync(ct));
         await db.SequflohTestFiles.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
         await db.SequflohJobNotes.Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
+        await db.SequflohTestSpecs.Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
+        await db.SequflohTestPartResults.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
         await db.SequflohTaskEvents.Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
         await db.SequflohTaskAssignees.Where(e => e.TrackingRecordId == id).ExecuteDeleteAsync(ct);
         await ForgetRecentAsync([id], ct);

@@ -68,7 +68,7 @@ public sealed class TestWorkOrderTests(TestApp app)
         {
             tracking["testNumberCode"] = "lab";
             Assert.Equal(HttpStatusCode.NoContent, (await settingsAdmin.PutAsync("/api/sequfloh/settings/tracking", new { value = tracking, rowVersion = 0 })).StatusCode);
-            Assert.Equal($"WO-LAB-CSA{tag}{yy}-001", (await Create(new { type = "Test", siteId = site, familyId = fam, number = (string?)null })).GetProperty("number").GetString());
+            Assert.Equal($"WO-LAB-CSA{tag}{yy}-001", (await Create(new { type = "Test", siteId = site, partId = part.Id, familyId = fam, number = (string?)null })).GetProperty("number").GetString());
         }
         finally
         {
