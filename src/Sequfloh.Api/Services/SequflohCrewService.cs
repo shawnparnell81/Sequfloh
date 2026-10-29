@@ -61,10 +61,35 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
 
     async Task CheckOverlapAsync(Guid recordId, Guid? self, DateTimeOffset start, DateTimeOffset? stop, DateTimeOffset now, CancellationToken ct, Guid? worker = null)
     {
+        // only the same worker's own entries can clash: a day worker against their own time, the nameless crew against the nameless crew.
+        // A day worker never clashes with the crew, another day worker or a registered person's clock.
         var end = stop ?? DateTimeOffset.MaxValue;
         var others = await db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == recordId && x.Id != self && x.WorkerId == worker).ToListAsync(ct);
-        var clash = others.FirstOrDefault(o => o.StartedAt < end && (o.StoppedAt ?? DateTimeOffset.MaxValue) > start);
-        if (clash is not null) throw new ConflictException($"These times overlap {(worker is null ? "crew" : "this worker's")} time already on this work order ({clash.StartedAt:yyyy-MM-dd HH:mm} UTC). Change the times or edit that entry.");
+        // a named day worker is one person on every job: the same name at the same site can't be on two jobs at once either
+        if (worker is not null && await db.SequflohDayWorkers.AsNoTracking().Where(w => w.Id == worker).Select(w => w.Name).FirstOrDefaultAsync(ct) is { } wname)
+        {
+            var site = await db.SequflohTrackingRecords.AsNoTracking().Where(x => x.Id == recordId).Select(x => x.SiteId).FirstAsync(ct);
+            var lower = wname.ToLower();
+            others.AddRange(await (from x in db.SequflohCrewSessions.AsNoTracking()
+                                   join t in db.SequflohTrackingRecords.AsNoTracking() on x.TrackingRecordId equals t.Id
+                                   where x.TrackingRecordId != recordId && x.WorkerId != null && x.WorkerName != null && x.WorkerName.ToLower() == lower && t.SiteId == site
+                                   select x).ToListAsync(ct));
+        }
+        var clash = others.Where(o => o.StartedAt < end && (o.StoppedAt ?? DateTimeOffset.MaxValue) > start).OrderBy(o => o.StartedAt).FirstOrDefault();
+        if (clash is null) return;
+        var z = await m.ZoneAsync((await db.SequflohTrackingRecords.AsNoTracking().FirstAsync(x => x.Id == recordId, ct)).SiteId, ct);
+        string L(DateTimeOffset d) => TimeZoneInfo.ConvertTime(d, z).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        var note = string.IsNullOrWhiteSpace(clash.Note) ? "" : $", \"{clash.Note}\"";
+        if (worker is null)
+            throw new ConflictException(clash.StoppedAt is null
+                ? $"The nameless crew is still clocked on this work order since {L(clash.StartedAt)}. Clock the crew off first, then enter this time."
+                : $"These times overlap a nameless crew entry already on this work order (crew of {clash.CrewSize}, {L(clash.StartedAt)} to {L(clash.StoppedAt.Value)}{note}). " +
+                  "If this is a different person's time, add them as a day worker and enter it there; otherwise change the times or edit that entry.");
+        var name = clash.WorkerName ?? "This worker";
+        var where = clash.TrackingRecordId == recordId ? "this work order" : clash.TrackingNumber;
+        throw new ConflictException(clash.StoppedAt is null
+            ? $"{name} is already clocked on to {where} (since {L(clash.StartedAt)}). Clock them off there first."
+            : $"These times overlap {name}'s own time already on {where} ({L(clash.StartedAt)} to {L(clash.StoppedAt.Value)}{note}). Change the times or edit that entry.");
     }
 
     /// <summary>Checks an entered session and fills the session from it.</summary>
@@ -163,7 +188,8 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         var w = await WorkerAsync(id, x.WorkerId, ct);
         var s = new SequflohCrewSession { TrackingRecordId = id, TrackingNumber = r.Number, WorkerId = w?.Id, WorkerName = w?.Name };
         Apply(s, w is null ? x : x with { CrewSize = 1 }, now);
-        await CheckOverlapAsync(id, null, s.StartedAt, s.StoppedAt, now, ct, s.WorkerId);
+        // a typed-in nameless crew row is its own group of people, so it may overlap other crew rows; a day worker can't overlap their own time
+        if (s.WorkerId is not null) await CheckOverlapAsync(id, null, s.StartedAt, s.StoppedAt, now, ct, s.WorkerId);
         db.SequflohCrewSessions.Add(s);
         Audit(r, "CrewTimeAdded", $"Crew time added on {r.Number}: {Describe(s, await m.ZoneAsync(r.SiteId, ct))}", null, Describe(s, await m.ZoneAsync(r.SiteId, ct)));
         await db.SaveChangesAsync(ct);
@@ -183,7 +209,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         var z = await m.ZoneAsync(r.SiteId, ct);
         var before = Describe(s, z);
         Apply(s, s.WorkerId is null ? x : x with { CrewSize = 1 }, m.Now);
-        await CheckOverlapAsync(r.Id, s.Id, s.StartedAt, s.StoppedAt, m.Now, ct, s.WorkerId);
+        if (s.WorkerId is not null) await CheckOverlapAsync(r.Id, s.Id, s.StartedAt, s.StoppedAt, m.Now, ct, s.WorkerId);
         var after = Describe(s, z);
         Audit(r, "CrewTimeEdited", $"Crew time on {r.Number} changed from {before} to {after}", before, after);
         await db.SaveChangesAsync(ct);
