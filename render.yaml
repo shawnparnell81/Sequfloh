@@ -23,3 +23,23 @@ services:
         sync: false
       - key: STORAGE_SECRET_KEY
         sync: false
+  # Nightly database backup to the file bucket under backups/db/ (kept 30 days).
+  # Schedule is UTC: 07:00 UTC is 3:00 AM New York during EDT and 2:00 AM during EST.
+  - type: cron
+    name: sequfloh-db-backup
+    runtime: docker
+    plan: starter
+    schedule: "0 7 * * *"
+    dockerfilePath: ./backup/Dockerfile
+    dockerContext: ./backup
+    envVars:
+      - key: DATABASE_URL
+        fromService: { type: web, name: sequfloh, envVarKey: DATABASE_URL }
+      - key: STORAGE_SERVICE_URL
+        fromService: { type: web, name: sequfloh, envVarKey: STORAGE_SERVICE_URL }
+      - key: STORAGE_BUCKET
+        fromService: { type: web, name: sequfloh, envVarKey: STORAGE_BUCKET }
+      - key: STORAGE_ACCESS_KEY
+        fromService: { type: web, name: sequfloh, envVarKey: STORAGE_ACCESS_KEY }
+      - key: STORAGE_SECRET_KEY
+        fromService: { type: web, name: sequfloh, envVarKey: STORAGE_SECRET_KEY }
