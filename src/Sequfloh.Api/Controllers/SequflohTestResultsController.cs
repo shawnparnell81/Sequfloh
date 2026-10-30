@@ -17,6 +17,7 @@ public sealed class SequflohTestResultsController(SequflohTestResultService test
     [HttpPost("{id:guid}/test/fields/{key}/remove")] public async Task<object> RemoveField(Guid id, string key, TestRemoveInput r, CancellationToken ct) { await tests.RemoveFieldAsync(id, key, r, ct); return await tests.GetAsync(id, ct); }
     [HttpPost("{id:guid}/test/parts")] public Task<object> AddPart(Guid id, TestPartInput r, CancellationToken ct) => tests.AddPartAsync(id, r, ct);
     [HttpPut("test/parts/{partId:guid}")] public async Task<IActionResult> UpdatePart(Guid partId, TestPartInput r, CancellationToken ct) { await tests.UpdatePartAsync(partId, r, ct); return NoContent(); }
+    [HttpPut("test/parts/{partId:guid}/result")] public async Task<IActionResult> SetResult(Guid partId, TestResultInput r, CancellationToken ct) { await tests.SetResultAsync(partId, r, ct); return NoContent(); }
     [HttpPost("test/parts/{partId:guid}/remove")] public async Task<IActionResult> RemovePart(Guid partId, TestRemoveInput r, CancellationToken ct) { await tests.RemovePartAsync(partId, r, ct); return NoContent(); }
     [HttpPost("{id:guid}/drawings")] public async Task<IActionResult> AttachDrawing(Guid id, DrawingAttachInput r, CancellationToken ct) { await tests.AttachDrawingAsync(id, r.DrawingId, ct); return NoContent(); }
 }

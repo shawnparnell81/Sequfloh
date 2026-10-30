@@ -259,5 +259,10 @@ public class SequflohTestPartResult : Entity, IAudited
     public DateTimeOffset? RemovedAt { get; set; }
     public string? RemovedBy { get; set; }
     public string? RemoveReason { get; set; }
+    /// <summary>The Pass or Fail the tech set by hand for this part (null = use the automatic result), with who, when and why.</summary>
+    public string? ManualResult { get; set; }
+    public string? ManualReason { get; set; }
+    public string? ManualBy { get; set; }
+    public DateTimeOffset? ManualAt { get; set; }
     public string AuditLabel => $"Part {PartIndex} test results on {TrackingNumber}";
 }

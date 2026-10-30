@@ -1796,6 +1796,18 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<DateTimeOffset?>("ManualAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ManualBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ManualReason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ManualResult")
+                        .HasColumnType("text");
+
                     b.Property<string>("Note")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
