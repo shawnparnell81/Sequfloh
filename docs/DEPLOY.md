@@ -119,3 +119,58 @@ The second command stops it again.
 ```powershell
 docker compose -f C:\sequfloh\docker-compose.yml down
 ```
+
+## Nightly database backup (Render cron job)
+
+Neon's free plan only keeps 6 hours of restore history, so a Render cron job named `sequfloh-db-backup` saves a full copy of the database to the Cloudflare R2 bucket every night. It runs at 07:00 UTC, which is 3:00 AM New York in summer (EDT) and 2:00 AM in winter (EST). Copies are saved under `backups/db/` as `sequfloh-db-YYYY-MM-DD-HHMM.dump`. Copies older than 30 days are deleted automatically. Uploaded files already live in R2 and are not part of this copy. The app never reads or serves anything under `backups/`.
+
+The job is set up in `render.yaml` and uses the files in the `backup` folder.
+
+### Creating the cron job
+
+Use one of these two ways.
+
+- **Blueprint (if the app was set up from `render.yaml`):** in Render, open **Blueprints**, pick the Sequfloh blueprint, and click **Manual sync** (or wait for the next sync). Review the new `sequfloh-db-backup` cron job and apply it. Its five settings are copied from the `sequfloh` web service automatically.
+- **By hand:** click **New > Cron Job** and connect the Sequfloh repository on the `main` branch. Set the language to **Docker**, the Dockerfile path to `./backup/Dockerfile`, the Docker build context to `./backup`, and the schedule to `0 7 * * *`. Pick the Starter instance type.
+
+### Its settings
+
+Open the `sequfloh` web service, go to **Environment**, and copy these five values into the cron job's **Environment** page with the same names:
+
+- `DATABASE_URL`
+- `STORAGE_SERVICE_URL`
+- `STORAGE_BUCKET`
+- `STORAGE_ACCESS_KEY`
+- `STORAGE_SECRET_KEY`
+
+If you used the Blueprint, check that the five are there. If any is missing, the run stops and its log names the missing ones. The values are never printed in the log.
+
+### Running it once by hand
+
+Open the `sequfloh-db-backup` cron job and click **Trigger Run**. Open **Logs**. A good run ends with `Uploaded backups/db/sequfloh-db-...dump` and `Backup finished`.
+
+### Where backups are
+
+In Cloudflare, go to **R2**, open the bucket the app uses, then open the `backups/db/` folder. Click a file and choose **Download** to save it to your PC.
+
+### Restoring a backup
+
+You need the PostgreSQL 17 or 18 tools (`pg_restore`) on your PC.
+
+Into a new Neon branch, to check it or to recover data:
+
+1. In Neon, create a new branch. Under **Databases**, add a new empty database to it (for example `restore`), and copy its connection string.
+2. Run this, using your connection string and file name:
+
+```
+pg_restore --no-owner --no-privileges --dbname="postgresql://USER:PASSWORD@HOST/restore?sslmode=require" sequfloh-db-YYYY-MM-DD-HHMM.dump
+```
+
+Into a local Postgres (for example the one from `docker compose`):
+
+```
+createdb -h localhost -p 5432 -U sequfloh sequfloh_restore
+pg_restore --no-owner --no-privileges -h localhost -p 5432 -U sequfloh -d sequfloh_restore sequfloh-db-YYYY-MM-DD-HHMM.dump
+```
+
+Only point the web service's `DATABASE_URL` at a restored copy on purpose: that replaces the data the app is using.
