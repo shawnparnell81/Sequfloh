@@ -47,8 +47,8 @@ export const SqfStatus = ({ status, colors }: { status?: string | null; colors?:
   status ? <Chip size="small" variant={status === 'Released' ? 'filled' : 'outlined'} color={((colors?.[status] as typeof statusColor[string]) ?? statusColor[status] ?? 'default')} label={words(status)} /> : <span>—</span>;
 
 /** A SEQUFLOH page inside the app shell: module menu, breadcrumbs, title, description, organization and user context, pin, recent tracking. */
-export function SqfPage({ title, description, crumbs, actions, tabs, tab, onTab, children, permission, recent }: {
-  title: ReactNode; description?: string; crumbs: Crumb[]; actions?: ReactNode; tabs?: { label: string; value: string }[]; tab?: string; onTab?: (v: string) => void; children?: ReactNode;
+export function SqfPage({ title, description, crumbs, actions, summary, tabs, tab, onTab, children, permission, recent }: {
+  title: ReactNode; description?: string; crumbs: Crumb[]; actions?: ReactNode; summary?: ReactNode; tabs?: { label: string; value: string }[]; tab?: string; onTab?: (v: string) => void; children?: ReactNode;
   permission?: string; recent?: { label: string; itemType: string; recordId?: string | null } | null;
 }) {
   const { can } = useAuth();
@@ -72,17 +72,19 @@ export function SqfPage({ title, description, crumbs, actions, tabs, tab, onTab,
   };
   const denied = !can('sequfloh.access') || (permission && !can(permission));
   const c = ctx.data;
+  const pinBtn = !denied && (c?.module.favoritesEnabled ?? true) && <Tooltip title={pinned ? 'Unpin from SEQUFLOH Home' : 'Pin to SEQUFLOH Home'}><IconButton aria-label={pinned ? 'Unpin page' : 'Pin page'} onClick={pin}>{pinned ? <PushPin color="primary" /> : <PushPinOutlined />}</IconButton></Tooltip>;
   return (
     <ModuleWorkspace module={mod()} crumbs={crumbs} title={title}
-      actions={<Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" justifyContent="flex-end" sx={{ displayPrint: 'none' }}>{actions}
-        {!denied && (c?.module.favoritesEnabled ?? true) && <Tooltip title={pinned ? 'Unpin from SEQUFLOH Home' : 'Pin to SEQUFLOH Home'}><IconButton aria-label={pinned ? 'Unpin page' : 'Pin page'} onClick={pin}>{pinned ? <PushPin color="primary" /> : <PushPinOutlined />}</IconButton></Tooltip>}</Stack>}
-      subtitle={description}
+      actions={<Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" justifyContent={summary ? 'flex-start' : 'flex-end'} sx={{ displayPrint: 'none' }}>{actions}
+        {!summary && pinBtn}</Stack>}
+      subtitle={description} summary={summary}
       meta={c && <>
         <Chip size="small" color="primary" variant="outlined" label={`${c.module.displayName} · ${c.module.subtitle}`} />
         {c.organization && <Chip size="small" variant="outlined" label={c.organization} />}
         {c.sites.length > 0 && <Chip size="small" variant="outlined" label={c.sites.map((s) => s.code).join(', ')} />}
         <Chip size="small" variant="outlined" label={`${c.user.displayName}${c.roles.length ? ' · ' + c.roles.join(', ') : ''}`} />
         {import.meta.env.DEV && <Chip size="small" color="warning" variant="outlined" label="Development" />}
+        {summary && pinBtn}
       </>}
       tabs={tabs} tab={tab} onTab={onTab}>
       {denied ? <Alert severity="warning">You do not have permission to open this SEQUFLOH page. Ask a SEQUFLOH administrator for module access.</Alert>

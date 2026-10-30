@@ -12,8 +12,10 @@ export interface WorkspaceTab { label: string; value: string }
  * The one page header used by every page: breadcrumb, then the title with its subtitle and meta chips on the left and the action bar on the
  * right (primary, secondary, then More for rare or destructive actions), then the page's own tabs. It wraps to one column on narrow screens.
  */
-export function PageHeader({ crumbs, homeLabel, title, icon, subtitle, meta, actions, tabs, tab, onTab }: {
+export function PageHeader({ crumbs, homeLabel, title, icon, subtitle, meta, actions, summary, tabs, tab, onTab }: {
   crumbs: Crumb[]; homeLabel?: string; title: ReactNode; icon?: ReactNode; subtitle?: ReactNode; meta?: ReactNode; actions?: ReactNode;
+  /** Key facts of the record, shown under the action bar and above the tabs. Pages with a summary put the context chips beside the title and the action bar on its own full-width row. */
+  summary?: ReactNode;
   tabs?: WorkspaceTab[]; tab?: string; onTab?: (v: string) => void;
 }) {
   const tk = useTheme().tk;
@@ -28,6 +30,16 @@ export function PageHeader({ crumbs, homeLabel, title, icon, subtitle, meta, act
             : <Typography key={i} fontSize={11.5} fontWeight={600} sx={{ color: tk.header.fg }}>{c.label}</Typography>)}
         </Breadcrumbs>
       </Box>
+      {summary ? <>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        {icon && <Box aria-hidden sx={{ width: tk.icon.size, height: tk.icon.size, flexShrink: 0, display: { xs: 'none', sm: 'grid' }, placeItems: 'center', background: tk.gradient, color: '#FFFFFF', borderRadius: `${tk.icon.radius}px`, '& svg': { fontSize: tk.icon.size * 0.56 }, boxShadow: `0 8px 20px ${tk.glow}` }}>{icon}</Box>}
+          <Typography variant="h1" sx={{ color: tk.header.fg, flex: '1 1 320px', minWidth: 0, overflowWrap: 'anywhere' }}>{title}</Typography>
+          {meta && <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center" justifyContent={{ xs: 'flex-start', md: 'flex-end' }} aria-label="Context" sx={{ ml: { md: 'auto' }, displayPrint: 'none' }}>{meta}</Stack>}
+        </Box>
+        {subtitle && <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 820, mt: 1 }}>{subtitle}</Typography>}
+        {actions && <Box data-page-actions className="sqf-no-print" sx={{ display: 'flex', alignItems: 'center', gap: SPACE.gap, flexWrap: 'wrap', mt: 1.5 }}>{actions}</Box>}
+        <Box data-page-summary sx={{ mt: 1.5 }}>{summary}</Box>
+      </> : <>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
         {icon && <Box aria-hidden sx={{ width: tk.icon.size, height: tk.icon.size, flexShrink: 0, display: { xs: 'none', sm: 'grid' }, placeItems: 'center', background: tk.gradient, color: '#FFFFFF', borderRadius: `${tk.icon.radius}px`, '& svg': { fontSize: tk.icon.size * 0.56 }, boxShadow: `0 8px 20px ${tk.glow}` }}>{icon}</Box>}
         <Box sx={{ flex: '1 1 320px', minWidth: 0, alignSelf: 'center' }}>
@@ -39,6 +51,7 @@ export function PageHeader({ crumbs, homeLabel, title, icon, subtitle, meta, act
         {subtitle ? <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 820 }}>{subtitle}</Typography> : <span />}
         {meta && <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center" aria-label="Context">{meta}</Stack>}
       </Stack>}
+      </>}
       {tabs && (
         <Tabs value={tab} onChange={(_, v) => onTab?.(v)} variant="scrollable" textColor="inherit" sx={{ mt: 1, minHeight: 40, '& .MuiTab-root': { minHeight: 40, color: tk.header.muted, opacity: 1 }, '& .MuiTab-root.Mui-selected': { color: 'primary.main' } }}>
           {tabs.map((t) => <Tab key={t.value} value={t.value} label={t.label} />)}

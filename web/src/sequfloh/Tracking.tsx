@@ -65,7 +65,7 @@ export function LiveClock({ seconds, running, label }: { seconds: number; runnin
 // ------------------------------------------------------------------ folders
 export interface TrRow { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionNumber: string; workInstructionRevision: string;
   workInstructionTitle: string; partNumber?: string; partDescription?: string; serialNumber?: string; lotNumber?: string; workOrder?: string; repairOrder?: string; operation?: string; dueAt?: string;
-  actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; assignees?: string[]; owner?: string; department?: string; site?: string; elapsedSeconds: number; statusTag?: string | null; statusNote?: string | null;
+  actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; assignees?: string[]; owner?: string; department?: string; site?: string; elapsedSeconds: number; quantityCompleted?: number; quantityTarget?: number | null; statusTag?: string | null; statusNote?: string | null;
   pausedSeconds: number; holdSeconds: number; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number; varianceMinutes?: number; stateVersion: number }
 const folders: Record<string, { title: string; description: string; type?: string }> = {
   'validation-fai': { title: 'Validation / FAI', type: 'Validation', description: 'Validation / FAI work orders.' },
@@ -126,6 +126,8 @@ function TrackingFolder({ folder }: { folder: string }) {
   ];
   const extra = folder === 'repair' ? [{ key: 'serialNumber', label: 'Serial', render: (r: TrRow) => r.serialNumber ?? '—' }, { key: 'repairOrder', label: 'Repair order', render: (r: TrRow) => r.repairOrder ?? '—' }]
     : folder === 'production' ? [{ key: 'workOrder', label: 'Work order', render: (r: TrRow) => r.workOrder ?? '—' }, { key: 'operation', label: 'Operation', render: (r: TrRow) => r.operation ?? '—' }]
+    : folder === 'completed' ? [{ key: 'lotSerial', label: 'Lot / serial', render: (r: TrRow) => [r.lotNumber, r.serialNumber].filter(Boolean).join(' / ') || '—' },
+      { key: 'quantityCompleted', label: 'Qty completed', render: (r: TrRow) => <span data-testid="qty-completed-cell">{qtyCompleted(r.quantityCompleted, r.quantityTarget)}</span> }]
     : [{ key: 'lotSerial', label: 'Lot / serial', render: (r: TrRow) => [r.lotNumber, r.serialNumber].filter(Boolean).join(' / ') || '—' }];
   return (
     <SqfPage title={cfg.title} crumbs={trCrumbs(cfg.title)} description={cfg.description} permission="sequfloh.view_live_execution"
@@ -423,6 +425,7 @@ export function TrackingRecordPage() {
   const running = rec.status === 'InProgress';
   return (
     <SqfPage title={title} crumbs={trCrumbs(rec.number, { label: folders[folder].title, to: `/sequfloh/tracking/${folder}` })} recent={{ label: `${rec.number} ${rec.workInstructionTitle}`, itemType: 'Work order', recordId: rec.id }}
+      summary={<WorkOrderSummary rec={rec} />}
       tabs={tabs} tab={tab} onTab={(t) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); }}
       actions={<RecordActions surface="work-order" dirty={dirty} busy={busy}
         save={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => void save() }}
@@ -812,4 +815,35 @@ function FormChoice({ value, onChange, disabled }: { value: boolean; onChange: (
       <ToggleButton value="yes" data-testid="form-choice-yes">Yes</ToggleButton><ToggleButton value="no" data-testid="form-choice-no">No</ToggleButton>
     </ToggleButtonGroup>
   </Stack>;
+}
+
+/** The key facts of a work order at the top of its page, above the tabs, so they show without scrolling. Only facts the work order has are listed. */
+export const qtyCompleted = (done?: number, target?: number | null) => `${done ?? 0}${target != null ? ` of ${target}` : ''}`;
+
+function WorkOrderSummary({ rec }: { rec: TrRecord }) {
+  const assigned = rec.assignees?.length ? rec.assignees.map((a) => a.displayName).join(', ') : s(rec.assignedUser);
+  const items: [string, ReactNode][] = [
+    ['Type', `${trackingTypes[rec.type]}${rec.inspectionSubType ? ' · ' + s(rec.inspectionSubType) : ''}`],
+    ['Status', <SqfStatus key="st" status={rec.status} />],
+    ...(rec.partNumber ? [['Part', <span key="p"><Mono>{s(rec.partNumber)}</Mono>{rec.partDescription ? ` — ${s(rec.partDescription)}` : ''}</span>] as [string, ReactNode]] : []),
+    ...(rec.familyName ? [['Product family', s(rec.familyName)] as [string, ReactNode]] : []),
+    ...(rec.quantityTarget != null ? [['Qty', s(rec.quantityTarget)] as [string, ReactNode]] : []),
+    ['Qty completed', qtyCompleted(rec.quantityCompleted as number | undefined, rec.quantityTarget as number | null | undefined)],
+    ['Priority', s(rec.priority) || '—'],
+    ['Assigned', assigned || '—'],
+    ['Due', rec.dueAt ? fmtDateTime(s(rec.dueAt)) : '—'],
+    ['Created', `${fmtDateTime(rec.createdAt)}${rec.createdBy ? ' · ' + s(rec.createdBy) : ''}`],
+    ...(rec.workInstructionNumber ? [['Work instruction', `${s(rec.workInstructionNumber)}${rec.workInstructionRevision ? ' rev ' + s(rec.workInstructionRevision) : ''}`] as [string, ReactNode]] : []),
+    ...(['site', 'department', 'customerReturnReference', 'serialNumber', 'lotNumber', 'workOrder', 'repairOrder'] as const).filter((k) => s(rec[k]))
+      .map((k) => [({ site: 'Site', department: 'Department', customerReturnReference: 'Customer return', serialNumber: 'Serial', lotNumber: 'Lot', workOrder: 'Work order ref', repairOrder: 'Repair order' })[k], s(rec[k])] as [string, ReactNode]),
+  ];
+  return (
+    <Paper variant="outlined" component="section" aria-label="Work order summary" data-testid="wo-summary"
+      sx={{ px: 2, py: 1.25, display: 'grid', columnGap: 3, rowGap: 1, gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', md: 'repeat(auto-fill, minmax(170px, 1fr))' } }}>
+      {items.map(([label, value]) => <Box key={label} sx={{ minWidth: 0 }} data-summary-item={label}>
+        <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.3 }}>{label}</Typography>
+        <Typography variant="body2" component="div" sx={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{value}</Typography>
+      </Box>)}
+    </Paper>
+  );
 }
