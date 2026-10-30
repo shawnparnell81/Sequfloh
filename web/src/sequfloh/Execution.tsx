@@ -1,3 +1,4 @@
+import { useAuth } from '../auth';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Chip, List, ListItemButton, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material';
@@ -253,9 +254,11 @@ const eventTypes = ['Created', 'Dispatch', 'Assignment', 'Start', 'Pause', 'Resu
 export function WorkHistoryPage() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
-  const tab = sp.get('tab') ?? 'events';
+  const { can } = useAuth();
+  const canEvents = can('sequfloh.view_task_events');
+  const tab = canEvents ? sp.get('tab') ?? 'events' : 'completed';
   const v = (k: string) => sp.get(k) ?? '';
-  const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('createdAt:desc');
+  const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState(canEvents ? 'createdAt:desc' : 'actualCompletion:desc');
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
   const users = useUsers(); const sites = useSites();
   const ev = useQuery({ queryKey: ['sqf-ex', 'events', sp.toString(), page, size, sort], enabled: tab === 'events',
@@ -272,7 +275,7 @@ export function WorkHistoryPage() {
   return (
     <SqfPage title="Work History" crumbs={exCrumbs('Work History')} permission="sequfloh.view_live_execution"
       description="Completed execution history and the append-only task events behind it. Events cannot be edited or deleted."
-      tabs={[{ label: 'Task events', value: 'events' }, { label: 'Completed executions', value: 'completed' }]} tab={tab}
+      tabs={[...(canEvents ? [{ label: 'Task events', value: 'events' }] : []), { label: 'Completed executions', value: 'completed' }]} tab={tab}
       onTab={(t) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); setPage(1); setSort(t === 'events' ? 'createdAt:desc' : 'actualCompletion:desc'); }}>
       <Filters search={v('q')} onSearch={(x) => set('q', x)} filters={filters} values={Object.fromEntries(filters.map((f) => [f.key, v(f.key)]))} onChange={set}
         onClear={() => { setSp(tab === 'events' ? {} : { tab }); setPage(1); }}

@@ -55,7 +55,7 @@ public sealed class TestPassFailTests(TestApp app)
         Assert.Null(R(await Part(c, id, 3), "result")); Assert.Null(R(await Part(c, id, 3), "autoResult"));
         Assert.Equal("Fail", (await c.GetElAsync($"{T}/{id}/test")).Str("overallResult"));
         var full = Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync());
-        Assert.Contains("Result: PASS", full); Assert.Contains("Result: FAIL", full); Assert.Contains("Overall test result: FAIL", full);
+        Assert.Contains("Part 1", full); Assert.Contains("PASS", full); Assert.Contains("FAIL", full); Assert.Contains("Overall test result: FAIL", full); // compact test results on the job report
         var one = Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{id}/print/work-order")).Content.ReadAsByteArrayAsync());
         Assert.Contains("PASS", one); Assert.Contains("FAIL", one);
     }

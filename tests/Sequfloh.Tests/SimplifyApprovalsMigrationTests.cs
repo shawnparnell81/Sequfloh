@@ -144,7 +144,7 @@ public class SimplifyApprovalsMigrationTests
                 return list;
             }
             // the built-in Administrator role ends up with every permission
-            Assert.Equal(Sequfloh.Domain.Security.Permissions.All.Union(["sequfloh.delete_records", "sequfloh.import_files", "sequfloh.manage_chargebacks", "sequfloh.manage_crew_time", "sequfloh.manage_drawings", "sequfloh.view_drawings", "sequfloh.view_imported_files"]).Order().ToList(), (await PermsOf(adminRole)).Order().ToList());
+            Assert.Equal(Sequfloh.Domain.Security.Permissions.All.Except(Sequfloh.Domain.Security.Permissions.AssignOnly).Union(["sequfloh.delete_records", "sequfloh.import_files", "sequfloh.manage_chargebacks", "sequfloh.manage_crew_time", "sequfloh.manage_drawings", "sequfloh.view_drawings", "sequfloh.view_imported_files"]).Order().ToList(), (await PermsOf(adminRole)).Order().ToList());
             Assert.Equal(["sequfloh.edit_quality_folder", "sequfloh.import_files", "sequfloh.view_imported_files"], (await PermsOf(qualityRole)).Order().ToList());
 
             // reference lists: the kept action keeps its custom label under the new list; removed entries are gone

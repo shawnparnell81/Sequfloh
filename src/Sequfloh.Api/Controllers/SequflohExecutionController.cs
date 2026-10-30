@@ -54,7 +54,8 @@ public sealed class SequflohExecutionController(AppDbContext db, ModuleSupport m
     public async Task<object> Events([FromQuery] string? q, [FromQuery] string? eventType, [FromQuery] Guid? user, [FromQuery] TrackingType? type, [FromQuery] Guid? site,
         [FromQuery] DateOnly? from, [FromQuery] DateOnly? to, [FromQuery] string? sort, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
-        var records = await tracking.QueryAsync(ct);
+        if (!await m.CanAnyAsync(Permissions.SequflohViewTaskEvents, ct)) throw new ForbiddenException();
+        var records = await m.ScopeAsync(await tracking.QueryAsync(ct), Permissions.SequflohViewTaskEvents, ct);
         if (type is not null) records = records.Where(r => r.Type == type);
         if (site is not null) records = records.Where(r => r.SiteId == site);
         var query = db.SequflohTaskEvents.AsNoTracking().Where(e => records.Any(r => r.Id == e.TrackingRecordId));

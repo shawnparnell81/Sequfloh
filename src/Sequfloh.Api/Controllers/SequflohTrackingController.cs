@@ -51,7 +51,10 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         var now = await tracking.DbNowAsync(ct);
         var (active, paused, hold) = SequflohTrackingService.Durations(x, now);
         string? Name(Guid? u) => u is null ? null : db.Users.Where(y => y.Id == u).Select(y => y.DisplayName).FirstOrDefault();
-        var events = await db.SequflohTaskEvents.AsNoTracking().Where(e => e.TrackingRecordId == id).OrderBy(e => e.CreatedAt)
+        // task events are only sent to holders of View task events; they keep being recorded for everyone
+        var canEvents = await m.CanAsync(Permissions.SequflohViewTaskEvents, x.SiteId, x.DepartmentId, ct);
+        var clocked = await SequflohJobService.ClockedAsync(db, id, now, ct);
+        var events = !canEvents ? null : await db.SequflohTaskEvents.AsNoTracking().Where(e => e.TrackingRecordId == id).OrderBy(e => e.CreatedAt)
             .Select(e => new { e.Id, e.EventType, e.FromStatus, e.ToStatus, e.CreatedAt, e.UserName, e.Reason, e.Comment, e.ActiveSeconds, e.PausedSeconds, e.HoldSeconds, e.OperationId,
                 AssignedBefore = db.Users.Where(u => u.Id == e.AssignedBeforeId).Select(u => u.DisplayName).FirstOrDefault(),
                 AssignedAfter = db.Users.Where(u => u.Id == e.AssignedAfterId).Select(u => u.DisplayName).FirstOrDefault() }).ToListAsync(ct);
@@ -77,7 +80,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 Site = db.Sites.Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefault(),
                 Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
             },
-            Events = events, ServerTime = now, CanEnter = canEnter,
+            Events = events, CanViewTaskEvents = canEvents, ClockedSeconds = clocked.Seconds, ClockedPersonnel = clocked.Personnel, FirstClockOn = clocked.FirstClockOn, ServerTime = now, CanEnter = canEnter,
             Instruction = x.WorkInstructionId is { } wiId ? new
             {
                 IsUploadedFile = db.SequflohWorkInstructions.Where(w => w.Id == wiId).Select(w => w.IsUploadedFile).FirstOrDefault(),
@@ -254,6 +257,16 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
             .OrderByDescending(a => a.OccurredAt).Select(a => new { a.OccurredAt, a.UserName, a.Action, a.Description, a.Changes, a.Reason }).Take(1000).ToListAsync(ct);
     }
 
+    /// <summary>The task events of one work order. Refused without View task events.</summary>
+    [HttpGet("{id:guid}/events")]
+    public async Task<object> TaskEvents(Guid id, CancellationToken ct)
+    {
+        var x = await tracking.LoadAsync(id, false, ct);
+        await m.RequireAsync(Permissions.SequflohViewTaskEvents, x.SiteId, x.DepartmentId, ct);
+        return await db.SequflohTaskEvents.AsNoTracking().Where(e => e.TrackingRecordId == id).OrderBy(e => e.CreatedAt)
+            .Select(e => new { e.Id, e.EventType, e.FromStatus, e.ToStatus, e.CreatedAt, e.UserName, e.Reason, e.Comment }).ToListAsync(ct);
+    }
+
     /// <summary>The everyday work order print (one page, two for big orders), opened inline in the browser for printing. Audited.</summary>
     [HttpGet("{id:guid}/print/work-order")]
     public async Task<IActionResult> PrintWorkOrder(Guid id, CancellationToken ct)
@@ -265,9 +278,9 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
 
     /// <summary>Printable tracking record (PDF from the application's renderer), opened inline in the browser for printing. Audited.</summary>
     [HttpGet("{id:guid}/print")]
-    public async Task<IActionResult> Print(Guid id, CancellationToken ct)
+    public async Task<IActionResult> Print(Guid id, [FromQuery] bool timeBreakdown = false, [FromQuery] bool events = false, CancellationToken ct = default)
     {
-        var (pdf, name) = await print.TrackingAsync(id, ct);
+        var (pdf, name) = await print.TrackingAsync(id, ct, timeBreakdown, events);
         Response.Headers.ContentDisposition = $"inline; filename=\"{name}\"";
         return File(pdf, "application/pdf");
     }

@@ -27,7 +27,7 @@ WHERE EXISTS (SELECT 1 FROM sqf.attachments a WHERE a.""OwnerType"" = 'SequflohW
             // the built-in Administrator role holds every permission, including Remove WI from order and any added since it was created
             migrationBuilder.Sql($"""
                 INSERT INTO sqf.role_permissions ("RoleId", "Permission")
-                SELECT "Id", p FROM sqf.roles, unnest(ARRAY[{string.Join(", ", Sequfloh.Domain.Security.Permissions.All.Select(x => $"'{x}'"))}]) AS p WHERE "IsSystem"
+                SELECT "Id", p FROM sqf.roles, unnest(ARRAY[{string.Join(", ", Sequfloh.Domain.Security.Permissions.All.Except(Sequfloh.Domain.Security.Permissions.AssignOnly).Select(x => $"'{x}'"))}]) AS p WHERE "IsSystem"
                 ON CONFLICT DO NOTHING;
                 """);
         }

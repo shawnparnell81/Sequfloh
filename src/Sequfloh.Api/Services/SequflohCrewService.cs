@@ -388,7 +388,8 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
         var r = await tracking.LoadAsync(id, false, ct);
         var now = m.Now;
         var t = await TotalsAsync(id, ct);
-        var list = await db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == id).OrderByDescending(x => x.StartedAt).ToListAsync(ct);
+        // with Use crew time No, nameless crew entries are not shown at all (they are not counted either)
+        var list = await db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == id && (x.WorkerId != null || r.UseCrewTime)).OrderByDescending(x => x.StartedAt).ToListAsync(ct);
         var running = list.FirstOrDefault(x => x.StoppedAt is null && x.WorkerId == null);
         var workers = await db.SequflohDayWorkers.AsNoTracking().Where(w => w.TrackingRecordId == id).OrderBy(w => w.CreatedAt).ToListAsync(ct);
         return new

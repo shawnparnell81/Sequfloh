@@ -80,7 +80,7 @@ public sealed class OrderTestFieldTests(TestApp app)
         // per order only: the other order and the family template are unchanged
         Assert.Empty(Keys(await s.C.GetElAsync($"{T}/{other}/test")));
         var print = Encoding.Latin1.GetString(await (await s.C.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync());
-        Assert.Contains("Extended length", print); Assert.Contains("Compressed length", print); Assert.Contains("Part 2 test results", print);
+        Assert.Contains("Extended length", print); Assert.Contains("Compressed length", print); Assert.Contains("Part 2", print);
         Assert.Contains(await AuditsAsync(id), a => a.StartsWith("TestFieldAdded|") && a.Contains("Extended length"));
     }
 

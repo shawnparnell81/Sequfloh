@@ -37,6 +37,7 @@ test('job quantity, parts, tester files, chargeback report and the NetSuite note
   const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-${stamp}` } }))).id as string;
 
   // anyone can start a job and log time without being assigned
+  { const sv = (await ok(rq.get(`/api/sequfloh/tracking/${wo}`))).stateVersion; await ok(rq.post(`/api/sequfloh/tracking/${wo}/actions/start`, { data: { operationId: crypto.randomUUID(), stateVersion: sv } })); } // clocking on needs a started work order
   await page.goto(`/sequfloh/record/${wo}`);
   await view(page).getByTestId('start-timer').click();
   await expect(view(page).getByTestId('stop-timer')).toBeVisible();
@@ -47,12 +48,14 @@ test('job quantity, parts, tester files, chargeback report and the NetSuite note
   await expect(view(page).getByTestId('edit-netsuite-status')).toHaveCount(0);
   await expect(view(page).getByTestId('inventory-note')).toBeVisible();
 
-  // Job tab: quantity, parts, tester file
-  await view(page).getByRole('tab', { name: 'Job' }).click();
-  await view(page).getByLabel('Add completed').fill('300');
-  await view(page).getByLabel('Add could not repair (optional)').fill('2');
-  await view(page).getByRole('button', { name: 'Add', exact: true }).click();
+  // Record tab: quantity (the only place it is edited); Job tab: parts, tester file
+  await view(page).getByTestId('qty-edit').click();
+  await view(page).getByTestId('qty-completed-input').fill('300');
+  await view(page).getByTestId('qty-not-repaired-input').fill('2');
+  await view(page).getByTestId('qty-save').click();
   await expect(view(page).getByTestId('qty-completed')).toHaveText('300');
+  await view(page).getByRole('tab', { name: 'Job' }).click();
+  await expect(view(page).getByTestId('qty-completed')).toHaveCount(0);
   await view(page).getByRole('button', { name: 'Edit parts' }).click();
   await view(page).getByRole('button', { name: 'Add part' }).click();
   await view(page).getByLabel('Part number').last().fill('123abc');
