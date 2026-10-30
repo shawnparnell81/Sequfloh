@@ -282,6 +282,7 @@ public static class PermissionText
             "sequfloh.view_drawings" => "View drawings",
             "sequfloh.manage_drawings" => "Add drawings, revisions and drawing folders",
             "sequfloh.manage_time_variance" => "Turn Track time variance on or off on a work order",
+            "sequfloh.delete_permanently" => "Delete permanently: work orders cancelled as Created in error, and removed files",
             "sequfloh.manage_crew_time" => "Clock crew time and add or change past crew time on work orders",
             "sequfloh.transfer_time" => "Move recorded time from one work order to another (corrections)",
             "sequfloh.remove_files" => "Remove pictures and files from a work order (kept in history)",

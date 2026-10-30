@@ -20,6 +20,12 @@ public sealed class DeleteController(DeletionService delete) : ControllerBase
     [HttpDelete("api/sequfloh/tracking/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> WorkOrder(Guid id, CancellationToken ct) { await delete.WorkOrderAsync(id, ct); return NoContent(); }
 
+    [HttpPost("api/sequfloh/tracking/{id:guid}/delete-permanently"), RequirePermission(Permissions.SequflohDeletePermanently)]
+    public async Task<IActionResult> WorkOrderPermanently(Guid id, PermanentDeleteInput x, CancellationToken ct) { await delete.WorkOrderPermanentlyAsync(id, x.ConfirmNumber, ct); return NoContent(); }
+
+    [HttpDelete("api/sequfloh/tracking/job/test-files/{fileId:guid}/permanently"), RequirePermission(Permissions.SequflohDeletePermanently)]
+    public async Task<IActionResult> RemovedFilePermanently(Guid fileId, CancellationToken ct) { await delete.RemovedFilePermanentlyAsync(fileId, ct); return NoContent(); }
+
     [HttpDelete("api/sequfloh/inspection-requests/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> InspectionRequest(Guid id, CancellationToken ct) { await delete.InspectionRequestAsync(id, ct); return NoContent(); }
 
@@ -53,3 +59,5 @@ public sealed class DeleteController(DeletionService delete) : ControllerBase
     [HttpDelete("api/organization/departments/{id:guid}"), RequirePermission(Permissions.AdminOrganization)]
     public async Task<IActionResult> Department(Guid id, CancellationToken ct) { await delete.DepartmentAsync(id, ct); return NoContent(); }
 }
+
+public sealed record PermanentDeleteInput(string? ConfirmNumber);

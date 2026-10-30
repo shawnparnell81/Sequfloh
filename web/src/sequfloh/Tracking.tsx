@@ -355,7 +355,7 @@ interface TrRecord extends J { id: string; number: string; type: string; status:
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
-interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canChangeFormChoice?: boolean; canAssign?: boolean; canDelete?: boolean; serverTime: string;
+interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canChangeFormChoice?: boolean; canAssign?: boolean; canDelete?: boolean; canDeletePermanently?: boolean; serverTime: string;
   instruction?: { isUploadedFile: boolean; file?: { id: string; fileName: string; contentType: string } | null } | null; canRemoveInstruction?: boolean }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
 const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'nonconformanceReferences', 'reportedCondition', 'observedCondition', 'finalDisposition', 'varianceReason', 'result', 'qualityComments',
@@ -363,6 +363,7 @@ const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'no
 const s = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 
 export function TrackingRecordPage() {
+  const nav = useNavigate();
   const { id = '' } = useParams();
   const { can } = useAuth();
   const qc = useQueryClient();
@@ -436,6 +437,7 @@ export function TrackingRecordPage() {
           extra: 'Use this for work orders made by mistake. Work orders with logged time are kept for chargebacks and can only be cancelled.' }}>
         <SqfStatus status={rec.status} />
         {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
+        {q.data.canDeletePermanently && <DeletePermanentlyButton id={rec.id} number={rec.number} onDone={() => nav(`/sequfloh/tracking/${folder}`, { replace: true })} />}
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`}>Job report</Button>
         <Button variant="outlined" href={`${S}/tracking/${rec.id}/print`} target="_blank" rel="noopener" data-testid="wo-print-full">Full record PDF</Button>
         <Button variant="outlined" href={`${S}/tracking/${rec.id}/job/report/view`} target="_blank" rel="noopener" data-testid="wo-open-file">Open as file</Button>
@@ -865,4 +867,28 @@ function WorkOrderSummary({ rec }: { rec: TrRecord }) {
       </Box>)}
     </Paper>
   );
+}
+
+/** Deletes a work order cancelled as "Created in error" for good. The person types the work order number to confirm. */
+function DeletePermanentlyButton({ id, number, onDone }: { id: string; number: string; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false); const [typed, setTyped] = useState(''); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const ok = typed.trim().toLowerCase() === number.toLowerCase();
+  return <>
+    <Button variant="outlined" color="error" data-testid="wo-delete-permanently" onClick={() => { setOpen(true); setTyped(''); setErr(null); }}>Delete permanently</Button>
+    <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+      <FormDialogTitle>Delete {number} permanently?</FormDialogTitle>
+      <DialogContent>
+        <Typography variant="body2" sx={{ mb: 2 }}>This work order was cancelled as created in error. Deleting it removes its time, crew, notes, files, test results and saved job reports for good. The audit trail is kept and records the delete.</Typography>
+        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        <TextField autoFocus fullWidth label={`Type ${number} to confirm`} value={typed} onChange={(e) => setTyped(e.target.value)} inputProps={{ 'data-testid': 'wo-delete-permanently-confirm' }} />
+      </DialogContent>
+      <DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button>
+        <Button color="error" variant="contained" disabled={!ok || busy} data-testid="wo-delete-permanently-go" onClick={async () => {
+          setBusy(true); setErr(null);
+          try { await post(`${S}/tracking/${id}/delete-permanently`, { confirmNumber: typed.trim() }); void qc.invalidateQueries(); onDone(); }
+          catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+        }}>Delete permanently</Button></DialogActions>
+    </Dialog>
+  </>;
 }

@@ -88,6 +88,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 && (await m.CanAsync(Permissions.SequflohDispatchTask, x.SiteId, x.DepartmentId, ct) || await m.CanAsync(Permissions.SequflohReassignTask, x.SiteId, x.DepartmentId, ct)),
             CanDelete = await m.CanAsync(Permissions.SequflohDeleteRecords, x.SiteId, x.DepartmentId, ct) && !global::Sequfloh.Deletion.DeletionService.HasTime(x)
                 && !await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == x.Id, ct),
+            CanDeletePermanently = global::Sequfloh.Deletion.DeletionService.CancelledInError(x) && await m.CanAsync(Permissions.SequflohDeletePermanently, x.SiteId, x.DepartmentId, ct),
             CanPlan = !SequflohTrackingService.Terminal.Contains(x.Status)
                 && (await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct) || await m.CanAsync(Permissions.SequflohDispatchTask, x.SiteId, x.DepartmentId, ct)),
             CanAttachForm = CanAttachShape(x) && await m.CanAsync(SequflohTrackingService.CreatePermission(x.Type), x.SiteId, x.DepartmentId, ct),
