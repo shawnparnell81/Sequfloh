@@ -3,6 +3,12 @@
 # and removes backups there older than KEEP_DAYS (30). Secrets are read from the environment and never printed.
 set -euo pipefail
 
+# Settings pasted or linked in a dashboard can carry a trailing newline or spaces: drop CR/LF and trim.
+clean() { local v="${1//$'\r'/}"; v="${v//$'\n'/}"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; printf '%s' "$v"; }
+for v in DATABASE_URL STORAGE_SERVICE_URL STORAGE_BUCKET STORAGE_ACCESS_KEY STORAGE_SECRET_KEY; do
+  if [ -n "${!v:-}" ]; then printf -v "$v" '%s' "$(clean "${!v}")"; fi
+done
+
 missing=()
 for v in DATABASE_URL STORAGE_SERVICE_URL STORAGE_BUCKET STORAGE_ACCESS_KEY STORAGE_SECRET_KEY; do
   [ -n "${!v:-}" ] || missing+=("$v")
@@ -18,12 +24,47 @@ export AWS_ACCESS_KEY_ID="$STORAGE_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$STORAGE_S
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
 s3() { aws --endpoint-url "$STORAGE_SERVICE_URL" "$@"; }
 
-url="$DATABASE_URL"
-case "$url" in
-  *sslmode=*) ;;
-  *localhost*|*127.0.0.1*) ;;
-  *\?*) url="${url}&sslmode=require" ;;
-  *) url="${url}?sslmode=require" ;;
+# libpq keyword value, quoted so spaces, quotes and backslashes survive
+kv() { local x="${2//\\/\\\\}"; x="${x//\'/\\\'}"; printf "%s='%s' " "$1" "$x"; }
+
+# The app also accepts an Npgsql string (Host=...;Username=...); turn that into a libpq string
+to_libpq() {
+  local out="" part key val IFS=';'
+  for part in $1; do
+    [ -n "$(clean "$part")" ] || continue
+    key=$(clean "${part%%=*}"); val=$(clean "${part#*=}")
+    case "${key,,}" in
+      host|server) out+=$(kv host "$val") ;;
+      port) out+=$(kv port "$val") ;;
+      database|db) out+=$(kv dbname "$val") ;;
+      username|user\ id|userid|user) out+=$(kv user "$val") ;;
+      password|pwd) out+=$(kv password "$val") ;;
+      ssl\ mode|sslmode)
+        case "${val,,}" in verifyfull|verify-full) val=verify-full ;; verifyca|verify-ca) val=verify-ca ;; *) val="${val,,}" ;; esac
+        out+=$(kv sslmode "$val") ;;
+      channel\ binding|channel_binding) out+=$(kv channel_binding "${val,,}") ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+case "$DATABASE_URL" in
+  postgres://*|postgresql://*)
+    url="$DATABASE_URL"
+    case "$url" in
+      *sslmode=*) ;;
+      *localhost*|*127.0.0.1*) ;;
+      *\?*) url="${url}&sslmode=require" ;;
+      *) url="${url}?sslmode=require" ;;
+    esac ;;
+  *)
+    url=$(to_libpq "$DATABASE_URL")
+    if [ -z "$url" ]; then echo "Backup not started: DATABASE_URL is not a postgres:// URL or a Host=...;Database=... string." >&2; exit 1; fi
+    case "$url" in
+      *"sslmode="*) ;;
+      *"host='localhost'"*|*"host='127.0.0.1'"*) ;;
+      *) url+="sslmode='require'" ;;
+    esac ;;
 esac
 
 stamp=$(TZ=America/New_York date +%Y-%m-%d-%H%M)
