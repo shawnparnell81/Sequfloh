@@ -155,7 +155,7 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         {
             Template = new { t.Key, t.Label, Fields = t.Fields.Select(x => new { x.Key, x.Label, x.DefaultUnit, Added = x.Key.StartsWith("u-") }) },
             AddedFields = ReadCustom(spec?.CustomFields).Select(c => new { c.Key, c.Label, c.DefaultUnit, c.AddedBy, c.AddedAt, c.RemovedAt, c.RemovedBy, c.RemoveReason }),
-            r.FamilyName,
+            r.FamilyName, StoredResult = r.Result is null or "Pending" ? null : r.Result,
             Spec = t.Fields.Select(x => { var v = sv.FirstOrDefault(s => s.Key == x.Key); return new { x.Key, x.Label, Value = ST(v), Min = v?.Text is null ? null : v.Min, Max = v?.Text is null ? null : v.Max, Strict = v?.Strict == true, Unit = v?.Unit ?? x.DefaultUnit }; }),
             SpecSaved = spec is not null, SpecUpdatedAt = spec?.UpdatedAt ?? spec?.CreatedAt,
             Parts = parts.Where(p => p.RemovedAt is null).Select(p => { var pv = Read(p.Values); var auto = Auto(sv, pv, t.Fields.Select(fd => fd.Key)); return new { p.Id, p.PartIndex, p.Note, p.RecordedBy, RecordedAt = p.CreatedAt, p.EditedAt, p.EditedBy,
@@ -453,6 +453,18 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
     static string ResultLine(SequflohTestPartResult p, string? auto, Func<DateTimeOffset?, string> local) =>
         $"Result: {(Final(p, auto) ?? "Not evaluated").ToUpperInvariant()}" + (p.ManualResult is null ? (auto is null ? "" : " (automatic)")
             : $" (set by {p.ManualBy}, {local(p.ManualAt)}{(auto is not null && auto != p.ManualResult ? $"; automatic result {auto}" : "")}{(p.ManualReason is null ? "" : $"; reason: {p.ManualReason}")})");
+
+    /// <summary>The overall Pass / Fail of the part test results (null when there are none or some are not decided).</summary>
+    public async Task<string?> OverallAsync(SequflohTrackingRecord r, CancellationToken ct)
+    {
+        var t = await TemplateForAsync(r, ct);
+        if (t is null || t.Fields.Count == 0) return null;
+        var spec = await db.SequflohTestSpecs.AsNoTracking().FirstOrDefaultAsync(s => s.TrackingRecordId == r.Id, ct);
+        var sv = spec is null ? [] : Read(spec.Values);
+        var keys = t.Fields.Select(fd => fd.Key).ToList();
+        var parts = await db.SequflohTestPartResults.AsNoTracking().Where(p => p.TrackingRecordId == r.Id && p.RemovedAt == null).ToListAsync(ct);
+        return Overall([.. parts.Select(p => Final(p, Auto(sv, Read(p.Values), keys)))]);
+    }
 
     /// <summary>The test results as one compact table for the work order print: spec, then one column per part (up to six).</summary>
     /// <summary>Compact test results: spec and per-part actuals in columns of six parts, per-part Pass/Fail and the overall result.

@@ -291,7 +291,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var jobFields = new List<(string, string?)>();
         if (on.Contains("job"))
             jobFields.AddRange([("Work order", x.WorkOrderNumber), ("Record", x.TrackingNumber), ("Job type", job?.Type),
-                ("Work instruction", job is null ? null : (string.IsNullOrEmpty(job.WorkInstructionNumber) ? "—" : $"{job.WorkInstructionNumber} rev {job.WorkInstructionRevision} {job.Title}").Trim()),
+                ("Work instruction", job is null ? null : SequflohPrintService.WiLine(job.WorkInstructionNumber, job.WorkInstructionRevision, job.Title) ?? "—"),
                 ("Dates", x.DateFrom is null && x.DateTo is null ? null : $"{x.DateFrom:yyyy-MM-dd} to {x.DateTo:yyyy-MM-dd}"), ("Status", job?.Status)]);
         if (on.Contains("part")) jobFields.AddRange([("Assembly part number", x.PartNumber ?? "—"), ("Description", x.PartDescription ?? "—")]);
         if (on.Contains("task")) jobFields.Add(("Task description", x.TaskDescription));

@@ -158,6 +158,32 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
     }
 
     static string W(object? s) => s is null ? "" : System.Text.RegularExpressions.Regex.Replace(s.ToString()!, "([a-z])([A-Z])", "$1 $2");
+    /// <summary>The work instruction once: "WIN-TST-014 rev A - Fuel Pump ...". Handles a number or title that already carries the other
+    /// (imported numbers like "WIN-TST-014 - Fuel Pump ..." with the same text as the title) so the name is never repeated.</summary>
+    public static string? WiLine(string? number, string? revision, string? title)
+    {
+        if (string.IsNullOrWhiteSpace(number)) return null;
+        string code = number.Trim(), name = (title ?? "").Trim();
+        var cut = code.IndexOf(" - ", StringComparison.Ordinal);
+        if (cut > 0) { var rest = code[(cut + 3)..].Trim(); code = code[..cut].Trim(); if (name.Length == 0) name = rest; }
+        if (name.StartsWith(code, StringComparison.OrdinalIgnoreCase)) name = name[code.Length..].TrimStart(' ', '-', '–', '·', ':').Trim();
+        var rev = string.IsNullOrWhiteSpace(revision) ? "" : $" rev {revision.Trim()}";
+        return name.Length == 0 ? code + rev : $"{code}{rev} - {name}";
+    }
+
+    /// <summary>"Test work order", "Validation / FAI work order", ...</summary>
+    public static string TypeName(TrackingType t) => t switch { TrackingType.Fai => "Validation / FAI work order", TrackingType.SaltSpray => "Salt Spray Test work order", TrackingType.Repair => "Repair / Rework work order", _ => $"{W(t)} work order" };
+
+    /// <summary>The result shown on reports. Test work orders: the stored result when one was set (Pass, Fail, ...), otherwise the overall
+    /// Pass / Fail of the part test results; a stored result that disagrees with the test results is shown with the test result beside it.</summary>
+    public static string? ResultText(string? stored, string? testOverall)
+    {
+        var set = !string.IsNullOrWhiteSpace(stored) && stored != "Pending";
+        if (testOverall is null) return string.IsNullOrWhiteSpace(stored) ? null : W(stored);
+        if (!set) return $"{testOverall} (from test results)";
+        return string.Equals(stored, testOverall, StringComparison.OrdinalIgnoreCase) ? W(stored) : $"{W(stored)} (recorded on the work order; test results: {testOverall})";
+    }
+
     static string Min(long sec) => $"{sec / 3600}h {sec % 3600 / 60:00}m";
 
     /// <summary>
@@ -185,8 +211,9 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         }
         var now = await tracking.DbNowAsync(ct);
         var clocked = await SequflohJobService.ClockedAsync(db, x.Id, now, ct);
-        Section("Record", [("Tracking number", x.Number), ("Type", typeTitle), ("Status", W(x.Status)), ("Result", x.Result is null ? null : W(x.Result)), ("Priority", B(x.Priority)),
-            ("Work instruction", string.IsNullOrEmpty(x.WorkInstructionNumber) ? null : $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision} {x.WorkInstructionTitle}".Trim()),
+        var testOverall = x.Type == TrackingType.Test ? await tests.OverallAsync(x, ct) : null;
+        Section("Record", [("Tracking number", x.Number), ("Type", typeTitle), ("Status", W(x.Status)), ("Result", ResultText(x.Result, testOverall)), ("Priority", B(x.Priority)),
+            ("Work instruction", WiLine(x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle)),
             ("Site", site), ("Owner", N(x.OwnerId)), ("Assigned", N(x.AssignedUserId))]);
         Section("References", [("Part number", B(x.PartNumber)), ("Part description", B(x.PartDescription)), ("Serial number", B(x.SerialNumber)), ("Lot number", B(x.LotNumber)), ("Work order", B(x.WorkOrder)),
             ("Repair order", B(x.RepairOrder)), ("Customer return", B(x.CustomerReturnReference)), ("Project", B(x.Project)), ("Operation", B(x.Operation)), ("FAI type", B(x.FaiType)),
@@ -256,7 +283,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
                 events.Select(e => new[] { local(e.CreatedAt), W(e.EventType), W(e.FromStatus), W(e.ToStatus), e.UserName, e.Reason ?? e.Comment }).ToList()));
         }
         var terminal = x.Status is TrackingStatus.Completed or TrackingStatus.Failed or TrackingStatus.Canceled;
-        var header = new PrintHeader(await OrganizationAsync(ct), $"Job report: {(string.IsNullOrEmpty(x.WorkInstructionTitle) ? x.Number : x.WorkInstructionTitle)}", x.Number, x.WorkInstructionRevision, W(x.Status), null,
+        var header = new PrintHeader(await OrganizationAsync(ct), $"Job report: {x.Number} · {TypeName(x.Type)}", x.Number, null, W(x.Status), null,
             x.PartNumber is null ? null : $"Part {x.PartNumber}{(x.PartDescription is null ? "" : " " + x.PartDescription)}", settings.WorkInstructions.PrintFooter, current.UserName, printed, terminal ? null : W(x.Status), x.Number);
         var pdf = SequflohPdfRenderer.Render(header, blocks);
         f.Audit("TrackingRecordPrinted", SequflohTrackingService.EntityType, x.Id, $"Printed job report {x.Number} ({W(x.Status).ToLowerInvariant()})", x.SiteId);
@@ -287,12 +314,12 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         var blocks = new List<PrintBlock>
         {
             new PrintHeading("Work order"),
-            new PrintFields([("Work order number", x.Number), ("Type", type), ("Status", W(x.Status)), ("Result", x.Result is null ? null : W(x.Result)), ("Priority", x.Priority), ("Site", site),
+            new PrintFields([("Work order number", x.Number), ("Type", type), ("Status", W(x.Status)), ("Result", ResultText(x.Result, x.Type == TrackingType.Test ? await tests.OverallAsync(x, ct) : null)), ("Priority", x.Priority), ("Site", site),
                 ("Created", local(x.CreatedAt)), ("Created by", N(x.CreatedById)), ("Owner", N(x.OwnerId)), ("Assigned", N(x.AssignedUserId))]),
             new PrintHeading("Part and references"),
             new PrintFields([("Part number", x.PartNumber), ("Part description", x.PartDescription), ("Product family", x.FamilyName), ("Serial number", x.SerialNumber), ("Lot number", x.LotNumber),
                 ("Customer work order", x.WorkOrder), ("Repair order", x.RepairOrder), ("Quantity", x.QuantityTarget is null && x.QuantityCompleted == 0 ? null : $"{x.QuantityCompleted} completed{(x.QuantityTarget is { } q ? $" of {q}" : "")}"),
-                ("Work instruction", string.IsNullOrEmpty(x.WorkInstructionNumber) ? "None" : $"{x.WorkInstructionNumber} rev {x.WorkInstructionRevision} {x.WorkInstructionTitle}".Trim()),
+                ("Work instruction", WiLine(x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle) ?? "None"),
                 ("Drawings", drawings.Count == 0 ? "None" : string.Join("; ", drawings.Select(d => $"{d.DrawingNumber} {d.Title} rev {d.AttachedRevision}".Trim()))),
                 ("Validation form", x.Type is TrackingType.Test or TrackingType.Validation or TrackingType.SaltSpray ? SequflohTrackingService.FormLine(x) : null),
                 ("Description", x.InspectionDescription is null ? null : Cut(x.InspectionDescription, 600))]),
