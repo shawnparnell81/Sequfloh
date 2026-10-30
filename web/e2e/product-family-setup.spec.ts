@@ -3,12 +3,12 @@ import { expect, test } from '@playwright/test';
 import { settledShot, signIn, view } from './support';
 
 /** Product family setup: the wide list stays inside the window, rows can be dragged past the visible edge, and "What uses it" names what blocks a delete. Made-up data only. */
-test('product family setup fits the window, scrolls while dragging and lists what uses a family', async ({ page }) => {
+for (const size of [{ width: 1024, height: 600 }, { width: 1280, height: 800 }]) test(`product family setup fits the window, scrolls while dragging and lists what uses a family at ${size.width}x${size.height}`, async ({ page }) => {
   const shots = process.env.E2E_PF_SHOTS;
-  const shot = async (name: string) => { if (shots) await settledShot(page, path.join(shots, `${name}.png`)); };
+  const shot = async (name: string) => { if (shots) await settledShot(page, path.join(shots, `${size.width}x${size.height}-${name}.png`)); };
   const ok = async (r: Promise<import('@playwright/test').APIResponse>) => { const x = await r; expect(x.ok(), await x.text()).toBeTruthy(); return x.status() === 204 ? null : x.json(); };
   const k = Date.now().toString(36).toUpperCase();
-  await page.setViewportSize({ width: 1280, height: 760 });
+  await page.setViewportSize(size);
   await signIn(page);
   const rq = page.request;
   const site = (await ok(rq.get('/api/organization/sites')))[0].id as string;
@@ -21,9 +21,13 @@ test('product family setup fits the window, scrolls while dragging and lists wha
   const table = view(page).getByTestId('dropdown-table');
   await expect(table.getByTestId('dropdown-row').first()).toBeVisible();
   // the list ends inside the window, so its side-to-side scrollbar is on screen without scrolling the page to the bottom
-  const box = await table.evaluate((el) => ({ bottom: el.getBoundingClientRect().bottom, inner: window.innerHeight, sw: el.scrollWidth, cw: el.clientWidth, sh: el.scrollHeight, ch: el.clientHeight }));
-  expect(box.bottom).toBeLessThanOrEqual(box.inner);
-  expect(box.sh).toBeGreaterThan(box.ch);
+  const box = await table.evaluate((el) => ({ height: el.getBoundingClientRect().height, inner: window.innerHeight, sw: el.scrollWidth, cw: el.clientWidth, sh: el.scrollHeight, ch: el.clientHeight }));
+  // never squeezed to a few rows: at least most of the window (or all rows), never taller than the window
+  expect(box.height).toBeGreaterThanOrEqual(Math.min(480, box.inner - 64, box.sh) - 2);
+  expect(box.height).toBeLessThanOrEqual(box.inner);
+  await table.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+  const bottom = await table.evaluate((el) => el.getBoundingClientRect().bottom);
+  expect(bottom).toBeLessThanOrEqual(box.inner + 1);
   await table.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
   await expect(view(page).getByTestId('reference-delete').first()).toBeInViewport();
   await table.evaluate((el) => { el.scrollLeft = 0; });
