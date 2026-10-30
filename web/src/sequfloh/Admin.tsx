@@ -210,14 +210,14 @@ export function ReferenceDataPage() {
   );
 }
 
-/** Keeps a wide table inside the window: its height stops at the bottom of the window, so its own scrollbars (side to side too) are always on screen. */
+/** Keeps a wide table inside the window so its own scrollbars (side to side too) are on screen: it fills the rest of the window, and never gets shorter than most of the window (the page scrolls the heading away instead). */
 function useFitToWindow(gap = 16) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [max, setMax] = useState<number | undefined>(undefined);
   const fit = useCallback(() => {
     const el = ref.current; if (!el) return;
     const top = el.getBoundingClientRect().top + window.scrollY;
-    setMax(Math.max(240, window.innerHeight - top - gap));
+    setMax(Math.max(window.innerHeight - top - gap, Math.min(480, window.innerHeight - 64)));
   }, [gap]);
   useLayoutEffect(() => { fit(); });
   useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, [fit]);
@@ -305,7 +305,8 @@ export function DropdownsPage() {
       </Stack>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : rows.length === 0 ? <Empty text="No values match." /> :
-        <TableContainer component={Paper} variant="outlined" ref={fit.ref} data-testid="dropdown-table" sx={{ maxHeight: fit.maxHeight }}><Table size="small" stickyHeader>
+        <TableContainer component={Paper} variant="outlined" ref={fit.ref} data-testid="dropdown-table" sx={{ maxHeight: fit.maxHeight }}><Table size="small" stickyHeader
+          sx={{ '& td, & th': { whiteSpace: 'nowrap', py: 0.5 } }}>
           <TableHead><TableRow><TableCell>Order</TableCell><TableCell>Label</TableCell><TableCell>Code</TableCell><TableCell>Status</TableCell><TableCell>Default</TableCell><TableCell>Origin</TableCell><TableCell /></TableRow></TableHead>
           <TableBody>{rows.map((v, i) => <TableRow key={v.id} data-testid="dropdown-row" draggable={canDrag}
             onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', v.id); }}
