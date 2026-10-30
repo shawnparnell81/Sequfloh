@@ -16,15 +16,18 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 
 /// <summary>The file as read. HeaderRow and RowNumbers are row numbers in the file; Top holds the first rows so the header row can be chosen.</summary>
 public sealed record PartsImportTable(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, List<string> Warnings,
-    int HeaderRow = 1, List<int>? RowNumbers = null, List<PartsImportTopRow>? Top = null);
+    int HeaderRow = 1, List<int>? RowNumbers = null, List<PartsImportTopRow>? Top = null, List<PartsImportTab>? Tabs = null, List<string>? SkippedTabs = null);
+/// <summary>One tab of a workbook read with "Import every tab": the tab name is the product family. HeaderRow and RowNumbers are row numbers in the tab.</summary>
+public sealed record PartsImportTab(string Name, Guid FamilyId, string Family, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, int HeaderRow, List<int> RowNumbers);
+public sealed record PartsImportTabCount(string Tab, string Family, int Rows, int Add, int Update, int Skip, int Errors);
 public sealed record PartsImportTopRow(int Row, List<string> Cells);
 public sealed record PartsImportRequest(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, Guid SiteId, bool UpdateExisting,
-    List<int>? RowNumbers = null, Guid? DefaultTypeId = null, bool KeepRepeats = false, Dictionary<string, string>? Fixed = null);
+    List<int>? RowNumbers = null, Guid? DefaultTypeId = null, bool KeepRepeats = false, Dictionary<string, string>? Fixed = null, List<PartsImportTab>? Tabs = null, List<string>? SkippedTabs = null);
 /// <summary>Repeat is true for an added row whose part number is already used by another row or part but whose values differ.</summary>
-public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages, bool Repeat = false);
+public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages, bool Repeat = false, string? Tab = null);
 public sealed record ImportLayoutInput(string Name, System.Text.Json.JsonElement Layout);
 public sealed record ImportLayoutView(Guid Id, string Name, System.Text.Json.JsonElement Layout);
-public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Update, int Skip, int Errors);
+public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Update, int Skip, int Errors, List<PartsImportTabCount>? Tabs = null, List<string>? SkippedTabs = null);
 
 /// <summary>
 /// Bulk import into the Part Master from Excel, CSV or the tables of a Word document. Files are only read, never run (macros are ignored).
@@ -87,7 +90,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     // ------------------------------------------------------------------ reading
-    public async Task<PartsImportTable> ReadAsync(Stream input, string fileName, bool allTables, CancellationToken ct, int? headerRow = null)
+    public async Task<PartsImportTable> ReadAsync(Stream input, string fileName, bool allTables, CancellationToken ct, int? headerRow = null, bool allTabs = false)
     {
         await RequireCanImportAsync(ct);
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
@@ -105,6 +108,12 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             // older and web-page formats are read from a converted copy; the upload itself is not changed
             ms = new MemoryStream(await ImportedFileService.ConvertLegacyAsync(legacy, ms, ext, word, ct));
             ext = word ? ".docx" : ".xlsx";
+        }
+        if (allTabs)
+        {
+            if (ext is not (".xlsx" or ".xlsm")) throw new AppException("Import every tab works with Excel workbooks (.xlsx, .xlsm or .xls).");
+            if (ext is ".xlsm") warnings.Add("Macros in the workbook were ignored; only cell values were read.");
+            return await ReadTabsAsync(ms, ext, Path.GetFileName(fileName), warnings, ct);
         }
         List<List<string>> grid = ext switch
         {
@@ -130,6 +139,42 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         if (headers.Any(h => Norm(h).Contains("serial"))) warnings.Add("Serial number columns are not imported.");
         var top = numbered.Take(10).Select(x => new PartsImportTopRow(x.Row, x.Cells.Take(12).Select(c => c.Trim()).ToList())).ToList();
         return new PartsImportTable(Path.GetFileName(fileName), headers, rows, Suggest(headers), warnings, numbered[headerAt].Row, body.Select(x => x.Row).ToList(), top);
+    }
+
+    /// <summary>
+    /// Every visible tab with data, each read like a file of its own (its own header row and column mapping). The tab name is the product family, matched
+    /// like a typed family; a tab that matches no active product family is skipped and named in SkippedTabs.
+    /// </summary>
+    async Task<PartsImportTable> ReadTabsAsync(Stream ms, string ext, string fileName, List<string> warnings, CancellationToken ct)
+    {
+        var wb = WorkbookReader.Read(ms, ext.TrimStart('.'), recalculate: false);
+        var families = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive)
+            .OrderBy(v => v.SortOrder).Select(v => new { v.Id, v.Code, v.Label }).ToListAsync(ct);
+        var tabs = new List<PartsImportTab>(); var skipped = new List<string>();
+        foreach (var sheet in wb.Sheets.Where(x => x.Visibility == "visible" && x.Cells.Count > 0))
+        {
+            var fam = families.FirstOrDefault(x => SequflohFoundationService.ProductFamilyMatches(x.Code, x.Label, sheet.Name));
+            if (fam is null) { skipped.Add($"Tab \"{sheet.Name}\" was skipped: it does not match a product family."); continue; }
+            var grid = new List<List<string>>();
+            for (var r = sheet.FirstRow; r <= sheet.LastRow; r++)
+            {
+                var row = new List<string>();
+                for (var c = sheet.FirstCol; c <= sheet.LastCol; c++) { var cell = sheet.At(r, c); row.Add(cell?.Display ?? cell?.Text ?? cell?.Cached ?? ""); }
+                grid.Add(row);
+            }
+            var numbered = grid.Select((r, i) => (Row: sheet.FirstRow + i, Cells: r)).Where(x => x.Cells.Any(c => !string.IsNullOrWhiteSpace(c))).ToList();
+            if (numbered.Count < 2) { skipped.Add($"Tab \"{sheet.Name}\" was skipped: it has no rows under a header row."); continue; }
+            var at = HeaderRow(numbered.Select(x => x.Cells).ToList());
+            var headers = numbered[at].Cells.Select(h => h.Trim()).ToList();
+            var body = numbered.Skip(at + 1).ToList();
+            var map = Suggest(headers); map.Remove("typeName"); // the tab is the product family
+            if (headers.Any(h => Norm(h).Contains("serial"))) warnings.Add($"Tab {sheet.Name}: serial number columns are not imported.");
+            tabs.Add(new PartsImportTab(sheet.Name, fam.Id, fam.Label, headers, body.Select(x => Pad(x.Cells, headers.Count)).ToList(), map, numbered[at].Row, body.Select(x => x.Row).ToList()));
+        }
+        if (tabs.Count == 0) throw new AppException("No tab of the workbook matches a product family. Name each tab after its product family.");
+        if (tabs.Sum(t => t.Rows.Count) > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
+        var first = tabs[0];
+        return new PartsImportTable(fileName, first.Headers, first.Rows, first.Mapping, warnings, first.HeaderRow, first.RowNumbers, null, tabs, skipped);
     }
 
     static List<string> Pad(List<string> r, int n) { var x = r.Take(n).Select(c => c.Trim()).ToList(); while (x.Count < n) x.Add(""); return x; }
@@ -338,7 +383,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     public async Task<PartsImportPlan> PreviewAsync(PartsImportRequest r, CancellationToken ct)
     {
         var (plan, _, _) = await PlanAsync(r, ct);
-        return plan;
+        return Present(r, plan);
     }
 
     /// <summary>
@@ -352,7 +397,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         await m.RequireAsync(Permissions.SequflohEditParts, r.SiteId, null, ct);
         await m.RequireAsync(Permissions.MasterDataEdit, r.SiteId, null, ct);
         await m.ValidateLocationAsync(r.SiteId, null, ct);
-        var parsed = await ParseAsync(r, ct);
+        var parsed = r.Tabs is { } tabList ? await ParseTabsAsync(r, tabList, ct) : await ParseAsync(r, ct);
+        string At(int row) => Label(r, row);
         var all = await db.Parts.ToListAsync(ct);
         var existing = all.Where(p => !PartFields.IsBlank(p.PartNumber))
             .GroupBy(p => p.PartNumber, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
@@ -371,7 +417,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         {
             if (p.PartNumber is null) { rows.Add(new(p.Row, "Skip", null, p.Name, ["No part numbers in this row."])); continue; }
             if (p.Errors.Count > 0) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, p.Errors)); continue; }
-            if (exact.TryGetValue(p.PartNumber + "\u001e" + p.Key, out var same)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Exact duplicate of row {same}."])); continue; }
+            if (exact.TryGetValue(p.PartNumber + "\u001e" + p.Key, out var same)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Exact duplicate of {At(same)}."])); continue; }
             exact[p.PartNumber + "\u001e" + p.Key] = p.Row;
             var repeatOf = firstOf.TryGetValue(p.PartNumber, out var fr) ? fr : (int?)null;
             firstOf.TryAdd(p.PartNumber, p.Row);
@@ -402,7 +448,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             }
             var used = repeatOf is not null || existing.ContainsKey(p.PartNumber);
             if (!used) { rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [])); continue; }
-            var where = repeatOf is { } rr ? $"row {rr}" : "a part already in the Part Master";
+            var where = repeatOf is { } rr ? At(rr) : "a part already in the Part Master";
             if (!r.KeepRepeats) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Same Part number as {where} with different values. Turn on \"Keep rows that repeat a Part number but differ\" to add it as its own part."]));
             else rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [$"Same Part number as {where}; added as its own part."], Repeat: true));
         }
@@ -422,7 +468,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 continue;
             }
             if (byUpc.TryGetValue(k, out var owner) && owner.Id != target?.Id) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is already on part {owner.PartNumber}."] }; targets.Remove(row.Row); continue; }
-            if (upcRow.TryGetValue(k, out var first)) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is also on row {first}. A barcode can be on one part only."] }; targets.Remove(row.Row); continue; }
+            if (upcRow.TryGetValue(k, out var first)) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is also on {At(first)}. A barcode can be on one part only."] }; targets.Remove(row.Row); continue; }
             upcRow[k] = row.Row;
         }
         // a supplier LINYI PN is not a match key; one already on another part or repeated in the file is pointed out for a check, not refused
@@ -436,7 +482,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var target = targets.GetValueOrDefault(row.Row);
             if (target is not null && !PartFields.IsBlank(PartAttributes.Read(target.Attributes).GetValueOrDefault("linyiPn"))) continue;
             if (byLinyi.GetValueOrDefault(v)?.Where(x => x.Id != target?.Id).Select(x => x.PartNumber).ToList() is { Count: > 0 } owners) rows[i] = row = row with { Messages = [.. row.Messages, $"LINYI PN {v} is already on part {string.Join(", ", owners)}. Check this is right."] };
-            if (linyiRow.TryGetValue(v, out var first)) rows[i] = row with { Messages = [.. row.Messages, $"LINYI PN {v} is also on row {first}. Check this is right."] };
+            if (linyiRow.TryGetValue(v, out var first)) rows[i] = row with { Messages = [.. row.Messages, $"LINYI PN {v} is also on {At(first)}. Check this is right."] };
             else linyiRow[v] = row.Row;
         }
         return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error")), parsed, targets);
@@ -468,11 +514,12 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 // a part left numbered "/" (or another placeholder) by an earlier import takes the row's part number; a real number is never changed
                 var before = t.PartNumber;
                 if (PartFields.IsBlank(t.PartNumber) && p.PartNumber is not null) t.PartNumber = p.PartNumber;
-                p.Apply(t); saved.Add(t.Id);
+                if (r.Tabs is null) p.Apply(t); else FillBlanks(p.Apply, t); // every-tab imports only fill in what the part does not have yet
+                saved.Add(t.Id);
                 db.AuditEntries.Add(new AuditEntry
                 {
                     OccurredAt = m.Now, UserId = m.UserId, UserName = m.Current.UserName, Action = "Import", EntityType = "Part", EntityId = t.Id, SiteId = t.SiteId,
-                    Description = $"Updated part {t.PartNumber} from {Path.GetFileName(r.FileName)} (row {row.Row})." + (before != t.PartNumber ? $" Part number changed from \"{before}\" to {t.PartNumber}." : "")
+                    Description = $"Updated part {t.PartNumber} from {Path.GetFileName(r.FileName)} ({(r.Tabs is null ? $"row {row.Row}" : Label(r, row.Row))})." + (before != t.PartNumber ? $" Part number changed from \"{before}\" to {t.PartNumber}." : "")
                         + (row.Messages.Where(x => x.Contains(" stays ")) is var k && k.Any() ? " " + string.Join(" ", k) : ""),
                 });
             }
@@ -481,12 +528,78 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         db.AuditEntries.Add(new AuditEntry
         {
             OccurredAt = m.Now, UserId = m.UserId, UserName = m.Current.UserName, Action = "Import", EntityType = "PartsImport", EntityId = Guid.NewGuid(), SiteId = r.SiteId,
-            Description = $"Imported parts from {file}: {plan.Add} added, {plan.Update} updated, {plan.Skip} skipped, {plan.Errors} with errors ({(r.UpdateExisting ? "update existing" : "skip existing")}).",
+            Description = $"Imported parts from {file}: {plan.Add} added, {plan.Update} updated, {plan.Skip} skipped, {plan.Errors} with errors ({(r.UpdateExisting ? r.Tabs is null ? "update existing" : "fill blanks of existing" : "skip existing")})."
+                + (r.Tabs is { } tl ? $" Tabs: {string.Join(", ", tl.Select(t => $"{t.Name} ({t.Family})"))}." + (r.SkippedTabs is { Count: > 0 } st ? $" Skipped: {string.Join(" ", st)}" : "") : ""),
         });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         await drawingLinks.LinkPartsAsync(saved, ct); // drawings already named with a new or changed number link to these parts
-        return plan;
+        return Present(r, plan);
+    }
+
+    // ------------------------------------------------------------------ every tab of a workbook
+    /// <summary>Rows of an every-tab import are numbered tab * TabRows + row inside the plan, so rows of different tabs never collide.</summary>
+    const int TabRows = 1_000_000;
+
+    static string Label(PartsImportRequest r, int row) =>
+        r.Tabs is { } t && row >= TabRows && row / TabRows - 1 < t.Count ? $"Tab {t[row / TabRows - 1].Name}, row {row % TabRows}" : $"row {row}";
+
+    async Task<List<Parsed>> ParseTabsAsync(PartsImportRequest r, List<PartsImportTab> tabs, CancellationToken ct)
+    {
+        if (tabs.Count == 0) throw new AppException("No tab to import.");
+        if (tabs.Sum(t => t.Rows.Count) > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
+        var active = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive).Select(v => v.Id).ToListAsync(ct);
+        var list = new List<Parsed>();
+        for (var i = 0; i < tabs.Count; i++)
+        {
+            var t = tabs[i];
+            if (!active.Contains(t.FamilyId)) throw new AppException($"Tab {t.Name}: {t.Family} is not an active product family.");
+            if (t.RowNumbers.Count != t.Rows.Count) throw new AppException($"Tab {t.Name}: the row numbers do not match the rows.");
+            var map = new Dictionary<string, int>(t.Mapping); map.Remove("typeName");
+            var fx = new Dictionary<string, string>(r.Fixed ?? []); fx.Remove("typeName");
+            if (string.IsNullOrWhiteSpace(fx.GetValueOrDefault("name"))) fx["name"] = t.Family; // the Name is the tab's product family unless one is chosen
+            try
+            {
+                list.AddRange(await ParseAsync(r with { Headers = t.Headers, Rows = t.Rows, Mapping = map, Fixed = fx, DefaultTypeId = t.FamilyId, Tabs = null,
+                    RowNumbers = t.RowNumbers.Select(n => (i + 1) * TabRows + n).ToList() }, ct));
+            }
+            catch (AppException e) when (e is not ForbiddenException) { throw new AppException($"Tab {t.Name}: {e.Message}"); }
+        }
+        return list;
+    }
+
+    /// <summary>Plan rows with their tab and the row number inside the tab, and the counts of each tab.</summary>
+    static PartsImportPlan Present(PartsImportRequest r, PartsImportPlan plan)
+    {
+        if (r.Tabs is not { } tabs) return plan;
+        var rows = plan.Rows.Select(x => x.Row >= TabRows ? x with { Row = x.Row % TabRows, Tab = tabs[x.Row / TabRows - 1].Name } : x).ToList();
+        var counts = tabs.Select(t => { var mine = rows.Where(x => x.Tab == t.Name).ToList();
+            return new PartsImportTabCount(t.Name, t.Family, mine.Count, mine.Count(x => x.Action == "Add"), mine.Count(x => x.Action == "Update"), mine.Count(x => x.Action == "Skip"), mine.Count(x => x.Action == "Error")); }).ToList();
+        return plan with { Rows = rows, Tabs = counts, SkippedTabs = r.SkippedTabs ?? [] };
+    }
+
+    /// <summary>Applies a row to an existing part but keeps every value the part already has: only empty fields are filled in.</summary>
+    static void FillBlanks(Action<Part> apply, Part t)
+    {
+        static bool Blank(string? v) => string.IsNullOrWhiteSpace(v);
+        var (name, desc, uom, pclass, mat, dwg, spec, lot, fam, typeId, hidden) = (t.Name, t.Description, t.UnitOfMeasure, t.PartClass, t.Material, t.DrawingNumber, t.Specification, t.LotControl, t.ProductFamily, t.TypeId, t.HiddenFields);
+        var (asm, rep, rp, lotOn, upc, upcKey) = (t.IsAssembly, t.IsRepairable, t.IsRepairPart, t.IsLotControlled, t.Upc, t.UpcKey);
+        var attrs = PartAttributes.Read(t.Attributes).Where(kv => !PartFields.IsBlank(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        apply(t);
+        if (!Blank(name)) t.Name = name;
+        if (!Blank(desc)) t.Description = desc;
+        if (!Blank(uom)) t.UnitOfMeasure = uom!;
+        if (!Blank(pclass)) t.PartClass = pclass;
+        if (!Blank(mat)) t.Material = mat;
+        if (!PartFields.IsBlank(dwg)) t.DrawingNumber = dwg;
+        if (!Blank(spec)) t.Specification = spec;
+        if (!Blank(lot)) { t.LotControl = lot; t.IsLotControlled = lotOn; }
+        if (typeId is not null) { t.TypeId = typeId; t.ProductFamily = fam; }
+        if (!Blank(upc)) { t.Upc = upc; t.UpcKey = upcKey; }
+        // Yes/No flags have no empty state, so they are kept as they are
+        t.IsAssembly = asm; t.IsRepairable = rep; t.IsRepairPart = rp;
+        if (hidden is not null) t.HiddenFields = hidden;
+        if (attrs.Count > 0) PartAttributes.Merge(t, attrs);
     }
 
     // ------------------------------------------------------------------ saved column layouts
