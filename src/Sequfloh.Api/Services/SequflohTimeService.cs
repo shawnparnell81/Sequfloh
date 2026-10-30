@@ -25,6 +25,9 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
     {
         var rec = await RecordAsync(id, ct);
         SequflohTrackingService.RequireStarted(rec);
+        // one person's clock-ons run one after another, so two jobs started at the same moment can't both be on
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtext({0}))", ["clock:" + UserId], ct);
         if (await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == id && e.UserId == UserId && e.StoppedAt == null, ct))
             throw new ConflictException("You are already clocked on this job.");
         // one job at a time: a person can't be clocked on to two jobs at once
@@ -35,7 +38,7 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
         var entry = new SequflohTimeEntry { TrackingRecordId = id, TrackingNumber = rec.Number, UserId = UserId, UserName = name, StartedAt = at };
         AddEvent(entry, "Start", at);
         db.SequflohTimeEntries.Add(entry);
-        try { await db.SaveChangesAsync(ct); }
+        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException) { throw new ConflictException("You are already clocked on this job."); }
     }
 

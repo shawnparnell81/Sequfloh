@@ -29,6 +29,7 @@ public sealed class ErrorHandler(ILogger<ErrorHandler> log, IProblemDetailsServi
         {
             AppException a => (a.StatusCode, a.Message, null),
             DbUpdateConcurrencyException => (409, "This record was changed by someone else. Reload and try again.", null),
+            DbUpdateException { InnerException: Npgsql.PostgresException { SqlState: "23505" } } => (409, "This was saved by someone else at the same moment. Reload and try again.", null),
             _ => (500, "An unexpected error occurred.", (Dictionary<string, string[]>?)null)
         };
         if (status == 500)

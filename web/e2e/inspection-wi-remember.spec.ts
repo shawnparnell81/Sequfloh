@@ -26,10 +26,10 @@ test('work instruction type offers Inspection and the inspection templates are f
   await shot(page, '02-templates-under-inspection');
 });
 
-test('remember me keeps a lasting sign-in cookie and still starts with Home only', async ({ page }) => {
+test('remember me keeps a lasting email cookie, not a lasting sign-in, and still starts with Home only', async ({ page }) => {
   const { email, password } = account();
   await page.goto('/');
-  const remember = page.getByLabel('Remember me for 30 days on this device');
+  const remember = page.getByLabel('Remember my email on this device');
   await expect(remember).not.toBeChecked();
   await page.fill('input[type=email]', email);
   await remember.check();
@@ -38,7 +38,8 @@ test('remember me keeps a lasting sign-in cookie and still starts with Home only
   await page.click('button[type=submit]');
   await expect(page.getByTestId('tab-strip')).toBeVisible();
   await expect(tabs(page)).toHaveCount(1);
-  const c = (await page.context().cookies()).find((x) => x.name === 'sqf.session');
+  expect((await page.context().cookies()).find((x) => x.name === 'sqf.session')?.expires).toBe(-1);
+  const c = (await page.context().cookies()).find((x) => x.name === 'sqf.remember');
   const days = ((c?.expires ?? 0) - Date.now() / 1000) / 86400;
   expect(days).toBeGreaterThan(29.9);
   expect(days).toBeLessThan(30.1);

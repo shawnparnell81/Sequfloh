@@ -13,7 +13,6 @@ interface AuthState {
   loading: boolean;
   can: (permission: string) => boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
-  loginRemembered: () => Promise<void>;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -66,7 +65,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading: q.isLoading,
     can: (p) => !!me?.grants.some((g) => g.permission === p),
     login: async (email, password, rememberMe = false) => { await post('/api/auth/login', { email, password, rememberMe }); markOpen(); clearTabs(); await qc.invalidateQueries(); },
-    loginRemembered: async () => { await post('/api/auth/remembered'); markOpen(); clearTabs(); await qc.invalidateQueries(); },
     refresh: async () => { await qc.invalidateQueries(); },
     logout: async () => {
       await post('/api/auth/logout');

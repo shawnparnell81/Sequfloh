@@ -38,7 +38,8 @@ public sealed record KeyValue(string Column, decimal Min, decimal Average, decim
 public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohFoundationService f, IFileStorage storage, SequflohTestResultService tests)
 {
     public static readonly string[] DefaultPassValues = ["PASS", "PASSED", "P", "OK", "GOOD", "TRUE", "1"];
-    const long MaxFile = 25 * 1024 * 1024;
+    public const long MaxFile = 25 * 1024 * 1024;
+    static readonly Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider Types = new();
     static readonly string[] Allowed = [".csv", ".xlsx", ".pdf", ".txt"];
     static readonly string[] Photo = [".jpg", ".jpeg", ".png"];
     static readonly string[] Attach = [".csv", ".xlsx", ".xls", ".pdf", ".txt", ".docx", ".doc", ".pptx", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"];
@@ -261,7 +262,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             if (bytes.Length > MaxFile) throw new AppException($"{safe} is larger than 25 MB.");
             var x = new SequflohTestFile
             {
-                TrackingRecordId = r.Id, TrackingNumber = r.Number, FileName = safe.Length > 300 ? safe[^300..] : safe, ContentType = string.IsNullOrEmpty(type) ? "application/octet-stream" : type,
+                TrackingRecordId = r.Id, TrackingNumber = r.Number, FileName = safe.Length > 300 ? safe[^300..] : safe, ContentType = Types.TryGetContentType(safe, out var known) ? known : "application/octet-stream",
                 SizeBytes = bytes.Length, Batch = string.IsNullOrWhiteSpace(batch) ? null : batch.Trim()[..Math.Min(batch.Trim().Length, 100)], TestDate = testDate, UploadedByName = who, Kind = kind,
             };
             x.StorageKey = $"sequfloh/test-files/{r.Id:N}/{x.Id:N}{Path.GetExtension(safe).ToLowerInvariant()}";

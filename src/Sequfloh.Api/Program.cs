@@ -113,8 +113,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         {
             var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
             if (!Guid.TryParse(ctx.Principal?.FindFirstValue(ClaimTypes.NameIdentifier), out var id)) { ctx.Fail("bad token"); return; }
-            var u = await db.Users.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.IsActive, x.TokenVersion }).FirstOrDefaultAsync();
+            var u = await db.Users.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.IsActive, x.TokenVersion, x.MustChangePassword }).FirstOrDefaultAsync();
             if (u is null || !u.IsActive || u.TokenVersion.ToString() != ctx.Principal!.FindFirstValue("tv")) ctx.Fail("session ended");
+            else if (u.MustChangePassword) ctx.HttpContext.Items[PasswordChange.Flag] = true;
         },
     };
 });
@@ -144,6 +145,7 @@ if (cfg.GetValue("Database:MigrateOnStartup", true)) await MigrateAsync(app);
 await app.Services.GetRequiredService<IFileStorage>().EnsureReadyAsync(CancellationToken.None);
 
 app.UseForwardedHeaders();
+if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing")) app.UseHsts();
 app.UseExceptionHandler();
 app.Use(async (ctx, next) =>
 {
@@ -156,6 +158,19 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRateLimiter();
 app.UseAuthentication();
+// a person told to change their password can only use the sign-in endpoints, and the open ones the sign-in
+// and change-password screens use (such as the organization branding), until they do
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Items.ContainsKey(PasswordChange.Flag) && ctx.Request.Path.StartsWithSegments("/api") && !ctx.Request.Path.StartsWithSegments("/api/auth")
+        && ctx.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.Authorization.IAllowAnonymous>() is null)
+    {
+        ctx.Response.StatusCode = 403;
+        await ctx.Response.WriteAsJsonAsync(new { title = "Change your password to continue.", code = PasswordChange.Code });
+        return;
+    }
+    await next();
+});
 app.UseAuthorization();
 // health check for the hosting platform; it does not touch the database so a sleeping database is not woken for nothing
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
@@ -187,3 +202,9 @@ static async Task MigrateAsync(WebApplication app)
 }
 
 public partial class Program;
+
+static class PasswordChange
+{
+    public const string Flag = "sqf.mustChangePassword";
+    public const string Code = "PasswordChangeRequired";
+}
