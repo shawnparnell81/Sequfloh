@@ -486,11 +486,15 @@ export function TrackingRecordPage() {
             ...(['pauseReason', 'failureReason', 'cancelReason'].filter((k) => rec[k]).map((k) => [words(k.replace(/^./, (c) => c.toUpperCase())), s(rec[k])] as [string, ReactNode]))]} />
         </Paper>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Timing">
-          <Typography variant="h3" sx={{ mb: 1.5 }}>Timing</Typography>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap" sx={{ mb: 1.5 }}>
+            <Typography variant="h3">Timing</Typography>
+            <TrackVarianceSetting id={rec.id} on={rec.trackTimeVariance === true} canChange={!closed && can('sequfloh.manage_time_variance')} onChanged={refresh} />
+          </Stack>
           <Facts items={[['Elapsed (active)', <LiveClock key={rec.stateVersion} seconds={rec.elapsedSeconds} running={running} />],
             ['Paused time', <LiveClock key={'p' + rec.stateVersion} seconds={rec.pausedSeconds} running={rec.status === 'Paused'} label="Paused time" />],
             ['Benchmark range', rec.minBenchmarkMinutes != null || rec.maxBenchmarkMinutes != null ? `${s(rec.minBenchmarkMinutes) || '—'} – ${s(rec.maxBenchmarkMinutes) || '—'} min` : '—'],
-            ['Variance', rec.varianceMinutes != null ? `${s(rec.varianceMinutes)} min` : '—'], ['Planned start', fmtDateTime(s(rec.plannedStart))], ['Actual start', fmtDateTime(s(rec.actualStart))],
+            ['Variance', rec.trackTimeVariance ? (rec.varianceMinutes != null ? `${s(rec.varianceMinutes)} min` : '—')
+              : <Typography key="v" variant="body2" component="span" color="text.disabled" data-testid="variance-off">Not tracked</Typography>], ['Planned start', fmtDateTime(s(rec.plannedStart))], ['Actual start', fmtDateTime(s(rec.actualStart))],
             ['Due', fmtDateTime(s(rec.dueAt))], ['Actual completion', `${fmtDateTime(s(rec.actualCompletion))}${rec.completedBy ? ' · ' + s(rec.completedBy) : ''}`]]} />
         </Paper>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Planning">
@@ -520,7 +524,7 @@ export function TrackingRecordPage() {
             {(rec.type === 'Production' || rec.type === 'Inspection' || rec.type === 'Warranty') && <>{det('qualityCheckpoints', 'Quality checkpoints')}{det('resultEntry', 'Result entry')}</>}
             {txt('evidenceReferences', 'Evidence references', !enter)}{txt('technicianComments', 'Technician comments', !enter)}
             {(rec.type !== 'Production' && rec.type !== 'Inspection' && rec.type !== 'Warranty') && txt('deviations', 'Deviations', !enter)}{txt('nonconformanceReferences', 'Nonconformance references', !enter)}
-            {txt('varianceReason', 'Variance reason', !enter)}
+            {rec.trackTimeVariance === true && txt('varianceReason', 'Variance reason', !enter)}
           </Grid>
         </Paper>
       </Stack>}
@@ -710,7 +714,7 @@ const actionText: Record<string, string> = {
 };
 const reasonList: Record<string, string> = { cancel: 'cancellation-reasons', fail: 'repair-failure-reasons' };
 /** Action dialog: one operation ID per opening, so a double click cannot apply the action twice; the button is disabled while the request runs. */
-export function TaskActionDialog({ action, record, onClose, onRun }: { action: TrAction | null; record: { id?: string; number: string; assignedUserId?: string | null; minBenchmarkMinutes?: unknown; maxBenchmarkMinutes?: unknown; status: string; type?: string };
+export function TaskActionDialog({ action, record, onClose, onRun }: { action: TrAction | null; record: { id?: string; number: string; assignedUserId?: string | null; minBenchmarkMinutes?: unknown; maxBenchmarkMinutes?: unknown; trackTimeVariance?: unknown; status: string; type?: string };
   onClose: () => void; onRun: (a: TrAction, input: J) => Promise<void> }) {
   const users = useUsers();
   const [reason, setReason] = useState(''); const [comment, setComment] = useState(''); const [user, setUser] = useState(''); const [variance, setVariance] = useState('');
@@ -720,7 +724,7 @@ export function TaskActionDialog({ action, record, onClose, onRun }: { action: T
   const options = useOptions(action && reasonList[action.action] && (action.action !== 'fail' || record.type === 'Repair') ? reasonList[action.action] : 'priorities');
   if (!action) return null;
   const needsUser = ['dispatch', 'assign', 'reassign'].includes(action.action);
-  const needsVariance = action.action === 'complete' && record.status === 'InProgress' && (record.minBenchmarkMinutes != null || record.maxBenchmarkMinutes != null);
+  const needsVariance = action.action === 'complete' && record.status === 'InProgress' && record.trackTimeVariance === true && (record.minBenchmarkMinutes != null || record.maxBenchmarkMinutes != null);
   const opts = reasonList[action.action] && (action.action !== 'fail' || record.type === 'Repair') ? options.data ?? [] : [];
   const danger = ['fail', 'cancel'].includes(action.action);
   // closing the order: a reminder to leave a job note, never required
@@ -818,6 +822,21 @@ function FormChoice({ value, onChange, disabled }: { value: boolean; onChange: (
 }
 
 /** The key facts of a work order at the top of its page, above the tabs, so they show without scrolling. Only facts the work order has are listed. */
+/** Per work order: whether time variance against the benchmark is tracked. Off: no reason is asked for and variance is not shown or printed. */
+function TrackVarianceSetting({ id, on, canChange, onChanged }: { id: string; on: boolean; canChange: boolean; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  return (
+    <Stack direction="row" alignItems="center" gap={1}>
+      <TextField select size="small" label="Track time variance?" value={on ? 'yes' : 'no'} disabled={!canChange || busy} sx={{ width: 190 }}
+        inputProps={{ 'data-testid': 'track-variance' }}
+        onChange={async (e) => { setBusy(true); setErr(null); try { await put(`${S}/tracking/${id}/variance-setting`, { trackTimeVariance: e.target.value === 'yes' }); await onChanged(); } catch (x) { setErr(String((x as Error).message ?? x)); } finally { setBusy(false); } }}>
+        <MenuItem value="no">No</MenuItem><MenuItem value="yes">Yes</MenuItem>
+      </TextField>
+      {err && <Typography variant="caption" color="error">{err}</Typography>}
+    </Stack>
+  );
+}
+
 export const qtyCompleted = (done?: number, target?: number | null) => `${done ?? 0}${target != null ? ` of ${target}` : ''}`;
 
 function WorkOrderSummary({ rec }: { rec: TrRecord }) {

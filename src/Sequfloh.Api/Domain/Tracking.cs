@@ -87,6 +87,8 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     /// <summary>Minutes outside the benchmark range at completion (negative below the minimum, positive above the maximum, 0 inside).</summary>
     public decimal? VarianceMinutes { get; set; }
     public string? VarianceReason { get; set; }
+    /// <summary>Whether time variance against the benchmark is tracked on this work order. Off: no reason is asked for and variance is not shown or printed; stored values are kept.</summary>
+    public bool TrackTimeVariance { get; set; }
 
     /// <summary>Kept for existing data; no longer shown or set (one work order can cover many non-serialized parts).</summary>
     public string Result { get; set; } = "Pending";

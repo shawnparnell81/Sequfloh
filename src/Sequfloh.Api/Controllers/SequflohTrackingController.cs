@@ -64,7 +64,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 x.Id, x.Number, x.Type, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle, x.PartId, x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber,
                 x.WorkOrder, x.RepairOrder, x.CustomerReturnReference, x.Project, x.Operation, x.OwnerId, x.AssignedUserId, x.DepartmentId, x.SiteId, x.Status, x.Priority, x.PlannedStart, x.DueAt,
                 x.ActualStart, x.ActualCompletion, x.CurrentStateStartedAt, x.StateVersion, x.LastTransitionId, x.LastTransitionAt, x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes,
-                x.VarianceReason, x.Result, x.EngineeringConclusion,
+                x.VarianceReason, x.TrackTimeVariance, x.Result, x.EngineeringConclusion,
                 x.EvidenceReferences, x.TechnicianComments, x.QualityComments, x.EngineeringComments, x.Deviations, x.NonconformanceReferences, x.PauseReason, x.HoldReason, x.CancelReason,
                 x.FailureReason, x.ReportedCondition, x.ObservedCondition, x.RepairDescription, x.FinalDisposition, x.FaiType, x.CreatedAt, x.UpdatedAt,
                 x.QuantityTarget, x.QuantityCompleted, x.DevelopmentLine, x.FamilyId, x.FamilyName, x.InspectionSubType, x.InspectionDescription, x.QtyGood, x.QtyBad, x.Include8D, x.FurtherInspection, x.Quarantine, x.QuarantineReason,
@@ -217,6 +217,9 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
     /// <summary>Records qty good and bad, further inspection and the quarantine flag of an inspection or warranty work order.</summary>
     [HttpPut("{id:guid}/inspection-results")]
     public async Task<object> InspectionResults(Guid id, InspectionResultsInput r, CancellationToken ct) { var x = await tracking.SetInspectionResultsAsync(id, r, ct); return new { x.Id, x.QtyGood, x.QtyBad, x.FurtherInspection, x.Quarantine, x.QuarantineReason }; }
+    public sealed record VarianceSettingInput(bool TrackTimeVariance);
+    [HttpPut("{id:guid}/variance-setting")]
+    public async Task<object> VarianceSetting(Guid id, VarianceSettingInput x, CancellationToken ct) { await tracking.SetTrackTimeVarianceAsync(id, x.TrackTimeVariance, ct); return new { x.TrackTimeVariance }; }
     public sealed record InstructionRefInput(Guid? WorkInstructionId);
     /// <summary>Attaches, replaces or removes the optional work instruction of a work order before work starts.</summary>
     public sealed record RemoveInstructionInput(string? Reason);
