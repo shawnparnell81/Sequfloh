@@ -35,12 +35,12 @@ test('closing the browser ends the session and signing in starts with Home only'
   if (shots) await settledShot(page, `${shots}/03-sign-in-home-only.png`);
 });
 
-test('a browser that brings the session back still shows sign-in, and Remember me offers Sign in as', async ({ page, browser }) => {
+test('a browser that brings the session back still shows sign-in, and Remember me only fills in the email', async ({ page, browser }) => {
   const { email, password } = account();
   await page.goto('/');
   await page.fill('input[type=email]', email);
   await page.fill('input[type=password]', password);
-  await page.getByLabel(/Remember me/).check();
+  await page.getByLabel('Remember my email on this device').check();
   await page.click('button[type=submit]');
   await expect(page.getByTestId('tab-strip')).toBeVisible();
   // a reload and a new tab in the same browser stay signed in
@@ -60,15 +60,29 @@ test('a browser that brings the session back still shows sign-in, and Remember m
   const restored = await browser.newContext({ storageState: { cookies, origins: [] } });
   const again = await restored.newPage();
   await again.goto('/');
-  await expect(again.getByTestId('sign-in-remembered')).toBeVisible();
-  await again.getByTestId('sign-in-remembered').click();
+  // the email is filled in, but the password is still needed
+  await expect(again.locator('input[type=email]')).toHaveValue(email);
+  await expect(again.locator('input[type=password]')).toBeVisible();
+  await expect(again.locator('input[type=password]')).toHaveAttribute('required', '');
+  await expect(again.locator('input[type=password]')).toBeFocused();
+  await expect(again.getByTestId('tab-strip')).toHaveCount(0);
+  await again.click('button[type=submit]');
+  await expect(again.getByTestId('tab-strip')).toHaveCount(0);
+  await again.fill('input[type=password]', password);
+  await again.click('button[type=submit]');
   await expect(again.getByTestId('tab-strip')).toBeVisible();
 
-  // signing out keeps Remember me; "Use a different account" forgets it
+  // signing out keeps the remembered email; "Use a different account" forgets it
   await again.getByTestId('user-menu').click();
   await again.getByRole('menuitem', { name: 'Sign out' }).click();
-  await expect(again.getByTestId('sign-in-remembered')).toBeVisible();
-  await again.getByTestId('use-different-account').click();
   await expect(again.locator('input[type=password]')).toBeVisible();
+  await expect(again.locator('input[type=email]')).toHaveValue(email);
+  await expect(again.locator('input[type=password]')).toHaveValue('');
+  await again.getByTestId('use-different-account').click();
+  await expect(again.locator('input[type=email]')).toHaveValue('');
+  await expect(again.getByTestId('use-different-account')).toHaveCount(0);
+  await expect(again.locator('input[type=password]')).toBeVisible();
+  await again.reload();
+  await expect(again.locator('input[type=email]')).toHaveValue('');
   await restored.close();
 });

@@ -24,6 +24,8 @@ public sealed class SequflohJobController(SequflohJobService job, SequflohPrintS
     {
         var list = new List<(string, string, byte[])>();
         foreach (var file in files)
+            if (file.Length > SequflohJobService.MaxFile) throw new global::Sequfloh.Application.Abstractions.AppException($"{Path.GetFileName(file.FileName)} is larger than 25 MB.");
+        foreach (var file in files)
         {
             using var ms = new MemoryStream(); await file.CopyToAsync(ms, ct);
             list.Add((file.FileName, file.ContentType, ms.ToArray()));

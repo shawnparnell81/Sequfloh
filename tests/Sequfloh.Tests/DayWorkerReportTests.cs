@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -120,5 +121,25 @@ public sealed class DayWorkerReportTests(TestApp app)
         await c.PostOkAsync($"{T}/{two}/crew/start", new { crewSize = 2 });
         await c.PostOkAsync($"{T}/{one}/crew/stop", new { });
         await c.PostOkAsync($"{T}/{two}/crew/stop", new { });
+    }
+
+    [Fact]
+    public async Task Clocking_on_to_two_jobs_at_the_same_moment_leaves_only_one_running()
+    {
+        var site = await app.CreateSiteAsync();
+        var (uid, c) = await app.CreateUserAsync(Lead, site);
+        var ids = new List<Guid>();
+        for (var i = 0; i < 4; i++)
+        {
+            var id = (await (await c.PostOkAsync(T, new { type = "Inspection", siteId = site, inspectionSubType = "AQL", minBenchmarkMinutes = 0, maxBenchmarkMinutes = 600 })).JsonAsync()).Id();
+            await c.StartAsync(id);
+            ids.Add(id);
+        }
+        var codes = (await System.Threading.Tasks.Task.WhenAll(ids.Select(id => c.PostAsync($"{T}/{id}/time/start", new { })))).Select(r => r.StatusCode).ToList();
+        Assert.Equal(1, codes.Count(x => x == HttpStatusCode.OK));
+        Assert.Equal(3, codes.Count(x => x == HttpStatusCode.Conflict));
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Sequfloh.Infrastructure.Persistence.AppDbContext>();
+        Assert.Equal(1, await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.CountAsync(db.SequflohTimeEntries, e => e.UserId == uid && e.StoppedAt == null));
     }
 }

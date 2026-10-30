@@ -1,6 +1,6 @@
 import { ModuleWorkspace } from '../layout/ModuleWorkspace';
-import { useState, type FormEvent, type ReactNode } from 'react';
-import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Alert, Box, Button, Checkbox, FormControlLabel, Link, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -36,44 +36,47 @@ function Frame({ title, subtitle, children }: { title: string; subtitle: string;
 }
 
 export function LoginPage() {
-  const { login, loginRemembered } = useAuth();
+  const { login } = useAuth();
   const branding = useBranding();
+  // "Remember me" only remembers the email on this device; the password is always needed
   const remembered = useQuery({ queryKey: ['remembered'], queryFn: () => get<{ remembered: boolean; displayName: string | null; email: string | null }>('/api/auth/remembered'), staleTime: 0 });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const rememberedEmail = remembered.data?.remembered ? remembered.data.email ?? '' : '';
+  useEffect(() => {
+    if (!rememberedEmail) return;
+    setEmail(rememberedEmail);
+    setRemember(true);
+    passwordRef.current?.focus();
+  }, [rememberedEmail]);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setError(null); setBusy(true);
     try { await login(email, password, remember); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
   };
+  const different = async () => {
+    setError(null);
+    await post('/api/auth/forget').catch(() => {});
+    setEmail(''); setPassword(''); setRemember(false);
+    await remembered.refetch();
+  };
   const subtitle = branding.data?.organizationName ? `${branding.data.organizationName} job tracking` : 'Sign in with the email address your administrator set up for you.';
-  if (remembered.data?.remembered) {
-    const signInAs = async () => {
-      setError(null); setBusy(true);
-      try { await loginRemembered(); } catch (x) { setError((x as Error).message); await remembered.refetch(); } finally { setBusy(false); }
-    };
-    const different = async () => { await post('/api/auth/forget').catch(() => {}); await remembered.refetch(); };
-    return (
-      <Frame title="Sign in" subtitle={subtitle}>
-        <Stack gap={2}>
-          {error && <Alert severity="error">{error}</Alert>}
-          <Typography variant="body2" color="text.secondary">{remembered.data.email}</Typography>
-          <Button data-testid="sign-in-remembered" variant="contained" size="large" disabled={busy} onClick={signInAs} autoFocus>{busy ? 'Signing in…' : `Sign in as ${remembered.data.displayName}`}</Button>
-          <Button data-testid="use-different-account" onClick={different} disabled={busy}>Use a different account</Button>
-        </Stack>
-      </Frame>
-    );
-  }
   return (
     <Frame title="Sign in" subtitle={subtitle}>
       <Stack component="form" gap={2} onSubmit={submit}>
         {error && <Alert severity="error">{error}</Alert>}
-        <TextField label="Email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
-        <TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <TextField label="Email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus={!rememberedEmail} />
+        {rememberedEmail && (
+          <Link component="button" type="button" variant="body2" data-testid="use-different-account" onClick={different} disabled={busy} sx={{ alignSelf: 'flex-start', mt: -1 }}>
+            Not you? Use a different account
+          </Link>
+        )}
+        <TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required inputRef={passwordRef} autoFocus={!!rememberedEmail} />
         <FormControlLabel sx={{ mt: -1 }} control={<Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} />}
-          label={<Typography variant="body2">Remember me for 30 days on this device</Typography>} />
+          label={<Typography variant="body2">Remember my email on this device</Typography>} />
         <Button type="submit" variant="contained" size="large" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</Button>
         <Typography variant="caption" color="text.secondary">Forgot your password? Ask an administrator to set a temporary one for you.</Typography>
       </Stack>

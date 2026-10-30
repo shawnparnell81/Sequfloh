@@ -17,7 +17,7 @@ public sealed record ChangePasswordRequest(string CurrentPassword, string NewPas
 public sealed record SetupRequest(string OrganizationName, string SiteCode, string SiteName, string TimeZone, string DisplayName, string Email, string Password);
 
 [ApiController, Route("api/auth")]
-public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationUser> hasher, TokenService tokens, IAccessService access, Seeder seeder, IWebHostEnvironment env, AuthSettings authSettings) : ControllerBase
+public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationUser> hasher, TokenService tokens, IAccessService access, Seeder seeder, IWebHostEnvironment env) : ControllerBase
 {
     public const int MinPasswordLength = 10;
     const int MaxFailures = 5;
@@ -38,7 +38,7 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
     void SetCookie(string token) =>
         Response.Cookies.Append(AuthSettings.CookieName, token, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = SecureCookie, Path = "/" });
 
-    // "Remember me": lasts RememberDays and only lets the sign-in page offer "Sign in as"; the API never accepts it as a session.
+    // "Remember me": lasts RememberDays and only lets the sign-in page fill in the email; the password is always needed.
     void SetRememberCookie(ApplicationUser u)
     {
         var (token, expires) = tokens.IssueRemember(u);
@@ -96,7 +96,11 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
             return Unauthorized(new { title = "Email or password is incorrect." });
         }
         if (u.LockedUntil is { } until && until > now)
+        {
+            Audit(u.Id, u.DisplayName, "SignInFailed", $"Sign-in refused for {u.DisplayName}: account is locked after repeated failed sign-ins");
+            await db.SaveChangesAsync(ct);
             return Unauthorized(new { title = "This account is locked for a few minutes after repeated failed sign-ins. Try again later." });
+        }
         var result = string.IsNullOrEmpty(u.PasswordHash) ? PasswordVerificationResult.Failed : hasher.VerifyHashedPassword(u, u.PasswordHash, r.Password ?? "");
         if (result == PasswordVerificationResult.Failed)
         {
@@ -108,7 +112,7 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         }
         if (result == PasswordVerificationResult.SuccessRehashNeeded) u.PasswordHash = hasher.HashPassword(u, r.Password!);
         u.FailedSignIns = 0; u.LockedUntil = null; u.LastSignInAt = now;
-        Audit(u.Id, u.DisplayName, "SignedIn", r.RememberMe ? $"{u.DisplayName} signed in and ticked Remember me (no password needed for {authSettings.RememberDays} days on this device)" : $"{u.DisplayName} signed in");
+        Audit(u.Id, u.DisplayName, "SignedIn", r.RememberMe ? $"{u.DisplayName} signed in and ticked Remember me (email remembered on this device)" : $"{u.DisplayName} signed in");
         await db.SaveChangesAsync(ct);
         var (token, expires) = tokens.Issue(u);
         SetCookie(token);
@@ -116,7 +120,7 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         return Ok(new { token, expires, mustChangePassword = u.MustChangePassword });
     }
 
-    /// <summary>Who "Remember me" remembers on this device, for the "Sign in as" button; never signs anyone in.</summary>
+    /// <summary>Who "Remember me" remembers on this device, to fill in the sign-in form; never signs anyone in.</summary>
     [HttpGet("remembered"), AllowAnonymous]
     public async Task<object> Remembered(CancellationToken ct)
     {
@@ -125,24 +129,9 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         return new { remembered = true, displayName = u.DisplayName, email = u.Email };
     }
 
-    /// <summary>"Sign in as": a session from the remember cookie, without the password.</summary>
-    [HttpPost("remembered"), AllowAnonymous, EnableRateLimiting("login")]
-    public async Task<IActionResult> SignInRemembered(CancellationToken ct)
-    {
-        var u = await RememberedUserAsync(ct);
-        var now = DateTimeOffset.UtcNow;
-        if (u is null || u.LockedUntil is { } until && until > now)
-        {
-            ClearRememberCookie();
-            return Unauthorized(new { title = "Sign in with your email and password." });
-        }
-        u.LastSignInAt = now;
-        Audit(u.Id, u.DisplayName, "SignedIn", $"{u.DisplayName} signed in with Remember me");
-        await db.SaveChangesAsync(ct);
-        var (token, expires) = tokens.Issue(u);
-        SetCookie(token);
-        return Ok(new { token, expires, mustChangePassword = u.MustChangePassword });
-    }
+    /// <summary>The old passwordless "Sign in as": a remember cookie never signs anyone in.</summary>
+    [HttpPost("remembered"), AllowAnonymous]
+    public IActionResult SignInRemembered() => Unauthorized(new { title = "Sign in with your email and password." });
 
     /// <summary>"Use a different account": forgets the remembered person on this device.</summary>
     [HttpPost("forget"), AllowAnonymous]
@@ -152,11 +141,17 @@ public sealed class AuthController(AppDbContext db, IPasswordHasher<ApplicationU
         return NoContent();
     }
 
-    /// <summary>Ends the session; a "Remember me" cookie stays so the next sign-in can use "Sign in as".</summary>
+    /// <summary>Ends the session; a "Remember me" cookie stays so the next sign-in has the email filled in.</summary>
     [HttpPost("logout"), AllowAnonymous]
-    public IActionResult Logout()
+    public async Task<IActionResult> Logout(CancellationToken ct)
     {
         Response.Cookies.Delete(AuthSettings.CookieName, new CookieOptions { Path = "/" });
+        if (User.Identity?.IsAuthenticated == true && Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id)
+            && await db.Users.Where(x => x.Id == id).Select(x => x.DisplayName).FirstOrDefaultAsync(ct) is { } name)
+        {
+            Audit(id, name, "SignedOut", $"{name} signed out");
+            await db.SaveChangesAsync(ct);
+        }
         return NoContent();
     }
 

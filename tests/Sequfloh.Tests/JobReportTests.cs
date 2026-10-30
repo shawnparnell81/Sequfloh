@@ -153,4 +153,20 @@ public sealed class JobReportTests(TestApp app)
         Assert.Equal("text/csv", csv.Content.Headers.ContentType?.MediaType);
         Assert.Contains("When (UTC),Who,What", await csv.Content.ReadAsStringAsync());
     }
+
+    [Fact]
+    public async Task Uploaded_files_keep_a_type_from_their_extension_and_oversize_files_are_refused()
+    {
+        var (_, id, _, plain) = await JobAsync();
+        var part = new ByteArrayContent(Encoding.UTF8.GetBytes("Unit,Outcome\n1,PASS\n"));
+        part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/html");
+        var up = await plain.Http.PostAsync($"{U}/{id}/job/test-files", new MultipartFormDataContent { { part, "files", "made-up-type.csv" } });
+        Assert.True(up.IsSuccessStatusCode, await up.Content.ReadAsStringAsync());
+        var dl = await plain.GetAsync($"{U}/job/test-files/{(await up.JsonAsync())[0].Id()}");
+        Assert.Equal("text/csv", dl.Content.Headers.ContentType?.MediaType);
+
+        var big = await plain.Http.PostAsync($"{U}/{id}/job/test-files", new MultipartFormDataContent { { new ByteArrayContent(new byte[26 * 1024 * 1024]), "files", "made-up-big.csv" } });
+        Assert.Equal(HttpStatusCode.BadRequest, big.StatusCode);
+        Assert.Contains("larger than 25 MB", await big.Content.ReadAsStringAsync());
+    }
 }

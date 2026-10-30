@@ -76,7 +76,8 @@ public sealed class AuthTests(TestApp app)
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var entry = await db.AuditEntries.Where(a => a.Action == "SignedIn").OrderByDescending(a => a.OccurredAt).FirstAsync();
-        Assert.Contains("Remember me", entry.Description);
+        Assert.EndsWith(" signed in and ticked Remember me (email remembered on this device)", entry.Description);
+        Assert.DoesNotContain("no password needed", entry.Description);
         Assert.NotNull(entry.UserId);
     }
 
@@ -95,7 +96,7 @@ public sealed class AuthTests(TestApp app)
     }
 
     [Fact]
-    public async Task Sign_in_as_the_remembered_person_works_is_audited_and_ends_when_the_token_version_changes()
+    public async Task A_remembered_device_still_needs_a_password()
     {
         var admin = await app.AdminAsync();
         var email = $"rem{Guid.NewGuid():N}@test.local";
@@ -104,28 +105,79 @@ public sealed class AuthTests(TestApp app)
         var r = await raw.PostAsJsonAsync("/api/auth/login", new { email, password = "long-enough-password", rememberMe = true });
         var rem = CookieValue(r, AuthSettings.RememberCookieName)!;
 
+        // the sign-in page can fill in the email
         var who = await (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/auth/remembered", AuthSettings.RememberCookieName, rem))).JsonAsync();
         Assert.True(who.GetProperty("remembered").GetBoolean());
         Assert.Equal("Remy Made Up", who.Str("displayName"));
+        Assert.Equal(email, who.Str("email"));
 
+        // but the remember cookie never signs anyone in
         var signIn = await raw.SendAsync(WithCookie(HttpMethod.Post, "/api/auth/remembered", AuthSettings.RememberCookieName, rem));
-        Assert.Equal(HttpStatusCode.OK, signIn.StatusCode);
-        var session = signIn.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(AuthSettings.CookieName + "="));
-        Assert.DoesNotContain("expires=", session, StringComparison.OrdinalIgnoreCase);
-        var me = await (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/auth/session", AuthSettings.CookieName, CookieValue(signIn, AuthSettings.CookieName)!))).JsonAsync();
-        Assert.True(me.GetProperty("authenticated").GetBoolean());
+        Assert.Equal(HttpStatusCode.Unauthorized, signIn.StatusCode);
+        Assert.Null(CookieValue(signIn, AuthSettings.CookieName));
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var entry = await db.AuditEntries.Where(a => a.Action == "SignedIn" && a.UserId == Guid.Parse(id)).OrderByDescending(a => a.OccurredAt).FirstAsync();
-            Assert.Equal("Remy Made Up signed in with Remember me", entry.Description);
+            Assert.Equal(1, await db.AuditEntries.CountAsync(a => a.Action == "SignedIn" && a.UserId == Guid.Parse(id)));
             var u = await db.Users.FirstAsync(x => x.Id == Guid.Parse(id));
             u.TokenVersion++; // what a password change, deactivation or admin reset does
             await db.SaveChangesAsync();
         }
-        Assert.Equal(HttpStatusCode.Unauthorized, (await raw.SendAsync(WithCookie(HttpMethod.Post, "/api/auth/remembered", AuthSettings.RememberCookieName, rem))).StatusCode);
         var gone = await (await raw.SendAsync(WithCookie(HttpMethod.Get, "/api/auth/remembered", AuthSettings.RememberCookieName, rem))).JsonAsync();
         Assert.False(gone.GetProperty("remembered").GetBoolean());
+    }
+
+    async Task<(string Email, ApiClient Client)> TemporaryPasswordUserAsync()
+    {
+        var admin = await app.AdminAsync();
+        var email = $"temp{Guid.NewGuid():N}@test.local";
+        var userId = await (await admin.PostOkAsync("/api/admin/users", new { email, displayName = "Made-up Temporary", password = "temporary-password", mustChangePassword = true })).Content.ReadFromJsonAsync<Guid>();
+        var roleId = await (await admin.PostOkAsync("/api/admin/roles", new { name = "R" + Guid.NewGuid().ToString("N"), description = (string?)null, permissions = new[] { Permissions.AdminUsers, Permissions.SequflohAccess } })).Content.ReadFromJsonAsync<Guid>();
+        await admin.PostOkAsync($"/api/admin/users/{userId}/roles", new { roleId, siteId = (Guid?)null, departmentId = (Guid?)null });
+        return (email, await app.SignInAsync(email, "temporary-password"));
+    }
+
+    [Fact]
+    public async Task A_temporary_password_blocks_the_normal_api_until_it_is_changed()
+    {
+        var (_, user) = await TemporaryPasswordUserAsync();
+        foreach (var url in new[] { "/api/admin/users", "/api/sequfloh/context" })
+        {
+            var r = await user.GetAsync(url);
+            Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+            Assert.Equal("PasswordChangeRequired", (await r.JsonAsync()).Str("code"));
+        }
+    }
+
+    [Fact]
+    public async Task A_temporary_password_still_reaches_the_sign_in_and_open_endpoints()
+    {
+        var (_, user) = await TemporaryPasswordUserAsync();
+        var session = await user.GetElAsync("/api/auth/session");
+        Assert.True(session.GetProperty("authenticated").GetBoolean());
+        Assert.True(session.GetProperty("user").GetProperty("mustChangePassword").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, (await user.GetAsync("/api/auth/remembered")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await user.GetAsync("/api/organization/branding")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await user.Http.GetAsync("/healthz")).StatusCode);
+        // a wrong current password is refused by the change-password endpoint itself, not by the block
+        var wrong = await user.PostAsync("/api/auth/change-password", new { currentPassword = "not-the-password", newPassword = "a-brand-new-password" });
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
+        var problem = await wrong.JsonAsync();
+        Assert.False(problem.TryGetProperty("code", out var code) && code.GetString() == "PasswordChangeRequired");
+    }
+
+    [Fact]
+    public async Task After_changing_a_temporary_password_the_normal_api_works()
+    {
+        var (email, user) = await TemporaryPasswordUserAsync();
+        Assert.Equal(HttpStatusCode.Forbidden, (await user.GetAsync("/api/admin/users")).StatusCode);
+        await user.PostOkAsync("/api/auth/change-password", new { currentPassword = "temporary-password", newPassword = "a-brand-new-password" });
+        Assert.Equal(HttpStatusCode.OK, (await user.GetAsync("/api/admin/users")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await user.GetAsync("/api/sequfloh/context")).StatusCode);
+        Assert.False((await user.GetElAsync("/api/auth/session")).GetProperty("user").GetProperty("mustChangePassword").GetBoolean());
+        // and a fresh sign-in with the new password is not blocked either
+        var again = await app.SignInAsync(email, "a-brand-new-password");
+        Assert.Equal(HttpStatusCode.OK, (await again.GetAsync("/api/admin/users")).StatusCode);
     }
 
     [Fact]
@@ -225,6 +277,49 @@ public sealed class AuthTests(TestApp app)
         var (_, user) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohCreateWorkInstruction, Permissions.SequflohEditDraftWorkInstruction], site);
         Assert.True((await user.PostAsync("/api/sequfloh/instructions", new { type = "Validation", title = "Allowed", siteId = site })).IsSuccessStatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await user.PostAsync("/api/sequfloh/instructions", new { type = "Validation", title = "Elsewhere", siteId = other })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Every_endpoint_not_marked_open_refuses_a_caller_who_is_not_signed_in()
+    {
+        var anon = await app.AnonymousAsync();
+        var sources = app.Services.GetRequiredService<IEnumerable<Microsoft.AspNetCore.Routing.EndpointDataSource>>();
+        var routes = sources.SelectMany(s => s.Endpoints).OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .Where(e => e.Metadata.GetMetadata<Microsoft.AspNetCore.Authorization.IAllowAnonymous>() is null && e.RoutePattern.RawText is { } t && t.TrimStart('/').StartsWith("api/"))
+            .ToList();
+        Assert.True(routes.Count > 100);
+        var open = new List<string>();
+        foreach (var e in routes)
+        {
+            var path = "/" + System.Text.RegularExpressions.Regex.Replace(e.RoutePattern.RawText!.TrimStart('/'), "\\{[^}]+\\}", m => m.Value.Contains(":int") || m.Value.Contains(":long") ? "1" : m.Value.Contains("guid") || m.Value.Contains("id", StringComparison.OrdinalIgnoreCase) ? Guid.NewGuid().ToString() : "x");
+            var multipart = e.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IAcceptsMetadata>()?.ContentTypes.Any(t => t.StartsWith("multipart")) == true;
+            foreach (var method in e.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.HttpMethodMetadata>()?.HttpMethods ?? ["GET"])
+            {
+                var r = await anon.Http.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = method == "GET" ? null : multipart ? new MultipartFormDataContent { { new StringContent("x"), "x" } } : JsonContent.Create(new { }) });
+                if (r.StatusCode != HttpStatusCode.Unauthorized) open.Add($"{method} {path} -> {(int)r.StatusCode}");
+            }
+        }
+        Assert.True(open.Count == 0, string.Join("\n", open));
+    }
+
+    [Fact]
+    public async Task Sign_outs_and_sign_ins_while_locked_are_audited()
+    {
+        var admin = await app.AdminAsync();
+        var email = $"lockaudit{Guid.NewGuid():N}@test.local";
+        await admin.PostOkAsync("/api/admin/users", new { email, displayName = "Made-up Lock Audit", password = "long-enough-password", mustChangePassword = false });
+        var anon = await app.AnonymousAsync();
+        for (var i = 0; i < 5; i++) await anon.PostAsync("/api/auth/login", new { email, password = "wrong-password-here" });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.PostAsync("/api/auth/login", new { email, password = "long-enough-password" })).StatusCode);
+
+        var (uid, user) = await app.CreateUserAsync([Permissions.SequflohAccess]);
+        Assert.Equal(HttpStatusCode.NoContent, (await user.PostAsync("/api/auth/logout", new { })).StatusCode);
+
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var locked = await db.Users.Where(u => u.NormalizedEmail == email.ToUpperInvariant()).Select(u => u.Id).SingleAsync();
+        Assert.True(await db.AuditEntries.AnyAsync(a => a.UserId == locked && a.Action == "SignInFailed" && a.Description.Contains("account is locked")));
+        Assert.True(await db.AuditEntries.AnyAsync(a => a.UserId == uid && a.Action == "SignedOut"));
     }
 }
 
