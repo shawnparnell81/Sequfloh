@@ -17,10 +17,10 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
 {
     // ---------------- Part Master bulk import: read the file, preview, then confirm
     [HttpPost("parts/import/read"), RequestSizeLimit(20_000_000)]
-    public async Task<PartsImportTable> ImportRead(IFormFile file, [FromQuery] bool allTables = false, [FromQuery] int? headerRow = null, CancellationToken ct = default)
+    public async Task<PartsImportTable> ImportRead(IFormFile file, [FromQuery] bool allTables = false, [FromQuery] int? headerRow = null, [FromQuery] bool allTabs = false, CancellationToken ct = default)
     {
         await using var s = file.OpenReadStream();
-        return await import.ReadAsync(s, file.FileName, allTables, ct, headerRow);
+        return await import.ReadAsync(s, file.FileName, allTables, ct, headerRow, allTabs);
     }
 
     [HttpGet("parts/import/fields")]
