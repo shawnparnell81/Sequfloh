@@ -2289,6 +2289,9 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("jsonb")
                         .HasDefaultValueSql("'{}'::jsonb");
 
+                    b.Property<bool>("TrackTimeVariance")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("Type")
                         .HasColumnType("integer");
 

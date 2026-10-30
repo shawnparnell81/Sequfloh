@@ -185,7 +185,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
             new PrintFields([("Planned start", local(x.PlannedStart)), ("Due", local(x.DueAt)), ("Actual start", local(x.ActualStart)), ("Actual completion", local(x.ActualCompletion)),
                 ("Active time", Min(x.ActiveSeconds)), ("Paused time", Min(x.PausedSeconds)), ("On hold time", Min(x.HoldSeconds)),
                 ("Benchmark (minutes)", x.MinBenchmarkMinutes is null && x.MaxBenchmarkMinutes is null ? null : $"{x.MinBenchmarkMinutes:0.##} to {x.MaxBenchmarkMinutes:0.##}"),
-                ("Variance (minutes)", x.VarianceMinutes?.ToString("0.##", CultureInfo.InvariantCulture)), ("Variance reason", x.VarianceReason)]),
+                ("Variance (minutes)", x.TrackTimeVariance ? x.VarianceMinutes?.ToString("0.##", CultureInfo.InvariantCulture) : null), ("Variance reason", x.TrackTimeVariance ? x.VarianceReason : null)]),
             new PrintHeading("Conditions and comments"),
             new PrintFields([("Reported condition", x.ReportedCondition), ("Observed condition", x.ObservedCondition), ("Repair description", x.RepairDescription), (x.Type == TrackingType.Fai ? "Inspection result" : "Final disposition", x.Type == TrackingType.Fai ? x.FinalDisposition : null),
                 ("Deviations", x.Deviations), ("Nonconformance references", x.NonconformanceReferences), ("Evidence", x.EvidenceReferences), ("Technician comments", x.TechnicianComments),

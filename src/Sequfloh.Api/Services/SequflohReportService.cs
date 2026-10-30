@@ -155,7 +155,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
             {
                 TrackingType? type = key switch { "production" => TrackingType.Production, "validation" => TrackingType.Validation, "fai" => TrackingType.Validation, "repair" => TrackingType.Repair, _ => null };
                 var recs = await TrackingAsync(p, type, limit, ct);
-                if (key == "time-variance") recs = recs.Where(r => r.ActualCompletion != null && (r.MinBenchmarkMinutes != null || r.MaxBenchmarkMinutes != null)).ToList();
+                if (key == "time-variance") recs = recs.Where(r => r.TrackTimeVariance && r.ActualCompletion != null && (r.MinBenchmarkMinutes != null || r.MaxBenchmarkMinutes != null)).ToList();
                 var names = await NamesAsync(recs.SelectMany(r => new[] { r.AssignedUserId, r.OwnerId, r.CompletedById }), ct);
                 var wiIds = recs.Where(r => r.WorkInstructionId != null).Select(r => r.WorkInstructionId!.Value).Distinct().ToList();
                 var wis = await db.SequflohWorkInstructions.AsNoTracking().Where(w => wiIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => new { w.Type, w.RepairCategory }, ct);
@@ -166,7 +166,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
                         ["number"] = r.Number, ["type"] = TypeLabel[r.Type], ["status"] = Words(r.Status), ["result"] = Words(r.Result), ["instruction"] = (string.IsNullOrEmpty(r.WorkInstructionNumber) ? "—" : $"{r.WorkInstructionNumber} rev {r.WorkInstructionRevision}"),
                         ["part"] = r.PartNumber, ["operation"] = r.Operation, ["assigned"] = N(names, r.AssignedUserId), ["owner"] = N(names, r.OwnerId), ["plannedStart"] = r.PlannedStart, ["dueAt"] = r.DueAt,
                         ["actualStart"] = r.ActualStart, ["actualCompletion"] = r.ActualCompletion, ["minBenchmark"] = r.MinBenchmarkMinutes, ["maxBenchmark"] = r.MaxBenchmarkMinutes,
-                        ["elapsedMinutes"] = Minutes(r.ActiveSeconds), ["varianceMinutes"] = r.VarianceMinutes, ["varianceReason"] = r.VarianceReason,
+                        ["elapsedMinutes"] = Minutes(r.ActiveSeconds), ["varianceMinutes"] = r.TrackTimeVariance ? r.VarianceMinutes : null, ["varianceReason"] = r.TrackTimeVariance ? r.VarianceReason : null,
                         ["deviations"] = r.Deviations, ["workOrder"] = r.WorkOrder, ["priority"] = r.Priority,
                         ["technician"] = N(names, r.CompletedById) ?? N(names, r.AssignedUserId), ["disposition"] = r.FinalDisposition, ["faiType"] = r.FaiType,
                         ["category"] = r.WorkInstructionId is { } wk && wis.TryGetValue(wk, out var w) ? w.RepairCategory : null,

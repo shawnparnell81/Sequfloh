@@ -768,7 +768,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
                 rec.VarianceMinutes = Variance(rec);
                 var vr = T(r.VarianceReason, 4000);
                 if (vr is not null) rec.VarianceReason = vr;
-                if (to is TrackingStatus.Completed && rec.VarianceMinutes is not null and not 0 && settings.Tracking.VarianceReasonRequired && string.IsNullOrWhiteSpace(rec.VarianceReason))
+                if (to is TrackingStatus.Completed && rec.TrackTimeVariance && rec.VarianceMinutes is not null and not 0 && settings.Tracking.VarianceReasonRequired && string.IsNullOrWhiteSpace(rec.VarianceReason))
                     throw new AppException($"The time is outside the benchmark range by {Math.Abs(rec.VarianceMinutes.Value).ToString("0.##", CultureInfo.InvariantCulture)} minutes. Enter the variance reason.");
             }
             if (to == TrackingStatus.InProgress) { rec.ActiveOperatorId = rec.AssignedUserId ?? m.UserId; rec.ActualStart ??= now; }
@@ -819,6 +819,19 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             }
         }
         r.CurrentStateStartedAt = now;
+    }
+
+    /// <summary>Turns Track time variance on or off for one work order. Stored variance minutes and reasons are kept either way.</summary>
+    public async Task SetTrackTimeVarianceAsync(Guid id, bool on, CancellationToken ct)
+    {
+        var rec = await LoadAsync(id, true, ct);
+        await m.RequireAsync(Permissions.SequflohManageTimeVariance, rec.SiteId, rec.DepartmentId, ct);
+        if (IsClosed(rec)) throw new ConflictException($"{rec.Number} is {Words(rec.Status)} and cannot be changed.");
+        if (rec.TrackTimeVariance == on) return;
+        rec.TrackTimeVariance = on;
+        f.Audit("TimeVarianceSetting", EntityType, rec.Id, $"Track time variance on {rec.Number} set to {(on ? "Yes" : "No")}", rec.SiteId,
+            context: new { before = on ? "No" : "Yes", after = on ? "Yes" : "No" });
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>Minutes outside the benchmark range (negative below the minimum, positive above the maximum, 0 inside); null without a benchmark.</summary>

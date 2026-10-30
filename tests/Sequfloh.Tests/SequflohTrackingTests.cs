@@ -243,6 +243,8 @@ public sealed class SequflohTrackingTests(TestApp app)
         await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), workOrder = "WO-1", priority = "High", result = "Pass" });
         Assert.Equal(HttpStatusCode.Forbidden, (await Save(tech, id, r => new { operationId = Guid.NewGuid(), stateVersion = r.GetProperty("stateVersion").GetInt32(), workOrder = "WO-2", priority = "High", result = "Pass" })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, await ActStatus(planner, id, "reassign", new { assignedUserId = tech2Id, expectedAssignedUserId = tech2Id })); // conflicting reassignment
+        using (var vs = app.Services.CreateScope()) // this work order tracks time variance
+            await vs.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlInterpolatedAsync($"UPDATE sqf.sequfloh_tracking_records SET \"TrackTimeVariance\" = true WHERE \"Id\" = {id}");
         Assert.Equal(HttpStatusCode.BadRequest, await ActStatus(tech, id, "complete")); // 50 minutes is outside 15-40 without a reason
         await Act(tech, id, "complete", new { varianceReason = "Fixture changeover" });
         var done = (await Rec(tech, id)).GetProperty("record");
