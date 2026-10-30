@@ -318,12 +318,8 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
     {
         await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
         var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Reference value");
-        var uses = new List<string>();
-        var parts = await db.Parts.IgnoreQueryFilters().CountAsync(p => p.TypeId == id, ct);
-        if (parts > 0) uses.Add($"{parts} part{(parts == 1 ? "" : "s")}");
-        var files = await db.ImportedFiles.IgnoreQueryFilters().CountAsync(f => f.FamilyId == id, ct);
-        if (files > 0) uses.Add($"{files} file{(files == 1 ? "" : "s")}");
-        if (uses.Count > 0) throw new ConflictException($"\"{v.Label}\" is used by {string.Join(", ", uses)}. Deactivate it instead.");
+        var u = await ValueUsesAsync(id, ct);
+        if (u.Parts.Count > 0 || u.Files.Count > 0) throw new ConflictException($"\"{v.Label}\" is used by {UsesText(u)}. Use \"What uses it\" to see them, or deactivate it instead.");
         if (v.IsDefault) throw new AppException("Choose another default before deleting the default value.");
         if (v.IsSeeded || SequflohCatalog.Lists.FirstOrDefault(l => l.Key == v.ListKey)?.Seed.Any(x => CodeOf(x) == v.Code) == true)
             if (!await db.SequflohDeletedSeedValues.AnyAsync(x => x.ListKey == v.ListKey && x.Code == v.Code, ct))
@@ -332,6 +328,78 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         db.SequflohReferenceValues.Remove(v);
         Audit("ReferenceValueDeleted", nameof(SequflohReferenceValue), v.Id, $"Deleted \"{v.Label}\" from {list}", context: new { list = v.ListKey, v.Code });
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>One part number that points at a reference value: how many parts share it, and whether any is outside the sites the user can see.</summary>
+    public sealed record ValueUsePart(Guid Id, string PartNumber, string Name, int Parts);
+    /// <summary>One imported file that points at a reference value (a completed form filed under a product family tab, for example).</summary>
+    public sealed record ValueUseFile(Guid Id, string Number, string Title, string Where, bool IsArchived);
+    /// <summary>
+    /// Everything that points at a reference value by its id. Parts count by distinct part number, the same way the Part Master family cards count,
+    /// with the number of part rows; files list each imported file. Records at every site are counted, because any of them blocks a delete.
+    /// </summary>
+    public sealed record ValueUses(int PartNumbers, int PartRows, List<ValueUsePart> Parts, List<ValueUseFile> Files);
+
+    public async Task<ValueUses> ValueUsesAsync(Guid id, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
+        var parts = await db.Parts.IgnoreQueryFilters().AsNoTracking().Where(p => p.TypeId == id)
+            .GroupBy(p => p.PartNumber).Select(g => new { PartNumber = g.Key, Id = g.Min(x => x.Id.ToString()), Name = g.Max(x => x.Name), Rows = g.Count() })
+            .OrderBy(x => x.PartNumber).ToListAsync(ct);
+        var files = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(f => f.FamilyId == id).OrderBy(f => f.Number)
+            .Select(f => new { f.Id, f.Number, f.Title, f.IsCompletedForm, f.IsBlankForm, f.WorkOrderId, f.IsArchived }).ToListAsync(ct);
+        return new ValueUses(parts.Count, parts.Sum(x => x.Rows),
+            parts.Select(x => new ValueUsePart(Guid.Parse(x.Id), x.PartNumber, x.Name, x.Rows)).ToList(),
+            files.Select(f => new ValueUseFile(f.Id, f.Number, f.Title,
+                f.IsBlankForm ? "Blank form" : f.WorkOrderId != null ? "Filled form of a work order" : f.IsCompletedForm ? "Completed Validation / FAI" : "Imported file", f.IsArchived)).ToList());
+    }
+
+    /// <summary>
+    /// Moves everything that uses a product family (its parts and imported files) to another product family, then deletes it.
+    /// One audit entry says what was moved where, and the delete is audited as usual.
+    /// </summary>
+    public async Task<object> MoveAndDeleteAsync(Guid id, Guid targetId, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
+        var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Reference value");
+        if (v.ListKey != SequflohCatalog.ProductFamilies) throw new AppException("Only a product family can be moved before it is deleted.");
+        if (targetId == id) throw new AppException("Choose a different product family to move to.");
+        var target = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == targetId && x.ListKey == SequflohCatalog.ProductFamilies, ct)
+            ?? throw new AppException("Choose the product family to move to.");
+        if (v.IsDefault) throw new AppException("Choose another default before deleting the default value.");
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var partIds = await db.Parts.IgnoreQueryFilters().Where(p => p.TypeId == id).Select(p => p.Id).ToListAsync(ct);
+        foreach (var chunk in partIds.Chunk(500))
+        {
+            foreach (var p in await db.Parts.IgnoreQueryFilters().Where(p => chunk.Contains(p.Id)).ToListAsync(ct)) { p.TypeId = target.Id; p.ProductFamily = target.Label; }
+            await db.SaveChangesAsync(ct);
+        }
+        var files = await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.FamilyId == id).ToListAsync(ct);
+        foreach (var f in files) f.FamilyId = target.Id;
+        if (partIds.Count > 0 || files.Count > 0)
+            Audit("ProductFamilyMoved", nameof(SequflohReferenceValue), v.Id,
+                $"Moved {string.Join(" and ", new[] { partIds.Count > 0 ? Plural(partIds.Count, "part", "parts") : null, files.Count > 0 ? Plural(files.Count, "imported file", "imported files") : null }.Where(x => x != null))} from product family {v.Label} to {target.Label} before deleting {v.Label}",
+                context: new { from = v.Label, to = target.Label, parts = partIds.Count, files = files.Count });
+        await db.SaveChangesAsync(ct);
+        await DeleteValueAsync(id, ct);
+        await tx.CommitAsync(ct);
+        return new { Parts = partIds.Count, Files = files.Count, Target = target.Label };
+    }
+
+    static string Plural(int n, string one, string many) => $"{n:N0} {(n == 1 ? one : many)}";
+
+    /// <summary>"3 part numbers (5 parts) and 48 files (completed forms and other imported files)".</summary>
+    public static string UsesText(ValueUses u)
+    {
+        var bits = new List<string>();
+        if (u.PartNumbers > 0) bits.Add(Plural(u.PartNumbers, "part number", "part numbers") + (u.PartRows != u.PartNumbers ? $" ({Plural(u.PartRows, "part", "parts")})" : "") + " in Parts and Items");
+        if (u.Files.Count > 0)
+        {
+            var kinds = u.Files.GroupBy(f => f.Where).Select(g => $"{g.Count():N0} {g.Key}").ToList();
+            var archived = u.Files.Count(f => f.IsArchived);
+            bits.Add(Plural(u.Files.Count, "imported file", "imported files") + $" ({string.Join(", ", kinds)}{(archived > 0 ? $"; {archived:N0} archived" : "")})");
+        }
+        return string.Join(" and ", bits);
     }
 
     public async Task SetDefaultAsync(Guid id, CancellationToken ct)
