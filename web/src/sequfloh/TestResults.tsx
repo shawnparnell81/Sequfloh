@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, MenuItem, Dialog, DialogActions, DialogContent, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { FormDialogTitle } from '../components/FullScreen';
@@ -9,11 +9,12 @@ import { DrawingPicker, PartDrawingLinks, type PartDrawing } from './Drawings';
 
 interface Field { key: string; label: string; defaultUnit: string; added?: boolean }
 interface SpecRow { key: string; label: string; value: string; unit: string; min?: number | null; max?: number | null; strict?: boolean }
-interface PartRow { id: string; partIndex: number; note?: string | null; recordedBy: string; recordedAt: string; editedAt?: string | null; editedBy?: string | null; values: { key: string; value: string }[] }
+interface PartRow { id: string; partIndex: number; note?: string | null; recordedBy: string; recordedAt: string; editedAt?: string | null; editedBy?: string | null; autoResult?: Result; manualResult?: Result; manualReason?: string | null; manualBy?: string | null; manualAt?: string | null; result?: Result; values: { key: string; value: string }[] }
+type Result = 'Pass' | 'Fail' | null;
 interface Removed { partIndex: number; removedAt: string; removedBy?: string; removeReason?: string }
 export interface TestData {
   template: { key: string; label: string; fields: Field[] } | null; familyName?: string | null;
-  spec?: SpecRow[]; specSaved?: boolean; parts?: PartRow[]; removed?: Removed[]; open?: boolean; canCorrect?: boolean; canRemove?: boolean;
+  spec?: SpecRow[]; specSaved?: boolean; parts?: PartRow[]; removed?: Removed[]; open?: boolean; canCorrect?: boolean; canRemove?: boolean; overallResult?: Result;
 }
 
 /** On the New work order screen for a Test order: the drawings linked to this exact part, or a manual pick when there are none. */
@@ -32,7 +33,10 @@ export function TestDrawingSection({ partId, picked, onPick }: { partId?: string
 export const attachDrawings = async (id: string, ids: string[]) => { for (const d of ids) await post(`${S}/tracking/${id}/drawings`, { drawingId: d }); };
 
 const blank = (v?: string | null) => !v || !v.trim();
-/** A saved actual outside the typed spec range is flagged in orange; there is still no pass or fail. */
+/** A saved actual outside the typed spec range is flagged in orange; the same rule gives the part's automatic Pass / Fail on the server. */
+/** A green Pass or red Fail chip; nothing when there is no result. */
+export const ResultChip = ({ r, testid, small }: { r?: Result; testid?: string; small?: boolean }) => r
+  ? <Chip size={small ? 'small' : 'medium'} color={r === 'Pass' ? 'success' : 'error'} label={r === 'Pass' ? 'Pass' : 'Fail'} data-testid={testid} sx={{ fontWeight: 700 }} /> : null;
 const outside = (s: SpecRow, v?: string | null) => { if (blank(v) || (s.min == null && s.max == null)) return false; const n = Number(v); if (!Number.isFinite(n)) return false;
   return s.strict ? (s.min != null && n <= s.min) || (s.max != null && n >= s.max) : (s.min != null && n < s.min) || (s.max != null && n > s.max); };
 
@@ -49,8 +53,9 @@ export function TestResultsPanel({ id }: { id: string }) {
   const spec = d.spec ?? [];
   const added = d.template.fields.filter((f) => f.added);
   return <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Test work instruction results" data-testid="test-results">
-    <Typography variant="h3" sx={{ mb: 0.5 }}>Test work instruction results</Typography>
-    <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5 }}>Enter the drawing spec once, then add each tested part's own results. Every part prints as its own section on the test report. There is no automatic pass or fail.</Typography>
+    <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 0.5 }}><Typography variant="h3">Test work instruction results</Typography>
+      {d.overallResult && <><Typography variant="body2" color="text.secondary">Overall:</Typography><ResultChip r={d.overallResult} testid="test-overall" /></>}</Stack>
+    <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5 }}>Enter the drawing spec once, then add each tested part's own results. Every part prints as its own section on the test report. Each part gets Pass or Fail automatically from the spec limits, or set by hand.</Typography>
     {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
     <SpecEditor key={JSON.stringify(spec)} spec={spec} d={d} busy={busy} onSave={(values, reason) => run(() => put(`${S}/tracking/${id}/test/spec`, { values, reason }))} />
     {spec.length === 0 && <Typography variant="body2" color="text.secondary" data-testid="test-no-fields">No spec fields yet. Use Add spec field to add the ones on the drawing.</Typography>}
@@ -58,7 +63,8 @@ export function TestResultsPanel({ id }: { id: string }) {
     <Stack gap={2} sx={{ mt: 2 }}>
       {(d.parts ?? []).map((p) => <PartEditor key={p.id + (p.editedAt ?? '') + spec.map((x) => x.key + x.label + x.unit).join()} p={p} spec={spec} d={d} busy={busy}
         onSave={(values, note, reason) => run(() => put(`${S}/tracking/test/parts/${p.id}`, { values, note, reason }))}
-        onRemove={(reason) => run(() => post(`${S}/tracking/test/parts/${p.id}/remove`, { reason }))} />)}
+        onRemove={(reason) => run(() => post(`${S}/tracking/test/parts/${p.id}/remove`, { reason }))}
+        onResult={(result, reason) => run(() => put(`${S}/tracking/test/parts/${p.id}/result`, { result, reason }))} />)}
     </Stack>
     {d.open && <Button sx={{ mt: 2 }} variant="contained" disabled={busy} data-testid="test-add-part" onClick={() => run(() => post(`${S}/tracking/${id}/test/parts`, { values: [] }))}>Add part result</Button>}
     {(d.removed ?? []).length > 0 && <Stack gap={0.5} sx={{ mt: 2 }} data-testid="test-removed">{d.removed!.map((r) =>
@@ -88,8 +94,9 @@ function SpecEditor({ spec, d, busy, onSave }: { spec: SpecRow[]; d: TestData; b
   </Box>;
 }
 
-function PartEditor({ p, spec, d, busy, onSave, onRemove }: { p: PartRow; spec: SpecRow[]; d: TestData; busy: boolean;
-  onSave: (v: { key: string; value: string }[], note: string, reason: string) => Promise<boolean>; onRemove: (reason: string) => Promise<boolean> }) {
+function PartEditor({ p, spec, d, busy, onSave, onRemove, onResult }: { p: PartRow; spec: SpecRow[]; d: TestData; busy: boolean;
+  onSave: (v: { key: string; value: string }[], note: string, reason: string) => Promise<boolean>; onRemove: (reason: string) => Promise<boolean>;
+  onResult: (result: string, reason: string) => Promise<boolean> }) {
   const [vals, setVals] = useState(p.values); const [note, setNote] = useState(p.note ?? ''); const [reason, setReason] = useState('');
   const [rm, setRm] = useState(false); const [rmWhy, setRmWhy] = useState('');
   const changed = vals.some((v, i) => v.value !== p.values[i].value) || note !== (p.note ?? '');
@@ -99,6 +106,8 @@ function PartEditor({ p, spec, d, busy, onSave, onRemove }: { p: PartRow; spec: 
   return <Paper variant="outlined" sx={{ p: 1.5 }} data-testid={`test-part-${p.partIndex}`}>
     <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 1 }}>
       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Part {p.partIndex} test results</Typography>
+      <ResultChip r={p.result} testid={`part-${p.partIndex}-result`} />
+      {p.result && <Typography variant="caption" color="text.secondary">{p.manualResult ? 'set by hand' : 'automatic'}</Typography>}
       <Box sx={{ flex: 1 }} />
       {d.canRemove && <Button size="small" color="error" onClick={() => setRm(true)} data-testid={`test-part-remove-${p.partIndex}`}>Remove</Button>}
     </Stack>
@@ -114,6 +123,7 @@ function PartEditor({ p, spec, d, busy, onSave, onRemove }: { p: PartRow; spec: 
           {blank(p.values[i]?.value) && <Chip size="small" color="warning" variant="outlined" label="Blank" />}
           {outside(s, p.values[i]?.value) && <Chip size="small" color="warning" variant="outlined" label="Outside spec" data-testid={`part-${p.partIndex}-${s.key}-outside`} />}
         </Stack></TableCell></TableRow>; })}</TableBody></Table>
+    <PassFail p={p} d={d} busy={busy} onResult={onResult} />
     <TextField sx={{ mt: 1 }} fullWidth size="small" multiline label="Note (optional)" value={note} disabled={!!p.note && !d.canCorrect} onChange={(e) => setNote(e.target.value)} inputProps={{ maxLength: 2000, 'data-testid': `part-${p.partIndex}-note` }} />
     <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>Recorded by {p.recordedBy}, {nyTime(p.recordedAt)}{p.editedAt ? ` · last changed by ${p.editedBy}, ${nyTime(p.editedAt)}` : ''}</Typography>
     {changed && <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} sx={{ mt: 1 }}>
@@ -162,5 +172,27 @@ function SpecFields({ id, d, added, busy, run }: { id: string; d: TestData; adde
       <DialogActions><Button onClick={() => setDlg(null)}>Cancel</Button>
         <Button variant="contained" color={dlg?.mode === 'remove' ? 'error' : 'primary'} disabled={busy || !ready} data-testid="test-field-save" onClick={save}>{dlg?.mode === 'add' ? 'Add field' : dlg?.mode === 'edit' ? 'Save' : 'Remove'}</Button></DialogActions>
     </Dialog>
+  </Box>;
+}
+
+/** The part's Pass / Fail selector: Auto uses the spec limits; Pass or Fail sets it by hand. A choice that differs from the automatic result needs a reason. */
+function PassFail({ p, d, busy, onResult }: { p: PartRow; d: TestData; busy: boolean; onResult: (result: string, reason: string) => Promise<boolean> }) {
+  const cur = p.manualResult ?? 'Auto';
+  const [pick, setPick] = useState<string>(cur); const [why, setWhy] = useState('');
+  const can = p.manualResult ? !!d.canCorrect : (d.open || !!d.canCorrect);
+  const overrides = pick !== 'Auto' && !!p.autoResult && pick !== p.autoResult;
+  const auto = p.autoResult ? `Auto (${p.autoResult})` : 'Auto (no limits to check)';
+  return <Box sx={{ mt: 1 }} data-testid={`part-${p.partIndex}-passfail`}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
+      <TextField select size="small" label="Pass / Fail" value={pick} disabled={!can || busy} sx={{ minWidth: 220 }} onChange={(e) => setPick(e.target.value)}
+        SelectProps={{ SelectDisplayProps: { 'data-testid': `part-${p.partIndex}-result-select` } as object }}>
+        <MenuItem value="Auto">{auto}</MenuItem><MenuItem value="Pass">Pass</MenuItem><MenuItem value="Fail">Fail</MenuItem>
+      </TextField>
+      {pick !== cur && <>
+        {overrides && <TextField size="small" required label={`Reason (automatic result is ${p.autoResult})`} value={why} onChange={(e) => setWhy(e.target.value)} sx={{ minWidth: 300 }} inputProps={{ maxLength: 500, 'data-testid': `part-${p.partIndex}-result-reason` }} />}
+        <Button variant="contained" disabled={busy || (overrides && !why.trim())} data-testid={`part-${p.partIndex}-result-save`} onClick={async () => { if (await onResult(pick, why)) setWhy(''); }}>Save result</Button>
+      </>}
+    </Stack>
+    {p.manualResult && <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>Set to {p.manualResult} by {p.manualBy}, {nyTime(p.manualAt!)}{p.autoResult && p.autoResult !== p.manualResult ? ` (automatic result ${p.autoResult})` : ''}{p.manualReason ? `. Reason: ${p.manualReason}` : ''}</Typography>}
   </Box>;
 }

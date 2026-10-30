@@ -54,10 +54,11 @@ public sealed record TestPartInput(List<TestValueInput>? Values, string? Note, s
 public sealed record TestRemoveInput(string? Reason);
 public sealed record TestFieldInput(string? Label, string? Unit, string? Value, string? Reason);
 public sealed record DrawingAttachInput(Guid DrawingId);
+public sealed record TestResultInput(string? Result, string? Reason);
 
 /// <summary>
 /// Test work instruction results on Test work orders: the drawing spec entered once per order and Part 1, Part 2, ... actual results, each
-/// shown against the spec. There is no automatic pass or fail. Filling a blank value is open to anyone working the order; changing a value
+/// shown against the spec. Each part gets a Pass / Fail: automatic from the spec limits, or set by hand. Filling a blank value is open to anyone working the order; changing a value
 /// already entered needs the correct test results permission, and removing a part's results needs the remove permission. Both are audited, and
 /// a removed part keeps its number so parts never renumber.
 /// </summary>
@@ -157,8 +158,10 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
             r.FamilyName,
             Spec = t.Fields.Select(x => { var v = sv.FirstOrDefault(s => s.Key == x.Key); return new { x.Key, x.Label, Value = ST(v), Min = v?.Text is null ? null : v.Min, Max = v?.Text is null ? null : v.Max, Strict = v?.Strict == true, Unit = v?.Unit ?? x.DefaultUnit }; }),
             SpecSaved = spec is not null, SpecUpdatedAt = spec?.UpdatedAt ?? spec?.CreatedAt,
-            Parts = parts.Where(p => p.RemovedAt is null).Select(p => { var pv = Read(p.Values); return new { p.Id, p.PartIndex, p.Note, p.RecordedBy, RecordedAt = p.CreatedAt, p.EditedAt, p.EditedBy,
+            Parts = parts.Where(p => p.RemovedAt is null).Select(p => { var pv = Read(p.Values); var auto = Auto(sv, pv, t.Fields.Select(fd => fd.Key)); return new { p.Id, p.PartIndex, p.Note, p.RecordedBy, RecordedAt = p.CreatedAt, p.EditedAt, p.EditedBy,
+                AutoResult = auto, p.ManualResult, p.ManualReason, p.ManualBy, p.ManualAt, Result = Final(p, auto),
                 Values = t.Fields.Select(x => new { x.Key, Value = N(pv.FirstOrDefault(v => v.Key == x.Key)?.Value) }) }; }),
+            OverallResult = Overall([.. parts.Where(p => p.RemovedAt is null).Select(p => Final(p, Auto(sv, Read(p.Values), t.Fields.Select(fd => fd.Key))))]),
             Removed = parts.Where(p => p.RemovedAt is not null).Select(p => new { p.PartIndex, p.RemovedAt, p.RemovedBy, p.RemoveReason }),
             Open = !SequflohTrackingService.IsClosed(r),
             CanCorrect = await m.CanAsync(Permissions.SequflohCorrectTestResults, r.SiteId, r.DepartmentId, ct),
@@ -366,6 +369,57 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// The automatic result of one part, using the same rule as the orange "Outside spec" highlight: only fields whose spec is a range, a
+    /// tolerance or a limit and that have an actual are evaluated. Fail if any is outside, Pass if all evaluated are inside, null if none can be.
+    /// </summary>
+    static string? Auto(List<Val> spec, List<Val> actual, IEnumerable<string> keys)
+    {
+        var any = false;
+        foreach (var k in keys)
+        {
+            var s = spec.FirstOrDefault(v => v.Key == k);
+            if (s?.Text is null || (s.Min is null && s.Max is null)) continue;
+            if (actual.FirstOrDefault(v => v.Key == k)?.Value is not { } n) continue;
+            any = true;
+            var outside = s.Strict == true ? (s.Min is { } lo && n <= lo) || (s.Max is { } hi && n >= hi) : (s.Min is { } lo2 && n < lo2) || (s.Max is { } hi2 && n > hi2);
+            if (outside) return Fail;
+        }
+        return any ? Pass : null;
+    }
+    public const string Pass = "Pass", Fail = "Fail";
+    static string? Final(SequflohTestPartResult p, string? auto) => p.ManualResult ?? auto;
+    /// <summary>The order result: Fail if any part fails, Pass if every part has a result and all pass, otherwise null.</summary>
+    static string? Overall(IReadOnlyCollection<string?> parts) => parts.Count == 0 ? null : parts.Contains(Fail) ? Fail : parts.All(x => x == Pass) ? Pass : null;
+
+    /// <summary>
+    /// Sets or clears a part's manual Pass / Fail. Anyone who can enter results on the open order can set it; changing it once set, or on a
+    /// closed order, needs the correct test results permission (as for values). A result that differs from the automatic one needs a reason. Audited.
+    /// </summary>
+    public async Task SetResultAsync(Guid partId, TestResultInput x, CancellationToken ct)
+    {
+        var p = await db.SequflohTestPartResults.FirstOrDefaultAsync(e => e.Id == partId, ct) ?? throw new NotFoundException("Part test results");
+        var (r, t) = await TestOrderAsync(p.TrackingRecordId, ct);
+        var res = string.IsNullOrWhiteSpace(x.Result) || x.Result.Trim().Equals("Auto", StringComparison.OrdinalIgnoreCase) ? null
+            : x.Result.Trim().Equals(Pass, StringComparison.OrdinalIgnoreCase) ? Pass : x.Result.Trim().Equals(Fail, StringComparison.OrdinalIgnoreCase) ? Fail
+            : throw new AppException("Result must be Pass, Fail or Auto.");
+        if (res == p.ManualResult) return;
+        var specJson = await db.SequflohTestSpecs.AsNoTracking().Where(s => s.TrackingRecordId == r.Id).Select(s => s.Values).FirstOrDefaultAsync(ct);
+        var auto = Auto(specJson is null ? [] : Read(specJson), Read(p.Values), t.Fields.Select(fd => fd.Key));
+        var why = Reason(x.Reason);
+        var overrides = res is not null && auto is not null && res != auto;
+        if (overrides && why is null) throw new AppException($"Enter a reason: the automatic result is {auto}.");
+        if (p.ManualResult is not null || SequflohTrackingService.IsClosed(r)) await m.RequireAsync(Permissions.SequflohCorrectTestResults, r.SiteId, r.DepartmentId, ct);
+        var who = await WhoAsync(ct);
+        var was = p.ManualResult;
+        p.ManualResult = res; p.ManualReason = res is null ? null : why; p.ManualBy = res is null ? null : who; p.ManualAt = res is null ? null : DateTimeOffset.UtcNow;
+        var text = res is null ? $"result set back to automatic ({auto ?? "blank"}), was {was}"
+            : overrides ? $"result overridden to {res} (automatic result {auto})" : was is null ? $"result set to {res}" : $"result changed from {was} to {res}";
+        f.Audit(overrides ? "TestPartResultOverridden" : "TestPartResultSet", SequflohTrackingService.EntityType, r.Id,
+            $"{r.Number} Part {p.PartIndex}: {text} by {who}{(why is null ? "" : $". Reason: {why}")}", r.SiteId, why);
+        await db.SaveChangesAsync(ct);
+    }
+
     static string? Note(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim()[..Math.Min(s.Trim().Length, 2000)];
     static string? Reason(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim()[..Math.Min(s.Trim().Length, 500)];
 
@@ -382,16 +436,23 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         var parts = await db.SequflohTestPartResults.AsNoTracking().Where(p => p.TrackingRecordId == r.Id).OrderBy(p => p.PartIndex).ToListAsync(ct);
         if (t.Fields.Count == 0 && parts.Count == 0) return [];
         if (parts.Count == 0) blocks.Add(new PrintParagraph("No part test results recorded."));
+        var keys = t.Fields.Select(fd => fd.Key).ToList();
+        if (Overall([.. parts.Select(p => Final(p, Auto(sv, Read(p.Values), keys)))]) is { } all) blocks.Add(new PrintParagraph($"Overall test result: {all.ToUpperInvariant()}"));
         foreach (var p in parts)
         {
             var pv = Read(p.Values);
             blocks.Add(new PrintHeading($"Part {p.PartIndex} test results"));
+            blocks.Add(new PrintParagraph(ResultLine(p, Auto(sv, pv, keys), local)));
             blocks.Add(new PrintTable([("Test", 3), ("Spec", 2), ("Actual", 2)], [.. t.Fields.Select(fd => new string?[] { fd.Label, Spec(fd.Key),
                 pv.FirstOrDefault(v => v.Key == fd.Key)?.Value is { } a ? $"{N(a)} {units[fd.Key]}".Trim() : "BLANK - not entered" })]));
             blocks.Add(new PrintParagraph($"Recorded by {p.RecordedBy}, {local(p.CreatedAt)}" + (p.EditedAt is null ? "" : $"; last changed by {p.EditedBy}, {local(p.EditedAt)}") + (p.Note is null ? "" : $". Note: {p.Note}")));
         }
         return blocks;
     }
+
+    static string ResultLine(SequflohTestPartResult p, string? auto, Func<DateTimeOffset?, string> local) =>
+        $"Result: {(Final(p, auto) ?? "Not evaluated").ToUpperInvariant()}" + (p.ManualResult is null ? (auto is null ? "" : " (automatic)")
+            : $" (set by {p.ManualBy}, {local(p.ManualAt)}{(auto is not null && auto != p.ManualResult ? $"; automatic result {auto}" : "")}{(p.ManualReason is null ? "" : $"; reason: {p.ManualReason}")})");
 
     /// <summary>The test results as one compact table for the work order print: spec, then one column per part (up to six).</summary>
     public async Task<List<PrintBlock>> CompactBlocksAsync(SequflohTrackingRecord r, CancellationToken ct)
@@ -405,13 +466,17 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         var shown = parts.Take(6).Select(p => (p.PartIndex, Vals: Read(p.Values))).ToList();
         var cols = new List<(string, double)> { ("Test", 2.4), ("Spec", 1.6) };
         cols.AddRange(shown.Select(p => ($"Part {p.PartIndex}", 1.0)));
+        var keys = t.Fields.Select(fd => fd.Key).ToList();
         var rows = t.Fields.Select(fd =>
         {
             var row = new List<string?> { fd.Label, ST(sv.FirstOrDefault(v => v.Key == fd.Key)) is { Length: > 0 } d ? $"{d} {units[fd.Key]}".Trim() : "-" };
             row.AddRange(shown.Select(p => p.Vals.FirstOrDefault(v => v.Key == fd.Key)?.Value is { } a ? N(a) : "-"));
             return row.ToArray();
         }).ToList();
+        var finals = parts.Select(p => Final(p, Auto(sv, Read(p.Values), keys))).ToList();
+        rows.Add([.. new string?[] { "Result", "" }, .. finals.Take(6).Select(x => x?.ToUpperInvariant() ?? "-")]);
         var blocks = new List<PrintBlock> { new PrintHeading("Test results"), new PrintTable(cols, rows) };
+        if (Overall(finals) is { } all) blocks.Add(new PrintParagraph($"Overall test result: {all.ToUpperInvariant()}"));
         if (parts.Count == 0) blocks.Add(new PrintParagraph("No part test results recorded yet."));
         if (parts.Count > shown.Count) blocks.Add(new PrintParagraph($"{parts.Count - shown.Count} more part(s) recorded; see the full record."));
         return blocks;
