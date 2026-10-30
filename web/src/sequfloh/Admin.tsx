@@ -1,6 +1,6 @@
 import { setupOptions } from '../components/SetupLink';
 import { FormDialogTitle } from '../components/FullScreen';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
@@ -210,6 +210,48 @@ export function ReferenceDataPage() {
   );
 }
 
+/** Keeps a wide table inside the window: its height stops at the bottom of the window, so its own scrollbars (side to side too) are always on screen. */
+function useFitToWindow(gap = 16) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [max, setMax] = useState<number | undefined>(undefined);
+  const fit = useCallback(() => {
+    const el = ref.current; if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    setMax(Math.max(240, window.innerHeight - top - gap));
+  }, [gap]);
+  useLayoutEffect(() => { fit(); });
+  useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, [fit]);
+  return { ref, maxHeight: max };
+}
+
+/** While a row is dragged, scrolls the list (and the page) when the pointer is held near an edge, so a row can be dropped anywhere in a long or wide list. */
+function useDragAutoScroll(box: React.RefObject<HTMLElement | null>, active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const edge = 56, step = 18;
+    let x = -1, y = -1, frame = 0;
+    const onOver = (e: DragEvent) => { x = e.clientX; y = e.clientY; };
+    const speed = (pos: number, lo: number, hi: number) => pos < lo + edge ? -Math.ceil(step * (1 - Math.max(0, pos - lo) / edge)) : pos > hi - edge ? Math.ceil(step * (1 - Math.max(0, hi - pos) / edge)) : 0;
+    const tick = () => {
+      if (y >= 0) {
+        const el = box.current;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          const dy = el.scrollHeight > el.clientHeight ? speed(y, Math.max(r.top, 0), Math.min(r.bottom, window.innerHeight)) : 0;
+          const dx = el.scrollWidth > el.clientWidth ? speed(x, Math.max(r.left, 0), Math.min(r.right, window.innerWidth)) : 0;
+          if (dy || dx) el.scrollBy(dx, dy);
+        }
+        const wy = speed(y, 0, window.innerHeight);
+        if (wy) window.scrollBy(0, wy);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    document.addEventListener('dragover', onOver);
+    frame = requestAnimationFrame(tick);
+    return () => { document.removeEventListener('dragover', onOver); cancelAnimationFrame(frame); };
+  }, [box, active]);
+}
+
 export function DropdownsPage() {
   const [sp, setSp] = useSearchParams();
   const lists = useLists();
@@ -237,6 +279,9 @@ export function DropdownsPage() {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const canDrag = !search && !active;
+  const fit = useFitToWindow();
+  useDragAutoScroll(fit.ref, dragFrom !== null);
+  const [usesFor, setUsesFor] = useState<RefValue | null>(null);
   const drop = (to: number) => {
     const from = dragFrom; setDragFrom(null); setDragOver(null);
     if (from === null || from === to) return;
@@ -260,7 +305,7 @@ export function DropdownsPage() {
       </Stack>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : rows.length === 0 ? <Empty text="No values match." /> :
-        <TableContainer component={Paper} variant="outlined"><Table size="small">
+        <TableContainer component={Paper} variant="outlined" ref={fit.ref} data-testid="dropdown-table" sx={{ maxHeight: fit.maxHeight }}><Table size="small" stickyHeader>
           <TableHead><TableRow><TableCell>Order</TableCell><TableCell>Label</TableCell><TableCell>Code</TableCell><TableCell>Status</TableCell><TableCell>Default</TableCell><TableCell>Origin</TableCell><TableCell /></TableRow></TableHead>
           <TableBody>{rows.map((v, i) => <TableRow key={v.id} data-testid="dropdown-row" draggable={canDrag}
             onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', v.id); }}
@@ -283,6 +328,7 @@ export function DropdownsPage() {
               {key === 'product-families' && <Button size="small" data-testid="family-number-code" onClick={() => setCodeFor(v)}>Number code{v.numberCode ? `: ${v.numberCode}` : ''}</Button>}
               {key === 'product-families' && <Button size="small" data-testid="family-test-template" onClick={() => setTplFor(v)}>Test template{v.testTemplate ? ' set' : ': none'}</Button>}
               <Button size="small" onClick={() => setHistory(v)}>History</Button>
+              {key === 'product-families' && <Button size="small" data-testid="reference-uses" onClick={() => setUsesFor(v)}>What uses it</Button>}
               <Button size="small" color="error" data-testid="reference-delete" onClick={() => setConfirm({ title: 'Delete value', text: `Delete "${v.label}" permanently? This can't be undone.`, run: () => del(`${S}/reference/values/${v.id}`) })}>Delete</Button>
             </TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
@@ -290,9 +336,59 @@ export function DropdownsPage() {
       <FamilyCodeDialog value={codeFor} onClose={() => setCodeFor(null)} onSaved={() => { setCodeFor(null); refresh(); }} />
       <FamilyTemplateDialog value={tplFor} onClose={() => setTplFor(null)} onSaved={() => { setTplFor(null); refresh(); }} />
       <HistoryDialog value={history} onClose={() => setHistory(null)} />
+      <UsesDialog value={usesFor} families={key === 'product-families' ? rows : []} onClose={() => setUsesFor(null)} onDeleted={() => { setUsesFor(null); refresh(); }} />
       <FamilyFieldsDialog value={naFor} onClose={() => setNaFor(null)} onSaved={() => { setNaFor(null); refresh(); }} />
       <Confirm open={!!confirm} title={confirm?.title ?? ''} text={confirm?.text ?? ''} confirm="Confirm" danger onClose={() => setConfirm(null)} onConfirm={async () => { await confirm!.run(); refresh(); }} />
     </SqfPage>
+  );
+}
+
+interface ValueUses { partNumbers: number; partRows: number; parts: { id: string; partNumber: string; name: string; parts: number }[]; files: { id: string; number: string; title: string; where: string; isArchived: boolean }[] }
+
+/** What points at a product family: part numbers (counted like the Part Master family cards) and imported files, each with a link. */
+function UsesDialog({ value, families, onClose, onDeleted }: { value: RefValue | null; families: RefValue[]; onClose: () => void; onDeleted: () => void }) {
+  const [target, setTarget] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setTarget(''); setErr(null); }, [value]);
+  const targetLabel = families.find((f) => f.id === target)?.label;
+  const moveAndDelete = async () => {
+    setBusy(true); setErr(null);
+    try { await post(`${S}/reference/values/${value!.id}/move-and-delete`, { targetId: target }); onDeleted(); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const q = useQuery({ queryKey: ['sqf-value-uses', value?.id], queryFn: () => get<ValueUses>(`${S}/reference/values/${value!.id}/uses`), enabled: !!value });
+  const d = q.data;
+  return (
+    <Dialog open={!!value} onClose={onClose} fullWidth maxWidth="md">
+      <FormDialogTitle>What uses "{value?.label}"</FormDialogTitle>
+      <DialogContent data-testid="uses-dialog">
+        {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && (d.partNumbers === 0 && d.files.length === 0 ? <Alert severity="success">Nothing uses it. It can be deleted.</Alert> : <Stack gap={2}>
+          <Box>
+            <Typography variant="subtitle2" data-testid="uses-parts">Parts and Items: {d.partNumbers.toLocaleString('en-US')} {d.partNumbers === 1 ? 'part number' : 'part numbers'}{d.partRows !== d.partNumbers ? ` (${d.partRows.toLocaleString('en-US')} parts)` : ''}</Typography>
+            {d.partNumbers > 0 && <Link component={RouterLink} to={`/sequfloh/parts?partType=${value!.id}`} onClick={onClose}>Open them in Parts and Items</Link>}
+          </Box>
+          <Box>
+            <Typography variant="subtitle2" data-testid="uses-files">Imported files: {d.files.length.toLocaleString('en-US')}</Typography>
+            {d.files.length > 0 && <Link component={RouterLink} to={`/sequfloh/completed-forms?family=${value!.id}`} onClick={onClose}>Open the family tab in Completed Validation / FAI</Link>}
+            {d.files.length > 0 && <TableContainer sx={{ maxHeight: 360 }}><Table size="small" stickyHeader>
+              <TableHead><TableRow><TableCell>Number</TableCell><TableCell>Title</TableCell><TableCell>Where</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+              <TableBody>{d.files.map((f) => <TableRow key={f.id}><TableCell><Link component={RouterLink} to={`/sequfloh/imported-files/${f.id}`} onClick={onClose}>{f.number}</Link></TableCell>
+                <TableCell>{f.title}</TableCell><TableCell>{f.where}</TableCell><TableCell>{f.isArchived ? 'Archived' : 'Active'}</TableCell></TableRow>)}</TableBody>
+            </Table></TableContainer>}
+          </Box>
+          <Typography variant="body2" color="text.secondary">A product family can be deleted once nothing uses it. To stop offering it, deactivate it instead, or move what uses it to another product family and delete it.</Typography>
+          <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+            <TextField select size="small" label="Move them to" value={target} onChange={(e) => setTarget(e.target.value)} sx={{ minWidth: 280 }} inputProps={{ 'data-testid': 'uses-move-target' }}>
+              {families.filter((f) => f.id !== value?.id).map((f) => <MenuItem key={f.id} value={f.id}>{f.isActive ? f.label : `${f.label} (inactive)`}</MenuItem>)}</TextField>
+            <Button color="error" variant="outlined" disabled={!target || busy} data-testid="uses-move-delete" onClick={moveAndDelete}>Move and delete</Button>
+          </Stack>
+          {target && <Typography variant="body2" data-testid="uses-move-note">Moves every part and imported file above from {value?.label} to {targetLabel}, then deletes {value?.label}. This can't be undone.</Typography>}
+          {err && <Alert severity="error">{err}</Alert>}
+        </Stack>)}
+      </DialogContent>
+      <DialogActions><Button onClick={onClose}>Close</Button></DialogActions>
+    </Dialog>
   );
 }
 

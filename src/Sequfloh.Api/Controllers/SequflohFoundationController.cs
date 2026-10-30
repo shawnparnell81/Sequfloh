@@ -75,6 +75,11 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
     public async Task<IActionResult> Activate(Guid id, CancellationToken ct) { await f.SetActiveAsync(id, true, ct); return NoContent(); }
     [HttpPost("reference/values/{id:guid}/deactivate")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> Deactivate(Guid id, CancellationToken ct) { await f.SetActiveAsync(id, false, ct); return NoContent(); }
+    [HttpGet("reference/values/{id:guid}/uses")] [RequirePermission(Permissions.SequflohManageDropdowns)]
+    public Task<SequflohFoundationService.ValueUses> ValueUses(Guid id, CancellationToken ct) => f.ValueUsesAsync(id, ct);
+    public sealed record MoveAndDeleteInput(Guid TargetId);
+    [HttpPost("reference/values/{id:guid}/move-and-delete")] [RequirePermission(Permissions.SequflohManageDropdowns)]
+    public Task<object> MoveAndDelete(Guid id, MoveAndDeleteInput r, CancellationToken ct) => f.MoveAndDeleteAsync(id, r.TargetId, ct);
     [HttpDelete("reference/values/{id:guid}")] [RequirePermission(Permissions.SequflohManageDropdowns)]
     public async Task<IActionResult> DeleteValue(Guid id, CancellationToken ct) { await f.DeleteValueAsync(id, ct); return NoContent(); }
     [HttpPost("reference/values/{id:guid}/default")] [RequirePermission(Permissions.SequflohManageDropdowns)]
