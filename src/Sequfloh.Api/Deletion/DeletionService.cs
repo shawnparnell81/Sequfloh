@@ -107,6 +107,82 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         await SaveAndRemoveFilesAsync(keys, ct);
     }
 
+    /// <summary>The cancellation reason that lets a work order be deleted permanently.</summary>
+    public const string CreatedInError = "Created in error";
+
+    public static bool CancelledInError(SequflohTrackingRecord t) =>
+        t.Status == TrackingStatus.Canceled && (t.CancelReason ?? "").Trim().StartsWith(CreatedInError, StringComparison.OrdinalIgnoreCase);
+
+    async Task RequirePermanentAsync(ISiteScoped x, CancellationToken ct)
+    {
+        if (!await access.CanAccessAsync(UserId, Permissions.SequflohDeletePermanently, x.SiteId, x.DepartmentId, ct))
+            throw new ForbiddenException("You do not have permission to delete permanently.");
+    }
+
+    /// <summary>
+    /// Deletes a work order cancelled with the reason "Created in error" for good: its time, crew, events, notes, files, test results, saved job reports
+    /// and the stored files go with it. The person types the work order number to confirm. Not possible while a chargeback, an inspection request or a
+    /// filled form refers to it. The audit trail is never deleted; one entry records the delete.
+    /// </summary>
+    public async Task WorkOrderPermanentlyAsync(Guid id, string? confirmNumber, CancellationToken ct)
+    {
+        var t = await db.SequflohTrackingRecords.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Work order");
+        await RequirePermanentAsync(t, ct);
+        if (!CancelledInError(t))
+            throw new ConflictException($"Only work orders cancelled with the reason \"{CreatedInError}\" can be deleted permanently. {t.Number} is not.");
+        if (!string.Equals((confirmNumber ?? "").Trim(), t.Number, StringComparison.OrdinalIgnoreCase))
+            throw new AppException($"Type the work order number {t.Number} to confirm.");
+        var refs = new List<string>();
+        var cb = await db.SequflohChargebackReports.CountAsync(c => c.TrackingRecordId == id, ct);
+        if (cb > 0) refs.Add(Count(cb, "chargeback report", "chargeback reports"));
+        var ir = await db.SequflohInspectionRequests.CountAsync(r => r.WorkOrderId == id, ct);
+        if (ir > 0) refs.Add(Count(ir, "inspection request", "inspection requests"));
+        var forms = await db.ImportedFiles.CountAsync(f => f.WorkOrderId == id, ct);
+        if (forms > 0) refs.Add(Count(forms, "filled form", "filled forms"));
+        if (refs.Count > 0)
+            throw new ConflictException($"{t.Number} is referred to by {string.Join(", ", refs)}, so it can't be deleted permanently. Remove those links first.");
+
+        var gone = new List<string>();
+        async Task Del<T>(IQueryable<T> q, string one, string many) where T : class { var n = await q.ExecuteDeleteAsync(ct); if (n > 0) gone.Add(Count(n, one, many)); }
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var keys = await AttachmentKeysAsync(nameof(SequflohTrackingRecord), [id], ct);
+        keys.AddRange(await AttachmentKeysAsync(Sequfloh.Infrastructure.Modules.Execution.SequflohEightDService.OwnerType("work-orders"), [id], ct));
+        keys.AddRange(await db.SequflohTestFiles.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).Select(e => e.StorageKey).ToListAsync(ct));
+        await Del(db.SequflohTestFiles.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "file", "files");
+        await Del(db.SequflohDayWorkers.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "crew day worker", "crew day workers");
+        await Del(db.SequflohCrewSessions.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "crew session", "crew sessions");
+        await Del(db.SequflohTimeEntries.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "time entry", "time entries");
+        await Del(db.SequflohSavedJobReports.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "saved job report", "saved job reports");
+        await Del(db.SequflohJobNotes.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "job note", "job notes");
+        await Del(db.SequflohTestSpecs.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "test spec", "test specs");
+        await Del(db.SequflohTestPartResults.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "test result", "test results");
+        await Del(db.SequflohTaskEvents.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "event", "events");
+        await Del(db.SequflohTaskAssignees.IgnoreQueryFilters().Where(e => e.TrackingRecordId == id), "assignee", "assignees");
+        await Del(db.TrackingRecordDrawings.Where(e => e.TrackingRecordId == id), "drawing link", "drawing links");
+        await ForgetRecentAsync([id], ct);
+        AuditInterceptor.Note(t, $"permanently (cancelled as {CreatedInError})" + (gone.Count > 0 ? $" with {string.Join(", ", gone)}" : ""));
+        db.SequflohTrackingRecords.Remove(t);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        await SaveAndRemoveFilesAsync(keys, ct);
+    }
+
+    /// <summary>Deletes a file that was already removed from a work order (kept in history) for good, with its stored copy. Writes one audit entry on the work order.</summary>
+    public async Task RemovedFilePermanentlyAsync(Guid fileId, CancellationToken ct)
+    {
+        var x = await db.SequflohTestFiles.IgnoreQueryFilters().FirstOrDefaultAsync(e => e.Id == fileId, ct) ?? throw new NotFoundException("File");
+        var t = await db.SequflohTrackingRecords.AsNoTracking().FirstOrDefaultAsync(r => r.Id == x.TrackingRecordId, ct) ?? throw new NotFoundException("Work order");
+        await RequirePermanentAsync(t, ct);
+        if (x.RemovedAt is null) throw new ConflictException($"{x.FileName} is still on {t.Number}. Remove it first; removed files can then be deleted permanently.");
+        db.SequflohTestFiles.Remove(x);
+        db.AuditEntries.Add(new AuditEntry
+        {
+            OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "FileDeletedPermanently", EntityType = nameof(SequflohTrackingRecord), EntityId = t.Id, SiteId = t.SiteId,
+            CorrelationId = me.CorrelationId, Description = AuditText.Fit($"Deleted removed file {x.FileName} from {t.Number} permanently"),
+        });
+        await SaveAndRemoveFilesAsync([x.StorageKey], ct);
+    }
+
     // ---- parts ----------------------------------------------------------------------------------------------------------------------
 
     /// <summary>Deletes a part. Drawing links go with it (the drawings stay). Not possible while instructions, work orders or parts lists use it.</summary>

@@ -56,7 +56,7 @@ export function JobNotesPanel({ id }: { id: string }) {
 
 interface FileRow { id: string; kind: string; fileName: string; uploadedAt: string; uploadedBy?: string }
 interface Removed { id: string; fileName: string; uploadedByName: string; uploadedAt: string; removedAt: string; removedBy: string; removeReason?: string | null }
-interface JobData { files: FileRow[]; removedFiles: Removed[]; canRemoveFiles: boolean }
+interface JobData { files: FileRow[]; removedFiles: Removed[]; canRemoveFiles: boolean; canDeleteFilesPermanently?: boolean }
 
 export const FILE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.pdf,.docx,.doc,.xlsx,.xls,.csv,.pptx,.txt';
 const isPicture = (name: string) => /\.(jpe?g|png|gif|webp)$/i.test(name);
@@ -88,7 +88,10 @@ export function RecordFilesPanel({ id, canWork }: { id: string; canWork: boolean
       <a href={fileUrl(x.id)} target="_blank" rel="noreferrer">{x.fileName}</a><Typography variant="caption" color="text.secondary">{nyTime(x.uploadedAt)}</Typography>{rm(x)}</Stack>)}</Stack>}
     {removed.length > 0 && <Box sx={{ mt: 1 }}><Button size="small" onClick={() => setHistory(!history)}>{history ? 'Hide' : 'Show'} removed files ({removed.length})</Button>
       <Collapse in={history}><Stack gap={0.5} sx={{ mt: 0.5 }} data-testid="record-files-removed">{removed.map((x) => <Typography key={x.id} variant="caption" color="text.secondary">
-        <a href={fileUrl(x.id)} target="_blank" rel="noreferrer">{x.fileName}</a> removed by {x.removedBy} {nyTime(x.removedAt)}{x.removeReason ? ` (${x.removeReason})` : ''}</Typography>)}</Stack></Collapse></Box>}
+        <a href={fileUrl(x.id)} target="_blank" rel="noreferrer">{x.fileName}</a> removed by {x.removedBy} {nyTime(x.removedAt)}{x.removeReason ? ` (${x.removeReason})` : ''}
+        {q.data?.canDeleteFilesPermanently && <Button size="small" color="error" sx={{ ml: 1, py: 0, minWidth: 0 }} data-testid="record-file-delete-permanently"
+          onClick={async () => { if (!window.confirm(`Delete ${x.fileName} permanently? The stored file is removed for good; the audit trail keeps a note of it.`)) return;
+            try { await del(`${fileUrl(x.id)}/permanently`); await refresh(); } catch (e) { setErr((e as Error).message); } }}>Delete permanently</Button>}</Typography>)}</Stack></Collapse></Box>}
     <Dialog open={!!view} onClose={() => setView(null)} maxWidth="lg">
       {view && <><FormDialogTitle>{view.fileName}</FormDialogTitle><DialogContent><Box component="img" src={fileUrl(view.id)} alt={view.fileName} sx={{ maxWidth: '100%', maxHeight: '75vh', display: 'block' }} /></DialogContent>
         <DialogActions><Button href={fileUrl(view.id)} target="_blank">Open full size</Button><Button onClick={() => setView(null)}>Close</Button></DialogActions></>}

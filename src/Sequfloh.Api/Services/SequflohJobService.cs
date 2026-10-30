@@ -113,6 +113,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         {
             RemovedFiles = removed.Select(x => new { x.Id, x.FileName, x.Kind, x.UploadedByName, UploadedAt = x.CreatedAt, x.RemovedAt, x.RemovedBy, x.RemoveReason }),
             CanRemoveFiles = await m.CanAsync(Permissions.SequflohRemoveFiles, r.SiteId, r.DepartmentId, ct),
+            CanDeleteFilesPermanently = await m.CanAsync(Permissions.SequflohDeletePermanently, r.SiteId, r.DepartmentId, ct),
             r.QuantityTarget, r.QuantityCompleted, r.QuantityNotRepaired,
             Parts = Parts(r.PartsReplaced).Select(p => new { p.PartNumber, p.Description, p.PerAssembly, p.Quantity, p.UnitCost, Total = Total(p, r.QuantityCompleted) }),
             Columns = Map(r.TestColumns),
