@@ -277,7 +277,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         if (x.TrackingRecordId is { } tid)
         {
             try { job = await jobs.ReportAsync(tid, ct); } catch (ForbiddenException) { } catch (NotFoundException) { }
-            sessions = await db.SequflohCrewSessions.AsNoTracking().Where(s => s.TrackingRecordId == tid).OrderBy(s => s.StartedAt).ToListAsync(ct);
+            sessions = await SequflohCrewService.Counted(db, db.SequflohCrewSessions.AsNoTracking().Where(s => s.TrackingRecordId == tid)).OrderBy(s => s.StartedAt).ToListAsync(ct);
         }
         var fd = job?.Findings ?? new JobFindings();
         var parts = PartsOf(x.Parts);

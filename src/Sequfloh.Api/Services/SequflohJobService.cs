@@ -406,7 +406,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             g.Sum(e => SequflohTimeService.Worked(e, now)), g.Sum(e => SequflohTimeService.Paused(e, now)), g.Count())).OrderBy(p => p.Name).ToList();
         var log = entries.SelectMany(e => SequflohTimeService.EventsOf(e).Select(v => new ReportTimeEvent(e.UserName, SequflohTimeService.Label(v), v.At))).ToList();
         // day workers (named, no login) and the nameless crew are on the report too, with the same hours the crew panel and chargeback report show
-        var crew = await db.SequflohCrewSessions.AsNoTracking().Where(s => s.TrackingRecordId == id).ToListAsync(ct);
+        var crew = await SequflohCrewService.Counted(db, db.SequflohCrewSessions.AsNoTracking().Where(s => s.TrackingRecordId == id)).ToListAsync(ct);
         static string CrewName(SequflohCrewSession s) => s.WorkerId is null ? "Crew (unnamed workers)" : $"{s.WorkerName} (day worker)";
         people.AddRange(crew.GroupBy(s => s.WorkerId).Select(g => new ReportPerson(CrewName(g.OrderBy(s => s.StartedAt).Last()),
             g.Sum(s => SequflohCrewService.Labor(s, now)), g.Sum(s => SequflohCrewService.Paused(s, now) * s.CrewSize), g.Count())).OrderBy(p => p.Name));

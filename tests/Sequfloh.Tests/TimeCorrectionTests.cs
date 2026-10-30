@@ -26,6 +26,19 @@ public sealed class TimeCorrectionTests(TestApp app)
     static async Task<Guid> WorkerAsync(ApiClient c, Guid id, string name) =>
         (await (await c.PostOkAsync($"{T}/{id}/crew/workers", new { name })).JsonAsync()).GetProperty("workers").EnumerateArray().First(w => w.Str("name") == name).Id();
 
+    // older data saved before the crew-time setting: crew and named time on one work order that uses crew time
+    async Task CrewOnAsync(Guid id, string no, DateTimeOffset? crewFrom)
+    {
+        using var s = app.Services.CreateScope();
+        var db = s.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.SequflohTrackingRecords.IgnoreQueryFilters().Where(r => r.Id == id).ExecuteUpdateAsync(u => u.SetProperty(r => r.UseCrewTime, true));
+        if (crewFrom is { } f)
+        {
+            db.SequflohCrewSessions.Add(new Sequfloh.Domain.Execution.SequflohCrewSession { TrackingRecordId = id, TrackingNumber = no, CrewSize = 2, StartedAt = f, StoppedAt = f.AddHours(2), Entered = true });
+            await db.SaveChangesAsync();
+        }
+    }
+
     [Fact]
     public async Task Time_moves_intact_to_another_work_order_and_removed_time_stops_counting_but_stays_in_history()
     {
@@ -37,8 +50,8 @@ public sealed class TimeCorrectionTests(TestApp app)
         var start = new DateTimeOffset(DateTimeOffset.UtcNow.AddDays(-1).Date.AddHours(13), TimeSpan.Zero);
         var w = await WorkerAsync(c, a, "Made-up Adi");
         await c.PostOkAsync($"{T}/{a}/crew/sessions", new { crewSize = 1, workerId = w, start, stop = start.AddHours(3), pauses = new[] { new { from = start.AddHours(1), to = start.AddHours(1.5) } }, note = "made-up note" });
-        await c.PostOkAsync($"{T}/{a}/crew/sessions", new { crewSize = 2, start, stop = start.AddHours(2) });
         await c.PostOkAsync($"{T}/{a}/time/start"); await c.PostOkAsync($"{T}/{a}/time/stop");
+        await CrewOnAsync(a, aNo, start);
         var cb = (await (await c.PostOkAsync("/api/sequfloh/chargebacks", new { workOrderNumber = "WO-MADEUP-TC", trackingRecordId = a })).JsonAsync()).Id();
 
         var list = (await c.GetElAsync($"{T}/{a}/time-corrections")).GetProperty("entries").EnumerateArray().ToList();
@@ -62,6 +75,7 @@ public sealed class TimeCorrectionTests(TestApp app)
         Assert.Equal(3, (await c.GetElAsync($"{T}/{a}/time-corrections")).GetProperty("entries").GetArrayLength());
 
         var c2 = await NewAsync(c, site); var cNo = await No(c, c2);
+        await CrewOnAsync(c2, cNo, null);
         await c.PostOkAsync($"{T}/{a}/time-corrections/transfer", new { targetId = c2, crewSessionIds = crewIds, timeEntryIds = userIds, reason = "Booked on the wrong order" });
         Assert.Equal(0, (await c.GetElAsync($"{T}/{a}/crew")).GetProperty("totalSeconds").GetInt64());
         var moved = await c.GetElAsync($"{T}/{c2}/crew");

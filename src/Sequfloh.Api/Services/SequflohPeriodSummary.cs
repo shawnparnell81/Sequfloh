@@ -95,8 +95,9 @@ public static class SequflohPeriodSummary
 
         var times = proj ? await db.SequflohTimeEntries.AsNoTracking().Where(t => projectIds.Contains(t.TrackingRecordId)).ToListAsync(ct)
             : await db.SequflohTimeEntries.AsNoTracking().Where(t => t.StartedAt >= from && t.StartedAt < to).ToListAsync(ct);
-        var crews = proj ? await db.SequflohCrewSessions.AsNoTracking().Where(s => projectIds.Contains(s.TrackingRecordId)).ToListAsync(ct)
-            : await db.SequflohCrewSessions.AsNoTracking().Where(s => s.StartedAt >= from && s.StartedAt < to).ToListAsync(ct);
+        var counted = SequflohCrewService.Counted(db, db.SequflohCrewSessions.AsNoTracking());
+        var crews = proj ? await counted.Where(s => projectIds.Contains(s.TrackingRecordId)).ToListAsync(ct)
+            : await counted.Where(s => s.StartedAt >= from && s.StartedAt < to).ToListAsync(ct);
         var person = p.Person?.Trim();
         if (!string.IsNullOrEmpty(person))
         {

@@ -110,6 +110,9 @@ public sealed class ApiClient(HttpClient http)
         return r;
     }
 
+    public Task<HttpResponseMessage> UseCrewTimeAsync(Guid workOrderId, bool on = true) =>
+        PutOkAsync($"/api/sequfloh/tracking/{workOrderId}/crew/setting", new { useCrewTime = on });
+
     public async Task<T> GetJsonAsync<T>(string url)
     {
         var r = await http.GetAsync(url);

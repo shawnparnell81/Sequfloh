@@ -20,7 +20,7 @@ public sealed class CrewChargebackTests(TestApp app)
         Permissions.SequflohManageChargebacks, Permissions.SequflohViewReports];
     static readonly string[] Plain = [Permissions.SequflohAccess, Permissions.SequflohViewReports];
 
-    async Task<(Guid Site, Guid Id, ApiClient Lead, ApiClient Plain, Guid PlainId)> JobAsync()
+    async Task<(Guid Site, Guid Id, ApiClient Lead, ApiClient Plain, Guid PlainId)> JobAsync(bool crewTime = false)
     {
         var site = await app.CreateSiteAsync();
         var (_, lead) = await app.CreateUserAsync(Lead, site);
@@ -38,6 +38,7 @@ public sealed class CrewChargebackTests(TestApp app)
         }
         var id = (await (await lead.PostOkAsync(U, new { type = "Production", workInstructionId = wi, siteId = site })).JsonAsync()).Id();
         await lead.StartAsync(id);
+        if (crewTime) await lead.UseCrewTimeAsync(id);
         return (site, id, lead, plain, plainId);
     }
 
@@ -78,7 +79,7 @@ public sealed class CrewChargebackTests(TestApp app)
     [Fact]
     public async Task Bulk_backdate_through_the_api_gives_240_labor_hours_and_is_audited()
     {
-        var (_, id, lead, _, _) = await JobAsync();
+        var (_, id, lead, _, _) = await JobAsync(true);
         var body = new { from = "2026-10-05", to = "2026-10-16", crewSize = 3, hoursPerDay = 8, startTime = "07:00" };
         var preview = await (await lead.PostOkAsync($"{U}/{id}/crew/bulk?preview=true", body)).JsonAsync();
         Assert.Equal(10, preview.Int("days"));
@@ -100,7 +101,7 @@ public sealed class CrewChargebackTests(TestApp app)
     [Fact]
     public async Task Backdated_entries_validate_times_and_edits_are_audited_with_before_and_after()
     {
-        var (_, id, lead, _, _) = await JobAsync();
+        var (_, id, lead, _, _) = await JobAsync(true);
         var start = new DateTimeOffset(2026, 10, 6, 11, 0, 0, TimeSpan.Zero);
         object Entry(int crew, DateTimeOffset s, DateTimeOffset e, object[]? pauses = null) => new { crewSize = crew, start = s, stop = e, pauses = pauses ?? [] };
         Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync($"{U}/{id}/crew/sessions", Entry(3, start, start.AddHours(-1)))).StatusCode);
@@ -119,7 +120,7 @@ public sealed class CrewChargebackTests(TestApp app)
         Assert.Equal(16 * 3600, (await lead.GetElAsync($"{U}/{id}/crew")).GetProperty("crewLaborSeconds").GetInt64());
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var trail = await db.AuditEntries.AsNoTracking().Where(e => e.EntityId == id && e.Action.StartsWith("CrewTime")).OrderBy(e => e.OccurredAt).ToListAsync();
+        var trail = await db.AuditEntries.AsNoTracking().Where(e => e.EntityId == id && e.Action.StartsWith("CrewTime") && e.Action != "CrewTimeSetting").OrderBy(e => e.OccurredAt).ToListAsync();
         Assert.Equal(["CrewTimeAdded", "CrewTimeEdited"], trail.Select(e => e.Action));
         var edit = trail[1];
         Assert.Contains("3 workers", edit.Description); Assert.Contains("2 workers", edit.Description);
@@ -145,18 +146,18 @@ public sealed class CrewChargebackTests(TestApp app)
     }
 
     [Fact]
-    public async Task Registered_people_keep_their_own_clock_alongside_the_crew_and_the_report_shows_both()
+    public async Task Crew_time_and_registered_time_in_older_data_are_both_on_the_report()
     {
-        var (_, id, lead, plain, plainId) = await JobAsync();
-        // a registered person still clocks on and off the normal way while the crew runs
+        var (_, id, lead, plain, plainId) = await JobAsync(true);
+        // while the work order uses crew time, nobody clocks on by name
         await lead.PostOkAsync($"{U}/{id}/crew/start", new { crewSize = 3 });
-        await plain.PostOkAsync($"{U}/{id}/time/start");
+        var named = await plain.PostAsync($"{U}/{id}/time/start", new { });
+        Assert.Equal(HttpStatusCode.Conflict, named.StatusCode);
+        Assert.Contains(SequflohCrewService.NamedBlockedMessage, await named.Content.ReadAsStringAsync());
         await lead.PostOkAsync($"{U}/{id}/crew/pause");
         await lead.PostOkAsync($"{U}/{id}/crew/continue");
-        await plain.PostOkAsync($"{U}/{id}/time/stop");
         await lead.PostOkAsync($"{U}/{id}/crew/stop");
-        Assert.Single((await plain.GetElAsync($"{U}/{id}/time")).GetProperty("people").EnumerateArray());
-        // past time for both: crew of 3 for 8 h on two days, and the registered person 4 h
+        // past time for both (the registered person's time is older data saved before the crew-time setting): crew of 3 for 8 h on two days, and the registered person 4 h
         var day = new DateTimeOffset(2026, 10, 12, 11, 0, 0, TimeSpan.Zero);
         await lead.PostOkAsync($"{U}/{id}/crew/bulk", new { from = "2026-10-12", to = "2026-10-13", crewSize = 3, hoursPerDay = 8, startTime = "07:00" });
         using (var scope = app.Services.CreateScope())
@@ -248,10 +249,12 @@ public sealed class CrewChargebackTests(TestApp app)
     public async Task Named_day_workers_have_their_own_clocks_and_are_listed_by_name_on_the_chargeback()
     {
         var (_, id, lead, plain, _) = await JobAsync();
-        // nameless crew time keeps working next to the named workers
+        // nameless crew time is refused while the work order does not use crew time
         var day = DateTimeOffset.UtcNow.AddDays(-2).Date;
         var start = new DateTimeOffset(day.AddHours(13), TimeSpan.Zero);
-        await lead.PostOkAsync($"{U}/{id}/crew/sessions", new { crewSize = 2, start, stop = start.AddHours(4) });
+        var off = await lead.PostAsync($"{U}/{id}/crew/sessions", new { crewSize = 2, start, stop = start.AddHours(4) });
+        Assert.Equal(HttpStatusCode.Conflict, off.StatusCode);
+        Assert.Contains(SequflohCrewService.CrewOffMessage, await off.Content.ReadAsStringAsync());
 
         Assert.Equal(HttpStatusCode.BadRequest, (await lead.PostAsync($"{U}/{id}/crew/workers", new { name = "  " })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await plain.PostAsync($"{U}/{id}/crew/workers", new { name = "Made-up Pat" })).StatusCode);
@@ -282,6 +285,14 @@ public sealed class CrewChargebackTests(TestApp app)
         sum = await lead.GetElAsync($"{U}/{id}/crew");
         var leeSession = sum.GetProperty("sessions").EnumerateArray().First(x => x.GetProperty("workerId").ValueKind != JsonValueKind.Null && x.GetProperty("workerId").GetGuid() == lee && x.GetProperty("entered").GetBoolean()).Id();
         Assert.True((await lead.PutAsync($"{U}/crew/sessions/{leeSession}", new { crewSize = 9, start, stop = start.AddHours(1) })).IsSuccessStatusCode);
+        // older data saved before the crew-time setting: a nameless crew row next to the named workers, on a work order set to use crew time
+        using (var s0 = app.Services.CreateScope())
+        {
+            var d0 = s0.ServiceProvider.GetRequiredService<AppDbContext>();
+            await d0.SequflohTrackingRecords.IgnoreQueryFilters().Where(r => r.Id == id).ExecuteUpdateAsync(u => u.SetProperty(r => r.UseCrewTime, true));
+            d0.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = id, CrewSize = 2, StartedAt = start, StoppedAt = start.AddHours(4), Entered = true });
+            await d0.SaveChangesAsync();
+        }
         sum = await lead.GetElAsync($"{U}/{id}/crew");
         var edited = sum.GetProperty("sessions").EnumerateArray().First(x => x.Id() == leeSession);
         Assert.Equal(1, edited.GetProperty("crewSize").GetInt32()); // a named worker is always one person
@@ -355,6 +366,7 @@ public sealed class CrewChargebackTests(TestApp app)
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var num = await db.SequflohTrackingRecords.Where(r => r.Id == id).Select(r => r.Number).SingleAsync();
             db.SequflohTimeEntries.Add(new SequflohTimeEntry { TrackingRecordId = id, TrackingNumber = num, UserId = plainId, UserName = tech, StartedAt = day, StoppedAt = day.AddHours(3), Seconds = 3 * 3600 });
+            await db.SequflohTrackingRecords.IgnoreQueryFilters().Where(r => r.Id == id).ExecuteUpdateAsync(u => u.SetProperty(r => r.UseCrewTime, true));
             db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = id, CrewSize = 2, StartedAt = day, StoppedAt = day.AddHours(2) });
             db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = id, CrewSize = 1, StartedAt = day, StoppedAt = day.AddHours(1.5), WorkerId = wid, WorkerName = worker });
             db.SequflohTimeEntries.Add(new SequflohTimeEntry { TrackingRecordId = id, TrackingNumber = num, UserId = plainId, UserName = late, StartedAt = day.AddDays(34), StoppedAt = day.AddDays(34).AddHours(1), Seconds = 3600 });

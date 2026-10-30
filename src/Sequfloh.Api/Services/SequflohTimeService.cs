@@ -25,6 +25,7 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
     {
         var rec = await RecordAsync(id, ct);
         SequflohTrackingService.RequireStarted(rec);
+        if (rec.UseCrewTime) throw new ConflictException(SequflohCrewService.NamedBlockedMessage);
         // one person's clock-ons run one after another, so two jobs started at the same moment can't both be on
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtext({0}))", ["clock:" + UserId], ct);

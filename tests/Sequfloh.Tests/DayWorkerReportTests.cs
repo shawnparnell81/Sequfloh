@@ -32,18 +32,23 @@ public sealed class DayWorkerReportTests(TestApp app)
         var start = new DateTimeOffset(DateTimeOffset.UtcNow.AddDays(-1).Date.AddHours(13), TimeSpan.Zero);
         var w = await WorkerAsync(c, id, "Made-up Dana");
         await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, workerId = w, start, stop = start.AddHours(3) });
-        await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 2, start, stop = start.AddHours(1) });
 
         var rep = await c.GetElAsync($"{T}/{id}/job/report");
         var people = rep.GetProperty("people").EnumerateArray().ToDictionary(p => p.Str("name")!, p => p.GetProperty("seconds").GetInt64());
         Assert.Equal(3 * 3600, people["Made-up Dana (day worker)"]);
-        Assert.Equal(2 * 3600, people["Crew (unnamed workers)"]);
-        Assert.Equal(5 * 3600, rep.GetProperty("totalSeconds").GetInt64());
+        Assert.Equal(3 * 3600, rep.GetProperty("totalSeconds").GetInt64());
         Assert.Contains(rep.GetProperty("timeLog").EnumerateArray(), e => e.Str("name") == "Made-up Dana (day worker)");
 
         var pdf = Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{id}/job/report/pdf?full=true")).Content.ReadAsByteArrayAsync());
         Assert.Contains("Made-up Dana", pdf); Assert.Contains("Man hours by technician", pdf);
-        Assert.Contains("5.00", pdf);
+        Assert.Contains("3.00", pdf);
+
+        // crew time is on its own work order that uses crew time
+        var (crewWo, cc) = await InspectionAsync();
+        await cc.UseCrewTimeAsync(crewWo);
+        await cc.PostOkAsync($"{T}/{crewWo}/crew/sessions", new { crewSize = 2, start, stop = start.AddHours(1) });
+        var rep2 = await cc.GetElAsync($"{T}/{crewWo}/job/report");
+        Assert.Equal(2 * 3600, rep2.GetProperty("people").EnumerateArray().Single(p => p.Str("name") == "Crew (unnamed workers)").GetProperty("seconds").GetInt64());
     }
 
     [Fact]
@@ -55,10 +60,7 @@ public sealed class DayWorkerReportTests(TestApp app)
         var b = await WorkerAsync(c, id, "Made-up Blake");
         await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, workerId = a, start, stop = start.AddHours(4) });
         await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, workerId = b, start = start.AddHours(1), stop = start.AddHours(3) });
-        await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 3, start = start.AddHours(1), stop = start.AddHours(2) });
-        // Shawn's case: a second nameless crew row overlapping an existing one is a different group of people, so it saves
-        await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, start = start.AddMinutes(20), stop = start.AddHours(4) });
-        // a registered person's clock never clashes with day workers or the crew
+        // a registered person's clock never clashes with day workers
         await c.PostOkAsync($"{T}/{id}/time/start");
         await c.PostOkAsync($"{T}/{id}/time/stop");
 
@@ -116,11 +118,6 @@ public sealed class DayWorkerReportTests(TestApp app)
         Assert.Equal(HttpStatusCode.Conflict, e2.StatusCode);
         Assert.Contains(oneNo, await e2.Content.ReadAsStringAsync());
         await c.PostOkAsync($"{T}/{two}/crew/sessions", new { crewSize = 1, workerId = w2, start = start.AddHours(2), stop = start.AddHours(3) });
-        // nameless crew rows have no person, so they never block
-        await c.PostOkAsync($"{T}/{one}/crew/start", new { crewSize = 2 });
-        await c.PostOkAsync($"{T}/{two}/crew/start", new { crewSize = 2 });
-        await c.PostOkAsync($"{T}/{one}/crew/stop", new { });
-        await c.PostOkAsync($"{T}/{two}/crew/stop", new { });
     }
 
     [Fact]
