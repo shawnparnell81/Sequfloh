@@ -46,7 +46,7 @@ public sealed class TestOrderFormChoiceTests(TestApp app)
         Assert.False(Details(rn).TryGetProperty("validationForm", out _));
         Assert.False(rn.GetProperty("canAttachForm").GetBoolean());
         Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsync($"{T}/{no}/validation-form", new { number = "X-" + tag })).StatusCode);
-        Assert.Contains("No - not attached", Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{no}/print")).Content.ReadAsByteArrayAsync()));
+        Assert.DoesNotContain("Validation form", Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{no}/print")).Content.ReadAsByteArrayAsync()));
 
         // Yes with a typed number: the confirmed copy is attached
         var (yes, res) = await Create(new { type = "Test", number = "TFC-Y-" + tag, siteId = site, familyId = fam, partId = part, attachValidationForm = true, formNumber = $"TFF-{tag}-1" });

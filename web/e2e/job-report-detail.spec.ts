@@ -22,6 +22,7 @@ test('time detail, findings and report options', async ({ page }) => {
   await ok(rq.put(`/api/sequfloh/tracking/${wo}/job/parts`, { data: [{ partNumber: '123abc', description: 'Top mount', perAssembly: 1, unitCost: 4.25 }] }));
 
   // Time tab: start, pause, resume, stop
+  { const sv = (await ok(rq.get(`/api/sequfloh/tracking/${wo}`))).stateVersion; await ok(rq.post(`/api/sequfloh/tracking/${wo}/actions/start`, { data: { operationId: crypto.randomUUID(), stateVersion: sv } })); } // clocking on needs a started work order
   await page.goto(`/sequfloh/record/${wo}?tab=time`);
   await view(page).getByTestId('start-timer').click();
   await view(page).getByTestId('pause-lunch').click();
@@ -81,6 +82,5 @@ test('time detail, findings and report options', async ({ page }) => {
   const text = (await pdf.body()).toString('latin1');
   expect(text).toContain('Findings / nonconformance');
   expect(text).not.toContain('Official status');
-  await view(page).getByTestId('summary-only').click();
-  await expect(report).not.toContainText('Detailed time log');
+  await expect(view(page).getByTestId('summary-only')).toHaveCount(0); // one job report: the summary output is gone
 });

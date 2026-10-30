@@ -79,7 +79,7 @@ public sealed class SequflohTrackingTests(TestApp app)
         var (_, planner) = await app.CreateUserAsync(Planner, site);
         var (techId, tech) = await app.CreateUserAsync(Tech, site);
         var (_, quality) = await app.CreateUserAsync(Quality, site);
-        var (_, viewer) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
+        var (_, viewer) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewTaskEvents], site);
         var steps = """[{"id":"11111111-1111-1111-1111-111111111111","sequence":10,"title":"Pressurize","target":150,"lowerLimit":145,"upperLimit":155,"unit":"psi","actualResultRequired":true,"evidenceRequired":"Gauge photo"},{"id":"22222222-2222-2222-2222-222222222222","sequence":20,"title":"Leak check"}]""";
         var wiId = await ReleasedAsync(site, WorkInstructionType.Validation, steps);
         var draft = await ReleasedAsync(site, WorkInstructionType.Validation, steps, status: "Draft");
@@ -253,7 +253,8 @@ public sealed class SequflohTrackingTests(TestApp app)
         Assert.InRange(done.GetProperty("varianceMinutes").GetDecimal(), 10m, 11.5m);
         Assert.Equal(HttpStatusCode.Conflict, await ActStatus(planner, id, "cancel", new { reason = "Order canceled" }));
         Assert.Equal(HttpStatusCode.Conflict, await ActStatus(tech, id, "resume"));
-        var events = (await Rec(tech, id)).GetProperty("events").EnumerateArray().ToList();
+        var (_, auditor) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewTaskEvents], site);
+        var events = (await Rec(auditor, id)).GetProperty("events").EnumerateArray().ToList();
         Assert.Equal(1, events.Count(e => e.Str("eventType") == "Start"));
         Assert.Equal(events.Count, events.Select(e => e.Str("operationId")).Distinct().Count());
         var pause = events.First(e => e.Str("eventType") == "Pause");

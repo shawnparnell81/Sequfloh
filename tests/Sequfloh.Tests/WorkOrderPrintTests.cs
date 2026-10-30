@@ -47,8 +47,8 @@ public sealed class WorkOrderPrintTests(TestApp app)
         Assert.DoesNotContain("Task events", pdf);
         Assert.DoesNotContain("Paused time", pdf);
         Assert.Equal(HttpStatusCode.Forbidden, (await stranger.GetAsync($"{T}/{id}/print/work-order")).StatusCode);
-        // the full record print is still there
-        Assert.Contains("Task events", Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync()));
+        // the job report (lean) leaves task events out unless asked for
+        Assert.DoesNotContain("Task events", Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync()));
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

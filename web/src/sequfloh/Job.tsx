@@ -35,13 +35,57 @@ interface ColumnMap { resultColumn?: string | null; passValues?: string[] | null
 interface JobData { quantityTarget?: number | null; quantityCompleted: number; quantityNotRepaired: number; parts: PartLine[]; columns: ColumnMap; files: TestFile[]; canRemoveFiles?: boolean;
   tests: { tested: number; passed: number; failed: number } }
 
+/**
+ * Quantity of the whole job, on the Record tab (the only place it is edited). The numbers typed are the new totals; the change is sent as the
+ * difference to the same job/quantity endpoint, so permissions, validation and the QuantityUpdated audit entry are unchanged.
+ */
+export function QuantityPanel({ id, canWork, onSaved }: { id: string; canWork: boolean; onSaved: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['sqf-job', id], queryFn: () => get<JobData>(`${S}/tracking/${id}/job`) });
+  const [edit, setEdit] = useState<{ done: string; bad: string; target: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorState error={q.error} retry={q.refetch} />;
+  const j = q.data!;
+  const num = (v: string) => (v.trim() === '' ? null : Number(v));
+  const save = async () => {
+    if (!edit) return;
+    const done = num(edit.done) ?? 0, bad = num(edit.bad) ?? 0, target = num(edit.target);
+    if ([done, bad, target ?? 0].some((v) => !Number.isInteger(v) || v < 0)) { setErr('Quantities are whole numbers, zero or more.'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await post(`${S}/tracking/${id}/job/quantity`, { completed: done - j.quantityCompleted, notRepaired: bad - j.quantityNotRepaired,
+        target: target != null && target !== j.quantityTarget ? target : null, clearTarget: target == null && j.quantityTarget != null });
+      setEdit(null);
+      qc.invalidateQueries({ queryKey: ['sqf-job', id] }); qc.invalidateQueries({ queryKey: ['sqf-history', id] }); onSaved();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Quantity" data-testid="wo-quantity">
+    <Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="h3" sx={{ mb: 1 }}>Quantity</Typography>
+      {canWork && !edit && <Button data-testid="qty-edit" onClick={() => setEdit({ done: String(j.quantityCompleted), bad: String(j.quantityNotRepaired), target: j.quantityTarget != null ? String(j.quantityTarget) : '' })}>Edit quantity</Button>}</Stack>
+    {err && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setErr(null)}>{err}</Alert>}
+    {!edit ? <Stack direction="row" gap={3} flexWrap="wrap">
+      <Fact label="Completed / repaired" value={j.quantityCompleted} testid="qty-completed" />
+      <Fact label="Could not repair" value={j.quantityNotRepaired} testid="qty-not-repaired" />
+      <Fact label="Target" value={j.quantityTarget ?? '—'} testid="qty-target" />
+    </Stack> : <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
+      <TextField size="small" type="number" label="Completed / repaired" value={edit.done} onChange={(e) => setEdit({ ...edit, done: e.target.value })} sx={{ width: 170 }} inputProps={{ 'data-testid': 'qty-completed-input', min: 0 }} />
+      <TextField size="small" type="number" label="Could not repair" value={edit.bad} onChange={(e) => setEdit({ ...edit, bad: e.target.value })} sx={{ width: 160 }} inputProps={{ 'data-testid': 'qty-not-repaired-input', min: 0 }} />
+      <TextField size="small" type="number" label="Target (optional)" value={edit.target} onChange={(e) => setEdit({ ...edit, target: e.target.value })} sx={{ width: 150 }} inputProps={{ 'data-testid': 'qty-target-input', min: 0 }} />
+      <Button variant="contained" disabled={busy} onClick={() => void save()} data-testid="qty-save">Save quantity</Button>
+      <Button disabled={busy} onClick={() => { setEdit(null); setErr(null); }}>Cancel</Button>
+    </Stack>}
+    <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>Quantity is for the whole job. Every change is in the History tab.</Typography>
+  </Paper>;
+}
+
 export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['sqf-job', id], queryFn: () => get<JobData>(`${S}/tracking/${id}/job`) });
   const refresh = () => { qc.invalidateQueries({ queryKey: ['sqf-job', id] }); qc.invalidateQueries({ queryKey: ['sqf-history', id] }); };
   const [err, setErr] = useState<string | null>(null);
   const run = async (f: () => Promise<unknown>) => { setErr(null); try { await f(); refresh(); } catch (e) { setErr((e as Error).message); } };
-  const [done, setDone] = useState(''); const [bad, setBad] = useState(''); const [target, setTarget] = useState('');
   const [parts, setParts] = useState<PartLine[] | null>(null);
   const [batch, setBatch] = useState(''); const [testDate, setTestDate] = useState('');
   const [mapFile, setMapFile] = useState<string | null>(null);
@@ -50,25 +94,9 @@ export function JobPanel({ id, canWork }: { id: string; canWork: boolean }) {
   const j = q.data!;
   const lines = parts ?? j.parts;
   const tests = j.files.filter((f) => (f.kind ?? 'test') === 'test');
-  const n = (s: string) => (s.trim() === '' ? null : Number(s));
+  const n = (v: string) => (v.trim() === '' ? null : Number(v));
   return <Stack gap={2}>
     {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
-    <Paper variant="outlined" sx={{ p: 2 }}>
-      <Typography variant="subtitle1" gutterBottom>Quantity</Typography>
-      <Stack direction="row" gap={3} flexWrap="wrap" sx={{ mb: 1.5 }}>
-        <Fact label="Completed / repaired" value={j.quantityCompleted} testid="qty-completed" />
-        <Fact label="Could not repair" value={j.quantityNotRepaired} testid="qty-not-repaired" />
-        <Fact label="Target" value={j.quantityTarget ?? '—'} />
-      </Stack>
-      {canWork && <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
-        <TextField size="small" type="number" label="Add completed" value={done} onChange={(e) => setDone(e.target.value)} sx={{ width: 150 }} />
-        <TextField size="small" type="number" label="Add could not repair (optional)" value={bad} onChange={(e) => setBad(e.target.value)} sx={{ width: 230 }} />
-        <TextField size="small" type="number" label="Target (optional)" value={target} onChange={(e) => setTarget(e.target.value)} sx={{ width: 150 }} />
-        <Button variant="contained" disabled={!done && !bad && !target} onClick={() => run(async () => {
-          await post(`${S}/tracking/${id}/job/quantity`, { completed: n(done), notRepaired: n(bad), target: n(target) }); setDone(''); setBad(''); setTarget(''); })}>Add</Button>
-      </Stack>}
-      <Typography variant="caption" color="text.secondary">Quantity is for the whole job. Use a negative number to correct a mistake. Every change is in the History tab.</Typography>
-    </Paper>
 
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="subtitle1">Parts replaced</Typography>
@@ -182,7 +210,7 @@ export function JobReportPage() {
   const labour = r && rateN != null ? Math.round(rateN * r.totalSeconds / 36) / 100 : null;
   const total = r ? (labour ?? 0) + r.partsCost + r.otherCost : 0;
   const opt = (pairs: [string, unknown][]) => pairs.filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)] as [string, string]);
-  return <SqfPage title={r ? `Job report · ${r.number}` : 'Job report'} crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work orders', to: '/sequfloh/tracking' }, { label: r?.number ?? '…', to: `/sequfloh/record/${id}` }, { label: 'Job report' }]}
+  return <SqfPage title={r ? `Chargeback job report · ${r.number}` : 'Chargeback job report'} crumbs={[{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Work orders', to: '/sequfloh/tracking' }, { label: r?.number ?? '…', to: `/sequfloh/record/${id}` }, { label: 'Job report' }]}
     actions={<Stack direction="row" gap={1} className="no-print"><Button component={RouterLink} to={`/sequfloh/record/${id}`}>Back</Button>
       <Button variant="outlined" onClick={() => window.print()}>Print</Button>
       <Button variant="outlined" data-testid="save-job-report" onClick={async () => { setErr(null); setSaved(false); try { await post(`${S}/tracking/${id}/job/report/save`, {}); setSaved(true); } catch (e) { setErr((e as Error).message); } }}>Save to Reports</Button><Button variant="contained" href={pdf}>Download PDF</Button></Stack>}>
@@ -196,7 +224,7 @@ export function JobReportPage() {
       <Stack direction="row" flexWrap="wrap" alignItems="center" data-testid="report-options">
         {SECTIONS.map(([k, l]) => <FormControlLabel key={k} label={l} control={<Checkbox size="small" checked={o[k]} onChange={(e) => choose({ ...o, [k]: e.target.checked })} inputProps={{ 'aria-label': l }} />} />)}
         <Button size="small" variant="outlined" data-testid="full-detail" onClick={() => choose(ALL(o.tests))}>Full detail</Button>
-        <Button size="small" sx={{ ml: 1 }} data-testid="summary-only" onClick={() => choose({ ...NONE, tests: o.tests })}>Summary only</Button>
+
       </Stack>
       <FormControl sx={{ mt: 1 }} data-testid="include-tests">
         <FormLabel id="include-tests-label" sx={{ fontSize: 14 }}>Include test results report?</FormLabel>
@@ -204,7 +232,7 @@ export function JobReportPage() {
           <FormControlLabel value="no" control={<Radio size="small" />} label="No" /><FormControlLabel value="yes" control={<Radio size="small" />} label="Yes" />
         </RadioGroup>
       </FormControl>
-      <Typography variant="caption" color="text.secondary" component="div">Your choices are remembered for this work order. Sections with nothing in them are left out. Full detail and Summary only keep the Yes / No answer above.</Typography>
+      <Typography variant="caption" color="text.secondary" component="div">Your choices are remembered for this work order. Sections with nothing in them are left out. Full detail keeps the Yes / No answer above.</Typography>
       {err && <Alert severity="error" sx={{ mt: 1 }}>{err}</Alert>}
       {saved && <Alert severity="success" sx={{ mt: 1 }} onClose={() => setSaved(false)}>Saved to Reports.</Alert>}</Paper>
     {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : r && <Paper variant="outlined" className="job-report" sx={{ p: 3 }} data-testid="job-report">

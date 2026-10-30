@@ -20,7 +20,7 @@ public sealed class Seeder(AppDbContext db, IConfiguration config, IPasswordHash
     {
         if (!await db.OrganizationSettings.AnyAsync(ct))
             db.OrganizationSettings.Add(new OrganizationSettings { ApplicationName = "SEQUFLOH", OrganizationName = config["Seed:OrganizationName"] ?? "" });
-        await EnsureRoleAsync(AdministratorRole, "Full access, including people, roles and settings.", Permissions.All, ct);
+        await EnsureRoleAsync(AdministratorRole, "Full access, including people, roles and settings.", Permissions.All.Except(Permissions.AssignOnly), ct);
         foreach (var s in SequflohCatalog.DefaultRoleSuggestions())
             await EnsureRoleAsync(s.Name, s.Description, [.. s.Permissions, Permissions.MasterDataView], ct);
         await db.SaveChangesAsync(ct);

@@ -48,8 +48,8 @@ public sealed class CrewTimeSettingTests(TestApp app)
         var off = await lead.GetElAsync($"{T}/{id}/crew");
         Assert.Equal(0, off.GetProperty("personnel").GetInt32());
         Assert.Equal(0, off.GetProperty("totalSeconds").GetInt64());
-        var row = Assert.Single(off.GetProperty("sessions").EnumerateArray());
-        Assert.False(row.GetProperty("counted").GetBoolean()); // still listed, marked not counted
+        Assert.Empty(off.GetProperty("sessions").EnumerateArray()); // crew time No: nameless crew rows are not shown at all
+        Assert.DoesNotContain((await lead.GetElAsync($"{T}/{id}/time-corrections")).GetProperty("entries").EnumerateArray(), e => e.Str("kind") == "crew");
         var pre = await lead.GetElAsync($"{C}/prefill/{id}");
         Assert.Equal(0, pre.Int("totalPersonnel"));
         Assert.Equal(0m, pre.GetProperty("totalHours").GetDecimal());

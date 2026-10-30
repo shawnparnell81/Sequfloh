@@ -77,7 +77,11 @@ public sealed class SequflohExecutionTests(TestApp app)
         var r2 = tech2.PostAsync($"{T}/{a.Id}/actions/resume", new { operationId = Guid.NewGuid(), stateVersion = v });
         var codes = (await System.Threading.Tasks.Task.WhenAll(r1, r2)).Select(x => x.StatusCode).OrderBy(x => x).ToList();
         Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Conflict], codes);
-        rec = await tech.GetElAsync($"{T}/{a.Id}");
+        // task events only go to holders of View task events (an administrator assigns it)
+        Assert.Equal(JsonValueKind.Null, (await tech.GetElAsync($"{T}/{a.Id}")).GetProperty("events").ValueKind);
+        Assert.Equal(HttpStatusCode.Forbidden, (await tech.GetAsync($"{X}/events?site={site}")).StatusCode);
+        var (_, auditor) = await app.CreateUserAsync([.. Tech, Permissions.SequflohViewTaskEvents], site);
+        rec = await auditor.GetElAsync($"{T}/{a.Id}");
         Assert.Equal(1, rec.GetProperty("events").EnumerateArray().Count(e => e.Str("eventType") == "Resume"));
 
         await Act(planner, b.Id, "cancel", "Order canceled");
@@ -86,11 +90,11 @@ public sealed class SequflohExecutionTests(TestApp app)
         Assert.True(counts.GetProperty("active").GetInt32() >= 1);
 
         // work history: task events of visible tasks, filtered
-        var events = await tech.GetElAsync($"{X}/events?site={site}&eventType=Pause");
+        var events = await auditor.GetElAsync($"{X}/events?site={site}&eventType=Pause");
         Assert.Equal(1, events.GetProperty("total").GetInt32());
         Assert.Equal("Material shortage", events.GetProperty("items")[0].Str("reason"));
-        Assert.Equal(1, (await tech.GetElAsync($"{X}/events?site={site}&q={b.Number}&eventType=Cancellation")).GetProperty("total").GetInt32());
-        var (_, outsider) = await app.CreateUserAsync(Tech, await app.CreateSiteAsync());
+        Assert.Equal(1, (await auditor.GetElAsync($"{X}/events?site={site}&q={b.Number}&eventType=Cancellation")).GetProperty("total").GetInt32());
+        var (_, outsider) = await app.CreateUserAsync([.. Tech, Permissions.SequflohViewTaskEvents], await app.CreateSiteAsync());
         Assert.Equal(0, (await outsider.GetElAsync($"{X}/events?q={a.Number}")).GetProperty("total").GetInt32());
     }
 }

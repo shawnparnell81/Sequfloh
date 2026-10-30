@@ -41,7 +41,8 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
         var me = m.UserId;
         var live = await m.CanAnyAsync(Permissions.SequflohViewLiveExecution, ct);
         var open = tr.Where(x => SequflohTrackingService.Open.Contains(x.Status));
-        var taskEvents = await db.SequflohTaskEvents.AsNoTracking().Where(e => tr.Any(r => r.Id == e.TrackingRecordId)).OrderByDescending(e => e.CreatedAt).Take(10)
+        var evScope = await m.TryScopeAsync(tr, Permissions.SequflohViewTaskEvents, ct) ?? tr.Where(_ => false);
+        var taskEvents = await db.SequflohTaskEvents.AsNoTracking().Where(e => evScope.Any(r => r.Id == e.TrackingRecordId)).OrderByDescending(e => e.CreatedAt).Take(10)
             .Select(e => new { Id = e.TrackingRecordId, At = e.CreatedAt, Number = e.TrackingNumber, Kind = "Tracking", Text = e.EventType, User = e.UserName }).ToListAsync(ct);
         var wiEvents = await db.SequflohWorkInstructionTransitions.AsNoTracking().Where(t => wis.Any(w => w.Id == t.WorkInstructionId)).OrderByDescending(t => t.CreatedAt).Take(10)
             .Select(t => new { Id = t.WorkInstructionId, At = t.CreatedAt, Number = db.SequflohWorkInstructions.Where(w => w.Id == t.WorkInstructionId).Select(w => w.Number + " rev " + w.Revision).FirstOrDefault() ?? "",

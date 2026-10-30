@@ -133,7 +133,7 @@ public sealed class SequflohTimeCorrectionService(AppDbContext db, ModuleSupport
     {
         var r = await tracking.LoadAsync(id, false, ct);
         var now = m.Now;
-        var crew = await db.SequflohCrewSessions.AsNoTracking().IgnoreQueryFilters().Where(s => s.TrackingRecordId == id).OrderBy(s => s.StartedAt).ToListAsync(ct);
+        var crew = await db.SequflohCrewSessions.AsNoTracking().IgnoreQueryFilters().Where(s => s.TrackingRecordId == id && (s.WorkerId != null || r.UseCrewTime)).OrderBy(s => s.StartedAt).ToListAsync(ct);
         var time = await db.SequflohTimeEntries.AsNoTracking().IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).OrderBy(e => e.StartedAt).ToListAsync(ct);
         var entries = crew.Select(s => new
         {

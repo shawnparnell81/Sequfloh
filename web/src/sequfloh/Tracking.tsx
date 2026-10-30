@@ -22,7 +22,7 @@ import { NumberField } from '../components/RecordNumber';
 import { ProblemList } from './Designer';
 import { FindingsPanel } from './Findings';
 import { FILE_ACCEPT, JobNotesPanel, RecordFilesPanel, addJobNote, uploadRecordFile } from './JobNotes';
-import { InventoryNote, JobPanel } from './Job';
+import { InventoryNote, JobPanel, QuantityPanel } from './Job';
 import { PartPicker } from './Instructions';
 import { AddPartDialog } from './PartLinks';
 import { ViewDrawingButton } from './Drawings';
@@ -355,7 +355,7 @@ interface TrRecord extends J { id: string; number: string; type: string; status:
 interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
-interface TrResponse { record: TrRecord; events: TrEvent[]; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canChangeFormChoice?: boolean; canAssign?: boolean; canDelete?: boolean; canDeletePermanently?: boolean; serverTime: string;
+interface TrResponse { record: TrRecord; events: TrEvent[] | null; canViewTaskEvents?: boolean; clockedSeconds?: number; clockedPersonnel?: number; firstClockOn?: string | null; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canChangeFormChoice?: boolean; canAssign?: boolean; canDelete?: boolean; canDeletePermanently?: boolean; serverTime: string;
   instruction?: { isUploadedFile: boolean; file?: { id: string; fileName: string; contentType: string } | null } | null; canRemoveInstruction?: boolean }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
 const entryKeys = ['evidenceReferences', 'technicianComments', 'deviations', 'nonconformanceReferences', 'reportedCondition', 'observedCondition', 'finalDisposition', 'varianceReason', 'result', 'qualityComments',
@@ -417,16 +417,15 @@ export function TrackingRecordPage() {
   const vf = (rec.details as unknown as { validationForm?: { familyId?: string; family?: string; test?: string; fileId?: string; fileNumber?: string; fileTitle?: string; message?: string } }).validationForm;
   const tabs = [{ label: 'Record', value: 'record' }, ...(doc.steps.length || rec.type === 'Inspection' ? [{ label: rec.type === 'Repair' ? 'Operations' : 'Steps', value: 'steps' }] : []),
     ...(rec.type === 'Fai' ? [{ label: 'Characteristics', value: 'characteristics' }] : []), ...(rec.type === 'Repair' ? [{ label: 'Repair parts', value: 'parts' }] : []),
-    { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings / Nonconformance', value: 'findings' }, { label: 'Comments', value: 'review' }, { label: 'Task events', value: 'events' }];
+    { label: 'Job', value: 'job' }, { label: 'Time', value: 'time' }, { label: 'Findings / Nonconformance', value: 'findings' }, { label: 'Comments', value: 'review' }, ...(q.data.canViewTaskEvents ? [{ label: 'Task events', value: 'events' }] : [])];
   const setRow = (list: 'steps' | 'characteristics' | 'partsRows', i: number, patch: J) => upd({ [list]: doc[list].map((r, j) => (j === i ? { ...r, ...patch } : r)) } as Partial<TrRecord>);
   const det = (k: string, label: string, multiline = true) => <TextField size="small" label={label} value={doc.details[k] ?? ''} disabled={!enter} multiline={multiline} minRows={multiline ? 2 : undefined}
     onChange={(e) => upd({ details: { ...doc.details, [k]: e.target.value } })} />;
   const txt = (k: string, label: string, disabled: boolean, multiline = true) => <TextField size="small" label={label} value={s(doc[k])} disabled={disabled} multiline={multiline} minRows={multiline ? 2 : undefined}
     onChange={(e) => upd({ [k]: e.target.value } as Partial<TrRecord>)} />;
-  const running = rec.status === 'InProgress';
   return (
     <SqfPage title={title} crumbs={trCrumbs(rec.number, { label: folders[folder].title, to: `/sequfloh/tracking/${folder}` })} recent={{ label: `${rec.number} ${rec.workInstructionTitle}`, itemType: 'Work order', recordId: rec.id }}
-      summary={<WorkOrderSummary rec={rec} />}
+      summary={<WorkOrderSummary rec={rec} clockedSeconds={q.data.clockedSeconds ?? 0} />}
       tabs={tabs} tab={tab} onTab={(t) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); }}
       actions={<RecordActions surface="work-order" dirty={dirty} busy={busy}
         save={(q.data.canEnter || q.data.canPlan || q.data.canQualityComment || q.data.canEngineeringComment) && { onClick: () => void save() }}
@@ -438,8 +437,8 @@ export function TrackingRecordPage() {
         <SqfStatus status={rec.status} />
         {q.data.actions.map((a) => <Button key={a.action} variant="outlined" disabled={busy} color={['fail', 'cancel'].includes(a.action) ? 'error' : 'primary'} onClick={() => setAct(a)}>{a.label}</Button>)}
         {q.data.canDeletePermanently && <DeletePermanentlyButton id={rec.id} number={rec.number} onDone={() => nav(`/sequfloh/tracking/${folder}`, { replace: true })} />}
-        <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`}>Job report</Button>
-        <Button variant="outlined" href={`${S}/tracking/${rec.id}/print`} target="_blank" rel="noopener" data-testid="wo-print-full">Full record PDF</Button>
+        <JobReportButton id={rec.id} canEvents={!!q.data.canViewTaskEvents} />
+        <Button variant="outlined" component={RouterLink} to={`/sequfloh/record/${rec.id}/report`} data-testid="wo-chargeback-job-report">Chargeback job report</Button>
         <Button variant="outlined" href={`${S}/tracking/${rec.id}/job/report/view`} target="_blank" rel="noopener" data-testid="wo-open-file">Open as file</Button>
         <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?wo=${rec.id}`} data-testid="wo-create-chargeback">Create chargeback report</Button>
       </RecordActions>}>
@@ -454,6 +453,7 @@ export function TrackingRecordPage() {
           <RecordFilesPanel id={rec.id} canWork={!closed} />
         </Box>
         {rec.type === 'Test' && <TestResultsPanel id={rec.id} />}
+        <QuantityPanel id={rec.id} canWork={!closed} onSaved={() => void q.refetch()} />
         <TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} />
         <CrewPanel recordId={rec.id} notStarted={clockHint} />
         <AssigneesPanel recordId={rec.id} people={rec.assignees ?? []} canAssign={!!q.data.canAssign} />
@@ -492,7 +492,7 @@ export function TrackingRecordPage() {
             <Typography variant="h3">Timing</Typography>
             <TrackVarianceSetting id={rec.id} on={rec.trackTimeVariance === true} canChange={!closed && can('sequfloh.manage_time_variance')} onChanged={refresh} />
           </Stack>
-          <Facts items={[['Elapsed (active)', <LiveClock key={rec.stateVersion} seconds={rec.elapsedSeconds} running={running} />],
+          <Facts items={[['Clocked time', <span key="ct" data-testid="clocked-time">{fmtSeconds(q.data.clockedSeconds ?? 0)}</span>], ['Started (first clock-on)', fmtDateTime(s(q.data.firstClockOn))],
             ['Paused time', <LiveClock key={'p' + rec.stateVersion} seconds={rec.pausedSeconds} running={rec.status === 'Paused'} label="Paused time" />],
             ['Benchmark range', rec.minBenchmarkMinutes != null || rec.maxBenchmarkMinutes != null ? `${s(rec.minBenchmarkMinutes) || '—'} – ${s(rec.maxBenchmarkMinutes) || '—'} min` : '—'],
             ['Variance', rec.trackTimeVariance ? (rec.varianceMinutes != null ? `${s(rec.varianceMinutes)} min` : '—')
@@ -592,7 +592,7 @@ export function TrackingRecordPage() {
       {tab === 'job' && <JobPanel id={rec.id} canWork={!closed} />}
       {tab === 'time' && <Stack gap={2}><TimePanel recordId={rec.id} closed={closed} notStarted={clockHint} /><CrewPanel recordId={rec.id} notStarted={clockHint} /><TimeCorrections recordId={rec.id} number={rec.number} /></Stack>}
       {tab === 'findings' && <FindingsPanel id={rec.id} canWork={!closed} wi={rec.workInstructionNumber ? `${rec.workInstructionNumber} rev ${rec.workInstructionRevision}` : '—'} />}
-      {tab === 'events' && <TaskEvents events={q.data.events} />}
+      {tab === 'events' && q.data.canViewTaskEvents && <TaskEvents events={q.data.events ?? []} />}
       <TaskActionDialog action={act} record={rec} onClose={() => setAct(null)} onRun={runAction} />
     </SqfPage>
   );
@@ -841,7 +841,7 @@ function TrackVarianceSetting({ id, on, canChange, onChanged }: { id: string; on
 
 export const qtyCompleted = (done?: number, target?: number | null) => `${done ?? 0}${target != null ? ` of ${target}` : ''}`;
 
-function WorkOrderSummary({ rec }: { rec: TrRecord }) {
+function WorkOrderSummary({ rec, clockedSeconds }: { rec: TrRecord; clockedSeconds: number }) {
   const assigned = rec.assignees?.length ? rec.assignees.map((a) => a.displayName).join(', ') : s(rec.assignedUser);
   const items: [string, ReactNode][] = [
     ['Type', `${trackingTypes[rec.type]}${rec.inspectionSubType ? ' · ' + s(rec.inspectionSubType) : ''}`],
@@ -850,6 +850,7 @@ function WorkOrderSummary({ rec }: { rec: TrRecord }) {
     ...(rec.familyName ? [['Product family', s(rec.familyName)] as [string, ReactNode]] : []),
     ...(rec.quantityTarget != null ? [['Qty', s(rec.quantityTarget)] as [string, ReactNode]] : []),
     ['Qty completed', qtyCompleted(rec.quantityCompleted as number | undefined, rec.quantityTarget as number | null | undefined)],
+    ['Clocked time', <span key="ct" data-testid="summary-clocked">{fmtSeconds(clockedSeconds)}</span>],
     ['Priority', s(rec.priority) || '—'],
     ['Assigned', assigned || '—'],
     ['Due', rec.dueAt ? fmtDateTime(s(rec.dueAt)) : '—'],
@@ -889,6 +890,28 @@ function DeletePermanentlyButton({ id, number, onDone }: { id: string; number: s
           try { await post(`${S}/tracking/${id}/delete-permanently`, { confirmNumber: typed.trim() }); void qc.invalidateQueries(); onDone(); }
           catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
         }}>Delete permanently</Button></DialogActions>
+    </Dialog>
+  </>;
+}
+
+/** The job report (lean by default): a small dialog with the two options; task events only for holders of View task events. */
+function JobReportButton({ id, canEvents }: { id: string; canEvents: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [time, setTime] = useState(false); const [ev, setEv] = useState(false);
+  const href = `${S}/tracking/${id}/print?${new URLSearchParams({ ...(time && { timeBreakdown: 'true' }), ...(ev && canEvents && { events: 'true' }) })}`;
+  return <>
+    <Button variant="outlined" onClick={() => setOpen(true)} data-testid="wo-job-report">Job report</Button>
+    <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
+      <FormDialogTitle>Job report</FormDialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Only the sections with something in them are printed, with the total clocked time and personnel. Test work orders always include the test results.</Typography>
+        <Stack>
+          <FormControlLabel control={<Checkbox checked={time} onChange={(e) => setTime(e.target.checked)} inputProps={{ 'data-testid': 'jr-time' } as object} />} label="Include detailed time breakdown" />
+          {canEvents && <FormControlLabel control={<Checkbox checked={ev} onChange={(e) => setEv(e.target.checked)} inputProps={{ 'data-testid': 'jr-events' } as object} />} label="Include task events" />}
+        </Stack>
+      </DialogContent>
+      <DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button>
+        <Button variant="contained" href={href} target="_blank" rel="noopener" data-testid="jr-open" onClick={() => setOpen(false)}>Open PDF</Button></DialogActions>
     </Dialog>
   </>;
 }

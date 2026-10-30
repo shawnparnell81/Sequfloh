@@ -124,7 +124,10 @@ public sealed class TestWorkInstructionTests(TestApp app)
         var audits = await AuditsAsync(id);
         Assert.Contains(audits, a => a.Description.Contains("Part 1: Actual flow rate set to 95 L/h"));
         Assert.Contains(audits, a => a.Description.Contains("Spec flow rate set to 100 L/h"));
-        foreach (var url in new[] { $"{T}/{id}/print", $"{T}/{id}/job/report/pdf" })
+        // the job report prints the compact test results: spec and each part's actuals in columns
+        var lean = Encoding.Latin1.GetString(await (await s.C.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync());
+        Assert.Contains("Test results", lean); Assert.Contains("Part 1", lean); Assert.Contains("Part 2", lean);
+        foreach (var url in new[] { $"{T}/{id}/job/report/pdf" })
         {
             var pdf = Encoding.Latin1.GetString(await (await s.C.GetAsync(url)).Content.ReadAsByteArrayAsync());
             Assert.Contains("Part 1 test results", pdf); Assert.Contains("Part 2 test results", pdf);

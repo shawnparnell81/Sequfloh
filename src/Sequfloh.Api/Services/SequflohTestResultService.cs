@@ -455,7 +455,9 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
             : $" (set by {p.ManualBy}, {local(p.ManualAt)}{(auto is not null && auto != p.ManualResult ? $"; automatic result {auto}" : "")}{(p.ManualReason is null ? "" : $"; reason: {p.ManualReason}")})");
 
     /// <summary>The test results as one compact table for the work order print: spec, then one column per part (up to six).</summary>
-    public async Task<List<PrintBlock>> CompactBlocksAsync(SequflohTrackingRecord r, CancellationToken ct)
+    /// <summary>Compact test results: spec and per-part actuals in columns of six parts, per-part Pass/Fail and the overall result.
+    /// <paramref name="all"/> prints every part (more tables, more pages for many parts); otherwise only the first six.</summary>
+    public async Task<List<PrintBlock>> CompactBlocksAsync(SequflohTrackingRecord r, CancellationToken ct, bool all = false)
     {
         var t = await TemplateForAsync(r, ct);
         if (t is null || t.Fields.Count == 0) return [];
@@ -463,22 +465,27 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         var sv = spec is null ? [] : Read(spec.Values);
         var units = t.Fields.ToDictionary(fd => fd.Key, fd => sv.FirstOrDefault(v => v.Key == fd.Key)?.Unit ?? fd.DefaultUnit);
         var parts = await db.SequflohTestPartResults.AsNoTracking().Where(p => p.TrackingRecordId == r.Id).OrderBy(p => p.PartIndex).ToListAsync(ct);
-        var shown = parts.Take(6).Select(p => (p.PartIndex, Vals: Read(p.Values))).ToList();
-        var cols = new List<(string, double)> { ("Test", 2.4), ("Spec", 1.6) };
-        cols.AddRange(shown.Select(p => ($"Part {p.PartIndex}", 1.0)));
         var keys = t.Fields.Select(fd => fd.Key).ToList();
-        var rows = t.Fields.Select(fd =>
-        {
-            var row = new List<string?> { fd.Label, ST(sv.FirstOrDefault(v => v.Key == fd.Key)) is { Length: > 0 } d ? $"{d} {units[fd.Key]}".Trim() : "-" };
-            row.AddRange(shown.Select(p => p.Vals.FirstOrDefault(v => v.Key == fd.Key)?.Value is { } a ? N(a) : "-"));
-            return row.ToArray();
-        }).ToList();
         var finals = parts.Select(p => Final(p, Auto(sv, Read(p.Values), keys))).ToList();
-        rows.Add([.. new string?[] { "Result", "" }, .. finals.Take(6).Select(x => x?.ToUpperInvariant() ?? "-")]);
-        var blocks = new List<PrintBlock> { new PrintHeading("Test results"), new PrintTable(cols, rows) };
-        if (Overall(finals) is { } all) blocks.Add(new PrintParagraph($"Overall test result: {all.ToUpperInvariant()}"));
+        var blocks = new List<PrintBlock> { new PrintHeading("Test results") };
+        var all6 = parts.Select((p, i) => (p.PartIndex, Vals: Read(p.Values), Final: finals[i])).Chunk(6).ToList();
+        if (all6.Count == 0) all6.Add([]);
+        foreach (var shown in all ? all6 : all6.Take(1))
+        {
+            var cols = new List<(string, double)> { ("Test", 2.4), ("Spec", 1.6) };
+            cols.AddRange(shown.Select(p => ($"Part {p.PartIndex}", 1.0)));
+            var rows = t.Fields.Select(fd =>
+            {
+                var row = new List<string?> { fd.Label, ST(sv.FirstOrDefault(v => v.Key == fd.Key)) is { Length: > 0 } d ? $"{d} {units[fd.Key]}".Trim() : "-" };
+                row.AddRange(shown.Select(p => p.Vals.FirstOrDefault(v => v.Key == fd.Key)?.Value is { } a ? N(a) : "-"));
+                return row.ToArray();
+            }).ToList();
+            rows.Add([.. new string?[] { "Result", "" }, .. shown.Select(x => x.Final?.ToUpperInvariant() ?? "-")]);
+            blocks.Add(new PrintTable(cols, rows));
+        }
+        if (Overall(finals) is { } o) blocks.Add(new PrintParagraph($"Overall test result: {o.ToUpperInvariant()}"));
         if (parts.Count == 0) blocks.Add(new PrintParagraph("No part test results recorded yet."));
-        if (parts.Count > shown.Count) blocks.Add(new PrintParagraph($"{parts.Count - shown.Count} more part(s) recorded; see the full record."));
+        if (!all && parts.Count > 6) blocks.Add(new PrintParagraph($"{parts.Count - 6} more part(s) recorded; see the job report."));
         return blocks;
     }
 }

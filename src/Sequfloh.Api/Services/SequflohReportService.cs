@@ -237,7 +237,8 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
             }
             case "task-log":
             {
-                var recs = await tracking.QueryAsync(ct);
+                if (!await m.CanAnyAsync(Permissions.SequflohViewTaskEvents, ct)) throw new ForbiddenException();
+                var recs = await m.ScopeAsync(await tracking.QueryAsync(ct), Permissions.SequflohViewTaskEvents, ct);
                 if (p.SiteId is { } s) recs = recs.Where(x => x.SiteId == s);
                 var q = db.SequflohTaskEvents.AsNoTracking().Where(e => recs.Any(r => r.Id == e.TrackingRecordId));
                 if (!string.IsNullOrWhiteSpace(p.Action)) q = q.Where(e => e.EventType == p.Action);
