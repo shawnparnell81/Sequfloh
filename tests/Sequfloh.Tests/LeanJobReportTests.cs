@@ -172,4 +172,61 @@ public sealed class LeanJobReportTests(TestApp app)
         // the job report people list shows the creator, not a crew
         Assert.DoesNotContain((await c.GetElAsync($"{T}/{id}/job/report")).GetProperty("people").EnumerateArray(), p => p.Str("name")!.StartsWith("Crew"));
     }
+
+    [Theory]
+    [InlineData("WIN-TST-014 - Fuel Pump Dimensional and Performance Testing", "A", "WIN-TST-014 - Fuel Pump Dimensional and Performance Testing", "WIN-TST-014 rev A - Fuel Pump Dimensional and Performance Testing")]
+    [InlineData("WIN-TST-014", "A", "Fuel Pump Dimensional and Performance Testing", "WIN-TST-014 rev A - Fuel Pump Dimensional and Performance Testing")]
+    [InlineData("WIN-TST-014", "A", "WIN-TST-014 - Fuel Pump Dimensional and Performance Testing", "WIN-TST-014 rev A - Fuel Pump Dimensional and Performance Testing")]
+    [InlineData("WIN-TST-014", "", null, "WIN-TST-014")]
+    public void Work_instruction_line_names_it_once(string number, string rev, string? title, string expected) =>
+        Assert.Equal(expected, Sequfloh.Infrastructure.Modules.Execution.SequflohPrintService.WiLine(number, rev, title));
+
+    [Fact]
+    public async Task Job_report_title_is_the_work_order_and_result_follows_the_test_results_unless_one_is_recorded()
+    {
+        var (id, _, _, c) = await TestOrderAsync();
+        await c.StartAsync(id);
+        // made-up imported instruction whose number already carries its name
+        async Task SetAsync(string result)
+        {
+            using var s = app.Services.CreateScope();
+            var db = s.ServiceProvider.GetRequiredService<AppDbContext>();
+            var r = await db.SequflohTrackingRecords.FirstAsync(x => x.Id == id);
+            r.WorkInstructionNumber = "WIN-EX-014 - Example Pump Dimensional and Performance Testing"; r.WorkInstructionRevision = "A";
+            r.WorkInstructionTitle = "WIN-EX-014 - Example Pump Dimensional and Performance Testing"; r.Result = result;
+            await db.SaveChangesAsync();
+        }
+        // part 3 fails (372 psi), so the overall is Fail; make all pass by overriding part 3
+        using (var s0 = app.Services.CreateScope())
+        {
+            var db0 = s0.ServiceProvider.GetRequiredService<AppDbContext>();
+            var p3 = await db0.SequflohTestPartResults.FirstAsync(p => p.TrackingRecordId == id && p.PartIndex == 3);
+            p3.ManualResult = "Pass"; p3.ManualReason = "Made-up retest on a calibrated gauge"; p3.ManualBy = "Example Tech"; p3.ManualAt = DateTimeOffset.UtcNow;
+            await db0.SaveChangesAsync();
+        }
+        await SetAsync("Pending");
+        var no = (await c.GetElAsync($"{T}/{id}")).GetProperty("record").GetProperty("number").GetString();
+        var bytes = await (await c.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync();
+        await File.WriteAllBytesAsync("/workspace/shots/lean-report/title-fix.pdf", bytes);
+        var pdf = Encoding.Latin1.GetString(bytes);
+        Assert.Contains($"Job report: {no}", pdf);
+        Assert.Contains("Test work order", pdf);
+        Assert.DoesNotContain("Job report: WIN-EX-014", pdf);
+        Assert.Contains("WIN-EX-014 rev A - Example Pump Dimensional and Performance Testing", pdf);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(pdf, "Example Pump Dimensional"));
+        Assert.Contains("from test results", pdf);
+        Assert.DoesNotContain("Pending", pdf);
+        Assert.Equal(1, Pages(pdf));
+        var wo = Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{id}/print/work-order")).Content.ReadAsByteArrayAsync());
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(wo, "Example Pump Dimensional"));
+        Assert.Contains("from test results", wo);
+
+        // a recorded result that disagrees is shown, with the test result beside it, and the UI data says so
+        await SetAsync("Fail");
+        pdf = Encoding.Latin1.GetString(await (await c.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync());
+        Assert.Contains("recorded on the work order; test results: Pass", pdf);
+        var t = await c.GetElAsync($"{T}/{id}/test");
+        Assert.Equal("Fail", t.GetProperty("storedResult").GetString());
+        Assert.Equal("Pass", t.GetProperty("overallResult").GetString());
+    }
 }

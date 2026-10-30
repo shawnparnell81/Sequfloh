@@ -14,7 +14,7 @@ type Result = 'Pass' | 'Fail' | null;
 interface Removed { partIndex: number; removedAt: string; removedBy?: string; removeReason?: string }
 export interface TestData {
   template: { key: string; label: string; fields: Field[] } | null; familyName?: string | null;
-  spec?: SpecRow[]; specSaved?: boolean; parts?: PartRow[]; removed?: Removed[]; open?: boolean; canCorrect?: boolean; canRemove?: boolean; overallResult?: Result;
+  spec?: SpecRow[]; specSaved?: boolean; parts?: PartRow[]; removed?: Removed[]; open?: boolean; canCorrect?: boolean; canRemove?: boolean; overallResult?: Result; storedResult?: string | null;
 }
 
 /** On the New work order screen for a Test order: the drawings linked to this exact part, or a manual pick when there are none. */
@@ -55,6 +55,9 @@ export function TestResultsPanel({ id }: { id: string }) {
   return <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Test work instruction results" data-testid="test-results">
     <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 0.5 }}><Typography variant="h3">Test work instruction results</Typography>
       {d.overallResult && <><Typography variant="body2" color="text.secondary">Overall:</Typography><ResultChip r={d.overallResult} testid="test-overall" /></>}</Stack>
+    {d.overallResult && d.storedResult && d.storedResult.toLowerCase() !== d.overallResult.toLowerCase() && <Alert severity="warning" sx={{ mb: 1 }} data-testid="test-result-conflict">
+      The work order result is recorded as <b>{d.storedResult}</b>, but the test results are <b>{d.overallResult}</b>. Reports show the recorded result with the test result beside it.</Alert>}
+    {d.overallResult && !d.storedResult && <Typography variant="caption" color="text.secondary" component="div" data-testid="test-result-source">The work order result follows these test results ({d.overallResult}) until a result is recorded on the work order.</Typography>}
     <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5 }}>Enter the drawing spec once, then add each tested part's own results. Every part prints as its own section on the test report. Each part gets Pass or Fail automatically from the spec limits, or set by hand.</Typography>
     {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
     <SpecEditor key={JSON.stringify(spec)} spec={spec} d={d} busy={busy} onSave={(values, reason) => run(() => put(`${S}/tracking/${id}/test/spec`, { values, reason }))} />
