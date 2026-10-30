@@ -16,8 +16,8 @@ export type { Crumb, WorkspaceTab };
  * A page: collapsible left menu of sections, the section's pages as a menu across the top, Back and Home for this tab,
  * breadcrumbs, a large title with the page's buttons, and an optional tab bar for the page's own parts.
  */
-export function ModuleWorkspace({ module, crumbs, title, subtitle, meta, actions, tabs, tab, onTab, children }: {
-  module?: ModuleDef; crumbs: Crumb[]; title: ReactNode; subtitle?: ReactNode; meta?: ReactNode; actions?: ReactNode;
+export function ModuleWorkspace({ module, crumbs, title, subtitle, meta, actions, summary, tabs, tab, onTab, children }: {
+  module?: ModuleDef; crumbs: Crumb[]; title: ReactNode; subtitle?: ReactNode; meta?: ReactNode; actions?: ReactNode; summary?: ReactNode;
   tabs?: WorkspaceTab[]; tab?: string; onTab?: (v: string) => void; children: ReactNode;
 }) {
   const mod = module ?? modules[0];
@@ -46,7 +46,7 @@ export function ModuleWorkspace({ module, crumbs, title, subtitle, meta, actions
       </Box>
       <Box component="main" data-fullscreen-root sx={{ flex: 1, minWidth: 0 }}>
         {section && <SectionMenu section={section} />}
-        <PageHeader crumbs={crumbs} homeLabel={mod.label} title={title} icon={mod.icon} subtitle={subtitle} meta={meta} actions={actions} tabs={tabs} tab={tab} onTab={onTab} />
+        <PageHeader crumbs={crumbs} homeLabel={mod.label} title={title} icon={mod.icon} subtitle={subtitle} meta={meta} actions={actions} summary={summary} tabs={tabs} tab={tab} onTab={onTab} />
         <Box data-page-body sx={{ px: SPACE.pageX, pt: SPACE.block, pb: 4, maxWidth: 1600 }}>{children}</Box>
       </Box>
     </Box>

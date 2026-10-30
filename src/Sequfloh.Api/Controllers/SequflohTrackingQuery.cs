@@ -115,7 +115,7 @@ internal static class SequflohTrackingQuery
             {
                 x.Id, x.Number, x.Type, x.Status, x.Result, x.Priority, x.WorkInstructionId, x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle,
                 x.PartNumber, x.PartDescription, x.SerialNumber, x.LotNumber, x.WorkOrder, x.RepairOrder, x.Operation, x.PlannedStart, x.DueAt, x.ActualStart, x.ActualCompletion, x.CreatedAt, x.UpdatedAt,
-                x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes, x.VarianceReason, x.StateVersion, x.AssignedUserId, x.PauseReason, x.HoldReason, x.FailureReason, x.CancelReason,
+                x.MinBenchmarkMinutes, x.MaxBenchmarkMinutes, x.VarianceMinutes, x.VarianceReason, x.StateVersion, x.QuantityTarget, x.QuantityCompleted, x.AssignedUserId, x.PauseReason, x.HoldReason, x.FailureReason, x.CancelReason,
                 PausedAt = x.Status == TrackingStatus.Paused ? x.CurrentStateStartedAt : null, HeldAt = x.Status == TrackingStatus.OnHold ? x.CurrentStateStartedAt : null,
                 Owner = U(x.OwnerId), AssignedUser = U(x.AssignedUserId),
                 Assignees = (team.TryGetValue(x.Id, out var tm) ? tm : x.AssignedUserId is { } lu ? [lu] : []).Select(u => U(u)).OfType<string>().ToList(), CompletedBy = U(x.CompletedById), ActiveOperator = U(x.ActiveOperatorId),

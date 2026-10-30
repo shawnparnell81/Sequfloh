@@ -179,6 +179,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
             new PrintFields([("Part number", x.PartNumber), ("Part description", x.PartDescription), ("Serial number", x.SerialNumber), ("Lot number", x.LotNumber), ("Work order", x.WorkOrder),
                 ("Repair order", x.RepairOrder), ("Customer return", x.CustomerReturnReference), ("Project", x.Project), ("Operation", x.Operation), ("FAI type", x.FaiType),
                 ("Product family", x.FamilyName), ("Description", x.InspectionDescription),
+                ("Qty completed", $"{x.QuantityCompleted}{(x.QuantityTarget is { } qt ? $" of {qt}" : "")}"),
                 ("Validation form", x.Type is TrackingType.Test or TrackingType.Validation or TrackingType.SaltSpray ? SequflohTrackingService.FormLine(x) : null)]),
             new PrintHeading("Timing"),
             new PrintFields([("Planned start", local(x.PlannedStart)), ("Due", local(x.DueAt)), ("Actual start", local(x.ActualStart)), ("Actual completion", local(x.ActualCompletion)),
