@@ -22,6 +22,7 @@ public sealed class FixList6Tests(TestApp app)
         var (_, c) = await app.CreateUserAsync(Worker, site);
         var id = (await (await c.PostOkAsync(T, new { type = "Inspection", siteId = site, inspectionSubType = "AQL", minBenchmarkMinutes = 0, maxBenchmarkMinutes = 600 })).JsonAsync()).Id();
         Assert.Equal(HttpStatusCode.OK, await Act(c, id, "start"));
+        await c.UseCrewTimeAsync(id);
         await c.PostOkAsync($"{T}/{id}/crew/start", new { crewSize = 3 });
         var done = await c.PostAsync($"{T}/{id}/actions/complete", new { operationId = Guid.NewGuid(), stateVersion = await Ver(c, id) });
         Assert.True(done.IsSuccessStatusCode, await done.Content.ReadAsStringAsync());

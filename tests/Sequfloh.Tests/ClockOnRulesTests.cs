@@ -39,19 +39,22 @@ public sealed class ClockOnRulesTests(TestApp app)
         Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsync($"{T}/{id}/crew/start", new { crewSize = 1, workerId = w })).StatusCode);
 
         // typed-in time from earlier is still allowed before Start
+        await c.UseCrewTimeAsync(id);
         await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 2, start = DateTimeOffset.UtcNow.AddHours(-5), stop = DateTimeOffset.UtcNow.AddHours(-4) });
 
         Assert.True((await Act(c, id, "start")).IsSuccessStatusCode);
-        await c.PostOkAsync($"{T}/{id}/time/start");
         await c.PostOkAsync($"{T}/{id}/crew/start", new { crewSize = 2 });
-        await c.PostOkAsync($"{T}/{id}/time/stop");
         await c.PostOkAsync($"{T}/{id}/crew/stop");
+        await c.UseCrewTimeAsync(id, false);
+        await c.PostOkAsync($"{T}/{id}/time/start");
+        await c.PostOkAsync($"{T}/{id}/time/stop");
     }
 
     [Fact]
     public async Task Time_logged_before_Start_is_kept_when_the_order_is_started_and_completed()
     {
         var (id, c) = await NewAsync();
+        await c.UseCrewTimeAsync(id);
         await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, start = DateTimeOffset.UtcNow.AddHours(-3), stop = DateTimeOffset.UtcNow.AddHours(-1) });
         Assert.True((await Act(c, id, "start")).IsSuccessStatusCode);
         var done = await Act(c, id, "complete");

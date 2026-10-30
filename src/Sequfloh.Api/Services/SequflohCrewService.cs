@@ -35,6 +35,31 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     /// <summary>Labor seconds: worked time times the crew size of this session.</summary>
     public static long Labor(SequflohCrewSession s, DateTimeOffset now) => Worked(s, now) * s.CrewSize;
 
+    /// <summary>Crew entries that count: day-worker time always, nameless crew time only on work orders that use crew time.</summary>
+    public static IQueryable<SequflohCrewSession> Counted(AppDbContext db, IQueryable<SequflohCrewSession> q) =>
+        q.Where(s => s.WorkerId != null || db.SequflohTrackingRecords.Any(r => r.Id == s.TrackingRecordId && r.UseCrewTime));
+
+    public const string CrewOffMessage = "Crew time is turned off on this work order. Set Use crew time to Yes first.";
+    public const string NamedBlockedMessage = "This work order uses crew time, so time can't be logged by name or for a day worker. Set Use crew time to No first.";
+    static void RequireCrewOn(SequflohTrackingRecord r) { if (!r.UseCrewTime) throw new ConflictException(CrewOffMessage); }
+    static void RequireCrewOff(SequflohTrackingRecord r) { if (r.UseCrewTime) throw new ConflictException(NamedBlockedMessage); }
+    static void RequireMode(SequflohTrackingRecord r, Guid? worker) { if (worker is null) RequireCrewOn(r); else RequireCrewOff(r); }
+
+    /// <summary>Turns crew time on or off for one work order. Turning it on is refused once anyone has logged time by name or as a day worker.</summary>
+    public async Task SetUseCrewTimeAsync(Guid id, bool use, CancellationToken ct)
+    {
+        var r = await tracking.LoadAsync(id, true, ct);
+        await m.RequireAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct);
+        if (r.UseCrewTime == use) return;
+        if (use && (await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == id && e.VoidedAt == null, ct) || await db.SequflohCrewSessions.AnyAsync(s => s.TrackingRecordId == id && s.WorkerId != null, ct)))
+            throw new ConflictException("Crew time can't be turned on: someone has already logged time on this work order by name or as a day worker. Crew time and named time can't be mixed on one work order.");
+        if (!use && await db.SequflohCrewSessions.AnyAsync(s => s.TrackingRecordId == id && s.WorkerId == null && s.StoppedAt == null, ct))
+            throw new ConflictException("The crew is still clocked on. Clock the crew off before turning crew time off.");
+        r.UseCrewTime = use;
+        Audit(r, "CrewTimeSetting", $"Use crew time on {r.Number} set to {(use ? "Yes" : "No")}{(use ? "" : ": crew entries stay in the record but are not counted")}", use ? "No" : "Yes", use ? "Yes" : "No");
+        await db.SaveChangesAsync(ct);
+    }
+
     public static string H(long seconds) => (seconds / 3600m).ToString("0.00", CultureInfo.InvariantCulture);
 
     async Task<SequflohTrackingRecord> EditableAsync(Guid id, CancellationToken ct, bool clockingOff = false)
@@ -130,6 +155,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     {
         var r = await EditableAsync(id, ct);
         SequflohTrackingService.RequireStarted(r);
+        RequireMode(r, workerId);
         var w = await WorkerAsync(id, workerId, ct);
         if (w is not null) crewSize = 1;
         CheckCrew(crewSize);
@@ -184,6 +210,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     public async Task<Guid> AddAsync(Guid id, CrewSessionInput x, CancellationToken ct)
     {
         var r = await EditableAsync(id, ct);
+        RequireMode(r, x.WorkerId);
         var now = m.Now;
         var w = await WorkerAsync(id, x.WorkerId, ct);
         var s = new SequflohCrewSession { TrackingRecordId = id, TrackingNumber = r.Number, WorkerId = w?.Id, WorkerName = w?.Name };
@@ -306,6 +333,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     public async Task<object> BulkAsync(Guid id, CrewBulkInput x, bool preview, CancellationToken ct)
     {
         var r = await EditableAsync(id, ct);
+        RequireCrewOn(r);
         var zone = await m.ZoneAsync(r.SiteId, ct);
         var plan = Plan(x, zone);
         var now = m.Now;
@@ -343,7 +371,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
     {
         var r = await tracking.LoadAsync(id, false, ct);
         var now = m.Now;
-        var crew = await db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == id).ToListAsync(ct);
+        var crew = await Counted(db, db.SequflohCrewSessions.AsNoTracking().Where(x => x.TrackingRecordId == id)).ToListAsync(ct);
         var time = await db.SequflohTimeEntries.AsNoTracking().Where(x => x.TrackingRecordId == id).ToListAsync(ct);
         var zone = await m.ZoneAsync(r.SiteId, ct);
         var starts = crew.Select(c => c.StartedAt).Concat(time.Select(t => t.StartedAt)).ToList();
@@ -368,6 +396,8 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
             ServerTime = now,
             CanEdit = !SequflohTrackingService.IsClosed(r) && await m.CanAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct),
             CanClockOff = await m.CanAsync(Permissions.SequflohManageCrewTime, r.SiteId, r.DepartmentId, ct),
+            r.UseCrewTime,
+            HasNamedTime = await db.SequflohTimeEntries.AnyAsync(e => e.TrackingRecordId == id && e.VoidedAt == null, ct) || list.Any(s => s.WorkerId != null),
             Running = running is null ? null : new { running.Id, running.CrewSize, running.StartedAt, running.PausedAt, Seconds = Worked(running, now), PausedSeconds = Paused(running, now) },
             t.CrewWorkedSeconds, t.CrewPausedSeconds, t.CrewLaborSeconds, t.UserSeconds, t.Users, t.TotalSeconds, t.Personnel, t.MaxCrew, t.From, t.To, t.DayWorkerSeconds,
             Workers = workers.Select(w =>
@@ -378,7 +408,7 @@ public sealed class SequflohCrewService(AppDbContext db, ModuleSupport m, Sequfl
             }),
             Sessions = list.Select(s => new
             {
-                s.Id, s.CrewSize, s.WorkerId, s.WorkerName, s.StartedAt, s.StoppedAt, s.Entered, s.Note, ElapsedSeconds = Elapsed(s, now), PausedSeconds = Paused(s, now), WorkedSeconds = Worked(s, now), LaborSeconds = Labor(s, now),
+                s.Id, s.CrewSize, s.WorkerId, s.WorkerName, Counted = s.WorkerId != null || r.UseCrewTime, s.StartedAt, s.StoppedAt, s.Entered, s.Note, ElapsedSeconds = Elapsed(s, now), PausedSeconds = Paused(s, now), WorkedSeconds = Worked(s, now), LaborSeconds = Labor(s, now),
                 Pauses = Pairs(EventsOf(s)),
             }),
         };

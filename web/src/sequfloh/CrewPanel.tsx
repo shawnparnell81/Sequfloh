@@ -10,11 +10,11 @@ import { fmtDateTime } from '../components/Status';
 import { S } from './common';
 
 interface Pause { from: string; to: string }
-interface Session { id: string; crewSize: number; workerId?: string | null; workerName?: string | null; startedAt: string; stoppedAt?: string | null; entered: boolean; note?: string | null; elapsedSeconds: number; pausedSeconds: number; workedSeconds: number; laborSeconds: number; pauses: Pause[] }
+interface Session { id: string; crewSize: number; workerId?: string | null; workerName?: string | null; counted?: boolean; startedAt: string; stoppedAt?: string | null; entered: boolean; note?: string | null; elapsedSeconds: number; pausedSeconds: number; workedSeconds: number; laborSeconds: number; pauses: Pause[] }
 export interface CrewSummary {
   serverTime: string; canEdit: boolean; canClockOff?: boolean; running?: { id: string; crewSize: number; startedAt: string; pausedAt?: string | null; seconds: number; pausedSeconds: number } | null;
   crewWorkedSeconds: number; crewPausedSeconds: number; crewLaborSeconds: number; userSeconds: number; users: number; totalSeconds: number; personnel: number; maxCrew: number; sessions: Session[];
-  dayWorkerSeconds?: number; workers?: Worker[];
+  dayWorkerSeconds?: number; workers?: Worker[]; useCrewTime?: boolean; hasNamedTime?: boolean;
 }
 interface Worker { id: string; name: string; seconds: number; running?: { id: string; startedAt: string; pausedAt?: string | null; seconds: number; pausedSeconds: number } | null }
 
@@ -60,11 +60,19 @@ export function CrewPanel({ recordId, notStarted }: { recordId: string; notStart
   const dayLabor = (d?.dayWorkerSeconds ?? 0) + live * runningWorkers;
   const crewLabor = (d?.crewLaborSeconds ?? 0) - (d?.dayWorkerSeconds ?? 0) + extra * (d?.running?.crewSize ?? 0);
   const crewSessions = (d?.sessions ?? []).filter((s) => !s.workerId);
+  const on = !!d?.useCrewTime;
+  const offHint = on ? undefined : 'Crew time is off on this work order. Set Use crew time to Yes to use it.';
+  const setUse = async (v: boolean) => {
+    setBusy(true); setErr(null);
+    try { await put(`${S}/tracking/${recordId}/crew/setting`, { useCrewTime: v }); await refresh(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
   return (
     <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Crew time">
       <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1.5 }} flexWrap="wrap">
         <Typography variant="h3">Crew time</Typography>
         <Tooltip title="Workers with no login, such as day labor. One start, pause and stop applies to the whole crew. Registered people still clock on and off with their own buttons."><Typography variant="body2" color="text.secondary">(no names needed)</Typography></Tooltip>
+        {d && <TextField select size="small" label="Use crew time?" value={on ? 'yes' : 'no'} disabled={busy || !d.canEdit} onChange={(e) => void setUse(e.target.value === 'yes')}
+          SelectProps={{ native: true }} inputProps={{ 'data-testid': 'crew-use' }} sx={{ width: 150 }}><option value="no">No</option><option value="yes">Yes</option></TextField>}
         <Box sx={{ flex: 1 }} />
         {!d?.canEdit && d?.canClockOff && d.running && <Button variant="contained" color="error" disabled={busy} data-testid="crew-stop" onClick={() => go('stop')}>Stop crew</Button>}
         {d?.canEdit && (d.running
@@ -76,13 +84,15 @@ export function CrewPanel({ recordId, notStarted }: { recordId: string; notStart
             <Button variant="contained" color="error" disabled={busy} data-testid="crew-stop" onClick={() => go('stop')}>Stop crew</Button>
           </>
           : <>
-            <TextField size="small" type="number" label="Crew size (workers)" value={crew} onChange={(e) => setCrew(e.target.value)} inputProps={{ min: 1, max: 500, 'data-testid': 'crew-size' }} sx={{ width: 170 }} />
-            <Button variant="contained" color="success" disabled={busy || !!notStarted || !(Number(crew) >= 1)} title={notStarted} data-testid="crew-start" onClick={() => go('start')}>Start crew</Button>
+            <TextField size="small" type="number" label="Crew size (workers)" value={crew} disabled={!on} onChange={(e) => setCrew(e.target.value)} inputProps={{ min: 1, max: 500, 'data-testid': 'crew-size' }} sx={{ width: 170 }} />
+            <Button variant="contained" color="success" disabled={busy || !on || !!notStarted || !(Number(crew) >= 1)} title={offHint ?? notStarted} data-testid="crew-start" onClick={() => go('start')}>Start crew</Button>
           </>)}
-        {d?.canEdit && <Button variant="outlined" data-testid="crew-add-past" onClick={() => setEdit('new')}>Add past time</Button>}
-        {d?.canEdit && <Button variant="outlined" data-testid="crew-bulk" onClick={() => setBulk(true)}>Bulk entry</Button>}
+        {d?.canEdit && <Button variant="outlined" disabled={!on} title={offHint} data-testid="crew-add-past" onClick={() => setEdit('new')}>Add past time</Button>}
+        {d?.canEdit && <Button variant="outlined" disabled={!on} title={offHint} data-testid="crew-bulk" onClick={() => setBulk(true)}>Bulk entry</Button>}
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
+      {d && !on && <Alert severity="info" sx={{ mb: 1.5 }} data-testid="crew-off-note">Crew time is off on this work order. Crew entries below are kept for the record but are not counted in hours, personnel, chargebacks or reports.{d.hasNamedTime ? ' Time is logged by name on this work order, so crew time can\'t be turned on.' : ''}</Alert>}
+      {d && on && <Alert severity="info" sx={{ mb: 1.5 }} data-testid="crew-on-note">This work order uses crew time, so nobody can clock on by name or as a day worker. Set Use crew time to No to log named time instead.</Alert>}
       {d && <Stack direction="row" gap={1.5} flexWrap="wrap" sx={{ mb: 1.5 }} data-testid="crew-totals">
         <Big label="Crew elapsed hours (paused left out)" value={hrs(d.crewWorkedSeconds)} testid="crew-elapsed" />
         <Big label="Crew size" value={d.running ? String(d.running.crewSize) : d.maxCrew ? `up to ${d.maxCrew}` : '—'} testid="crew-size-now" />
@@ -96,10 +106,10 @@ export function CrewPanel({ recordId, notStarted }: { recordId: string; notStart
         <Table size="small" data-testid="crew-sessions">
           <TableHead><TableRow><TableCell>Start</TableCell><TableCell>Stop</TableCell><TableCell align="right">Crew</TableCell><TableCell align="right">Elapsed h</TableCell>
             <TableCell align="right">Paused h</TableCell><TableCell align="right">Labor h</TableCell><TableCell>Note</TableCell><TableCell /></TableRow></TableHead>
-          <TableBody>{crewSessions.map((s) => <TableRow key={s.id}>
+          <TableBody>{crewSessions.map((s) => <TableRow key={s.id} data-counted={s.counted === false ? 'false' : 'true'} sx={s.counted === false ? { opacity: 0.6 } : undefined}>
             <TableCell>{fmtDateTime(s.startedAt)}</TableCell><TableCell>{s.stoppedAt ? fmtDateTime(s.stoppedAt) : 'running'}</TableCell>
             <TableCell align="right">{s.crewSize}</TableCell><TableCell align="right">{hrs(s.elapsedSeconds)}</TableCell><TableCell align="right">{hrs(s.pausedSeconds)}</TableCell>
-            <TableCell align="right"><b>{hrs(s.laborSeconds)}</b></TableCell><TableCell>{s.entered ? <i>entered</i> : ''}{s.note ? ` ${s.note}` : ''}</TableCell>
+            <TableCell align="right"><b>{hrs(s.laborSeconds)}</b></TableCell><TableCell>{s.counted === false && <b>Not counted. </b>}{s.entered ? <i>entered</i> : ''}{s.note ? ` ${s.note}` : ''}</TableCell>
             <TableCell sx={{ whiteSpace: 'nowrap' }}>{d.canEdit && s.stoppedAt && <>
               <IconButton size="small" aria-label="Edit crew time" onClick={() => setEdit(s)}><EditOutlined fontSize="small" /></IconButton></>}</TableCell>
           </TableRow>)}</TableBody>

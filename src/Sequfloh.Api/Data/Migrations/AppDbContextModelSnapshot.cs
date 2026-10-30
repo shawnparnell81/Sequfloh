@@ -2298,6 +2298,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("UseCrewTime")
+                        .HasColumnType("boolean");
+
                     b.Property<decimal?>("VarianceMinutes")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");

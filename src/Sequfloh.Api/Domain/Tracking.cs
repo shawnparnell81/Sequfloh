@@ -35,6 +35,8 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string? SerialNumber { get; set; }
     /// <summary>How many units this job should do, for example 2300 assemblies; null when not counted.</summary>
     public int? QuantityTarget { get; set; }
+    /// <summary>Whether nameless crew time counts on this work order. When false, crew entries stay in the record but count nowhere (personnel, hours, chargebacks, reports).</summary>
+    public bool UseCrewTime { get; set; }
     /// <summary>Quantity repaired on the job so far, kept for the whole job (not per person).</summary>
     public int QuantityCompleted { get; set; }
     /// <summary>Units that could not be repaired (a plain count; scrap and disposition are handled in the ERP).</summary>

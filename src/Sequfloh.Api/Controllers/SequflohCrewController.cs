@@ -14,6 +14,7 @@ public sealed class SequflohCrewController(SequflohCrewService crew, SequflohTim
     public sealed record WorkerRequest(string? Name);
 
     [HttpGet("{id:guid}/crew")] public Task<object> Get(Guid id, CancellationToken ct) => crew.SummaryAsync(id, ct);
+    [HttpPut("{id:guid}/crew/setting")] public async Task<object> Setting(Guid id, CrewSettingRequest r, CancellationToken ct) { await crew.SetUseCrewTimeAsync(id, r.UseCrewTime, ct); return await crew.SummaryAsync(id, ct); }
     [HttpPost("{id:guid}/crew/start")] public async Task<object> Start(Guid id, StartRequest r, CancellationToken ct) { await crew.StartAsync(id, r.CrewSize, ct, r.WorkerId); return await crew.SummaryAsync(id, ct); }
     [HttpPost("{id:guid}/crew/pause")] public async Task<object> Pause(Guid id, [FromQuery] Guid? workerId, CancellationToken ct) { await crew.PauseAsync(id, ct, workerId); return await crew.SummaryAsync(id, ct); }
     [HttpPost("{id:guid}/crew/continue")] public async Task<object> Continue(Guid id, [FromQuery] Guid? workerId, CancellationToken ct) { await crew.ContinueAsync(id, ct, workerId); return await crew.SummaryAsync(id, ct); }
@@ -29,3 +30,5 @@ public sealed class SequflohCrewController(SequflohCrewService crew, SequflohTim
     [HttpPost("{id:guid}/time-corrections/transfer")] public Task<object> Transfer(Guid id, TimeTransferInput r, CancellationToken ct) => fix.TransferAsync(id, r, ct);
     [HttpPost("{id:guid}/time-corrections/remove")] public Task<object> Remove(Guid id, TimeRemoveInput r, CancellationToken ct) => fix.RemoveAsync(id, r, ct);
 }
+
+public sealed record CrewSettingRequest(bool UseCrewTime);

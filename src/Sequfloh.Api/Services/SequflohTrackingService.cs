@@ -332,12 +332,13 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         if (project is not null) f.Audit("ProjectLinked", EntityType, rec.Id, $"Work order {rec.Number} linked to project {project.Number}", rec.SiteId);
         if (r.CreateClockStartedAt is { } clockFrom)
         {
-            // the optional clock from the New work order screen: the time spent creating the order, saved as one person's time on it
+            // the optional clock from the New work order screen: the time spent creating the order is the creator's own named time, never a crew entry
             var from = clockFrom > now ? now : clockFrom;
             if (now - from > TimeSpan.FromHours(24)) throw new AppException("The creating clock ran for more than 24 hours. Create the work order without it and enter the time on the work order instead.");
-            db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = rec.Id, TrackingNumber = rec.Number, CrewSize = 1, StartedAt = from, StoppedAt = now,
-                Events = System.Text.Json.JsonSerializer.Serialize(new List<SequflohCrewService.CrewEvent> { new("Start", from), new("Stop", now) }, SequflohJson.Options), Note = "Creating the work order" });
-            f.Audit("CrewTimeCreating", EntityType, rec.Id, $"{rec.Number}: {Math.Round((now - from).TotalMinutes, 1)} min clocked for creating the work order, saved as time for 1 person", rec.SiteId);
+            db.SequflohTimeEntries.Add(new SequflohTimeEntry { TrackingRecordId = rec.Id, TrackingNumber = rec.Number, UserId = m.UserId, UserName = me, StartedAt = from, StoppedAt = now,
+                Seconds = Math.Max(0, (long)(now - from).TotalSeconds),
+                Events = System.Text.Json.JsonSerializer.Serialize(new List<Sequfloh.Tracking.SequflohTimeService.TimeEvent> { new("Start", from), new("Stop", now) }, SequflohJson.Options) });
+            f.Audit("TimeCreating", EntityType, rec.Id, $"{rec.Number}: {Math.Round((now - from).TotalMinutes, 1)} min clocked for creating the work order, saved as {me}'s time", rec.SiteId);
         }
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

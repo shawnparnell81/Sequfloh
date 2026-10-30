@@ -1,7 +1,10 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Sequfloh.Domain.Security;
+using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Tests;
 
@@ -81,7 +84,18 @@ public sealed class FixList7Tests(TestApp app)
         var started = DateTimeOffset.UtcNow.AddMinutes(-7);
         var wo = await (await c.PostOkAsync(T, new { type = "Inspection", siteId = site, number = $"CT-{tag}", createClockStartedAt = started })).JsonAsync();
         var json = await (await c.Http.GetAsync($"{T}/{wo.Id()}/crew")).Content.ReadAsStringAsync();
-        Assert.Contains("Creating the work order", json);
+        Assert.DoesNotContain("Creating the work order", json); // never a crew entry
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Empty(await db.SequflohCrewSessions.Where(x => x.TrackingRecordId == wo.Id()).ToListAsync());
+            var mine = Assert.Single(await db.SequflohTimeEntries.Where(x => x.TrackingRecordId == wo.Id()).ToListAsync());
+            Assert.NotNull(mine.UserId);
+            Assert.InRange(mine.Seconds, 6 * 60, 8 * 60);
+        }
+        var crew = await c.GetElAsync($"{T}/{wo.Id()}/crew");
+        Assert.False(crew.GetProperty("useCrewTime").GetBoolean());
+        Assert.Equal(1, crew.GetProperty("personnel").GetInt32());
         var none = await (await c.PostOkAsync(T, new { type = "Inspection", siteId = site, number = $"CT-{tag}-2" })).JsonAsync();
         Assert.DoesNotContain("Creating the work order", await (await c.Http.GetAsync($"{T}/{none.Id()}/crew")).Content.ReadAsStringAsync());
         var old = await c.PostAsync(T, new { type = "Inspection", siteId = site, number = $"CT-{tag}-3", createClockStartedAt = DateTimeOffset.UtcNow.AddHours(-30) });

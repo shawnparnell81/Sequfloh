@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Sequfloh.Domain.Execution;
 using Sequfloh.Domain.Security;
@@ -43,6 +44,7 @@ public sealed class ProjectTests(TestApp app)
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var start = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+            await db.SequflohTrackingRecords.IgnoreQueryFilters().Where(r => r.Id == wo1 || r.Id == wo2).ExecuteUpdateAsync(u => u.SetProperty(r => r.UseCrewTime, true));
             db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = wo1, TrackingNumber = $"PI-{tag}", CrewSize = 2, StartedAt = start, StoppedAt = start.AddHours(3) });
             db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = wo2, TrackingNumber = $"PR-{tag}", CrewSize = 1, StartedAt = start, StoppedAt = start.AddHours(4) });
             var r2 = await db.SequflohTrackingRecords.FindAsync(wo2);
@@ -103,6 +105,7 @@ public sealed class ProjectTests(TestApp app)
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var start = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+            await db.SequflohTrackingRecords.IgnoreQueryFilters().Where(r => r.Id == wo).ExecuteUpdateAsync(u => u.SetProperty(r => r.UseCrewTime, true));
             db.SequflohCrewSessions.Add(new SequflohCrewSession { TrackingRecordId = wo, TrackingNumber = $"HR-{tag}", CrewSize = 2, StartedAt = start, StoppedAt = start.AddHours(1.5) });
             (await db.SequflohTrackingRecords.FindAsync(wo))!.CostLines = "[{\"description\":\"Tape\",\"amount\":12}]";
             await db.SaveChangesAsync();
