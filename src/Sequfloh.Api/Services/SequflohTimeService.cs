@@ -135,7 +135,7 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
             MinePaused = entries.Any(e => e.UserId == UserId && e.StoppedAt is null && e.PausedAt is not null),
             MinePauseReason = entries.Where(e => e.UserId == UserId && e.StoppedAt is null).Select(LastPauseReason).FirstOrDefault(),
             PausedSeconds = entries.Sum(e => Paused(e, now)),
-            Log = entries.SelectMany(e => EventsOf(e).Select(v => new { e.UserId, e.UserName, v.Kind, v.Reason, Label = Label(v), v.At })).OrderBy(v => v.At).ToList(),
+            Log = entries.SelectMany(e => EventsOf(e).Select(v => new { e.UserId, e.UserName, v.Kind, v.Reason, Label = e.AddedBy is null ? Label(v) : $"{Label(v)} (added after the fact by {e.AddedBy}: {e.AddedReason})", v.At, Added = e.AddedBy != null })).OrderBy(v => v.At).ToList(),
             Entries = entries.OrderByDescending(e => e.StartedAt).Take(100).Select(e => new { e.Id, e.UserName, e.StartedAt, e.StoppedAt, Seconds = Sec(e), PausedSeconds = Paused(e, now), Paused = e.StoppedAt is null && e.PausedAt is not null }),
         };
     }

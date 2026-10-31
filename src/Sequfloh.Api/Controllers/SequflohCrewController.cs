@@ -28,6 +28,8 @@ public sealed class SequflohCrewController(SequflohCrewService crew, SequflohTim
     [HttpDelete("crew/sessions/{sessionId:guid}")] public async Task<IActionResult> Delete(Guid sessionId, CancellationToken ct) { await crew.DeleteAsync(sessionId, ct); return NoContent(); }
     [HttpGet("{id:guid}/time-corrections")] public Task<object> Corrections(Guid id, CancellationToken ct) => fix.ListAsync(id, ct);
     [HttpPost("{id:guid}/time-corrections/transfer")] public Task<object> Transfer(Guid id, TimeTransferInput r, CancellationToken ct) => fix.TransferAsync(id, r, ct);
+    [HttpPost("{id:guid}/time/past")] public Task<object> AddPast(Guid id, PastTimeInput r, CancellationToken ct) => fix.AddPastAsync(id, r, ct);
+    [HttpGet("{id:guid}/time/past/overlaps")] public Task<object> PastOverlaps(Guid id, [FromQuery] Guid userId, [FromQuery] DateTimeOffset start, [FromQuery] DateTimeOffset stop, CancellationToken ct) => fix.PastOverlapsAsync(id, userId, start, stop, ct);
     [HttpPost("{id:guid}/time-corrections/remove")] public Task<object> Remove(Guid id, TimeRemoveInput r, CancellationToken ct) => fix.RemoveAsync(id, r, ct);
 }
 

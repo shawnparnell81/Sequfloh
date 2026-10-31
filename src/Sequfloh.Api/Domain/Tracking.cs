@@ -187,6 +187,9 @@ public class SequflohTimeEntry : Entity, IAudited
     public DateTimeOffset? VoidedAt { get; set; }
     public string? VoidedBy { get; set; }
     public string? VoidReason { get; set; }
+    /// <summary>Set when the time was added after the fact (Add past time) instead of clocked: who added it and why.</summary>
+    public string? AddedBy { get; set; }
+    public string? AddedReason { get; set; }
     public string AuditLabel => $"time on {TrackingNumber} for {UserName}";
 }
 
