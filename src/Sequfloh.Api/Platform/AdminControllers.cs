@@ -285,6 +285,7 @@ public static class PermissionText
             "sequfloh.manage_time_variance" => "Turn Track time variance on or off on a work order",
             "sequfloh.delete_permanently" => "Delete permanently: work orders cancelled as Created in error, and removed files",
             "sequfloh.manage_crew_time" => "Clock crew time and add or change past crew time on work orders",
+            "sequfloh.add_past_time" => "Add past time for a registered person on a work order who was not clocked on, with a reason (counted like clocked time, kept in history)",
             "sequfloh.transfer_time" => "Move recorded time from one work order to another (corrections)",
             "sequfloh.remove_files" => "Remove pictures and files from a work order (kept in history)",
             "sequfloh.correct_test_results" => "Correct entered test spec values and part test results (audited)",

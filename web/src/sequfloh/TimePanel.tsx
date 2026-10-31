@@ -6,10 +6,11 @@ import { get, post, put } from '../api';
 import { useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { S, fmtSeconds } from './common';
+import { AddPastTimeButton } from './AddPastTime';
 
 export interface Person { id: string; displayName: string }
 interface TimePerson { userId: string; name: string; seconds: number; pausedSeconds: number; entries: number; runningSince?: string | null; pausedSince?: string | null; pauseReason?: string | null }
-interface TimeEvent { userId: string; userName: string; kind: string; reason?: string | null; label: string; at: string }
+interface TimeEvent { userId: string; userName: string; kind: string; reason?: string | null; label: string; at: string; added?: boolean }
 interface TimeSummary { totalSeconds: number; pausedSeconds: number; people: TimePerson[]; serverTime: string; mineRunning: boolean; minePaused: boolean; minePauseReason?: string | null; log: TimeEvent[] }
 
 /** People on a work order. The first one is the lead. */
@@ -85,6 +86,7 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
         {d && (d.mineRunning
           ? <Tooltip describeChild title="Stop logging your time on this job."><Button variant="contained" color="error" disabled={busy} data-testid="stop-timer" onClick={() => go('stop')}>Clock off job</Button></Tooltip>
           : !closed && <Tooltip describeChild title="Start logging your time on this job. Job time only, not payroll."><Button variant="contained" color="success" disabled={busy || !!notStarted} data-testid="start-timer" onClick={() => go('start')}>Clock on job</Button></Tooltip>)}
+        <AddPastTimeButton recordId={recordId} />
         {!closed && notStarted && <Typography variant="body2" color="text.secondary" data-testid="clock-on-hint">{notStarted}</Typography>}
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
@@ -102,7 +104,7 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
         <Button size="small" data-testid="toggle-time-log" onClick={() => setShowLog(!showLog)}>{showLog ? 'Hide time log' : `Show time log (${d.log.length})`}</Button>
         {showLog && <Table size="small" data-testid="time-log">
           <TableHead><TableRow><TableCell>When</TableCell><TableCell>Person</TableCell><TableCell>Event</TableCell></TableRow></TableHead>
-          <TableBody>{d.log.map((l, i) => <TableRow key={i}><TableCell>{fmtDateTime(l.at)}</TableCell><TableCell>{l.userName}</TableCell><TableCell>{l.label ?? l.kind}</TableCell></TableRow>)}</TableBody>
+          <TableBody>{d.log.map((l, i) => <TableRow key={i}><TableCell>{fmtDateTime(l.at)}</TableCell><TableCell>{l.userName}</TableCell><TableCell>{l.added ? <i>{l.label}</i> : (l.label ?? l.kind)}</TableCell></TableRow>)}</TableBody>
         </Table>}
         <Typography variant="caption" color="text.secondary" component="div">Paused time (break or lunch) is shown for the record but is not counted in man hours. Job time only, not payroll.</Typography>
       </Box>}
