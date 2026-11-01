@@ -10,6 +10,7 @@ import { fmtDateTime } from '../components/Status';
 import { Empty, S, SqfPage, useSqf } from './common';
 import { NewInspectionRequestButton } from './InspectionRequests';
 import { Dashboard } from './Dashboard';
+import { MyWork } from './MyWork';
 import { NewWorkOrderButton } from './Tracking';
 
 interface Section { key: string; visible: boolean }
@@ -70,7 +71,7 @@ function OpenProjects() {
 
 interface Item { id: string; itemType: string; path: string; label: string; lastOpenedAt: string }
 
-/** SEQUFLOH Home: permission-aware dashboard, quick actions, pinned and recent SEQUFLOH items. */
+/** SEQUFLOH Home, opening on My Work (the person's own open work and notes), followed by the dashboard, quick actions, pinned and recent SEQUFLOH items. */
 export function SequflohHome() {
   const { can } = useAuth();
   const ctx = useSqf();
@@ -106,8 +107,9 @@ export function SequflohHome() {
     projects: can('sequfloh.access') ? <OpenProjects /> : null,
   };
   return (
-    <SqfPage title={ctx.data?.module.displayName ?? 'SEQUFLOH'} crumbs={[{ label: 'SEQUFLOH Home' }]} permission="sequfloh.view_dashboard"
-      description={`${ctx.data?.module.subtitle ?? 'Enterprise Execution Engine'} — ${ctx.data?.module.description ?? ''}`}>
+    <SqfPage title="My Work" crumbs={[{ label: 'SEQUFLOH Home' }]} permission="sequfloh.view_dashboard"
+      description={`${ctx.data?.module.displayName ?? 'SEQUFLOH'} — ${ctx.data?.module.subtitle ?? 'Enterprise Execution Engine'}`}>
+      <Box sx={{ mb: 3 }}><MyWork /></Box>
       <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
         <Button size="small" onClick={() => setCustomizing(true)} data-testid="customize-home">Customize Home</Button>
       </Stack>
