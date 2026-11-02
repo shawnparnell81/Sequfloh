@@ -171,7 +171,8 @@ public static class WorkbookReader
             sh.RowHeights[r] = row.IsHidden ? 0 : row.Height;
         }
 
-        foreach (var cell in ws.Range(sh.FirstRow, sh.FirstCol, sh.LastRow, sh.LastCol).CellsUsed(XLCellsUsedOptions.All))
+        // conditional formatting often covers whole columns; cells that carry nothing but that formatting are left out here (the rules are read below), so they aren't walked one by one
+        foreach (var cell in ws.Range(sh.FirstRow, sh.FirstCol, sh.LastRow, sh.LastCol).CellsUsed(XLCellsUsedOptions.All & ~XLCellsUsedOptions.ConditionalFormats))
         {
             if (++cellCount > MaxCells) { data.Warnings.Add($"Only the first {MaxCells:N0} cells of the workbook are read."); break; }
             var r = cell.Address.RowNumber; var c = cell.Address.ColumnNumber;
