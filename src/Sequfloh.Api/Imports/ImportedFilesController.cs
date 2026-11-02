@@ -61,6 +61,10 @@ public sealed class ImportedFilesController(ImportedFileService files) : Control
     public async Task<IActionResult> SetPartNumber(Guid id, PartNumberRequest r, CancellationToken ct) { await files.SetPartNumberAsync(id, r.PartNumber, ct); return NoContent(); }
 
     public sealed record FamilyRequest(Guid? FamilyId);
+    public sealed record UpcFillRequest(string? Code, string? Sheet);
+    [HttpPost("{id:guid}/upc-fill"), RequirePermission(Permissions.SequflohImportFiles)]
+    public Task<ImportedFileService.UpcFillResult> UpcFill(Guid id, UpcFillRequest r, CancellationToken ct) => files.FillFromUpcAsync(id, r.Code, r.Sheet, ct);
+
     [HttpPut("{id:guid}/family"), RequirePermission(Permissions.SequflohImportFiles)]
     public async Task<IActionResult> SetFamily(Guid id, FamilyRequest r, CancellationToken ct) { await files.SetFamilyAsync(id, r.FamilyId, ct); return NoContent(); }
 

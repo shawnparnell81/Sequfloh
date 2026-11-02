@@ -22,7 +22,7 @@ public sealed record ParagraphEdit(int Ref, string Text);
 /// Imported files: upload (Excel, CSV, Word, and legacy xls/doc through the office converter), the in-app view of a worksheet or document,
 /// saving edits as a new version (formulas recalculated by the workbook engine), and downloads. Files go to the configured file storage.
 /// </summary>
-public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, ILegacyOfficeConverter legacy, IAccessService access, ICurrentUser me)
+public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, ILegacyOfficeConverter legacy, IAccessService access, ICurrentUser me, Sequfloh.Infrastructure.Modules.Quality.ModuleSupport m)
 {
     public const long MaxBytes = 20 * 1024 * 1024;
     public const string XlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -666,6 +666,92 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (n is { Length: > 100 }) throw new AppException("Keep the part number to 100 characters.");
         f.PartNumber = n;
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>A part field a form can show, with the labels it is written under on a form.</summary>
+    public sealed record UpcField(string Label, string? Value, string[] Labels);
+
+    /// <summary>The result of a UPC scan on a filled form: the part found (or none), and the cells to fill on the sheet asked for.</summary>
+    public sealed record UpcFillResult(string Code, bool Found, object? Part, List<CellEdit> Edits, List<string> Filled);
+
+    static string LabelKey(string? s)
+    {
+        var t = string.Join(' ', (s ?? "").Replace('\u00a0', ' ').Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Trim().TrimEnd(':', '.', ' ').Trim().ToLowerInvariant();
+        return t;
+    }
+
+    /// <summary>The part fields offered to a form, each with the usual ways a form labels it. Attribute fields use their own label and import words.</summary>
+    public static List<UpcField> UpcFields(Sequfloh.Domain.MasterData.Part p, string? family)
+    {
+        var list = new List<UpcField>
+        {
+            new("Part number", p.PartNumber, ["part number", "part no", "part #", "part num", "p/n", "pn", "part"]),
+            new("Description", p.Description, ["description", "part description", "desc"]),
+            new("Product family", family ?? p.ProductFamily, ["product family", "family", "product line"]),
+            new("Drawing number", p.DrawingNumber, ["drawing number", "drawing no", "drawing #", "dwg #", "dwg", "dwg no", "dwg number"]),
+            new("UPC", p.Upc, ["upc", "upc code", "upc #", "barcode", "upc / barcode"]),
+        };
+        var attrs = PartAttributes.Read(p.Attributes);
+        foreach (var d in PartAttributes.All)
+            if (attrs.TryGetValue(d.Key, out var v) && !string.IsNullOrWhiteSpace(v)) list.Add(new(d.Label, v, [LabelKey(d.Label), .. d.Words.Select(LabelKey)]));
+        return list;
+    }
+
+    /// <summary>
+    /// The cells a scan fills: a cell whose text is a field label (with or without a colon) gets the value in the next cell to its right,
+    /// only when that cell is empty and holds no formula. Each field is filled once, at its first label.
+    /// </summary>
+    public static (List<CellEdit> Edits, List<string> Filled) UpcEdits(string sheet, IReadOnlyList<GridCell> cells, IReadOnlyList<UpcField> fields)
+    {
+        var at = cells.ToDictionary(c => (c.R, c.C));
+        var edits = new List<CellEdit>(); var filled = new List<string>(); var used = new HashSet<(int, int)>();
+        foreach (var c in cells.OrderBy(c => c.R).ThenBy(c => c.C))
+        {
+            var k = LabelKey(c.Text);
+            if (k.Length == 0 || c.Formula is not null) continue;
+            var f = fields.FirstOrDefault(x => !filled.Contains(x.Label) && !string.IsNullOrWhiteSpace(x.Value) && x.Labels.Contains(k));
+            if (f is null) continue;
+            var target = (c.R, c.C + Math.Max(1, c.ColSpan));
+            if (used.Contains(target)) continue;
+            if (at.TryGetValue(target, out var t) && (!string.IsNullOrWhiteSpace(t.Text) || t.Formula is not null)) continue;
+            edits.Add(new CellEdit(sheet, target.Item1, target.Item2, f.Value!.Trim()));
+            filled.Add(f.Label); used.Add(target);
+        }
+        return (edits, filled);
+    }
+
+    /// <summary>
+    /// Looks a scanned UPC up among the parts the user can see and, when one part has it, sets the form's part number and product family and returns
+    /// the cells to fill on the given sheet. The cells are not saved here; they are saved with the rest of the form. Recorded in the audit trail.
+    /// </summary>
+    public async Task<UpcFillResult> FillFromUpcAsync(Guid id, string? code, string? sheet, CancellationToken ct)
+    {
+        var f = await LoadAsync(id, Permissions.SequflohImportFiles, ct);
+        await GuardClosedAsync(f, ct);
+        if (f.IsBlankForm) throw new AppException("A blank form has no part. Fill out a copy and scan there.");
+        var c = new string((code ?? "").Where(ch => !char.IsWhiteSpace(ch)).ToArray());
+        if (c.Length == 0) throw new AppException("Scan or type a UPC.");
+        if (!Gtin.IsBarcode(c)) throw new AppException($"{c} is not a UPC. A UPC has 8, 12, 13 or 14 digits.");
+        var key = Gtin.Key(c);
+        var parts = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
+        var p = key is null ? null : await parts.FirstOrDefaultAsync(x => x.UpcKey == key, ct);
+        if (p is null) return new UpcFillResult(c, false, null, [], []);
+        var family = p.TypeId is { } tid ? await db.SequflohReferenceValues.Where(v => v.Id == tid).Select(v => v.Label).FirstOrDefaultAsync(ct) : null;
+        var edits = new List<CellEdit>(); var filled = new List<string>();
+        if (f.Kind == ImportedFileKind.Spreadsheet)
+        {
+            var (v, bytes) = await CurrentAsync(f, null, ct);
+            var wb = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
+            var grid = WorkbookIntake.Grid(wb, sheet, 500, 60);
+            (edits, filled) = UpcEdits(grid.Sheet, grid.Cells, UpcFields(p, family));
+        }
+        f.PartNumber = p.PartNumber.Length > 100 ? p.PartNumber[..100] : p.PartNumber;
+        if (p.TypeId is not null && (f.BlankFormId is not null || f.IsCompletedForm)) f.FamilyId = p.TypeId;
+        db.AuditEntries.Add(new AuditEntry { OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Filled from UPC scan", EntityType = nameof(ImportedFile),
+            EntityId = f.Id, SiteId = f.SiteId,
+            Description = $"Part details filled from UPC scan {c} (part {p.PartNumber}) on {f.Number} {f.Title}" + (filled.Count > 0 ? $": {string.Join(", ", filled)}." : ".") });
+        await db.SaveChangesAsync(ct);
+        return new UpcFillResult(c, true, new { p.Id, p.PartNumber, p.Name, p.Description, ProductFamily = family ?? p.ProductFamily, p.DrawingNumber, p.Upc, FamilyId = p.TypeId }, edits, filled);
     }
 
     async Task CheckFamilyAsync(Guid? familyId, CancellationToken ct)
