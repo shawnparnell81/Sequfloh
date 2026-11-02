@@ -14,6 +14,7 @@ import { PartDrawingLinks } from './Drawings';
 import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
 import { NumberField } from '../components/RecordNumber';
+import { SCAN_EVENT, SCAN_PART_ATTR } from '../scan/ScanProvider';
 
 /** The file types Imported Files takes, the same for one file or a folder. */
 const IMPORT_TYPES = ['.xlsx', '.xlsm', '.xls', '.csv', '.docx', '.doc'];
@@ -505,9 +506,16 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
     }
     rows.push(<tr key={r} className={r > lastR ? 'sqf-noprint' : undefined}>{tds}</tr>);
   }
+  const scanned = (r: UpcFill) => {
+    if (!r.found) return;
+    setEdits((e) => { const next = { ...e }; for (const x of r.edits) next[x.sheet] = { ...(next[x.sheet] ?? {}), [key(x.r, x.c)]: x.value }; return next; });
+    void qc.invalidateQueries({ queryKey: ['imported-file', file.id] });
+    onSaved();
+  };
   return (
     <Stack gap={1}>
       {msg && <Alert className="sqf-noprint" severity={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      {editable && !file.isBlankForm && <UpcScanBar fileId={file.id} sheet={name} onFilled={scanned} />}
       <Paper variant="outlined" sx={{ p: 1 }} className="sqf-noprint">
         <Stack direction="row" gap={1} alignItems="center">
           <Box sx={{ width: 70, fontFamily: faces.mono, fontWeight: 600, textAlign: 'center' }} data-testid="cell-address">{sel ? `${letters(sel.c)}${sel.r}` : ''}</Box>
@@ -539,6 +547,61 @@ function SheetEditor({ file, version, editable, editBlank, onSaved }: { file: De
       </Tabs>}
     </Stack>
   );
+}
+interface UpcFill { code: string; found: boolean; part?: { partNumber: string; name: string; productFamily?: string | null } | null; edits: { sheet: string; r: number; c: number; value: string }[]; filled: string[] }
+
+/** Scan UPC on a filled form: a scanner (or typing, then Enter) looks the part up by its UPC and fills the cells labelled with its details. */
+function UpcScanBar({ fileId, sheet, onFilled }: { fileId: string; sheet: string; onFilled: (r: UpcFill) => void }) {
+  const [v, setV] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<{ kind: 'success' | 'warning' | 'error'; text: string; unknown?: string } | null>(null);
+  const [typing, setTyping] = useState(false);
+  const [pn, setPn] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const run = async (raw: string) => {
+    const code = raw.trim();
+    if (!code || busy) return;
+    setBusy(true); setRes(null); setTyping(false);
+    try {
+      const r = await post<UpcFill>(`${A}/${fileId}/upc-fill`, { code, sheet });
+      if (!r.found) setRes({ kind: 'warning', text: `No part has UPC ${r.code}.`, unknown: r.code });
+      else {
+        onFilled(r);
+        setRes({ kind: 'success', text: `Part ${r.part?.partNumber}${r.part?.productFamily ? ` (${r.part.productFamily})` : ''}: ${r.filled.length ? `filled ${r.filled.join(', ')}. Save to keep the changes.` : 'part number and family set. No labelled cells to fill on this sheet.'}` });
+      }
+      setV('');
+    } catch (e) { setRes({ kind: 'error', text: e instanceof ApiError ? e.message : 'The UPC could not be looked up.' }); } finally { setBusy(false); }
+  };
+  const runRef = useRef(run); runRef.current = run;
+  useEffect(() => {
+    const el = box.current; if (!el) return;
+    const on = (e: Event) => { void runRef.current(String((e as CustomEvent).detail ?? '')); };
+    el.addEventListener(SCAN_EVENT, on);
+    return () => el.removeEventListener(SCAN_EVENT, on);
+  }, []);
+  const savePn = async () => {
+    try { await put(`${A}/${fileId}/part-number`, { partNumber: pn }); setRes({ kind: 'success', text: `Part number set to ${pn.trim()}.` }); setTyping(false); setPn(''); }
+    catch (e) { setRes({ kind: 'error', text: e instanceof ApiError ? e.message : 'The part number could not be saved.' }); }
+  };
+  return <Paper variant="outlined" sx={{ p: 1 }} className="sqf-noprint" data-testid="upc-scan-bar">
+    <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+      <Box ref={box} {...{ [SCAN_PART_ATTR]: '' }} sx={{ width: 280 }}>
+        <TextField size="small" fullWidth label="Scan UPC" placeholder="Scan the box label or type, then Enter" value={v} disabled={busy} onChange={(e) => setV(e.target.value)}
+          inputProps={{ 'data-testid': 'upc-scan', inputMode: 'numeric' }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void run(v); } }} />
+      </Box>
+      <Button size="small" variant="outlined" disabled={busy || !v.trim()} onClick={() => void run(v)} data-testid="upc-scan-go">Fill from UPC</Button>
+      <Typography variant="caption" color="text.secondary">Fills empty cells next to labels such as Part number, Description, Product family and Drawing number.</Typography>
+    </Stack>
+    {res && <Alert severity={res.kind} sx={{ mt: 1 }} onClose={() => setRes(null)} data-testid="upc-scan-result"
+      action={res.unknown && !typing ? <Button color="inherit" size="small" onClick={() => setTyping(true)} data-testid="upc-type-pn">Type the part number</Button> : undefined}>{res.text}</Alert>}
+    {typing && <Stack direction="row" gap={1} sx={{ mt: 1 }} alignItems="center">
+      <TextField size="small" label="Part number" value={pn} onChange={(e) => setPn(e.target.value)} inputProps={{ 'data-testid': 'upc-pn' }} autoFocus
+        onKeyDown={(e) => { if (e.key === 'Enter' && pn.trim()) void savePn(); }} />
+      <Button size="small" variant="contained" disabled={!pn.trim()} onClick={() => void savePn()} data-testid="upc-pn-save">Save part number</Button>
+      <Button size="small" onClick={() => setTyping(false)}>Cancel</Button>
+    </Stack>}
+  </Paper>;
 }
 const headCss: CSSProperties = { background: '#EEF2F7', color: '#5E6A7A', fontWeight: 500, fontSize: 12, border: '1px solid #D5DBE3', padding: '2px 4px', textAlign: 'center' };
 const baseCell: CSSProperties = { border: '1px solid #E3E7ED', padding: '1px 4px', fontSize: '11pt', fontFamily: faces.sans, overflow: 'hidden', textOverflow: 'clip', cursor: 'cell', whiteSpace: 'pre', verticalAlign: 'bottom' };
