@@ -249,7 +249,10 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     /// <summary>Key is the row's mapped values, used to find exact duplicates; Position tells parts with the same OR # apart.</summary>
-    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null, string? Drawing = null, Dictionary<string, string>? Attrs = null, string? Upc = null);
+    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null, string? Drawing = null, Dictionary<string, string>? Attrs = null, string? Upc = null, Guid? TypeId = null, string? Family = null);
+
+    /// <summary>True when the part already has a product family, linked or only typed as text.</summary>
+    static bool HasFamily(Part p) => p.TypeId is not null || !string.IsNullOrWhiteSpace(p.ProductFamily);
 
     /// <summary>The numbers an update would replace: an existing real DWG # or number field is never overwritten by a different value.</summary>
     static List<string> KeptNumbers(Part t, string? dwg, IReadOnlyDictionary<string, string>? attrs)
@@ -368,14 +371,15 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (rep is not null) p.IsRepairable = rep.Value;
                 if (rp is not null) p.IsRepairPart = rp.Value;
                 if (lot is not null) { p.LotControl = lot; p.IsLotControlled = lot == "Yes"; }
-                if (typeId is not null) { p.TypeId = typeId; p.ProductFamily = partTypes.First(x => x.Id == typeId).Label; }
+                // a part that already has a product family keeps it; the file only sets the family of a part that has none
+                if (typeId is not null && !HasFamily(p)) { p.TypeId = typeId; p.ProductFamily = partTypes.First(x => x.Id == typeId).Label; }
                 var have = PartAttributes.Read(p.Attributes);
                 PartAttributes.Merge(p, attrs.Where(kv => !(PartAttributes.Find(kv.Key) is { } d && IsNumber(d) && have.GetValueOrDefault(kv.Key) is { } old && !PartFields.IsBlank(old)))
                     .ToDictionary(kv => kv.Key, kv => kv.Value));
                 var hidden = PartFields.Read(p.HiddenFields);
                 if (p.HiddenFields is null && p.TypeId is { } ft) hidden.AddRange(PartFields.Read(familyHidden.GetValueOrDefault(ft)));
                 p.HiddenFields = PartFields.Write(hidden.Concat(blanks));
-            }, key, attrs.GetValueOrDefault("position"), numbers, dwg, attrs, Upc: upc));
+            }, key, attrs.GetValueOrDefault("position"), numbers, dwg, attrs, Upc: upc, TypeId: typeId, Family: typeId is { } fid ? partTypes.First(x => x.Id == fid).Label : null));
         }
         return list;
     }
@@ -442,6 +446,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                     var msgs = PartFields.IsBlank(match.PartNumber) ? new List<string> { $"Part number \"{match.PartNumber}\" becomes {p.PartNumber}." }
                         : !string.Equals(match.PartNumber, p.PartNumber, StringComparison.OrdinalIgnoreCase) ? [$"Part number stays {match.PartNumber} (the file has {p.PartNumber})."] : [];
                     msgs.AddRange(KeptNumbers(match, p.Drawing, p.Attrs));
+                    if (p.TypeId is { } ft && HasFamily(match) && match.TypeId != ft) msgs.Add($"Family kept: {match.ProductFamily} (file says {p.Family}).");
                     rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, msgs)); targets[p.Row] = match;
                 }
                 continue;
@@ -520,7 +525,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 {
                     OccurredAt = m.Now, UserId = m.UserId, UserName = m.Current.UserName, Action = "Import", EntityType = "Part", EntityId = t.Id, SiteId = t.SiteId,
                     Description = $"Updated part {t.PartNumber} from {Path.GetFileName(r.FileName)} ({(r.Tabs is null ? $"row {row.Row}" : Label(r, row.Row))})." + (before != t.PartNumber ? $" Part number changed from \"{before}\" to {t.PartNumber}." : "")
-                        + (row.Messages.Where(x => x.Contains(" stays ")) is var k && k.Any() ? " " + string.Join(" ", k) : ""),
+                        + (row.Messages.Where(x => x.Contains(" stays ") || x.StartsWith("Family kept", StringComparison.Ordinal)) is var k && k.Any() ? " " + string.Join(" ", k) : ""),
                 });
             }
         }
