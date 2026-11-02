@@ -224,7 +224,7 @@ export function NewInstructionPage() {
   const create = async () => {
     setBusy(true); setErr(null);
     try {
-      const r = await post<{ id: string }>(`${S}/instructions`, { number: number.trim(), type, title, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, templateId: nul(templateId), developmentLine: sp.get('line') || null });
+      const r = await post<{ id: string }>(`${S}/instructions`, { number: number.trim(), type, title, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, partNumber: part?.partNumber ?? null, templateId: nul(templateId), developmentLine: sp.get('line') || null });
       nav(`/sequfloh/instruction/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -344,7 +344,7 @@ export function InstructionPage() {
   const setContent = (section: string, key: string, v: Val) => setDoc({ ...doc, content: { ...doc.content, [section]: { ...(doc.content[section] ?? {}), [key]: v } } });
   const refresh = async () => { await qc.invalidateQueries({ queryKey: ['sqf-wi-one', id] }); qc.invalidateQueries({ queryKey: ['sqf-wi'] }); };
   const body = (d: WiDoc) => ({
-    title: d.title, siteId: d.siteId, departmentId: d.departmentId ?? null, ownerId: d.ownerId ?? null, partId: d.partId ?? null,
+    title: d.title, siteId: d.siteId, departmentId: d.departmentId ?? null, ownerId: d.ownerId ?? null, partId: d.partId ?? null, partNumber: d.partNumber ?? null,
     productFamily: nul(d.productFamily), assembly: nul(d.assembly), model: nul(d.model), variant: nul(d.variant), process: nul(d.process), operation: nul(d.operation), workstation: nul(d.workstation),
     location: nul(d.location), validationType: pick(d.content, ['validationIdentity', 'validationType']), faiType: pick(d.content, ['faiIdentity', 'faiType']),
     repairCategory: pick(d.content, ['repairIdentity', 'repairCategory'], ['repairTest', 'repairCategory']), repairType: pick(d.content, ['repairIdentity', 'repairType']),

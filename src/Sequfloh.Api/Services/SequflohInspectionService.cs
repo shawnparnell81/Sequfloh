@@ -75,7 +75,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
         if (x.PartId is { } pid)
         {
             var p = await db.Parts.AsNoTracking().FirstOrDefaultAsync(e => e.Id == pid, ct) ?? throw new AppException("The part does not exist in the Part Master.");
-            partId = p.Id; pn = p.PartNumber; desc ??= p.Name;
+            partId = p.Id; pn = PartAttributes.NumberOnPart(p, pn) ?? p.PartNumber; desc ??= p.Name;
         }
         else if (pn is not null)
         {
@@ -216,7 +216,7 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
             due = end;
         }
         var cond = string.Join("\n", new[] { $"Inspection request {r.Number}", r.Reason is null ? null : $"Reason: {r.Reason}", r.Requirement is null ? null : $"Requirement: {r.Requirement}" }.Where(s => s is not null));
-        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond, Number: x.Number, AssignedUserId: r.AssignedUserId, ProjectId: r.ProjectId), ct);
+        var rec = await tracking.CreateAsync(new TrackingCreateInput(x.Type, x.WorkInstructionId, r.SiteId, r.DepartmentId, r.PartId, Priority: priority, DueAt: due, ReportedCondition: cond, Number: x.Number, AssignedUserId: r.AssignedUserId, ProjectId: r.ProjectId, PartNumber: r.PartNumber), ct);
         var tracked = await db.SequflohTrackingRecords.FirstAsync(e => e.Id == rec.Id, ct);
         if (r.Quantity is { } q) tracked.QuantityTarget = (int)Math.Round(q);
         if (x.Type != TrackingType.Validation && rec.PartId is { } part && !await db.TrackingRecordDrawings.AnyAsync(e => e.TrackingRecordId == rec.Id, ct))

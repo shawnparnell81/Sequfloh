@@ -13,10 +13,10 @@ using Sequfloh.Infrastructure.Services;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record DevelopmentInput(Guid? AssignedEngineerId = null, DateOnly? TargetCompletionDate = null, string? Project = null, string? EngineeringNotes = null, string? DevelopmentStatus = null);
-public sealed record InstructionCreateInput(WorkInstructionType Type, string Title, Guid SiteId, Guid? DepartmentId, Guid? PartId, Guid? TemplateId = null, string? Number = null, string? DevelopmentLine = null);
+public sealed record InstructionCreateInput(WorkInstructionType Type, string Title, Guid SiteId, Guid? DepartmentId, Guid? PartId, Guid? TemplateId = null, string? Number = null, string? DevelopmentLine = null, string? PartNumber = null);
 public sealed record InstructionSaveInput(string Title, Guid SiteId, Guid? DepartmentId, Guid? OwnerId, Guid? PartId, string? ProductFamily, string? Assembly,
     string? Model, string? Variant, string? Process, string? Operation, string? Workstation, string? Location, string? ValidationType, string? FaiType, string? RepairCategory, string? RepairType,
-    string? RepairDescription, string? ResultStatus, DateOnly? EffectiveDate, JsonObject? Content, JsonArray? Steps, JsonArray? Characteristics, JsonArray? PartsRows, uint RowVersion = 0, JsonArray? Blocks = null);
+    string? RepairDescription, string? ResultStatus, DateOnly? EffectiveDate, JsonObject? Content, JsonArray? Steps, JsonArray? Characteristics, JsonArray? PartsRows, uint RowVersion = 0, JsonArray? Blocks = null, string? PartNumber = null);
 public sealed record InstructionActionInput(string? Comment, DateOnly? EffectiveDate, uint RowVersion = 0);
 public sealed record CopyStepsInput(List<Guid> OperationStepIds);
 public sealed record CopyPartsListInput(Guid? PartsListId, List<Guid>? PartIds, bool Replace = false);
@@ -133,7 +133,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
             Revision = SequflohFoundationService.FirstRevision(settings.Numbering.RevisionFormat), Number = number, DevelopmentLine = devLine
         };
         wi.FamilyId = wi.Id;
-        await ApplyPartAsync(wi, r.PartId, ct);
+        await ApplyPartAsync(wi, r.PartId, ct, r.PartNumber);
         if (r.TemplateId is { } tid)
         {
             var t = await db.SequflohInstructionTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == tid && x.IsActive, ct) ?? throw new AppException("The template is not available.");
@@ -148,14 +148,14 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         return wi;
     }
 
-    async Task ApplyPartAsync(SequflohWorkInstruction wi, Guid? partId, CancellationToken ct)
+    async Task ApplyPartAsync(SequflohWorkInstruction wi, Guid? partId, CancellationToken ct, string? number = null)
     {
-        if (partId == wi.PartId && partId is not null) return;
+        if (partId == wi.PartId && partId is not null && (number is null || string.Equals(number.Trim(), wi.PartNumber, StringComparison.OrdinalIgnoreCase))) return;
         wi.PartId = partId;
         if (partId is null) { wi.PartNumber = null; wi.PartDescription = null; return; }
         var p = await db.Parts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == partId, ct) ?? throw new AppException("The part does not exist in the Part Master.");
         if (p.Status != Domain.MasterData.MasterStatus.Active) throw new AppException($"Part {p.PartNumber} is not active.");
-        wi.PartNumber = p.PartNumber; wi.PartDescription = p.Name; wi.ProductFamily ??= p.ProductFamily; wi.Assembly ??= p.AssemblyType;
+        wi.PartNumber = PartAttributes.NumberOnPart(p, number) ?? p.PartNumber; wi.PartDescription = p.Name; wi.ProductFamily ??= p.ProductFamily; wi.Assembly ??= p.AssemblyType;
     }
 
     public async Task SaveAsync(Guid id, InstructionSaveInput r, CancellationToken ct)
@@ -174,7 +174,7 @@ public sealed class SequflohInstructionService(AppDbContext db, ModuleSupport m,
         if (r.OwnerId is { } uid) await m.RequireActiveUserAsync(uid, "owner", ct);
         await RequireOptionsAsync(wi.Type, r, ct);
         wi.Title = r.Title.Trim(); wi.SiteId = r.SiteId; wi.DepartmentId = r.DepartmentId; wi.OwnerId = r.OwnerId;
-        await ApplyPartAsync(wi, r.PartId, ct);
+        await ApplyPartAsync(wi, r.PartId, ct, r.PartNumber);
         wi.ProductFamily = T(r.ProductFamily, 100); wi.Assembly = T(r.Assembly, 100); wi.Model = T(r.Model, 100); wi.Variant = T(r.Variant, 100); wi.Process = T(r.Process, 200);
         wi.Operation = T(r.Operation, 200); wi.Workstation = T(r.Workstation, 100); wi.Location = T(r.Location, 200);
         wi.ValidationType = T(r.ValidationType, 100); wi.FaiType = T(r.FaiType, 100); wi.RepairCategory = T(r.RepairCategory, 100); wi.RepairType = T(r.RepairType, 100);

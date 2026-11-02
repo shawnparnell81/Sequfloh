@@ -590,7 +590,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         var desc = string.IsNullOrWhiteSpace(r.Description) ? child.Description ?? child.Name : r.Description.Trim();
         var row = new System.Text.Json.Nodes.JsonObject
         {
-            ["id"] = Guid.NewGuid().ToString(), ["partId"] = child.Id.ToString(), ["replacementPartNumber"] = child.PartNumber, ["description"] = desc.Length > 500 ? desc[..500] : desc,
+            ["id"] = Guid.NewGuid().ToString(), ["partId"] = child.Id.ToString(), ["replacementPartNumber"] = r.PartId is null ? child.PartNumber : PartAttributes.NumberOnPart(child, r.PartNumber) ?? child.PartNumber, ["description"] = desc.Length > 500 ? desc[..500] : desc,
             ["quantity"] = r.Quantity ?? 1, ["required"] = true, ["added"] = true,
         };
         if (!string.IsNullOrEmpty(notes)) row["notes"] = notes;

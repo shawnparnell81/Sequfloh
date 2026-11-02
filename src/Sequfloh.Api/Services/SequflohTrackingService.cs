@@ -15,7 +15,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record TrackingCreateInput(TrackingType Type, Guid? WorkInstructionId, Guid SiteId, Guid? DepartmentId = null, Guid? PartId = null, string? SerialNumber = null, string? LotNumber = null,
     string? WorkOrder = null, string? RepairOrder = null, string? CustomerReturnReference = null, string? Project = null, string? Operation = null, Guid? AssignedUserId = null, string? Priority = null,
     DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, decimal? MinBenchmarkMinutes = null, decimal? MaxBenchmarkMinutes = null,
-    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null, string? DevelopmentLine = null, Guid? ProjectId = null, string? FormNumber = null, bool Include8D = false, bool MultipleFamilies = false, bool? AttachValidationForm = null);
+    string? ReportedCondition = null, List<Guid>? AssigneeIds = null, int? Quantity = null, Guid? FamilyId = null, string? InspectionSubType = null, string? InspectionDescription = null, string? Number = null, DateTimeOffset? CreateClockStartedAt = null, string? DevelopmentLine = null, Guid? ProjectId = null, string? FormNumber = null, bool Include8D = false, bool MultipleFamilies = false, bool? AttachValidationForm = null, string? PartNumber = null);
 public sealed record InspectionResultsInput(int? QtyGood, int? QtyBad, bool? FurtherInspection, bool Quarantine, string? QuarantineReason);
 public sealed record TrackingSaveInput(Guid OperationId, int StateVersion, string? SerialNumber = null, string? LotNumber = null, string? WorkOrder = null, string? RepairOrder = null,
     string? CustomerReturnReference = null, string? Project = null, string? Priority = null, DateTimeOffset? PlannedStart = null, DateTimeOffset? DueAt = null, string? EvidenceReferences = null,
@@ -310,7 +310,8 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
             if (p.Status != Domain.MasterData.MasterStatus.Active) throw new AppException($"Part {p.PartNumber} is not active.");
             if (r.Type == TrackingType.Repair && !p.IsRepairable) throw new AppException($"Part {p.PartNumber} is not marked repairable in the Part Master.");
             if (p.IsSerialized && rec.SerialNumber is null && r.Type == TrackingType.Repair) throw new AppException($"Part {p.PartNumber} is serialized. Enter the serial number.");
-            rec.PartId = p.Id; rec.PartNumber = p.PartNumber; rec.PartDescription = p.Name;
+            // the number picked (a NAPA, OR or other number of the part) goes on the order; the part link stays the same
+            rec.PartId = p.Id; rec.PartNumber = PartAttributes.NumberOnPart(p, r.PartNumber ?? (r.PartId is null ? wi?.PartNumber : null)) ?? p.PartNumber; rec.PartDescription = p.Name;
         }
         // the instruction revision's content is copied (execution fields start empty)
         // an uploaded-file instruction is only its file: nothing built-in is copied onto the order

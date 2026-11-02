@@ -1,5 +1,11 @@
 # Changes
 
+## The number picked is the part number on the order
+
+- When a part is found in a part picker by another of its numbers (NAPA PN, NAPA US #, NAPA CA #, OR #, Nissan VA #, DMA PN, Cross, JH PN, DWG # or UPC), that number is now saved as the part number on the work order, inspection request, work instruction or repair part, and shows on its reports and prints. The record is still linked to the same Part Master part.
+- The dropdown shows which number matched and the Part Master number, for example "NP91056C (NAPA) · 81056C". An exact match is preferred over a partial one.
+- Only a number that is on the picked part is accepted; anything else falls back to the Part Master number. Existing records and barcode scans are unchanged.
+
 ## Main site roles cover every site
 
 - Sites and Departments has a "Main site: roles here cover every site" checkbox on each site. A role given for the whole of a main site works like a role for All sites: the person sees and works on parts, work orders, inspections, reports and imports at every site, within that role's permissions.

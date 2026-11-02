@@ -126,6 +126,8 @@ test('part dropdowns list nothing until you type, then search every number and s
   await box.pressSequentially(jh, { delay: 20 });
   const opt = page.getByTestId('part-option').filter({ hasText: p!.partNumber }).first();
   await expect(opt).toBeVisible();
-  await expect(opt.locator('p, span').first()).toHaveText(new RegExp(`^${p!.partNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  // the number that matched leads, then what it is and the Part Master number
+  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  await expect(opt.locator('p, span').first()).toHaveText(new RegExp(`^${esc(jh)} \\(JH PN\\) · ${esc(p!.partNumber)}`));
   await shot(page, 'part-dropdown-search');
 });

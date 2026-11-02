@@ -53,6 +53,19 @@ public static class PartAttributes
     /// <summary>The keys in a family's ShownFields setting.</summary>
     public static string[] ShownKeys(string? shown) => string.IsNullOrWhiteSpace(shown) ? [] : shown.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+    /// <summary>The attribute fields that hold another number of the part (the ones a picker can put on an order).</summary>
+    public static readonly string[] NumberKeys = ["orNumber", "napaPn", "napaUs", "napaCa", "nissanVa", "dmaPn", "cross", "jhPn"];
+
+    /// <summary>The part's own spelling of the requested number when it is one of the part's numbers (part number, DWG #, UPC or another number); otherwise null.</summary>
+    public static string? NumberOnPart(Domain.MasterData.Part p, string? requested)
+    {
+        var want = requested?.Trim();
+        if (string.IsNullOrEmpty(want) || want == "/") return null;
+        var a = Read(p.Attributes);
+        var all = new[] { p.PartNumber, p.DrawingNumber, p.Upc }.Concat(NumberKeys.Select(k => a.TryGetValue(k, out var v) ? v : null));
+        return all.Select(v => v?.Trim()).FirstOrDefault(v => !string.IsNullOrEmpty(v) && string.Equals(v, want, StringComparison.OrdinalIgnoreCase));
+    }
+
     public static PartAttributeDef? Find(string key) => All.FirstOrDefault(a => a.Key == key);
 
     public static Dictionary<string, string> Read(string? json)

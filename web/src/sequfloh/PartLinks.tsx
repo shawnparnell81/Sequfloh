@@ -25,7 +25,7 @@ export function AddPartDialog({ open, title, withQty, onClose, onAdd }: { open: 
   const save = async () => {
     setBusy(true); setErr('');
     try {
-      await onAdd({ partId: pick?.id ?? null, partNumber: pick ? null : num.trim(), description: desc.trim() || null,
+      await onAdd({ partId: pick?.id ?? null, partNumber: pick ? pick.partNumber : num.trim(), description: desc.trim() || null,
         quantity: withQty ? Number(qty) || 1 : null, notes: withQty ? notes.trim() || null : null });
       close();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
