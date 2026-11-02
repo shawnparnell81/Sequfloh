@@ -34,11 +34,11 @@ const masterStatuses = ['Active', 'Inactive', 'Obsolete'];
 /** Labels of the Part Master number fields. */
 export const PN_LABEL = 'Part number';
 export const DWG_LABEL = 'DWG #';
-interface PartTypeValue { id: string; code: string; label: string; isActive: boolean }
+interface PartTypeValue { id: string; code: string; label: string; isActive: boolean; shownFields?: string | null }
 interface AttrDef { key: string; label: string; maxLength: number; types?: string[] | null; notTypes?: string[] | null }
 const FUEL_PUMP = 'FUEL_PUMP';
-/** Whether an attribute field belongs to a product family code (no code: fields for every family). */
-const attrFor = (d: AttrDef, code?: string) => (!d.types?.length || (!!code && d.types.includes(code))) && !(code && d.notTypes?.includes(code));
+/** Whether an attribute field belongs to a product family code (no code: fields for every family), or the family's settings turn it on (shown: its extra fields). */
+const attrFor = (d: AttrDef, code?: string, shown?: string | null) => !!shown?.split(',').includes(d.key) || (!d.types?.length || (!!code && d.types.includes(code))) && !(code && d.notTypes?.includes(code));
 /** The part number label, the same for every family. */
 const pnLabel = (_code?: string) => PN_LABEL;
 /** Values of the admin-managed product families list, including deactivated ones (shown on parts that still have them). */
@@ -107,12 +107,12 @@ export function PartMasterPage() {
   const canChange = can('sequfloh.edit_parts') && can('parts.edit');
   const family = !view && v('partType') ? (v('partType') === 'none' ? 'No product family' : types.data?.find((t) => t.id === v('partType'))?.label) : undefined;
   const preset = family && v('partType') !== 'none' ? family : undefined;
-  const familyCode = types.data?.find((t) => t.id === v('partType'))?.code;
+  const famRow = types.data?.find((t) => t.id === v('partType')); const familyCode = famRow?.code;
   const fp = familyCode === FUEL_PUMP;
   const title = family ?? views[view] ?? 'Part Master';
   const baseCols: Col<PartRow>[] = [{ key: 'partNumber', label: pnLabel(familyCode), sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'typeName', label: 'Product family', sort: true, render: (r) => r.typeName ?? r.productFamily ?? '—' },
           ...(familyCode === FUEL_PUMP ? [] : [{ key: 'drawingNumber', label: DWG_LABEL, render: (r: PartRow) => r.drawingNumber ?? '—' }]),
-          ...(attrDefs.data ?? []).filter((d) => attrFor(d, familyCode)).map((d): Col<PartRow> => ({ key: `attr:${d.key}`, label: d.label, render: (r) => attrsOf(r.attributes)[d.key] ?? '—' })),
+          ...(attrDefs.data ?? []).filter((d) => attrFor(d, familyCode, famRow?.shownFields)).map((d): Col<PartRow> => ({ key: `attr:${d.key}`, label: d.label, render: (r) => attrsOf(r.attributes)[d.key] ?? '—' })),
           { key: 'partClass', label: 'Part class', render: (r) => r.partClass ?? '—' },
           { key: 'isAssembly', label: 'Assembly', render: (r) => yes(r.isAssembly) }, { key: 'unitOfMeasure', label: 'UoM' },
           { key: 'flags', label: 'Repairable / Serialized / Lot', render: (r) => `${yes(r.isRepairable)} / ${yes(r.isSerialized)} / ${r.lotControl ?? yes(r.isLotControlled)}` },
@@ -220,8 +220,8 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
   const [hidden, setHidden] = useState<string[]>([]);
   const [naOpen, setNaOpen] = useState(false);
   const fieldDefs = usePartFields();
-  const typeCode = types.data?.find((t) => t.id === typeId)?.code;
-  const shownAttrs = (attrDefs.data ?? []).filter((d) => attrFor(d, typeCode));
+  const typeFam = types.data?.find((t) => t.id === typeId); const typeCode = typeFam?.code;
+  const shownAttrs = (attrDefs.data ?? []).filter((d) => attrFor(d, typeCode, typeFam?.shownFields));
   const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'Each', material: '', siteId: '', status: 'Active',
     productFamily: '', assemblyType: '', partClass: '', isAssembly: false, lotControl: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, notes: '', drawingNumber: '', upc: '', specification: '' };
   const [f, setF] = useState(blank);
@@ -331,7 +331,7 @@ export function PartDetailPage() {
   const attrDefs = useAttrDefs();
   const ptypes = usePartTypes();
   const p = q.data?.part;
-  const code = ptypes.data?.find((t) => t.id === p?.typeId)?.code;
+  const pFam = ptypes.data?.find((t) => t.id === p?.typeId); const code = pFam?.code;
   const hid = (k: string) => !showHidden && !!p?.hiddenFields?.includes(k);
   const refresh = () => { qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); qc.invalidateQueries({ queryKey: ['sqf-part', id] }); };
   return (
@@ -357,8 +357,8 @@ export function PartDetailPage() {
             <Field label={pnLabel(code)}><Mono>{p.partNumber}</Mono><ViewDrawingButton partId={p.id} /></Field><Field label="Name">{p.name}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
             <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class" hide={hid('partClass')}>{p.partClass}</Field><Field label="Assembly" hide={hid('isAssembly')}>{yes(p.isAssembly)}</Field><Field label="Unit of measure" hide={hid('unitOfMeasure')}>{p.unitOfMeasure}</Field>
             <Field label="Repairable" hide={hid('isRepairable')}>{yes(p.isRepairable)}</Field><Field label="Repair part" hide={hid('isRepairPart')}>{yes(!!p.isRepairPart)}</Field><Field label="Serialized" hide={hid('isSerialized')}>{yes(p.isSerialized)}</Field><Field label="Lot controlled" hide={hid('isLotControlled')}>{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material" hide={hid('material')}>{p.material}</Field>
-            {(attrDefs.data ?? []).filter((d) => attrFor(d, code)).map((d) => <Field key={d.key} label={d.label} hide={hid(d.key)}>{p.attributes?.[d.key]}</Field>)}
-            {(attrDefs.data ?? []).filter((d) => !attrFor(d, code) && p.attributes?.[d.key]).map((d) => <Field key={d.key} label={`${d.label} (kept from another family)`}>{p.attributes?.[d.key]}</Field>)}
+            {(attrDefs.data ?? []).filter((d) => attrFor(d, code, pFam?.shownFields)).map((d) => <Field key={d.key} label={d.label} hide={hid(d.key)}>{p.attributes?.[d.key]}</Field>)}
+            {(attrDefs.data ?? []).filter((d) => !attrFor(d, code, pFam?.shownFields) && p.attributes?.[d.key]).map((d) => <Field key={d.key} label={`${d.label} (kept from another family)`}>{p.attributes?.[d.key]}</Field>)}
             {code !== FUEL_PUMP && <Field label={DWG_LABEL} hide={hid('drawingNumber')}>{p.drawingNumber}</Field>}<Field label="UPC / Barcode"><span data-testid="part-upc-value">{p.upc}</span>{q.data?.canEdit && <BarcodeButton partId={p.id} upc={p.upc} onSaved={refresh} />}</Field><Field label="Specification" hide={hid('specification')}>{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && !hid('description') && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}

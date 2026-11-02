@@ -41,6 +41,8 @@ public class SequflohReferenceValue : Entity, IAudited
     public bool IsSeeded { get; set; }
     /// <summary>Product families only: fields that start as Not applicable on new and imported parts of the family, comma-separated keys (see PartFields).</summary>
     public string? HiddenFields { get; set; }
+    /// <summary>Product families only: attribute fields an administrator turned on for this family besides the ones it shows anyway, comma-separated keys (see PartAttributes).</summary>
+    public string? ShownFields { get; set; }
     /// <summary>Product families only: the blank form an administrator confirmed as this family's validation form. Null until confirmed.</summary>
     public Guid? ValidationFormId { get; set; }
     /// <summary>Product families only: the code used in automatic work order numbers, typed by an administrator. Blank means no automatic number.</summary>

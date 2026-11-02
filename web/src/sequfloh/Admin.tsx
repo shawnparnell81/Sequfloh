@@ -189,7 +189,7 @@ function NumberingPage() {
 
 // ------------------------------------------------------------------ reference data
 interface ListInfo { key: string; label: string; description: string; total: number; active: number }
-interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null; numberCode?: string | null; testTemplate?: string | null }
+interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null; numberCode?: string | null; testTemplate?: string | null; shownFields?: string | null }
 const useLists = () => useQuery({ queryKey: ['sqf-lists'], queryFn: () => get<ListInfo[]>(`${S}/reference`) });
 
 export function ReferenceDataPage() {
@@ -566,13 +566,23 @@ function FamilyFieldsDialog({ value, onClose, onSaved }: { value: RefValue | nul
   const fields = useQuery({ queryKey: ['sqf-part-fields'], queryFn: () => get<{ key: string; label: string }[]>(`${S}/parts/fields`), enabled: !!value });
   const [sel, setSel] = useState<string[]>([]); const [err, setErr] = useState<string | null>(null);
   useEffect(() => { setSel(value?.hiddenFields ? value.hiddenFields.split(',').filter(Boolean) : []); setErr(null); }, [value]);
-  const save = async () => { try { await put(`${S}/reference/values/${value!.id}/hidden-fields`, { fields: sel }); onSaved(); } catch (e) { setErr((e as Error).message); } };
+  const attrs = useQuery({ queryKey: ['sqf-part-attributes'], queryFn: () => get<{ key: string; label: string; types?: string[] | null; notTypes?: string[] | null }[]>(`${S}/parts/attributes`), enabled: !!value });
+  // fields this family does not show anyway; an administrator can turn them on for the family
+  const extra = (attrs.data ?? []).filter((d) => !((!d.types?.length || (!!value && d.types.includes(value.code))) && !(value && d.notTypes?.includes(value.code))));
+  const [shown, setShown] = useState<string[]>([]);
+  const qc = useQueryClient();
+  useEffect(() => { setShown(value?.shownFields ? value.shownFields.split(',').filter(Boolean) : []); }, [value]);
+  const save = async () => { try { await put(`${S}/reference/values/${value!.id}/hidden-fields`, { fields: sel }); await put(`${S}/reference/values/${value!.id}/shown-fields`, { fields: shown }); await qc.invalidateQueries({ queryKey: ['sqf-part-types'] }); onSaved(); } catch (e) { setErr((e as Error).message); } };
   return <Dialog open={!!value} onClose={onClose} fullWidth maxWidth="sm">
     <FormDialogTitle>Not applicable fields · {value?.label}</FormDialogTitle>
     <DialogContent>{err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>New parts of this family start with these fields hidden. Each part can change its own setting.</Typography>
       <Stack direction="row" flexWrap="wrap" columnGap={2}>{(fields.data ?? []).map((d) => <FormControlLabel key={d.key} label={d.label}
-        control={<Checkbox size="small" checked={sel.includes(d.key)} onChange={(_, c) => setSel(c ? [...sel, d.key] : sel.filter((x) => x !== d.key))} />} />)}</Stack></DialogContent>
+        control={<Checkbox size="small" checked={sel.includes(d.key)} onChange={(_, c) => setSel(c ? [...sel, d.key] : sel.filter((x) => x !== d.key))} />} />)}</Stack>
+      {extra.length > 0 && <><Typography variant="subtitle2" sx={{ mt: 2 }}>Extra fields</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Fields this family does not have yet. Turn one on to show it on the part form, part details and parts list for this family.</Typography>
+        <Stack direction="row" flexWrap="wrap" columnGap={2} data-testid="family-extra-fields">{extra.map((d) => <FormControlLabel key={d.key} label={d.label}
+          control={<Checkbox size="small" checked={shown.includes(d.key)} inputProps={{ 'aria-label': `Show ${d.label}` }} onChange={(_, c) => setShown(c ? [...shown, d.key] : shown.filter((x) => x !== d.key))} />} />)}</Stack></>}</DialogContent>
     <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Save</Button></DialogActions>
   </Dialog>;
 }

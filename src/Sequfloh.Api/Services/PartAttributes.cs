@@ -46,9 +46,12 @@ public static class PartAttributes
     /// <summary>The attribute fields that hold a drawing number. The SENSEN # (the part's drawing number column) always counts as well.</summary>
     public static IEnumerable<PartAttributeDef> DrawingNumberFields => All.Where(a => a.DrawingNumber);
 
-    /// <summary>True when the field is shown for parts of the family with this code (null code: a part without a family).</summary>
-    public static bool AppliesTo(PartAttributeDef d, string? code) =>
-        (d.Types is not { Length: > 0 } || (code is not null && d.Types.Contains(code))) && !(code is not null && d.NotTypes is { } n && n.Contains(code));
+    /// <summary>True when the field is shown for parts of the family with this code (null code: a part without a family), or the family's settings turn it on (shown: the family's ShownFields).</summary>
+    public static bool AppliesTo(PartAttributeDef d, string? code, string? shown = null) =>
+        ShownKeys(shown).Contains(d.Key) || (d.Types is not { Length: > 0 } || (code is not null && d.Types.Contains(code))) && !(code is not null && d.NotTypes is { } n && n.Contains(code));
+
+    /// <summary>The keys in a family's ShownFields setting.</summary>
+    public static string[] ShownKeys(string? shown) => string.IsNullOrWhiteSpace(shown) ? [] : shown.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     public static PartAttributeDef? Find(string key) => All.FirstOrDefault(a => a.Key == key);
 

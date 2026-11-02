@@ -131,8 +131,8 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (r.Attributes is not null)
         {
             // values of fields the part's family does not show are not on the form; they are kept, so nothing is lost when a part changes family and back
-            var code = p.TypeId is { } tid ? await db.SequflohReferenceValues.Where(x => x.Id == tid).Select(x => x.Code).FirstOrDefaultAsync(ct) : null;
-            var kept = PartAttributes.Read(p.Attributes).Where(kv => !r.Attributes.ContainsKey(kv.Key) && PartAttributes.Find(kv.Key) is { } d && !PartAttributes.AppliesTo(d, code));
+            var fam = p.TypeId is { } tid ? await db.SequflohReferenceValues.Where(x => x.Id == tid).Select(x => new { x.Code, x.ShownFields }).FirstOrDefaultAsync(ct) : null;
+            var kept = PartAttributes.Read(p.Attributes).Where(kv => !r.Attributes.ContainsKey(kv.Key) && PartAttributes.Find(kv.Key) is { } d && !PartAttributes.AppliesTo(d, fam?.Code, fam?.ShownFields));
             var before = PartAttributes.Read(p.Attributes);
             PartAttributes.Write(p, new Dictionary<string, string?>(r.Attributes.Concat(kept.Select(kv => new KeyValuePair<string, string?>(kv.Key, kv.Value)))));
             var after = PartAttributes.Read(p.Attributes);

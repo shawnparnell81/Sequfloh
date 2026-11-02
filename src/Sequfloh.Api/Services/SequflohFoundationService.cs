@@ -274,6 +274,20 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Attribute fields shown for a product family besides the ones it shows anyway (for example NAPA PN on a family other than Fuel Pump).</summary>
+    public async Task SetFamilyShownFieldsAsync(Guid id, List<string>? keys, CancellationToken ct)
+    {
+        await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
+        var v = await db.SequflohReferenceValues.FirstOrDefaultAsync(x => x.Id == id && x.ListKey == SequflohCatalog.ProductFamilies, ct) ?? throw new NotFoundException("Product family");
+        var defs = (keys ?? []).Select(k => PartAttributes.Find(k.Trim()) ?? throw new AppException($"\"{k}\" is not a part attribute.")).DistinctBy(d => d.Key).ToList();
+        var clean = defs.Count == 0 ? null : string.Join(",", PartAttributes.All.Where(a => defs.Contains(a)).Select(a => a.Key));
+        if (v.ShownFields == clean) return;
+        string Labels(string? s) => PartAttributes.ShownKeys(s) is { Length: > 0 } k ? string.Join(", ", k.Select(x => PartAttributes.Find(x)?.Label ?? x)) : "none";
+        Audit("FamilyShownFieldsChanged", nameof(SequflohReferenceValue), v.Id, $"Extra fields shown for product family {v.Label} changed from {Labels(v.ShownFields)} to {Labels(clean)}");
+        v.ShownFields = clean;
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>The code a product family uses in automatic work order numbers. Blank clears it.</summary>
     public async Task SetFamilyNumberCodeAsync(Guid id, string? code, CancellationToken ct)
     {
