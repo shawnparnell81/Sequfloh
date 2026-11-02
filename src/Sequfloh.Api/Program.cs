@@ -154,8 +154,10 @@ app.Use(async (ctx, next) =>
     ctx.Response.Headers["Referrer-Policy"] = "same-origin";
     await next();
 });
+// index.html is checked with the server on every load so a normal refresh picks up the new hashed files after an update
+var pageFiles = new StaticFileOptions { OnPrepareResponse = c => { if (c.File.Name == "index.html") c.Context.Response.Headers.CacheControl = "no-cache"; } };
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(pageFiles);
 app.UseRateLimiter();
 app.UseAuthentication();
 // a person told to change their password can only use the sign-in endpoints, and the open ones the sign-in
@@ -174,9 +176,12 @@ app.Use(async (ctx, next) =>
 app.UseAuthorization();
 // health check for the hosting platform; it does not touch the database so a sleeping database is not woken for nothing
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+// the running build, so signed-in pages can offer a refresh after an update; open and light like the health check
+var build = BuildVersion.Current(app.Configuration);
+app.MapGet("/api/version", (HttpContext c) => { c.Response.Headers.CacheControl = "no-store"; return Results.Ok(new { version = build }); }).AllowAnonymous();
 app.MapControllers();
 app.MapFallback("/api/{**rest}", () => Results.NotFound()).AllowAnonymous();
-app.MapFallbackToFile("index.html").AllowAnonymous();
+app.MapFallbackToFile("index.html", pageFiles).AllowAnonymous();
 app.Run();
 
 static async Task MigrateAsync(WebApplication app)

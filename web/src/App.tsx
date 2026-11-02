@@ -10,6 +10,7 @@ import { useTheme } from '@mui/material/styles';
 import { useAuth, useBranding } from './auth';
 import { LoginPage, SetupPage, ChangePasswordPage } from './pages/SignIn';
 import { TabbedWorkspace } from './tabs/Workspace';
+import { UpdateBanner } from './components/UpdateBanner';
 
 import { ScanBox, ScanProvider } from './scan/ScanProvider';
 const Preferences = lazy(() => import('./pages/Account').then((m) => ({ default: m.PreferencesPage })));
@@ -105,7 +106,7 @@ function TopBar() {
 }
 
 function Signed({ children }: { children: ReactNode }) {
-  return <ScanProvider><TopBar />{children}</ScanProvider>;
+  return <ScanProvider><TopBar /><UpdateBanner />{children}</ScanProvider>;
 }
 
 export function App() {
