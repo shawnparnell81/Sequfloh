@@ -258,7 +258,7 @@ public sealed class SequflohReportService(AppDbContext db, ModuleSupport m, Sequ
             {
                 var q = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
                 if (p.SiteId is { } s) q = q.Where(x => x.SiteId == s);
-                if (!string.IsNullOrWhiteSpace(p.Q)) { var like = $"%{p.Q.Trim()}%"; q = q.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.AttributeText ?? ""), like)); }
+                if (!string.IsNullOrWhiteSpace(p.Q)) { var like = $"%{p.Q.Trim()}%"; q = q.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.Upc ?? "") + " " + (x.AttributeText ?? ""), like)); }
                 var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
                 foreach (var x in await q.OrderBy(x => x.PartNumber).Take(limit).ToListAsync(ct))
                     rows.Add(new() { ["partNumber"] = x.PartNumber, ["name"] = x.Name, ["drawing"] = x.DrawingNumber, ["partTypeName"] = x.TypeId is { } ti && partTypes.TryGetValue(ti, out var tl) ? tl : x.ProductFamily, ["type"] = Words(x.PartType), ["uom"] = x.UnitOfMeasure,

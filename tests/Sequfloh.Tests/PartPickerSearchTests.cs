@@ -27,4 +27,41 @@ public sealed class PartPickerSearchTests(TestApp app)
             Assert.Contains(r.GetProperty("items").EnumerateArray(), x => x.GetProperty("partNumber").GetString() == pn);
         }
     }
+
+    static readonly Random Rng = new();
+    static string NewUpc()
+    {
+        var body = "2" + string.Concat(Enumerable.Range(0, 10).Select(_ => Rng.Next(10)));
+        for (var c = 0; c < 10; c++) if (Sequfloh.Infrastructure.Services.Gtin.CheckDigitOk(body + c)) return body + c;
+        throw new InvalidOperationException();
+    }
+
+    [Fact]
+    public async Task Parts_are_found_by_any_number_on_the_record_in_Part_Master_and_the_top_search()
+    {
+        var site = await app.CreateSiteAsync();
+        var admin = await app.AdminAsync();
+        var k = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var upc = NewUpc();
+        var attrs = new Dictionary<string, string?> { ["orNumber"] = $"OR{k}X", ["napaPn"] = $"NP{k}T", ["napaUs"] = $"NU{k}", ["napaCa"] = $"NC{k}", ["nissanVa"] = $"NV{k}", ["dmaPn"] = $"DM{k}L", ["cross"] = $"CR{k}S", ["jhPn"] = $"JH{k}W1" };
+        var body = new
+        {
+            part = new { partNumber = $"AN-{k}", name = "Example part", description = "", partType = 0, revision = "A", unitOfMeasure = "EA", productId = (Guid?)null, material = "",
+                hasSpecialCharacteristics = false, siteId = site, departmentId = (Guid?)null, status = 0, rowVersion = 0u },
+            execution = new { productFamily = (string?)null, assemblyType = (string?)null, isRepairable = false, isSerialized = false, isLotControlled = false, drawingNumber = $"DW{k}", specification = (string?)null },
+            typeId = (Guid?)null, attributes = attrs, upc,
+        };
+        await admin.PostOkAsync("/api/sequfloh/parts", body);
+        var (_, viewer) = await app.CreateUserAsync([Permissions.SequflohAccess], site);
+        // every number on the record, partial and in any case
+        var terms = attrs.Values.Select(v => v![..^1].ToLowerInvariant()).Concat([$"dw{k.ToLowerInvariant()}", upc[2..10], $"an-{k.ToLowerInvariant()}"]);
+        foreach (var q in terms)
+        {
+            var r = await viewer.GetElAsync($"/api/sequfloh/parts?pageSize=25&sort=partNumber:asc&q={Uri.EscapeDataString(q)}");
+            Assert.Contains(r.GetProperty("items").EnumerateArray(), x => x.GetProperty("partNumber").GetString() == $"AN-{k}");
+            var g = await viewer.GetElAsync($"/api/sequfloh/search?q={Uri.EscapeDataString(q)}");
+            var parts = g.GetProperty("groups").EnumerateArray().First(x => x.GetProperty("key").GetString() == "parts");
+            Assert.Contains(parts.GetProperty("items").EnumerateArray(), x => x.GetProperty("number").GetString() == $"AN-{k}");
+        }
+    }
 }

@@ -1,5 +1,11 @@
 # Changes
 
+## Part search finds any number on a part
+
+- Part Master search and the part pickers now also match the UPC / Barcode, along with the part number, name, description, DWG #, family and every cross-reference number (OR #, NAPA PN, NAPA US #, NAPA CA #, Nissan VA #, DMA PN, Cross, JH PN, LINYI PN). Partial and case-insensitive, as before.
+- The search box in the top bar now finds parts by DWG #, UPC and any cross-reference number, not only the part number and name.
+- Report part filters match the UPC as well.
+
 ## One page layout across the app
 
 - Every page now uses the same header: breadcrumb, then the title with its description and context chips on the left and the action bar on the right, then the page's tabs. Settings and Change password now use it too.

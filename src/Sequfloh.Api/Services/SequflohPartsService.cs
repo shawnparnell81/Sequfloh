@@ -191,7 +191,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (type is not null) query = query.Where(x => x.PartType == type);
         if (partType == "none") query = query.Where(x => x.TypeId == null);
         else if (Guid.TryParse(partType, out var tid)) query = query.Where(x => x.TypeId == tid);
-        if (!string.IsNullOrWhiteSpace(q)) { var like = $"%{q.Trim()}%"; query = query.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.ProductFamily ?? "") + " " + (x.AttributeText ?? ""), like)); }
+        if (!string.IsNullOrWhiteSpace(q)) { var like = $"%{q.Trim()}%"; query = query.Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.Upc ?? "") + " " + (x.ProductFamily ?? "") + " " + (x.AttributeText ?? ""), like)); }
         return query;
     }
 

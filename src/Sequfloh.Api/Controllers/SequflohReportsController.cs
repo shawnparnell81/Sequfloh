@@ -139,7 +139,7 @@ public sealed class SequflohReportsController(AppDbContext db, ModuleSupport m, 
         var wis = await (await instructions.QueryAsync(ct)).Where(x => EF.Functions.ILike(x.Number + " " + x.Title + " " + (x.PartNumber ?? ""), like)).OrderBy(x => x.Number).ThenByDescending(x => x.Revision).Take(n)
             .Select(x => new { x.Id, Number = x.Number + " rev " + x.Revision, x.Title, Status = x.Status.ToString(), Path = "/sequfloh/instruction/" + x.Id }).ToListAsync(ct);
         groups.Add(new { Key = "instructions", Label = "Work instructions", Items = wis });
-        var parts = await (await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name, like)).OrderBy(x => x.PartNumber).Take(n)
+        var parts = await (await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(x => EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.DrawingNumber ?? "") + " " + (x.Upc ?? "") + " " + (x.AttributeText ?? ""), like)).OrderBy(x => x.PartNumber).Take(n)
             .Select(x => new { x.Id, Number = x.PartNumber, Title = x.Name, Status = x.Status.ToString(), Path = "/sequfloh/parts/" + x.Id }).ToListAsync(ct);
         groups.Add(new { Key = "parts", Label = "Parts", Items = parts });
         var lists = await db.SequflohPartsLists.AsNoTracking().Where(x => EF.Functions.ILike(x.Number + " " + x.Title, like)).OrderBy(x => x.Number).Take(n)
