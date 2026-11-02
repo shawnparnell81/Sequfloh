@@ -10,7 +10,6 @@ import EditOutlined from '@mui/icons-material/EditOutlined';
 import EventOutlined from '@mui/icons-material/EventOutlined';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import Restore from '@mui/icons-material/Restore';
-import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { PanelHead, Readout } from '../components/Kit';
@@ -19,10 +18,10 @@ import { ErrorState, Loading, Mono, S, SqfStatus } from './common';
 
 export interface WorkItem {
   id: string; number: string; typeLabel: string; status: string; priority: string; dueAt?: string | null; workOrder?: string | null; partNumber?: string | null;
-  description: string; assignedBy?: string | null; assigned: boolean; inProgress: boolean; clockedOn: boolean; overdue: boolean; constraints: string[];
+  description: string; assigned: boolean; inProgress: boolean; clockedOn: boolean; overdue: boolean;
 }
-interface MyWorkData { counts: { assigned: number; inProgress: number; overdue: number; constrained: number; dueThisWeek: number }; items: WorkItem[] }
-type Filter = 'all' | 'overdue' | 'progress' | 'constraints';
+interface MyWorkData { counts: { assigned: number; inProgress: number; overdue: number; dueThisWeek: number }; items: WorkItem[] }
+type Filter = 'all' | 'overdue' | 'progress';
 
 function WorkRow({ w }: { w: WorkItem }) {
   return (
@@ -40,19 +39,18 @@ function WorkRow({ w }: { w: WorkItem }) {
         secondary={<Box sx={{ mt: 0.5 }}>
           <Typography variant="body2">{w.description || w.typeLabel}</Typography>
           <Typography variant="caption" color="text.secondary" component="div">
-            {[w.typeLabel, w.partNumber, `Due ${w.dueAt ? fmtDate(w.dueAt) : '—'}`, w.assignedBy ? `Assigned by ${w.assignedBy}` : null].filter(Boolean).join(' · ')}
+            {[w.typeLabel, w.partNumber, `Due ${w.dueAt ? fmtDate(w.dueAt) : '—'}`].filter(Boolean).join(' · ')}
           </Typography>
-          {w.constraints.map((c) => <Chip key={c} size="small" color="warning" variant="outlined" icon={<WarningAmberOutlined />} label={c} sx={{ mt: 0.5, mr: 0.5 }} />)}
         </Box>} />
     </ListItemButton>
   );
 }
 
-/** The signed-in person's open work: assigned, in progress, overdue and held items, overdue first, then by due date. */
+/** The signed-in person's open work: assigned, in progress and overdue items, overdue first, then by due date. */
 export function MyWorkPanel({ data }: { data: MyWorkData }) {
   const [filter, setFilter] = useState<Filter>('all');
   const c = data.counts;
-  const rows = data.items.filter((w) => filter === 'all' || (filter === 'overdue' && w.overdue) || (filter === 'progress' && w.inProgress) || (filter === 'constraints' && w.constraints.length > 0));
+  const rows = data.items.filter((w) => filter === 'all' || (filter === 'overdue' && w.overdue) || (filter === 'progress' && w.inProgress));
   const empty = data.items.length === 0 ? 'Nothing is assigned to you right now. New work orders assigned to you show here.' : 'Nothing matches this filter.';
   return (
     <Paper variant="outlined" sx={{ overflow: 'hidden' }} component="section" aria-label="My work" data-testid="my-work">
@@ -62,7 +60,6 @@ export function MyWorkPanel({ data }: { data: MyWorkData }) {
           <ToggleButton value="all">All</ToggleButton>
           <ToggleButton value="overdue">Overdue</ToggleButton>
           <ToggleButton value="progress">In progress</ToggleButton>
-          <ToggleButton value="constraints">Constraints</ToggleButton>
         </ToggleButtonGroup>
       </Box>
       {rows.length === 0 ? <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 3 }} data-testid="my-work-empty">{empty}</Typography> :
@@ -197,11 +194,10 @@ export function MyWork() {
   const today = (notes.data ?? []).filter((n) => !n.isDone && n.remindOn && n.remindOn <= localDate()).length;
   return (
     <Box data-testid="my-work-page">
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, minmax(0, 1fr))' }, mb: 2 }}>
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, minmax(0, 1fr))' }, mb: 2 }}>
         <Readout label="Assigned to me" value={d.counts.assigned} color="primary.main" />
         <Readout label="In progress" value={d.counts.inProgress} color="primary.main" />
         <Readout label="Overdue" value={d.counts.overdue} color={d.counts.overdue ? 'error.main' : 'primary.main'} />
-        <Readout label="With constraints" value={d.counts.constrained} color={d.counts.constrained ? 'warning.main' : 'primary.main'} />
         <Readout label="Reminders due" value={today} color={today ? 'warning.main' : 'primary.main'} />
       </Box>
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 2fr) minmax(0, 1fr)' }, alignItems: 'start' }}>

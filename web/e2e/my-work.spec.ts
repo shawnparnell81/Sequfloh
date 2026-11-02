@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signIn, view } from './support';
 
-/** Made-up records and accounts only. Home opens on My Work: assigned work with due date and who assigned it, and private notes. */
+/** Made-up records and accounts only. Home opens on My Work: assigned work with due date and description, and private notes. */
 test('my work: assigned, overdue first, notes private to their owner', async ({ page, browser }) => {
   const ok = async (r: Promise<import('@playwright/test').APIResponse>) => { const x = await r; expect(x.ok(), await x.text()).toBeTruthy(); return x.status() === 204 ? null : x.json(); };
   await signIn(page);
@@ -35,7 +35,7 @@ test('my work: assigned, overdue first, notes private to their owner', async ({ 
   await expect(items.first()).toContainText(`WO-LATE-${stamp}`);
   await expect(items.first()).toContainText('Overdue');
   await expect(items.first()).toContainText('Made-up check LATE');
-  await expect(items.first()).toContainText('Assigned by');
+  await expect(items.first()).not.toContainText('Assigned by');
   const box = view(ua.p).getByRole('textbox', { name: 'Add a note' });
   await box.fill('Made-up reminder to call the lab'); await box.press('Enter');
   const note = view(ua.p).getByTestId('note');

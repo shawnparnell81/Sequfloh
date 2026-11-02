@@ -35,7 +35,7 @@ public sealed class MyWorkTests(TestApp app)
     }
 
     [Fact]
-    public async Task My_work_lists_assigned_in_progress_overdue_and_held_work_orders_in_order()
+    public async Task My_work_lists_assigned_in_progress_and_overdue_work_orders_in_order()
     {
         var site = await app.CreateSiteAsync();
         var other = await app.CreateSiteAsync();
@@ -65,13 +65,13 @@ public sealed class MyWorkTests(TestApp app)
         Assert.Equal(["WO-LATE", "WO-HELD", "WO-LATER"], items.Select(x => x.Str("workOrder")).ToArray());
         Assert.True(items[0].GetProperty("overdue").GetBoolean());
         Assert.Equal("Bracket assembly", items[0].Str("description"));
-        Assert.False(string.IsNullOrEmpty(items[0].Str("assignedBy")));
+        Assert.False(items[0].TryGetProperty("assignedBy", out _));
         Assert.True(items[2].GetProperty("inProgress").GetBoolean());
-        Assert.Contains("Waiting on parts", items[1].GetProperty("constraints")[0].GetString());
+        Assert.False(items[1].TryGetProperty("constraints", out _));
         var counts = r.GetProperty("counts");
         Assert.Equal(3, counts.GetProperty("assigned").GetInt32());
         Assert.Equal(1, counts.GetProperty("overdue").GetInt32());
-        Assert.Equal(1, counts.GetProperty("constrained").GetInt32());
+        Assert.False(counts.TryGetProperty("constrained", out _));
         Assert.DoesNotContain(items, x => x.Str("workOrder") == "WO-OTHER");
 
         var empty = await idle.GetElAsync("/api/sequfloh/my-work");

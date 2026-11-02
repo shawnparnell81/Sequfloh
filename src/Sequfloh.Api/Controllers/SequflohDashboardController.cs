@@ -76,8 +76,8 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
     }
 
     /// <summary>
-    /// My Work: open work orders the signed-in person is assigned to (lead or team), with due date, who assigned them, description,
-    /// work in progress (started by or clocked on by this person), overdue flag and constraints (hold, pause, status tag).
+    /// My Work: open work orders the signed-in person is assigned to (lead or team), with due date, description,
+    /// work in progress (started by or clocked on by this person) and overdue flag.
     /// Only records the person may open (site and department scope) are returned. Overdue first, then by due date.
     /// </summary>
     [HttpGet("my-work")]
@@ -87,7 +87,6 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
         var now = await tracking.DbNowAsync(ct);
         var cutoff = now.AddHours(-(await f.GetSettingsAsync(ct)).Tracking.OverdueThresholdHours);
         var me = m.UserId;
-        var myName = await db.Users.Where(u => u.Id == me).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? "";
         var clockedOn = db.SequflohTimeEntries.Where(t => t.UserId == me && t.StoppedAt == null && t.VoidedAt == null).Select(t => t.TrackingRecordId);
         var rows = await tr.Where(x => SequflohTrackingService.Open.Contains(x.Status)
                 && (x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me) || clockedOn.Contains(x.Id)))
@@ -95,31 +94,20 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
             {
                 x.Id, x.Number, x.Type, x.Status, x.Priority, x.DueAt, x.PlannedStart, x.ActualStart, x.WorkOrder, x.PartNumber,
                 x.WorkInstructionNumber, x.WorkInstructionTitle, x.PartDescription, x.InspectionDescription, x.RepairDescription,
-                x.PauseReason, x.HoldReason, x.StatusTag, x.StatusNote, x.OwnerId, x.ActiveOperatorId,
+                x.ActiveOperatorId,
                 Assigned = x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me),
                 ClockedOn = clockedOn.Contains(x.Id),
-                OwnerName = db.Users.Where(u => u.Id == x.OwnerId).Select(u => u.DisplayName).FirstOrDefault(),
-                // the most recent event that put this person on the work order says who assigned it
-                AssignedBy = db.SequflohTaskEvents.Where(e => e.TrackingRecordId == x.Id && e.UserId != null && e.UserId != me
-                        && (e.AssignedAfterId == me || (e.EventType == "Assignees" && e.Comment != null && e.Comment.Contains("added ") && e.Comment.Contains(myName))))
-                    .OrderByDescending(e => e.CreatedAt).Select(e => e.UserName).FirstOrDefault(),
             }).ToListAsync(ct);
         var items = rows.Select(x =>
         {
-            var constraints = new List<string>();
-            if (x.Status == TrackingStatus.OnHold) constraints.Add("On hold" + (string.IsNullOrWhiteSpace(x.HoldReason) ? "" : ": " + x.HoldReason));
-            if (x.Status == TrackingStatus.Paused) constraints.Add("Paused" + (string.IsNullOrWhiteSpace(x.PauseReason) ? "" : ": " + x.PauseReason));
-            if (!string.IsNullOrWhiteSpace(x.StatusTag)) constraints.Add(x.StatusTag + (string.IsNullOrWhiteSpace(x.StatusNote) ? "" : ": " + x.StatusNote));
             var description = new[] { x.WorkInstructionTitle, x.PartDescription, x.InspectionDescription, x.RepairDescription }.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)) ?? "";
             return new
             {
                 x.Id, x.Number, x.Type, TypeLabel = SequflohTrackingService.Label(x.Type), x.Status, x.Priority, x.DueAt, x.WorkOrder, x.PartNumber, Description = description,
-                AssignedBy = x.AssignedBy ?? (x.Assigned && x.OwnerId != me ? x.OwnerName : x.Assigned ? myName : null),
                 x.Assigned,
                 InProgress = x.ClockedOn || (x.Status == TrackingStatus.InProgress && (x.ActiveOperatorId == null || x.ActiveOperatorId == me)),
                 x.ClockedOn,
                 Overdue = x.DueAt != null && x.DueAt < cutoff,
-                Constraints = constraints,
             };
         }).OrderByDescending(x => x.Overdue).ThenBy(x => x.DueAt == null).ThenBy(x => x.DueAt).ThenBy(x => x.Number).ToList();
         return new
@@ -129,7 +117,6 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
                 Assigned = items.Count(x => x.Assigned),
                 InProgress = items.Count(x => x.InProgress),
                 Overdue = items.Count(x => x.Overdue),
-                Constrained = items.Count(x => x.Constraints.Count > 0),
                 DueThisWeek = items.Count(x => !x.Overdue && x.DueAt != null && x.DueAt < now.AddDays(7)),
             },
             Items = items,

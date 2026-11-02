@@ -108,7 +108,7 @@ export function SequflohHome() {
   };
   return (
     <SqfPage title="My Work" crumbs={[{ label: 'SEQUFLOH Home' }]} permission="sequfloh.view_dashboard"
-      description={`${ctx.data?.module.displayName ?? 'SEQUFLOH'} — ${ctx.data?.module.subtitle ?? 'Enterprise Execution Engine'}`}>
+      description="Your assigned work orders, what's in progress and overdue, and your personal notes and reminders, all in one place.">
       <Box sx={{ mb: 3 }}><MyWork /></Box>
       <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
         <Button size="small" onClick={() => setCustomizing(true)} data-testid="customize-home">Customize Home</Button>
