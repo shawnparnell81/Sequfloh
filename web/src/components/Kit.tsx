@@ -5,7 +5,7 @@ import { get } from '../api';
 import { Link as RouterLink } from 'react-router-dom';
 import { mono } from '../theme';
 
-export interface Site { id: string; code: string; name: string; isArchived: boolean; departments: { id: string; code: string; name: string }[] }
+export interface Site { id: string; code: string; name: string; isMainSite?: boolean; isArchived: boolean; departments: { id: string; code: string; name: string }[] }
 export const useSites = () => useQuery({ queryKey: ['sites'], queryFn: () => get<Site[]>('/api/organization/sites') });
 export const useUsers = () => useQuery({ queryKey: ['userlookup'], queryFn: () => get<{ id: string; displayName: string }[]>('/api/users/lookup') });
 

@@ -16,6 +16,7 @@ public sealed record UpdateUserRequest(string DisplayName, string? JobTitle, Gui
 public sealed record ResetPasswordRequest(string Password, bool MustChangePassword = true);
 public sealed record AssignRoleRequest(Guid RoleId, Guid? SiteId, Guid? DepartmentId);
 public sealed record SaveRoleRequest(string Name, string? Description, string[] Permissions);
+public sealed record SetMainSiteRequest(bool IsMainSite);
 public sealed record SaveSiteRequest(string Code, string Name, string? Address, string? TimeZone = null);
 public sealed record SaveDepartmentRequest(string Code, string Name);
 public sealed record OrganizationRequest(string OrganizationName, string TimeZone);
@@ -215,7 +216,7 @@ public sealed class OrganizationController(AppDbContext db) : ControllerBase
 
     [HttpGet("sites")]
     public async Task<object> Sites(CancellationToken ct) =>
-        await db.Sites.AsNoTracking().OrderBy(s => s.Code).Select(s => new { s.Id, s.Code, s.Name, s.Address, s.TimeZone, s.IsArchived,
+        await db.Sites.AsNoTracking().OrderBy(s => s.Code).Select(s => new { s.Id, s.Code, s.Name, s.Address, s.TimeZone, s.IsMainSite, s.IsArchived,
             Departments = s.Departments.OrderBy(d => d.Code).Select(d => new { d.Id, d.Code, d.Name, d.IsArchived }) }).ToListAsync(ct);
 
     [HttpPost("sites"), RequirePermission(Permissions.AdminOrganization)]
@@ -237,6 +238,15 @@ public sealed class OrganizationController(AppDbContext db) : ControllerBase
         if (string.IsNullOrWhiteSpace(r.Code) || string.IsNullOrWhiteSpace(r.Name)) throw new AppException("Site code and name are required.");
         s.Code = r.Code.Trim(); s.Name = r.Name.Trim(); s.Address = r.Address?.Trim();
         if (r.TimeZone is { } z && TimeZoneInfo.TryFindSystemTimeZoneById(z, out _)) s.TimeZone = z;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    [HttpPut("sites/{id:guid}/main"), RequirePermission(Permissions.AdminOrganization)]
+    public async Task<IActionResult> SetMainSite(Guid id, SetMainSiteRequest r, CancellationToken ct)
+    {
+        var s = await db.Sites.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Site");
+        s.IsMainSite = r.IsMainSite;
         await db.SaveChangesAsync(ct);
         return NoContent();
     }

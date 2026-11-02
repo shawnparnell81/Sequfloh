@@ -18,6 +18,8 @@ public class Site : Entity, IAudited, IArchivable
     public string? Address { get; set; }
     /// <summary>IANA time zone for business dates at this site (due, overdue, effective, "today").</summary>
     public string TimeZone { get; set; } = "America/New_York";
+    /// <summary>Main site: a role given for the whole of this site covers every site, the same as a role for all sites.</summary>
+    public bool IsMainSite { get; set; }
     public bool IsArchived { get; set; }
     public DateTimeOffset? ArchivedAt { get; set; }
     public List<Department> Departments { get; set; } = [];

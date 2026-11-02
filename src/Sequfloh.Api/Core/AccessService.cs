@@ -17,7 +17,9 @@ public sealed class AccessService(AppDbContext db) : IAccessService
             from a in db.UserRoleAssignments
             join p in db.RolePermissions on a.RoleId equals p.RoleId
             where a.UserId == userId
-            select new PermissionGrant(p.Permission, a.SiteId, a.DepartmentId)).Distinct().ToListAsync(ct);
+            // a role for the whole of a main site covers every site
+            let main = a.SiteId != null && a.DepartmentId == null && db.Sites.Any(s => s.Id == a.SiteId && s.IsMainSite)
+            select new PermissionGrant(p.Permission, main ? null : a.SiteId, main ? null : a.DepartmentId)).Distinct().ToListAsync(ct);
         return _cache[userId] = grants;
     }
 
@@ -36,6 +38,6 @@ public sealed class AccessService(AppDbContext db) : IAccessService
             join p in db.RolePermissions on a.RoleId equals p.RoleId
             join u in db.Users on a.UserId equals u.Id
             where p.Permission == permission && u.IsActive &&
-                  (a.SiteId == null || (a.SiteId == siteId && (a.DepartmentId == null || a.DepartmentId == departmentId)))
+                  (a.SiteId == null || (a.DepartmentId == null && db.Sites.Any(s => s.Id == a.SiteId && s.IsMainSite)) || (a.SiteId == siteId && (a.DepartmentId == null || a.DepartmentId == departmentId)))
             select a.UserId).Distinct().ToListAsync(ct);
 }

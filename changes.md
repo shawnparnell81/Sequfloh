@@ -1,5 +1,11 @@
 # Changes
 
+## Main site roles cover every site
+
+- Sites and Departments has a "Main site: roles here cover every site" checkbox on each site. A role given for the whole of a main site works like a role for All sites: the person sees and works on parts, work orders, inspections, reports and imports at every site, within that role's permissions.
+- The site with code MAIN is set as the main site. Roles given for one department of a main site, and roles at other sites, stay where they are.
+- Turning the checkbox off puts those roles back to their own site. The change is recorded in the audit trail.
+
 ## Parts import updates the part with the exact part number
 
 - With Update existing parts on, a row whose Part number and Position match exactly one part updates that part, even when another number in the row (for example a NAPA PN that is also the NAPA part's own part number) belongs to a different part. Before, such a row stopped with "Matches more than one part in the Part Master".

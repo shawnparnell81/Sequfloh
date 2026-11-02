@@ -268,7 +268,8 @@ export function SitesPage() {
             <Paper key={s.id} sx={{ p: 2 }}>
               <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1 }}>
                 <Chip color="primary" label={s.code} /><Typography variant="h3">{s.name}</Typography>
-                <Box sx={{ flex: 1 }} /><Button size="small" onClick={() => setDept({ siteId: s.id, code: '', name: '' })}>Add department</Button>
+                <Box sx={{ flex: 1 }} />
+                <FormControlLabel data-testid={`main-site-${s.code}`} control={<Checkbox size="small" checked={!!s.isMainSite} onChange={(e) => run(() => put(`/api/organization/sites/${s.id}/main`, { isMainSite: e.target.checked }))} />} label="Main site: roles here cover every site" /><Button size="small" onClick={() => setDept({ siteId: s.id, code: '', name: '' })}>Add department</Button>
                 <DeleteButton size="small" perm="admin.organization" what={`site ${s.code}`} url={`/api/organization/sites/${s.id}`} extra="Sites in use can't be deleted; archive them instead." />
               </Stack>
               <Stack direction="row" gap={1} flexWrap="wrap">
