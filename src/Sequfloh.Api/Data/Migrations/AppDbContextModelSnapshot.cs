@@ -402,6 +402,9 @@ namespace Sequfloh.Data.Migrations
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");
 
+                    b.Property<string>("LinkedWorkOrders")
+                        .HasColumnType("text");
+
                     b.Property<string>("LotDateCodes")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");

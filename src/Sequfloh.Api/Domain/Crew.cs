@@ -77,6 +77,8 @@ public class SequflohChargebackReport : Entity, IAudited
     public string? Sections { get; set; }
     /// <summary>The period and filters (JSON ReportPeriod) when the report covers a day, week, month or custom range; null for a single work order report.</summary>
     public string? Period { get; set; }
+    /// <summary>The work orders the report covers when it links more than one (JSON array of their hours as last saved); null for a single work order report.</summary>
+    public string? LinkedWorkOrders { get; set; }
     public string CreatedByName { get; set; } = "";
     /// <summary>Set when time on its work order was moved or removed after the report was saved, so it should be regenerated.</summary>
     public DateTimeOffset? TimeChangedAt { get; set; }

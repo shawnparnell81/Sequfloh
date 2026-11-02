@@ -163,7 +163,7 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
 
     static decimal Hr(long s) => Math.Round(s / 3600m, 2);
 
-    static string StatusText(TrackingStatus s) => s switch
+    public static string StatusText(TrackingStatus s) => s switch
     {
         TrackingStatus.NotStarted => "Not started", TrackingStatus.InProgress => "In progress", TrackingStatus.OnHold => "On hold", TrackingStatus.Canceled => "Cancelled", _ => s.ToString(),
     };

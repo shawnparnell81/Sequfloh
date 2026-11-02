@@ -49,7 +49,11 @@ public sealed class SequflohTimeCorrectionService(AppDbContext db, ModuleSupport
     async Task FlagChargebacksAsync(IEnumerable<Guid> recordIds, string note, CancellationToken ct)
     {
         var ids = recordIds.ToList();
-        foreach (var c in await db.SequflohChargebackReports.Where(c => c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)).ToListAsync(ct))
+        var reports = await db.SequflohChargebackReports.Where(c => c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)).ToListAsync(ct);
+        // reports that link several work orders keep them in a JSON list
+        foreach (var id in ids)
+            reports.AddRange(await db.SequflohChargebackReports.Where(c => c.LinkedWorkOrders != null && c.LinkedWorkOrders.Contains(id.ToString())).ToListAsync(ct));
+        foreach (var c in reports.DistinctBy(c => c.Id))
         {
             c.TimeChangedAt = m.Now; c.TimeChangedNote = note.Length > 500 ? note[..500] : note;
             f.Audit("ChargebackTimeChanged", "SequflohChargebackReport", c.Id, $"Chargeback report {c.WorkOrderNumber}: time on its work order changed after it was created ({note}). Regenerate it.", c.SiteId);

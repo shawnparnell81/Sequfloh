@@ -1,5 +1,15 @@
 # Changes
 
+## Project chargeback links every work order in the project
+
+- The project page has a "Chargeback report" action next to Edit and Close, for people whose role gives them "Manage chargebacks". The button at the bottom of the first card stays.
+- A chargeback for a project links every work order in the project. A tick list shows them all ticked; untick any to leave it out.
+- The report totals the ticked work orders: man hours (crew, day workers and registered people, paused time excluded), personnel, dates from the earliest to the latest, and the part and quantities when every work order has the same part. Labor cost is total hours times the rate.
+- The saved report, its PDF, print and Excel show the linked work orders and a breakdown table per work order with a Total row.
+- Saving the report again recalculates the totals. When time on a linked work order changes, the report is flagged "Time changed" as before; Refresh hours and save to update it.
+- Chargebacks for a single work order work exactly as before.
+- The audit log names the linked work orders, the man hours and the personnel, for example "Chargeback report PRJ-1 created, linking 2 work orders (PA-1, PB-1), 5.50 man hours, 2 personnel".
+
 ## The number picked is the part number on the order
 
 - When a part is found in a part picker by another of its numbers (NAPA PN, NAPA US #, NAPA CA #, OR #, Nissan VA #, DMA PN, Cross, JH PN, DWG # or UPC), that number is now saved as the part number on the work order, inspection request, work instruction or repair part, and shows on its reports and prints. The record is still linked to the same Part Master part.

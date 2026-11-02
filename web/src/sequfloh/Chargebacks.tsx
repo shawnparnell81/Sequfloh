@@ -12,7 +12,7 @@ import { otherNumbers, usePartSearch } from './partSearch';
 import { partNo } from './partLabel';
 import { useFamilies } from './Imports';
 import { useSites } from '../components/Kit';
-import { useProjects } from './Projects';
+import { useProjects, type ProjectDetail } from './Projects';
 
 interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null; projectId?: string | null }
 const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Weight', 'Weight'], ['Research', 'Research'], ['Production', 'Production']];
@@ -27,9 +27,13 @@ interface Report { locked?: boolean;
   totalPersonnel?: number | null; totalHours?: number | null; crewHours?: number | null; userHours?: number | null; dateFrom?: string | null; dateTo?: string | null; hourlyRate?: number | null;
   laborCost?: number | null; discoveryMethod?: string | null; supplierPartNumber?: string | null; lotDateCodes?: string | null; rootCause?: string | null; correctiveAction?: string | null;
   parts: { partNumber: string; description?: string | null; quantity: number; unitCost?: number | null }[]; costLines: { description: string; amount: number }[]; notes?: string | null;
+  linkedWorkOrders?: LinkedWo[];
   sections: string[]; period?: Period | null; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string; timeChangedAt?: string | null; timeChangedNote?: string | null;
 }
 type Form = Record<string, string>;
+interface LinkedWo { id: string; number: string; type: string; partNumber?: string | null; status: string; from?: string | null; to?: string | null; personnel: number; crewHours: number; userHours: number; totalHours: number }
+interface LinkedTotals { workOrders: LinkedWo[]; crewHours: number; userHours: number; totalHours: number; personnel: number; dateFrom?: string | null; dateTo?: string | null;
+  partId?: string | null; partNumber?: string | null; partDescription?: string | null; qtyInspected?: number | null; qtyBad?: number | null }
 interface SectionOpt { key: string; label: string; default: boolean }
 interface Block { key: string; heading: string; fields?: { label: string; value: string }[] | null; columns?: string[] | null; rows?: (string | null)[][] | null; photos?: string[] | null; links?: { id: string; fileName: string }[] | null }
 const useSectionOptions = () => useQuery({ queryKey: ['sqf-cb-sections'], queryFn: () => get<SectionOpt[]>(`${S}/chargebacks/sections`), staleTime: Infinity });
@@ -93,6 +97,22 @@ export function ChargebackEditPage() {
   const [sections, setSections] = useState<string[] | null>(null);
   const [period, setPeriod] = useState<Period | null>(() => sp.get('project') ? { kind: 'Project', projectId: sp.get('project') } : null);
   const projects = useProjects();
+  // a project report links the project's work orders: all ticked to start with, any can be unticked
+  const projectId = period?.kind === 'Project' ? period.projectId || '' : '';
+  const project = useQuery({ queryKey: ['sqf-project', projectId], queryFn: () => get<ProjectDetail>(`${S}/projects/${projectId}`), enabled: !!projectId });
+  const [linked, setLinked] = useState<string[] | null>(null);
+  useEffect(() => { if (isNew && project.data && linked === null) setLinked(project.data.workOrders.map((w) => w.id)); }, [project.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const linkedIds = projectId ? (linked ?? []) : [];
+  const totals = useQuery({ queryKey: ['sqf-cb-linked', [...linkedIds].sort()], queryFn: () => post<LinkedTotals>(`${S}/chargebacks/prefill-linked`, { workOrderIds: linkedIds }), enabled: linkedIds.length > 0 });
+  const many = linkedIds.length > 0;
+  useEffect(() => {
+    const x = totals.data; if (!x || !many) return;
+    setF((o) => ({ ...o, totalHours: String(x.totalHours), totalPersonnel: String(x.personnel), dateFrom: x.dateFrom ?? '', dateTo: x.dateTo ?? '', crewHours: '', userHours: '',
+      ...(!o.partNumber && x.partNumber ? { partNumber: x.partNumber, partId: x.partId ?? '', partDescription: o.partDescription || (x.partDescription ?? '') } : {}),
+      ...(!o.qtyInspected && x.qtyInspected !== null && x.qtyInspected !== undefined ? { qtyInspected: String(x.qtyInspected) } : {}),
+      ...(!o.qtyBad && x.qtyBad !== null && x.qtyBad !== undefined ? { qtyBad: String(x.qtyBad) } : {}) }));
+    if (x.partNumber) setPartText((t0) => t0 || x.partNumber!);
+  }, [totals.data, many]);
   const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
   // the person list follows the linked work order, or the period with its filters
   const peopleArgs = { trackingRecordId: wo?.id, projectId: period?.kind === 'Project' ? period.projectId || undefined : undefined, kind: period?.kind === 'Project' ? (period.projectId ? 'Project' : undefined) : period?.kind && period.from ? period.kind : undefined, from: period?.from || undefined,
@@ -132,18 +152,19 @@ export function ChargebackEditPage() {
     setParts(r.parts.map((p) => ({ partNumber: p.partNumber, description: p.description ?? '', quantity: String(p.quantity), unitCost: p.unitCost === null || p.unitCost === undefined ? '' : String(p.unitCost) })));
     setLines(r.costLines.map((l) => ({ description: l.description, amount: String(l.amount) })));
     if (r.trackingRecordId) setWo({ id: r.trackingRecordId, number: r.trackingNumber ?? '' });
-    setSections(r.sections); setPeriod(r.period ?? null); setBase(null); setHydrated(true);
+    setSections(r.sections); setPeriod(r.period ?? null); setLinked((r.linkedWorkOrders ?? []).map((w) => w.id)); setBase(null); setHydrated(true);
   }, [existing.data]);
-  const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections, period]);
+  const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections, period, linked]);
   const [base, setBase] = useState<string | null>(null);
   useEffect(() => { if (base === null && (isNew || hydrated)) setBase(snap); }, [snap, base, isNew, hydrated]);
+  const toggle = (wid: string, on: boolean) => setLinked((cur) => { const c = cur ?? []; return on ? [...c.filter((x) => x !== wid), wid] : c.filter((x) => x !== wid); });
   const dirty = base !== null && snap !== base;
   useUnsaved(dirty);
   const labor = n(f.totalHours) !== null && n(f.hourlyRate) !== null ? Math.round(n(f.totalHours)! * n(f.hourlyRate)! * 100) / 100 : null;
   const save = async () => {
     setBusy(true); setErr(null);
     const body = {
-      workOrderNumber: f.workOrderNumber ?? '', trackingRecordId: wo?.id ?? null, supplier: t(f.supplier), supplierReference: t(f.supplierReference), partId: f.partId || null, partNumber: t(f.partNumber),
+      workOrderNumber: f.workOrderNumber ?? '', trackingRecordId: many ? null : wo?.id ?? null, workOrderIds: many ? linkedIds : null, supplier: t(f.supplier), supplierReference: t(f.supplierReference), partId: f.partId || null, partNumber: t(f.partNumber),
       partDescription: t(f.partDescription), taskDescription: t(f.taskDescription), result: t(f.result), qtyInspected: n(f.qtyInspected), qtyBad: n(f.qtyBad), totalPersonnel: n(f.totalPersonnel),
       totalHours: n(f.totalHours), dateFrom: t(f.dateFrom), dateTo: t(f.dateTo), hourlyRate: n(f.hourlyRate), discoveryMethod: t(f.discoveryMethod), supplierPartNumber: t(f.supplierPartNumber),
       lotDateCodes: t(f.lotDateCodes), rootCause: t(f.rootCause), correctiveAction: t(f.correctiveAction), notes: t(f.notes), sections: picked,
@@ -167,12 +188,27 @@ export function ChargebackEditPage() {
     <Stack gap={2} sx={{ maxWidth: 1100 }} data-testid="chargeback-form">
       {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
       {existing.data?.timeChangedAt && <Alert severity="warning" data-testid="cb-time-changed"
-        action={wo && <Button color="inherit" size="small" onClick={() => void prefill(wo.id)} data-testid="cb-refresh-hours">Refresh hours</Button>}>
+        action={(many || wo) && <Button color="inherit" size="small" onClick={() => void (many ? totals.refetch() : prefill(wo!.id))} data-testid="cb-refresh-hours">Refresh hours</Button>}>
         Time changed after this chargeback was created ({existing.data.timeChangedNote}). Refresh the hours from the work order and save to regenerate it.</Alert>}
+      {projectId && <Section title="Work orders in this report">
+        <Typography variant="body2" color="text.secondary">Every work order in the project is linked. Untick any to leave it out. The hours, personnel and dates are totalled from the ticked work orders, and again each time you save.</Typography>
+        {project.isLoading ? <Loading /> : !project.data?.workOrders.length ? <Typography variant="body2">No work orders in this project yet.</Typography> :
+          <Paper variant="outlined" sx={{ overflowX: 'auto' }}><Table size="small" data-testid="cb-linked-list">
+            <TableHead><TableRow><TableCell padding="checkbox"><Checkbox checked={linkedIds.length === project.data.workOrders.length} indeterminate={linkedIds.length > 0 && linkedIds.length < project.data.workOrders.length}
+              onChange={(e) => setLinked(e.target.checked ? project.data!.workOrders.map((w) => w.id) : [])} inputProps={{ 'aria-label': 'Tick all work orders', 'data-testid': 'cb-linked-all' } as React.InputHTMLAttributes<HTMLInputElement>} /></TableCell>
+              <TableCell>WO #</TableCell><TableCell>Type</TableCell><TableCell>Part</TableCell><TableCell>Status</TableCell><TableCell align="right">Hours</TableCell></TableRow></TableHead>
+            <TableBody>{project.data.workOrders.map((w) => <TableRow key={w.id} hover>
+              <TableCell padding="checkbox"><Checkbox checked={linkedIds.includes(w.id)} onChange={(e) => toggle(w.id, e.target.checked)} inputProps={{ 'aria-label': `Link ${w.number}`, 'data-testid': `cb-linked-${w.number}` } as React.InputHTMLAttributes<HTMLInputElement>} /></TableCell>
+              <TableCell><Mono>{w.number}</Mono></TableCell><TableCell>{w.typeLabel}</TableCell><TableCell><Mono>{w.partNumber ?? '—'}</Mono></TableCell><TableCell>{w.statusLabel}</TableCell><TableCell align="right">{w.hours.toFixed(2)}</TableCell>
+            </TableRow>)}</TableBody>
+          </Table></Paper>}
+        {many && totals.data && <Alert severity="info" data-testid="cb-linked-totals">
+          {totals.data.workOrders.length} work order{totals.data.workOrders.length === 1 ? '' : 's'} linked: crew and day workers {num(totals.data.crewHours, 2)} h + registered people {num(totals.data.userHours, 2)} h = <b>{num(totals.data.totalHours, 2)} man hours</b> (paused time excluded), {totals.data.personnel} personnel{totals.data.dateFrom ? `, ${totals.data.dateFrom} to ${totals.data.dateTo}` : ''}.</Alert>}
+      </Section>}
       <Section title="Job">
         {row(
           <TextField key="wo" label={period ? 'Report number' : 'Work order #'} required={period?.kind !== 'Project'} value={f.workOrderNumber ?? ''} onChange={(e) => set({ workOrderNumber: e.target.value })} fullWidth helperText={period ? 'Your own number for this report, exactly as your company writes it' : 'Your own work order number'} inputProps={{ 'data-testid': 'cb-wo' }} />,
-          <Autocomplete key="link" fullWidth options={wos.data?.items ?? []} value={wo} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
+          !many && <Autocomplete key="link" fullWidth options={wos.data?.items ?? []} value={wo} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number}${o.workOrder ? ` · ${o.workOrder}` : ''}${o.partNumber ? ` · ${o.partNumber}` : ''}`}
             onInputChange={(_, v, r) => r === 'input' && setWoText(v)}
             onChange={(_, o) => { setWo(o); if (o) void prefill(o.id); else set({ trackingRecordId: '', crewHours: '', userHours: '' }); }}
@@ -204,7 +240,8 @@ export function ChargebackEditPage() {
       <Section title="Labor">
         {f.crewHours !== undefined && f.crewHours !== '' && <Alert severity="info" data-testid="cb-hours-from-wo">
           From the linked work order: crew {num(Number(f.crewHours), 2)} h + registered people {num(Number(f.userHours || 0), 2)} h = {num(Number(f.crewHours) + Number(f.userHours || 0), 2)} h. You can change the totals below.</Alert>}
-        {row(fld('totalPersonnel', 'Total personnel on the task', { type: 'number' }), fld('totalHours', 'Total hours worked', { type: 'number' }),
+        {row(fld('totalPersonnel', 'Total personnel on the task', { type: 'number', ...(many ? { InputProps: { readOnly: true }, helperText: 'Totalled from the linked work orders' } : {}) }),
+          fld('totalHours', 'Total hours worked', { type: 'number', inputProps: { 'data-testid': 'cb-total-hours' }, ...(many ? { InputProps: { readOnly: true }, helperText: 'Totalled from the linked work orders' } : {}) }),
           fld('hourlyRate', 'Hourly rate (optional)', { type: 'number' }),
           <TextField key="lc" label="Labor cost" value={labor === null ? '' : money(labor)} fullWidth InputProps={{ readOnly: true }} />)}
       </Section>

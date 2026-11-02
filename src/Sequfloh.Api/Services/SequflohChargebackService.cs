@@ -16,7 +16,9 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 public sealed record ChargebackPart(string PartNumber, string? Description, decimal Quantity, decimal? UnitCost);
 public sealed record ChargebackInput(string? WorkOrderNumber, Guid? TrackingRecordId, string? Supplier, string? SupplierReference, Guid? PartId, string? PartNumber, string? PartDescription,
     string? TaskDescription, string? Result, int? QtyInspected, int? QtyBad, int? TotalPersonnel, decimal? TotalHours, DateOnly? DateFrom, DateOnly? DateTo, decimal? HourlyRate,
-    string? DiscoveryMethod, string? SupplierPartNumber, string? LotDateCodes, string? RootCause, string? CorrectiveAction, List<ChargebackPart>? Parts, List<CostLine>? CostLines, string? Notes, List<string>? Sections = null, ReportPeriod? Period = null);
+    string? DiscoveryMethod, string? SupplierPartNumber, string? LotDateCodes, string? RootCause, string? CorrectiveAction, List<ChargebackPart>? Parts, List<CostLine>? CostLines, string? Notes, List<string>? Sections = null, ReportPeriod? Period = null, List<Guid>? WorkOrderIds = null);
+/// <summary>One linked work order of a chargeback report with its time as last saved. Hours exclude paused time.</summary>
+public sealed record ChargebackWorkOrder(Guid Id, string Number, string Type, string? PartNumber, string Status, DateOnly? From, DateOnly? To, int Personnel, decimal CrewHours, decimal UserHours, decimal TotalHours, int? QtyInspected, int? QtyBad);
 
 /// <summary>
 /// Saved supplier chargeback reports, laid out like the work order chargeback job report: chargeback, job, labor (crew and registered people
@@ -37,6 +39,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         new("task", "Task description", true),
         new("results", "Result and quantities", true),
         new("labor", "Total personnel and total man hours", true),
+        new("linkedWorkOrders", "Linked work orders with their hours (reports on more than one work order)", true),
         new("parts", "Parts replaced", true),
         new("findings", "Findings / nonconformance", true),
         new("rootCause", "Supplier root cause", true),
@@ -92,13 +95,54 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         return new
         {
             TrackingRecordId = r.Id, TrackingNumber = r.Number, r.Type, WorkOrderNumber = r.WorkOrder, r.PartId, r.PartNumber, r.PartDescription, Result = r.Result == "Pending" ? null : r.Result,
-            QtyInspected = fd.QtyInspected ?? (r.QtyGood is not null || r.QtyBad is not null ? (r.QtyGood ?? 0) + (r.QtyBad ?? 0) : (int?)null) ?? (r.QuantityCompleted > 0 ? r.QuantityCompleted : r.QuantityTarget), QtyBad = r.QtyBad ?? fd.QtyNonconforming ?? (r.QuantityNotRepaired > 0 ? r.QuantityNotRepaired : (int?)null),
+            QtyInspected = QtyInspectedOf(r, fd), QtyBad = QtyBadOf(r, fd),
             fd.Supplier, SupplierReference = fd.PurchaseOrder, fd.DiscoveryMethod, fd.SupplierPartNumber, fd.LotDateCodes, fd.RootCause, TaskDescription = fd.Description ?? r.WorkInstructionTitle,
             CrewHours = Hr(t.CrewLaborSeconds), UserHours = Hr(t.UserSeconds), TotalHours = Hr(t.TotalSeconds), TotalPersonnel = t.Personnel, CrewSize = t.MaxCrew, t.Users,
             DateFrom = t.From, DateTo = t.To,
         };
     }
     static decimal Hr(long s) => Math.Round(s / 3600m, 2);
+    static int? QtyInspectedOf(SequflohTrackingRecord r, JobFindings fd) => fd.QtyInspected ?? (r.QtyGood is not null || r.QtyBad is not null ? (r.QtyGood ?? 0) + (r.QtyBad ?? 0) : (int?)null) ?? (r.QuantityCompleted > 0 ? r.QuantityCompleted : r.QuantityTarget);
+    static int? QtyBadOf(SequflohTrackingRecord r, JobFindings fd) => r.QtyBad ?? fd.QtyNonconforming ?? (r.QuantityNotRepaired > 0 ? r.QuantityNotRepaired : (int?)null);
+    public static List<ChargebackWorkOrder> LinkedOf(string? json) => string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<ChargebackWorkOrder>>(json, SequflohJson.Options) ?? [];
+
+    public sealed record LinkedTotals(List<ChargebackWorkOrder> WorkOrders, decimal CrewHours, decimal UserHours, decimal TotalHours, int Personnel, DateOnly? DateFrom, DateOnly? DateTo,
+        Guid? PartId, string? PartNumber, string? PartDescription, int? QtyInspected, int? QtyBad, Guid? SiteId);
+
+    /// <summary>
+    /// The totals of several work orders, with the same rules as one: crew labor (elapsed × crew size), day workers and registered people, paused time excluded.
+    /// Personnel counts each registered person and day worker once and the largest nameless crew. The part is filled only when every work order has the same part.
+    /// </summary>
+    public async Task<LinkedTotals> LinkedAsync(IReadOnlyCollection<Guid> ids, bool forEdit, CancellationToken ct)
+    {
+        var distinct = ids.Distinct().ToList();
+        if (distinct.Count == 0) throw new AppException("Tick at least one work order.");
+        if (distinct.Count > 500) throw new AppException("Up to 500 work orders in one report.");
+        var rows = new List<ChargebackWorkOrder>();
+        var records = new List<SequflohTrackingRecord>();
+        foreach (var id in distinct)
+        {
+            var r = await tracking.LoadAsync(id, false, ct);
+            if (forEdit) await m.RequireAsync(Permissions.SequflohManageChargebacks, r.SiteId, r.DepartmentId, ct);
+            var t = await crew.TotalsAsync(id, ct);
+            var fd = SequflohJobService.FindingsOf(r.Findings);
+            records.Add(r);
+            rows.Add(new(r.Id, r.Number, SequflohPeriodSummary.TypeName(r.Type), r.PartNumber, SequflohProjectService.StatusText(r.Status), t.From, t.To, t.Personnel,
+                Hr(t.CrewLaborSeconds), Hr(t.UserSeconds), Hr(t.TotalSeconds), QtyInspectedOf(r, fd), QtyBadOf(r, fd)));
+        }
+        rows = [.. rows.OrderBy(w => w.Number, StringComparer.OrdinalIgnoreCase)];
+        var users = await db.SequflohTimeEntries.AsNoTracking().Where(e => distinct.Contains(e.TrackingRecordId)).Select(e => e.UserId).Distinct().CountAsync(ct);
+        var counted = await SequflohCrewService.Counted(db, db.SequflohCrewSessions.AsNoTracking().Where(c => distinct.Contains(c.TrackingRecordId))).ToListAsync(ct);
+        var workers = counted.Where(c => c.WorkerId != null).Select(c => c.WorkerId).Distinct().Count();
+        var maxCrew = counted.Where(c => c.WorkerId == null).Select(c => c.CrewSize).DefaultIfEmpty(0).Max();
+        var parts = records.Where(r => !string.IsNullOrWhiteSpace(r.PartNumber)).GroupBy(r => r.PartNumber!.Trim(), StringComparer.OrdinalIgnoreCase).ToList();
+        var part = parts.Count == 1 && parts[0].Count() == records.Count ? parts[0].First() : null;
+        int? Sum(Func<ChargebackWorkOrder, int?> f) => rows.Any(w => f(w) is not null) ? rows.Sum(w => f(w) ?? 0) : null;
+        var sites = records.Select(r => r.SiteId).Distinct().ToList();
+        return new(rows, rows.Sum(w => w.CrewHours), rows.Sum(w => w.UserHours), rows.Sum(w => w.TotalHours), users + workers + maxCrew,
+            rows.Where(w => w.From != null).Select(w => w.From).Min(), rows.Where(w => w.To != null).Select(w => w.To).Max(),
+            part?.PartId, part?.PartNumber, part?.PartDescription, Sum(w => w.QtyInspected), Sum(w => w.QtyBad), sites.Count == 1 ? sites[0] : null);
+    }
 
     public async Task<object> ListAsync(string? q, CancellationToken ct)
     {
@@ -143,7 +187,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         x.Id, x.WorkOrderNumber, x.TrackingRecordId, x.TrackingNumber, x.Supplier, x.SupplierReference, x.PartId, x.PartNumber, x.PartDescription, x.TaskDescription, x.Result,
         x.QtyInspected, x.QtyBad, x.TotalPersonnel, x.TotalHours, x.CrewHours, x.UserHours, x.DateFrom, x.DateTo, x.HourlyRate, LaborCost = LaborCost(x.TotalHours, x.HourlyRate),
         x.DiscoveryMethod, x.SupplierPartNumber, x.LotDateCodes, x.RootCause, x.CorrectiveAction, Parts = PartsOf(x.Parts), CostLines = LinesOf(x.CostLines), x.Notes,
-        Sections = SectionsOf(x.Sections), Period = PeriodOf(x.Period), PartsCost = PartsCost(PartsOf(x.Parts)), OtherCost = LinesOf(x.CostLines).Sum(l => l.Amount), Total = Total(x), x.CreatedAt, x.CreatedByName, x.TimeChangedAt, x.TimeChangedNote,
+        Sections = SectionsOf(x.Sections), Period = PeriodOf(x.Period), PartsCost = PartsCost(PartsOf(x.Parts)), OtherCost = LinesOf(x.CostLines).Sum(l => l.Amount), Total = Total(x), x.CreatedAt, x.CreatedByName, x.TimeChangedAt, x.TimeChangedNote, LinkedWorkOrders = LinkedOf(x.LinkedWorkOrders),
     };
 
     string Snapshot(SequflohChargebackReport x) => JsonSerializer.Serialize(Dto(x), SequflohJson.Options);
@@ -168,7 +212,20 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         if (i.QtyInspected is < 0 || i.QtyBad is < 0 || i.TotalPersonnel is < 0 || i.TotalHours is < 0 || i.HourlyRate is < 0) throw new AppException("Numbers can't be negative.");
         if (i.QtyBad is { } b && i.QtyInspected is { } q && b > q) throw new AppException("Qty bad can't be more than the quantity inspected / reworked.");
         if (i.DateFrom is { } df && i.DateTo is { } dt && dt < df) throw new AppException("The end date must be on or after the start date.");
-        x.TrackingRecordId = null; x.TrackingNumber = null; x.CrewHours = null; x.UserHours = null; x.SiteId = null;
+        x.TrackingRecordId = null; x.TrackingNumber = null; x.CrewHours = null; x.UserHours = null; x.SiteId = null; x.LinkedWorkOrders = null;
+        LinkedTotals? linked = null;
+        if (i.WorkOrderIds is { Count: > 0 } woIds)
+        {
+            // several work orders: hours, personnel and dates are always totalled again from them; the part and quantities when left blank
+            linked = await LinkedAsync(woIds, true, ct);
+            x.LinkedWorkOrders = JsonSerializer.Serialize(linked.WorkOrders, SequflohJson.Options);
+            x.SiteId = linked.SiteId; x.CrewHours = linked.CrewHours; x.UserHours = linked.UserHours;
+            i = i with { TrackingRecordId = null, TotalHours = linked.TotalHours, TotalPersonnel = linked.Personnel, DateFrom = linked.DateFrom, DateTo = linked.DateTo,
+                PartId = string.IsNullOrWhiteSpace(i.PartNumber) ? linked.PartId : i.PartId, PartNumber = string.IsNullOrWhiteSpace(i.PartNumber) ? linked.PartNumber : i.PartNumber,
+                PartDescription = string.IsNullOrWhiteSpace(i.PartNumber) && string.IsNullOrWhiteSpace(i.PartDescription) ? linked.PartDescription : i.PartDescription,
+                QtyInspected = i.QtyInspected ?? linked.QtyInspected, QtyBad = i.QtyBad ?? linked.QtyBad };
+            if (i.QtyBad is { } lb && i.QtyInspected is { } lq && lb > lq) throw new AppException("Qty bad can't be more than the quantity inspected / reworked.");
+        }
         if (i.TrackingRecordId is { } tid)
         {
             var r = await tracking.LoadAsync(tid, false, ct);
@@ -200,13 +257,17 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         }
     }
 
+    static string Subject(SequflohChargebackReport x) => x.LinkedWorkOrders is null ? $"for work order {x.WorkOrderNumber}" : x.WorkOrderNumber;
+    static string Linked(SequflohChargebackReport x) => LinkedOf(x.LinkedWorkOrders) is { Count: > 0 } l
+        ? $", linking {l.Count} work order{(l.Count == 1 ? "" : "s")} ({string.Join(", ", l.Select(w => w.Number))}), {Hd(x.TotalHours)} man hours, {x.TotalPersonnel} personnel" : "";
+
     public async Task<object> CreateAsync(ChargebackInput i, CancellationToken ct)
     {
         await RequireEditAsync(ct);
         var x = new SequflohChargebackReport { CreatedByName = await db.Users.Where(u => u.Id == m.UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? current.UserName ?? "" };
         await FillAsync(x, i, ct);
         db.SequflohChargebackReports.Add(x);
-        f.Audit("ChargebackReportCreated", Entity, x.Id, $"Chargeback report for work order {x.WorkOrderNumber} created", x.SiteId, context: new { before = (string?)null, after = Snapshot(x) });
+        f.Audit("ChargebackReportCreated", Entity, x.Id, $"Chargeback report {Subject(x)} created{Linked(x)}", x.SiteId, context: new { before = (string?)null, after = Snapshot(x) });
         await db.SaveChangesAsync(ct);
         return Dto(x);
     }
@@ -232,7 +293,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         await FillAsync(x, i, ct);
         // saving the report again with the current hours clears the "time changed" flag
         x.TimeChangedAt = null; x.TimeChangedNote = null;
-        f.Audit("ChargebackReportUpdated", Entity, x.Id, $"Chargeback report for work order {x.WorkOrderNumber} updated", x.SiteId, context: new { before, after = Snapshot(x) });
+        f.Audit("ChargebackReportUpdated", Entity, x.Id, $"Chargeback report {Subject(x)} updated{Linked(x)}", x.SiteId, context: new { before, after = Snapshot(x) });
         await db.SaveChangesAsync(ct);
         return Dto(x);
     }
@@ -280,6 +341,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             sessions = await SequflohCrewService.Counted(db, db.SequflohCrewSessions.AsNoTracking().Where(s => s.TrackingRecordId == tid)).OrderBy(s => s.StartedAt).ToListAsync(ct);
         }
         var fd = job?.Findings ?? new JobFindings();
+        var linkedWos = LinkedOf(x.LinkedWorkOrders);
         var parts = PartsOf(x.Parts);
         var lines = LinesOf(x.CostLines);
         var blocks = new List<ReportBlock>();
@@ -290,7 +352,8 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         // Job: the original job block, with the typed work order #, task, result and quantities in it
         var jobFields = new List<(string, string?)>();
         if (on.Contains("job"))
-            jobFields.AddRange([("Work order", x.WorkOrderNumber), ("Record", x.TrackingNumber), ("Job type", job?.Type),
+            jobFields.AddRange([(linkedWos.Count > 0 ? "Report number" : "Work order", x.WorkOrderNumber), ("Record", x.TrackingNumber),
+                ("Linked work orders", linkedWos.Count == 0 ? null : $"{linkedWos.Count}: {string.Join(", ", linkedWos.Select(w => w.Number))}"), ("Job type", job?.Type),
                 ("Work instruction", job is null ? null : SequflohPrintService.WiLine(job.WorkInstructionNumber, job.WorkInstructionRevision, job.Title) ?? "—"),
                 ("Dates", x.DateFrom is null && x.DateTo is null ? null : $"{x.DateFrom:yyyy-MM-dd} to {x.DateTo:yyyy-MM-dd}"), ("Status", job?.Status)]);
         if (on.Contains("part")) jobFields.AddRange([("Assembly part number", x.PartNumber ?? "—"), ("Description", x.PartDescription ?? "—")]);
@@ -304,6 +367,14 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         if (on.Contains("labor"))
             jobFields.AddRange([("Total personnel", I(x.TotalPersonnel)), ("Total man hours", Hd(x.TotalHours) is { } th ? th + " (paused time excluded)" : null)]);
         if (jobFields.Any(v => !string.IsNullOrWhiteSpace(v.Item2))) blocks.Add(new("job", "Job", jobFields));
+        if (on.Contains("linkedWorkOrders") && linkedWos.Count > 0)
+        {
+            string? Dates(DateOnly? a, DateOnly? b) => a is null && b is null ? "" : a == b ? $"{a:yyyy-MM-dd}" : $"{a:yyyy-MM-dd} to {b:yyyy-MM-dd}";
+            blocks.Add(new("linkedWorkOrders", "Linked work orders (paused time excluded)",
+                Columns: [("WO #", 1.4), ("Type", 1.3), ("Part", 1.4), ("Status", 1.1), ("Dates", 2), ("Personnel", 0.9), ("Crew and day worker hours", 1.3), ("Registered people hours", 1.3), ("Total hours", 1)],
+                Rows: [.. linkedWos.Select(w => new string?[] { w.Number, w.Type, w.PartNumber ?? "", w.Status, Dates(w.From, w.To), I(w.Personnel), Hd(w.CrewHours), Hd(w.UserHours), Hd(w.TotalHours) }),
+                    ["Total", $"{linkedWos.Count} work orders", "", "", Dates(x.DateFrom, x.DateTo), I(x.TotalPersonnel), Hd(linkedWos.Sum(w => w.CrewHours)), Hd(linkedWos.Sum(w => w.UserHours)), Hd(linkedWos.Sum(w => w.TotalHours))]]));
+        }
 
         if (on.Contains("parts") && parts.Count > 0)
             blocks.Add(new("parts", "Parts replaced", Columns: [("Part number", 2.5), ("Description", 3), ("Quantity replaced", 1.5)],

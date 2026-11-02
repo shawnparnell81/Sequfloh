@@ -8,8 +8,9 @@ import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { EightDAsk, EightDBlock, EightDCreate, uploadEightD } from './EightD';
 
+export type ProjectWorkOrder = ProjectDetail['workOrders'][number];
 export interface ProjectRow { id: string; number: string; name: string; description?: string | null; siteId?: string | null; site?: string | null; status: string; workOrders: number; inspectionRequests: number }
-interface ProjectDetail {
+export interface ProjectDetail {
   id: string; number: string; name: string; description?: string | null; siteId?: string | null; status: string; canManage: boolean; include8D?: boolean;
   workOrders: { id: string; number: string; type: string; typeLabel: string; status: string; partNumber?: string | null; qtyGood?: number | null; qtyBad?: number | null; hours: number; userHours: number; crewHours: number; costLines: number; chargebacks: number;
     statusLabel: string; title?: string | null; assignedTo?: string | null; updatedAt: string; fromRequest?: string | null }[];
@@ -125,6 +126,7 @@ export function ProjectPage() {
   const [err, setErr] = useState<string | null>(null);
   const [type, setType] = useState<string | null>(null);
   const q = useQuery({ queryKey: ['sqf-project', id], queryFn: () => get<ProjectDetail>(`${S}/projects/${id}`) });
+  const canChargeback = !!useSqf().data?.permissions.includes('sequfloh.manage_chargebacks');
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorState error={q.error} />;
   const p = q.data; const t = p.totals;
@@ -134,11 +136,12 @@ export function ProjectPage() {
   const types = [...new Set(p.workOrders.map((w) => w.typeLabel))].sort();
   const wos = type === null ? p.workOrders : p.workOrders.filter((w) => w.typeLabel === type);
   return <SqfPage title={`Project ${p.number}`} crumbs={crumbs(p.number)} permission="sequfloh.access" recent={{ label: `Project ${p.number}`, itemType: 'project', recordId: p.id }}
-    actions={p.canManage && <Stack direction="row" gap={1}>
-      <Button variant="outlined" onClick={() => setEdit(true)} data-testid="project-edit">Edit</Button>
-      {p.status === 'Open' ? <Button variant="outlined" onClick={() => act(() => post(`${S}/projects/${id}/close`))} data-testid="project-close">Close</Button>
-        : <Button variant="outlined" onClick={() => act(() => post(`${S}/projects/${id}/reopen`))} data-testid="project-reopen">Reopen</Button>}
-      {!linked && <Button color="error" variant="outlined" data-testid="project-delete"
+    actions={(p.canManage || canChargeback) && <Stack direction="row" gap={1}>
+      {canChargeback && <Button variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?project=${p.id}`} data-testid="project-chargeback">Chargeback report</Button>}
+      {p.canManage && <Button variant="outlined" onClick={() => setEdit(true)} data-testid="project-edit">Edit</Button>}
+      {p.canManage && (p.status === 'Open' ? <Button variant="outlined" onClick={() => act(() => post(`${S}/projects/${id}/close`))} data-testid="project-close">Close</Button>
+        : <Button variant="outlined" onClick={() => act(() => post(`${S}/projects/${id}/reopen`))} data-testid="project-reopen">Reopen</Button>)}
+      {p.canManage && !linked && <Button color="error" variant="outlined" data-testid="project-delete"
         onClick={() => { if (window.confirm(`Delete project ${p.number}? This can't be undone.`)) act(async () => { await del(`${S}/projects/${id}`); nav('/sequfloh/projects'); }); }}>Delete</Button>}
     </Stack>}>
     {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
@@ -151,7 +154,7 @@ export function ProjectPage() {
           ['Work orders', String(t.workOrders)], ['Inspection requests', String(t.inspectionRequests)], ['By type', t.byType.map((x) => `${x.type} ${x.count}`).join(', ') || '—']] as [string, string][])
           .map(([l, v]) => <Box key={l}><Typography variant="caption" color="text.secondary">{l}</Typography><Typography>{v}</Typography></Box>)}
       </Box>
-      <Button sx={{ mt: 2 }} variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?project=${p.id}`}>Chargeback report for this project</Button>
+      {canChargeback && <Button sx={{ mt: 2 }} variant="outlined" component={RouterLink} to={`/sequfloh/chargebacks/new?project=${p.id}`}>Chargeback report for this project</Button>}
     </Paper>
     {p.include8D && <Box sx={{ mb: 2 }}><EightDBlock kind="projects" id={p.id} /></Box>}
     <Typography variant="h6" sx={{ mb: 1 }}>Linked items</Typography>
