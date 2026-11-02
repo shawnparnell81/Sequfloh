@@ -48,12 +48,24 @@ public sealed class NotificationsController(AppDbContext db, ICurrentUser me) : 
     [HttpGet]
     public async Task<object> Mine(CancellationToken ct) =>
         await db.Notifications.AsNoTracking().Where(n => n.UserId == me.UserId).OrderByDescending(n => n.CreatedAt).Take(50)
-            .Select(n => new { n.Id, n.Title, n.Body, n.Link, n.CreatedAt, n.ReadAt }).ToListAsync(ct);
+            .Select(n => new { n.Id, n.Title, n.Body, n.Link, n.RecordType, n.RecordId, n.CreatedAt, n.ReadAt }).ToListAsync(ct);
 
     [HttpPost("{id:guid}/read")]
     public async Task<IActionResult> Read(Guid id, CancellationToken ct)
     {
         await db.Notifications.Where(n => n.Id == id && n.UserId == me.UserId && n.ReadAt == null).ExecuteUpdateAsync(s => s.SetProperty(n => n.ReadAt, DateTimeOffset.UtcNow), ct);
+        return NoContent();
+    }
+
+    /// <summary>How many of the signed-in person's own notifications are unread, for the bell.</summary>
+    [HttpGet("unread-count")]
+    public async Task<object> UnreadCount(CancellationToken ct) => new { count = await db.Notifications.CountAsync(n => n.UserId == me.UserId && n.ReadAt == null, ct) };
+
+    /// <summary>Marks all of the signed-in person's own notifications read; nobody else's are touched.</summary>
+    [HttpPost("read-all")]
+    public async Task<IActionResult> ReadAll(CancellationToken ct)
+    {
+        await db.Notifications.Where(n => n.UserId == me.UserId && n.ReadAt == null).ExecuteUpdateAsync(s => s.SetProperty(n => n.ReadAt, DateTimeOffset.UtcNow), ct);
         return NoContent();
     }
 }

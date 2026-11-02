@@ -13,6 +13,7 @@ import { TabbedWorkspace } from './tabs/Workspace';
 import { UpdateBanner } from './components/UpdateBanner';
 
 import { ScanBox, ScanProvider } from './scan/ScanProvider';
+import { NotificationBell } from './components/NotificationBell';
 const Preferences = lazy(() => import('./pages/Account').then((m) => ({ default: m.PreferencesPage })));
 
 const SqfDrawings = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingsPage })));
@@ -92,6 +93,7 @@ function TopBar() {
         <Button startIcon={<HomeOutlined />} component={RouterLink} to="/sequfloh" variant={atHome ? 'contained' : 'text'} size="small">Home</Button>
         <Box sx={{ flex: 1 }} />
         {can('sequfloh.access') && <ScanBox />}
+        <NotificationBell />
         <Tooltip title="Your account"><Button data-testid="user-menu" onClick={(e) => setAnchor(e.currentTarget)} startIcon={<AccountCircleOutlined />} size="small" color="inherit">{me?.displayName}</Button></Tooltip>
         <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
           <MenuItem disabled><Typography variant="body2">{me?.email}</Typography></MenuItem>

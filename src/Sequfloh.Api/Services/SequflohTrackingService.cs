@@ -344,6 +344,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         await tx.CommitAsync(ct);
         await IndexAsync(rec, ct);
         await notify.TrackingChangedAsync(rec, "create", null, ct);
+        await notify.AssignedAsync(rec, team.Where(u => u != rec.AssignedUserId), ct);
         return rec;
     }
 
@@ -882,6 +883,7 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         f.Audit("TaskAssignees", EntityType, rec.Id, $"{rec.Number}: assigned people changed, {text}", rec.SiteId);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        await notify.AssignedAsync(rec, added, ct);
         return ids;
     }
 
