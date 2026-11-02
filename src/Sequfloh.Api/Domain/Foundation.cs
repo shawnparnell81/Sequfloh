@@ -83,3 +83,20 @@ public class SequflohHomeLayout : Entity
     public Guid UserId { get; set; }
     public string Sections { get; set; } = "[]";
 }
+
+/// <summary>
+/// A person's own note or reminder on the My Work page. Private: only the person who wrote it can read or change it. A note can be a to-do (done or not),
+/// carry a remind-on date, point at a work order, be pinned to the top and be marked important.
+/// </summary>
+public class SequflohUserNote : Entity
+{
+    public Guid UserId { get; set; }
+    public string Text { get; set; } = "";
+    public bool IsDone { get; set; }
+    public DateTimeOffset? DoneAt { get; set; }
+    public DateOnly? RemindOn { get; set; }
+    public Guid? TrackingRecordId { get; set; }
+    public bool Pinned { get; set; }
+    /// <summary>"Normal" or "Important".</summary>
+    public string Priority { get; set; } = "Normal";
+}

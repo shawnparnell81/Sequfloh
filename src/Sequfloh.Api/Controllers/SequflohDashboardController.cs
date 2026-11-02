@@ -75,6 +75,55 @@ public sealed class SequflohDashboardController(AppDbContext db, ModuleSupport m
         };
     }
 
+    /// <summary>
+    /// My Work: open work orders the signed-in person is assigned to (lead or team), with due date, description,
+    /// work in progress (started by or clocked on by this person) and overdue flag.
+    /// Only records the person may open (site and department scope) are returned. Overdue first, then by due date.
+    /// </summary>
+    [HttpGet("my-work")]
+    public async Task<object> MyWork(CancellationToken ct)
+    {
+        var tr = await tracking.QueryAsync(ct);
+        var now = await tracking.DbNowAsync(ct);
+        var cutoff = now.AddHours(-(await f.GetSettingsAsync(ct)).Tracking.OverdueThresholdHours);
+        var me = m.UserId;
+        var clockedOn = db.SequflohTimeEntries.Where(t => t.UserId == me && t.StoppedAt == null && t.VoidedAt == null).Select(t => t.TrackingRecordId);
+        var rows = await tr.Where(x => SequflohTrackingService.Open.Contains(x.Status)
+                && (x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me) || clockedOn.Contains(x.Id)))
+            .Select(x => new
+            {
+                x.Id, x.Number, x.Type, x.Status, x.Priority, x.DueAt, x.PlannedStart, x.ActualStart, x.WorkOrder, x.PartNumber,
+                x.WorkInstructionNumber, x.WorkInstructionTitle, x.PartDescription, x.InspectionDescription, x.RepairDescription,
+                x.ActiveOperatorId,
+                Assigned = x.AssignedUserId == me || db.SequflohTaskAssignees.Any(a => a.TrackingRecordId == x.Id && a.UserId == me),
+                ClockedOn = clockedOn.Contains(x.Id),
+            }).ToListAsync(ct);
+        var items = rows.Select(x =>
+        {
+            var description = new[] { x.WorkInstructionTitle, x.PartDescription, x.InspectionDescription, x.RepairDescription }.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)) ?? "";
+            return new
+            {
+                x.Id, x.Number, x.Type, TypeLabel = SequflohTrackingService.Label(x.Type), x.Status, x.Priority, x.DueAt, x.WorkOrder, x.PartNumber, Description = description,
+                x.Assigned,
+                InProgress = x.ClockedOn || (x.Status == TrackingStatus.InProgress && (x.ActiveOperatorId == null || x.ActiveOperatorId == me)),
+                x.ClockedOn,
+                Overdue = x.DueAt != null && x.DueAt < cutoff,
+            };
+        }).OrderByDescending(x => x.Overdue).ThenBy(x => x.DueAt == null).ThenBy(x => x.DueAt).ThenBy(x => x.Number).ToList();
+        return new
+        {
+            Counts = new
+            {
+                Assigned = items.Count(x => x.Assigned),
+                InProgress = items.Count(x => x.InProgress),
+                Overdue = items.Count(x => x.Overdue),
+                DueThisWeek = items.Count(x => !x.Overdue && x.DueAt != null && x.DueAt < now.AddDays(7)),
+            },
+            Items = items,
+            ServerTime = now
+        };
+    }
+
     /// <summary>Quality Dashboard.</summary>
     [HttpGet("quality/dashboard")] [RequirePermission(Permissions.SequflohViewQualityFolder)]
     public async Task<object> Quality(CancellationToken ct)

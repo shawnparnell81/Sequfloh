@@ -13,6 +13,7 @@ public partial class AppDbContext
     public DbSet<SequflohUserItem> SequflohUserItems => Set<SequflohUserItem>();
     public DbSet<SequflohImportLayout> SequflohImportLayouts => Set<SequflohImportLayout>();
     public DbSet<SequflohHomeLayout> SequflohHomeLayouts => Set<SequflohHomeLayout>();
+    public DbSet<SequflohUserNote> SequflohUserNotes => Set<SequflohUserNote>();
     public DbSet<SequflohPartsList> SequflohPartsLists => Set<SequflohPartsList>();
     public DbSet<SequflohPartsListItem> SequflohPartsListItems => Set<SequflohPartsListItem>();
     public DbSet<SequflohPartsListRevision> SequflohPartsListRevisions => Set<SequflohPartsListRevision>();
@@ -75,6 +76,15 @@ public partial class AppDbContext
             e.HasIndex(x => x.UserId).IsUnique();
             e.Property(x => x.Sections).HasColumnType("jsonb");
             e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<SequflohUserNote>(e =>
+        {
+            e.ToTable("sequfloh_user_notes");
+            e.HasIndex(x => new { x.UserId, x.IsDone });
+            e.Property(x => x.Text).HasMaxLength(1000);
+            e.Property(x => x.Priority).HasMaxLength(20);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.SetNull);
         });
         b.Entity<SequflohUserItem>(e =>
         {
