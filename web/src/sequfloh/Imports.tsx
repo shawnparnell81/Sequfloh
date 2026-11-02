@@ -266,6 +266,14 @@ const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 2];
 export const openFormWindow = (id: string) => window.open(`/forms/fill/${id}`, `sqf-form-${id}`, 'popup=yes,width=1400,height=900');
 /** Opens the form by itself in its own window and prints only the form. */
 export const openFormPrint = (id: string) => window.open(`/forms/fill/${id}?print=1`, `sqf-print-${id}`, 'popup=yes,width=1400,height=900');
+/**
+ * The one Print action for any form being viewed, whatever its product family or kind. In the form's own window it prints that window;
+ * elsewhere it opens the form by itself and prints only the form. A PDF prints from the browser's PDF view.
+ */
+export function FormPrintButton({ fileId, pdf, standalone }: { fileId: string; pdf?: boolean; standalone?: boolean }) {
+  const go = () => (pdf ? window.open(`${A}/${fileId}/download?view=true`, '_blank', 'noopener') : standalone ? window.print() : openFormPrint(fileId));
+  return <Button size="small" variant="outlined" onClick={go} data-testid="form-print">Print</Button>;
+}
 /** Print rules for a form window: only the form, without the toolbar, headings or blank cells past the last filled row and column. */
 const formPrintCss = <GlobalStyles styles={{ '@media print': {
   '@page': { margin: '10mm' }, body: { background: '#fff' },
@@ -276,6 +284,9 @@ const formPrintCss = <GlobalStyles styles={{ '@media print': {
   '[data-testid="document-scroll"]': { overflow: 'visible !important', maxHeight: 'none !important', padding: '0 !important', background: '#fff !important' },
   '[data-testid="document-page"]': { boxShadow: 'none !important' },
   '[data-testid="sheet-grid"] td': { outline: 'none !important', cursor: 'default' },
+  '[data-testid="sheet-grid"] tr': { breakInside: 'avoid' },
+  '[data-testid="document-page"] + [data-testid="document-page"]': { breakBefore: 'page' },
+  '.sqf-printhead': { display: 'block !important', margin: '0 0 6px', fontSize: '12pt', fontWeight: 600 },
 } }} />;
 
 /** Scales a form so its whole width shows without scrolling sideways (fit to width), or to the zoom the user picked. Saving is the same at any zoom. */
@@ -317,6 +328,7 @@ function FormView({ fileId, standalone, children }: { fileId: string; standalone
           <Box sx={{ flex: 1 }} />
           {!standalone && <Button size="small" variant={full ? 'contained' : 'outlined'} onClick={() => setFull(!full)} data-testid="form-fullscreen">{full ? 'Exit full screen' : 'Full screen'}</Button>}
           {!standalone && <Button size="small" variant="outlined" onClick={() => openFormWindow(fileId)} data-testid="form-new-window">Open in new window</Button>}
+          {(full || standalone) && <FormPrintButton fileId={fileId} standalone={standalone} />}
         </Stack>
         {children}
       </Box>
@@ -342,6 +354,8 @@ export function FormFillWindow() {
           <Chip size="small" color="primary" variant="outlined" label={`Version ${d.currentVersion}`} />
           {d.isBlankForm && <Chip size="small" color="primary" label="Blank form (view only here)" />}
         </Stack>
+        <Typography className="sqf-printhead" sx={{ display: 'none' }} data-testid="form-print-header">{d.number} · {d.title} · Version {d.currentVersion}</Typography>
+        {d.kind === 'pdf' && <Stack direction="row" sx={{ mb: 1 }} className="sqf-noprint"><Box sx={{ flex: 1 }} /><FormPrintButton fileId={d.id} pdf /></Stack>}
         {d.kind === 'pdf' ? <Box component="iframe" title={d.title} src={`${A}/${d.id}/download?view=true`} sx={{ width: '100%', height: 'calc(100vh - 80px)', border: 0 }} data-testid="completed-pdf-frame" />
         : <FormView fileId={d.id} standalone>{d.kind === 'spreadsheet'
           ? <SheetEditor key={d.id} file={d} version={d.currentVersion} editable={d.canEdit && !d.isBlankForm} editBlank={false} onSaved={() => q.refetch()} />
