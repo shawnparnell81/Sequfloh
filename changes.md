@@ -5,6 +5,11 @@
 - With Update existing parts on, a row whose Part number and Position match exactly one part updates that part, even when another number in the row (for example a NAPA PN that is also the NAPA part's own part number) belongs to a different part. Before, such a row stopped with "Matches more than one part in the Part Master".
 - Nothing else changes: with Update existing parts off, or when two parts have the same Part number and Position, the row still stops with that message.
 
+## Parts import only offers sites where you can import
+
+- Importing parts needs both "Edit parts" (Job tracking) and "Add and edit parts" (Part master) at the site chosen for new parts, from a role given for that site or for All sites. The "Site for new parts" list now shows only those sites, so a role given for one site no longer offers the others.
+- When the permissions are missing at a site, Preview and Import say which permission is missing and for which site, instead of "You do not have permission for this action".
+
 ## Part search finds any number on a part
 
 - Part Master search and the part pickers now also match the UPC / Barcode, along with the part number, name, description, DWG #, family and every cross-reference number (OR #, NAPA PN, NAPA US #, NAPA CA #, Nissan VA #, DMA PN, Cross, JH PN, LINYI PN). Partial and case-insensitive, as before.

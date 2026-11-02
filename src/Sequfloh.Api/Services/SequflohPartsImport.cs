@@ -398,8 +398,15 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     /// </summary>
     async Task<(PartsImportPlan Plan, List<Parsed> Parsed, Dictionary<int, Part> Targets)> PlanAsync(PartsImportRequest r, CancellationToken ct)
     {
-        await m.RequireAsync(Permissions.SequflohEditParts, r.SiteId, null, ct);
-        await m.RequireAsync(Permissions.MasterDataEdit, r.SiteId, null, ct);
+        // parts are added at the chosen site, so both part permissions are needed there (a role for that site or for all sites); say which are missing
+        var missing = new List<string>();
+        foreach (var perm in new[] { Permissions.SequflohEditParts, Permissions.MasterDataEdit })
+            if (!await m.CanAsync(perm, r.SiteId, null, ct)) missing.Add($"\"{Sequfloh.Platform.PermissionText.Label(perm)}\" ({perm})");
+        if (missing.Count > 0)
+        {
+            var code = await db.Sites.AsNoTracking().Where(s => s.Id == r.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefaultAsync(ct) ?? "the chosen site";
+            throw new ForbiddenException($"You cannot import parts at {code}: your roles do not give {string.Join(" and ", missing)} for this site. Choose another site, or ask an administrator to give you the role for {code} or for All sites.");
+        }
         await m.ValidateLocationAsync(r.SiteId, null, ct);
         var parsed = r.Tabs is { } tabList ? await ParseTabsAsync(r, tabList, ct) : await ParseAsync(r, ct);
         string At(int row) => Label(r, row);

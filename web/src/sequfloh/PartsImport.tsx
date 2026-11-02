@@ -6,6 +6,7 @@ import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogConten
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { useSites } from '../components/Kit';
+import { useAuth } from '../auth';
 import { LOT_CHOICES, S, UNITS } from './common';
 
 interface ImportTable { fileName: string; headers: string[]; rows: string[][]; mapping: Record<string, number>; warnings: string[]; headerRow: number; rowNumbers?: number[]; top?: { row: number; cells: string[] }[]; tabs?: ImportTab[] | null; skippedTabs?: string[] | null }
@@ -23,7 +24,12 @@ const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'e
 /** Bulk import into the Part Master: choose a file, check the column mapping, preview, then confirm. */
 /** preset: a product family label set as the Name and Product family for all rows (from a family's parts list). */
 export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; onClose: () => void; preset?: string }) {
-  const sites = useSites();
+  const allSites = useSites();
+  const { me } = useAuth();
+  // only the sites where the person's roles give both part permissions for the whole site (or all sites): the import needs both there
+  const canAt = (perm: string, id: string) => !!me?.grants.some((g) => g.permission === perm && (g.siteId === null || (g.siteId === id && g.departmentId === null)));
+  const importSites = (allSites.data ?? []).filter((x) => canAt('sequfloh.edit_parts', x.id) && canAt('parts.edit', x.id));
+  const sites = { data: importSites };
   const types = useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/product-families`), enabled: open });
   const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'units' | 'yesNo' | 'lot' | null; isNumber?: boolean }[]>(`${S}/parts/import/fields`), enabled: open });
   const qc = useQueryClient();
@@ -44,7 +50,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const [layoutId, setLayoutId] = useState('');
   const [naming, setNaming] = useState<{ mode: 'save' | 'rename'; name: string } | null>(null);
   const layouts = useQuery({ queryKey: ['sqf-part-import-layouts'], queryFn: () => get<SavedLayout[]>(`${S}/parts/import/layouts`), enabled: open });
-  const site = siteId || sites.data?.[0]?.id || '';
+  const site = (siteId && importSites.some((x) => x.id === siteId) ? siteId : '') || importSites[0]?.id || '';
   const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setAllTabs(false); setFixed({}); setKeepRepeats(false); setRemoved([]); setLayoutId(''); setNaming(null); };
   const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(''); try { await fn(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
   /** Fills the mapping from a saved layout: each column is found by its title, or by its position when no title matches. */
@@ -118,7 +124,8 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
             <Typography variant="body2">{file?.name ?? 'No file chosen'}</Typography>
             {isBook && <FormControlLabel control={<Checkbox checked={allTabs} data-testid="all-tabs" onChange={(e) => { setAllTabs(e.target.checked); setTable(null); setPlan(null); }} />} label="Import every tab: tab name is the product family" />}
             {isDocx && <FormControlLabel control={<Checkbox checked={allTables} onChange={(e) => setAllTables(e.target.checked)} />} label="Read all tables (same headings)" />}
-            <TextField select size="small" label="Site for new parts" value={site} onChange={(e) => { setSiteId(e.target.value); setPlan(null); }} sx={{ minWidth: 220 }}>
+            <TextField select size="small" label="Site for new parts" value={site} data-testid="import-site"
+              helperText={allSites.data && !importSites.length ? 'Your roles do not give both part permissions for a whole site. Ask an administrator to give you the role for a site or for All sites.' : undefined} onChange={(e) => { setSiteId(e.target.value); setPlan(null); }} sx={{ minWidth: 220 }}>
               {(sites.data ?? []).map((x) => <MenuItem key={x.id} value={x.id}>{x.code} · {x.name}</MenuItem>)}
             </TextField>
             <Button variant="contained" disabled={!file || busy} onClick={() => read()}>Read file</Button>
