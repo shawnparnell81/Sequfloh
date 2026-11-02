@@ -107,9 +107,12 @@ public sealed class PartsImportTests(TestApp app)
         // a row whose numbers belong to two different parts is an error, not a guess
         var mixed = $"OR PN,NAPA PN\nOR{k}1,NP{k}3\n";
         var t3 = await Read(eng, "mixed.csv", Encoding.UTF8.GetBytes(mixed));
-        var bad = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t3, site, true))).JsonAsync();
+        var bad = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t3, site, false))).JsonAsync();
         Assert.Equal("Error", bad.GetProperty("rows")[0].GetProperty("action").GetString());
         Assert.Contains("more than one part", bad.GetProperty("rows")[0].GetProperty("messages")[0].GetString());
+        // when updating, the one part with exactly the row's part number is the one updated
+        var upd = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t3, site, true))).JsonAsync();
+        Assert.Equal("Update", upd.GetProperty("rows")[0].GetProperty("action").GetString());
     }
 
     [Fact]

@@ -432,6 +432,9 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             // or the one existing part that has another number of this row
             var hits = (p.Numbers ?? []).Where(n => inFile.GetValueOrDefault(n) == 1 && byNumber.ContainsKey(n)).Select(n => byNumber[n])
                 .Concat(match is null ? [] : [match]).DistinctBy(x => x.Id).ToList();
+            // when updating, one part with exactly this part number and Position wins over other numbers of the row (for example a NAPA PN that is also the NAPA part's own number)
+            if (r.UpdateExisting && hits.Count > 1 && existing.GetValueOrDefault(p.PartNumber)?.Where(x => string.Equals(Pos(x), p.Position ?? "", StringComparison.OrdinalIgnoreCase)).ToList() is [var only] && !claimed.Contains(only.Id))
+                hits = [only];
             if (hits.Count > 1) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, [$"Matches more than one part in the Part Master: {string.Join(", ", hits.Select(x => x.PartNumber))}."])); continue; }
             if (hits.Count == 1 && claimed.Contains(hits[0].Id)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Matches the same part as an earlier row ({hits[0].PartNumber})."])); continue; }
             match = hits.FirstOrDefault();

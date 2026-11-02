@@ -1,5 +1,10 @@
 # Changes
 
+## Parts import updates the part with the exact part number
+
+- With Update existing parts on, a row whose Part number and Position match exactly one part updates that part, even when another number in the row (for example a NAPA PN that is also the NAPA part's own part number) belongs to a different part. Before, such a row stopped with "Matches more than one part in the Part Master".
+- Nothing else changes: with Update existing parts off, or when two parts have the same Part number and Position, the row still stops with that message.
+
 ## Part search finds any number on a part
 
 - Part Master search and the part pickers now also match the UPC / Barcode, along with the part number, name, description, DWG #, family and every cross-reference number (OR #, NAPA PN, NAPA US #, NAPA CA #, Nissan VA #, DMA PN, Cross, JH PN, LINYI PN). Partial and case-insensitive, as before.
