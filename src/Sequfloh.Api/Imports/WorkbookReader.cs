@@ -117,7 +117,7 @@ public static class WorkbookReader
                     Visibility = ws.Visibility switch { XLWorksheetVisibility.Hidden => "hidden", XLWorksheetVisibility.VeryHidden => "veryHidden", _ => "visible" },
                 };
                 foreach (var dn in ws.DefinedNames) data.Names.Add(new XlName(dn.Name, dn.RefersTo ?? "", ws.Name, dn.Visible));
-                ReadSheet(wb, ws, sh, data, ref cellCount);
+                ReadSheet(wb, ws, sh, data, ref cellCount, raw.TryGetValue(ws.Name, out var boxes) ? boxes.Checkboxes : null);
                 if (raw.TryGetValue(ws.Name, out var extra))
                 {
                     sh.Charts = extra.Charts; sh.Pivots = extra.Pivots;
@@ -129,7 +129,30 @@ public static class WorkbookReader
         return data;
     }
 
-    static void ReadSheet(XLWorkbook wb, IXLWorksheet ws, XlSheet sh, WorkbookData data, ref int cellCount)
+    /// <summary>
+    /// The last row and column holding a value, formula, comment, merged area, picture, checkbox, print area or a data entry rule of ordinary size
+    /// (rules stretched over whole columns are left out); formatting alone does not count.
+    /// </summary>
+    internal const int EmptyTailRows = 100;
+
+    internal static (int Row, int Col) ContentEnd(IXLWorksheet ws, List<XlCheckbox>? checkboxes)
+    {
+        int lr = 0, lc = 0;
+        void Take(int r, int c) { lr = Math.Max(lr, r); lc = Math.Max(lc, c); }
+        if (ws.RangeUsed(XLCellsUsedOptions.AllContents | XLCellsUsedOptions.Comments | XLCellsUsedOptions.MergedRanges) is { } content)
+            Take(content.RangeAddress.LastAddress.RowNumber, content.RangeAddress.LastAddress.ColumnNumber);
+        foreach (var m in ws.MergedRanges) Take(m.RangeAddress.LastAddress.RowNumber, m.RangeAddress.LastAddress.ColumnNumber);
+        foreach (var p in ws.Pictures) { var to = p.BottomRightCell ?? p.TopLeftCell; Take(to.Address.RowNumber, to.Address.ColumnNumber); }
+        foreach (var a in ws.PageSetup.PrintAreas) Take(a.RangeAddress.LastAddress.RowNumber, a.RangeAddress.LastAddress.ColumnNumber);
+        foreach (var b in checkboxes ?? []) if (b.R is { } r && b.C is { } c) Take(r, c);
+        foreach (var dv in ws.DataValidations)
+            foreach (var range in dv.Ranges)
+                if (range.RangeAddress.LastAddress.RowNumber - range.RangeAddress.FirstAddress.RowNumber < 1000 && range.RangeAddress.LastAddress.ColumnNumber - range.RangeAddress.FirstAddress.ColumnNumber < 100)
+                    Take(range.RangeAddress.LastAddress.RowNumber, range.RangeAddress.LastAddress.ColumnNumber);
+        return lr == 0 ? (int.MaxValue, int.MaxValue) : (lr, lc);
+    }
+
+    static void ReadSheet(XLWorkbook wb, IXLWorksheet ws, XlSheet sh, WorkbookData data, ref int cellCount, List<XlCheckbox>? checkboxes = null)
     {
         sh.Protected = ws.IsProtected;
         sh.DefaultRowHeight = ws.RowHeight;
@@ -151,6 +174,10 @@ public static class WorkbookReader
         if (used is null) { sh.LastRow = 0; sh.LastCol = 0; return; }
         sh.FirstRow = used.RangeAddress.FirstAddress.RowNumber; sh.FirstCol = used.RangeAddress.FirstAddress.ColumnNumber;
         sh.LastRow = used.RangeAddress.LastAddress.RowNumber; sh.LastCol = used.RangeAddress.LastAddress.ColumnNumber;
+        // forms often carry borders or colour rules thousands of rows past their last entry; a long empty tail like that ends at the last row
+        // that holds something, while a short run of blank formatted rows (entry lines, blank fields) is kept as it is
+        var (lastRow, _) = ContentEnd(ws, checkboxes);
+        if (sh.LastRow - lastRow > EmptyTailRows) sh.LastRow = Math.Max(sh.FirstRow, lastRow);
         // merged areas extend the grid
         foreach (var m in ws.MergedRanges)
         {

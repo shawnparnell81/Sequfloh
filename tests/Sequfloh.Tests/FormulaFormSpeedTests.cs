@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Sequfloh.Domain.Security;
+using Sequfloh.Imports;
 
 namespace Sequfloh.Tests;
 
@@ -57,5 +58,62 @@ public sealed class FormulaFormSpeedTests(TestApp app)
         var fails = int.Parse(values[(2, 8)]);
         var before = int.Parse(Cell(again, 2, 8).Str("cached"));
         Assert.Equal(before + 1, fails);
+    }
+
+    /// <summary>About 60 checks with borders, a colour rule and an entry rule running thousands of rows past the last check, like the injector form.</summary>
+    static byte[] LongFormattedForm()
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.AddWorksheet("Injector");
+        ws.Range("A1:AD6000").Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin).Border.SetInsideBorder(XLBorderStyleValues.Thin);
+        for (var r = 5; r <= 64; r++)
+        {
+            ws.Cell(r, 1).Value = $"Check {r}"; ws.Cell(r, 3).Value = 10; ws.Cell(r, 4).Value = 12; ws.Cell(r, 5).Value = 11;
+            ws.Cell(r, 6).FormulaA1 = $"IF(E{r}=\"\",\"\",IF(AND(E{r}>=C{r},E{r}<=D{r}),\"PASS\",\"FAIL\"))";
+        }
+        ws.Cell(66, 2).Value = "Signed";
+        ws.Range("F1:F6000").AddConditionalFormat().WhenEquals("\"FAIL\"").Fill.SetBackgroundColor(XLColor.Red);
+        ws.Range("E5:E6000").CreateDataValidation().Decimal.Between(0, 1000);
+        var ms = new MemoryStream(); wb.SaveAs(ms); return ms.ToArray();
+    }
+
+    [Fact]
+    public void Blank_entry_column_and_a_short_run_of_blank_entry_rows_stay_on_the_form()
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.AddWorksheet("Form");
+        ws.Cell("A1").Value = "Part No.:";
+        ws.Range("A1:C40").Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range("A1:C40").Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        var ms = new MemoryStream(); wb.SaveAs(ms);
+        var sh = WorkbookReader.Read(new MemoryStream(ms.ToArray()), "xlsx").Sheet("Form")!;
+        Assert.Equal(40, sh.LastRow);
+        Assert.Equal(3, sh.LastCol);
+    }
+
+    [Fact]
+    public async Task Form_formatted_far_past_its_last_check_ends_at_the_last_check_and_its_first_open_is_ready_ahead()
+    {
+        var bytes = LongFormattedForm();
+        var data = WorkbookReader.Read(new MemoryStream(bytes), "xlsx");
+        Assert.Empty(data.Warnings);
+        var sh = data.Sheet("Injector")!;
+        Assert.Equal(66, sh.LastRow);
+        Assert.Equal(30, sh.LastCol);
+
+        var site = await app.CreateSiteAsync();
+        var (_, user) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewImportedFiles, Permissions.SequflohImportFiles], site);
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(bytes), "file", $"Injector {Guid.NewGuid():N}"[..20] + ".xlsx");
+        form.Add(new StringContent(site.ToString()), "siteId");
+        var id = (await (await user.Http.PostAsync("/api/imported-files", form)).JsonAsync()).Id();
+        var grid = await user.GetElAsync($"/api/imported-files/{id}/sheet");
+        Assert.Equal(66, grid.Int("r2"));
+        Assert.True(grid.GetProperty("cells").GetArrayLength() < 2500);
+        Assert.Equal("PASS", Cell(grid, 10, 6).Str("cached"));
+        Assert.True(Cell(grid, 10, 5).GetProperty("validation").GetBoolean());
+        // an edit still recalculates the check
+        var pv = await (await user.Http.PostAsJsonAsync($"/api/imported-files/{id}/preview", new { sheet = "Injector", edits = new[] { new { sheet = "Injector", r = 10, c = 5, value = "50" } } })).JsonAsync();
+        Assert.Contains(pv.GetProperty("values").EnumerateArray(), v => v.Int("r") == 10 && v.Int("c") == 6 && v.Str("value") == "FAIL");
     }
 }

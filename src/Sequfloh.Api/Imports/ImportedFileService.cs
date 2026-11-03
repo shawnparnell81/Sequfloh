@@ -287,6 +287,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         };
         v.StorageKey = $"imports/{f.Id:N}/v{version}{ext}";
         await storage.PutAsync(v.StorageKey, new MemoryStream(bytes), type, ct);
+        Prepare(v, bytes, ext.ToLowerInvariant());
         return v;
     }
 
@@ -371,14 +372,14 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     /// <summary>The read workbook and the grid of one sheet of a version, kept so opening and previewing do not read the file again.</summary>
     sealed record ReadSheet(WorkbookData Data, GridPreview Grid, XlSheet Sheet);
 
-    static ReadSheet Read(ImportedFileVersion v, byte[] bytes, string? sheet)
+    static ReadSheet Read(ImportedFileVersion v, byte[] bytes, string? sheet, bool keep = true)
     {
         var key = ("read", v.Id, sheet ?? "");
         if (Cache.TryGetValue(key, out ReadSheet? kept) && kept is not null) return kept;
         var data = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
         var grid = WorkbookIntake.Grid(data, sheet, 500, 60);
         var r = new ReadSheet(data, grid, data.Sheet(grid.Sheet)!);
-        Keep(key, r, bytes.Length * 20L);
+        if (keep) Keep(key, r, bytes.Length * 20L);
         return r;
     }
 
@@ -388,15 +389,91 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     {
         var f = await LoadAsync(id, Permissions.SequflohViewImportedFiles, ct);
         if (f.Kind != ImportedFileKind.Spreadsheet) throw new AppException("This imported file is a document.");
-        var (v, bytes) = await CurrentAsync(f, version, ct);
+        var n = version ?? f.CurrentVersion;
+        var v = await db.ImportedFileVersions.AsNoTracking().FirstOrDefaultAsync(x => x.ImportedFileId == f.Id && x.Version == n, ct) ?? throw new NotFoundException("Version");
         var key = ("sheet", v.Id, sheet ?? "");
-        if (Cache.TryGetValue(key, out object? kept) && kept is not null) return kept;
-        var (wb, grid, sh) = Read(v, bytes, sheet);
-        var formulas = grid.Cells.Where(c => c.Formula is not null).Select(c => new { c.R, c.C, Classes = FormulaTranslator.Classify(c.Formula!, wb.HasMacros, out var warning), Warning = warning }).ToList();
-        var result = new { Version = v.Version, grid.Sheet, grid.R1, grid.C1, grid.R2, grid.C2, grid.Widths, grid.Heights, grid.Cells, grid.Truncated, grid.Sheets,
-            sh.FreezeRows, sh.FreezeCols, Formulas = formulas, Conditional = Looks(bytes, null, sh, grid.R1, grid.C1, grid.R2, grid.C2) };
-        Keep(key, result, bytes.Length * 10L);
+        if (Cache.TryGetValue(key, out JsonElement kept)) return kept;
+        // the first sheet as shown is stored next to the version when it is saved, so even the first open after a restart skips reading the workbook
+        if (string.IsNullOrEmpty(sheet) && await StoredGridAsync(v, ct) is { } stored) { Keep(key, stored, stored.GetRawText().Length * 2L); return stored; }
+        var (_, bytes) = await CurrentAsync(f, version, ct);
+        var json = SheetJson(v, bytes, sheet);
+        if (string.IsNullOrEmpty(sheet)) await StoreGridAsync(storage, v, json, ct);
+        var result = JsonDocument.Parse(json).RootElement.Clone();
+        Keep(key, result, json.Length * 2L);
         return result;
+    }
+
+    static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Where the first sheet of a version, as sent to the browser, is kept.</summary>
+    public static string GridKey(string versionKey) => versionKey + ".grid1.json";
+
+    async Task<JsonElement?> StoredGridAsync(ImportedFileVersion v, CancellationToken ct)
+    {
+        try
+        {
+            await using var s = await storage.GetAsync(GridKey(v.StorageKey), ct);
+            if (s is null) return null;
+            using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct);
+            return doc.RootElement.Clone();
+        }
+        catch (Exception e) when (e is JsonException or StorageUnavailableException or IOException) { return null; }
+    }
+
+    static async Task StoreGridAsync(IFileStorage storage, ImportedFileVersion v, string json, CancellationToken ct)
+    {
+        try { await storage.PutAsync(GridKey(v.StorageKey), new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)), "application/json", ct); }
+        catch (Exception e) when (e is StorageUnavailableException or IOException) { }
+    }
+
+    /// <summary>A sheet of a version as the browser gets it: the grid, how formulas are classed and the conditional formatting colours.</summary>
+    static string SheetJson(ImportedFileVersion v, byte[] bytes, string? sheet, bool keep = true)
+    {
+        var (wb, grid, sh) = Read(v, bytes, sheet, keep);
+        var formulas = grid.Cells.Where(c => c.Formula is not null).Select(c => new { c.R, c.C, Classes = FormulaTranslator.Classify(c.Formula!, wb.HasMacros, out var warning), Warning = warning }).ToList();
+        return JsonSerializer.Serialize(new { Version = v.Version, grid.Sheet, grid.R1, grid.C1, grid.R2, grid.C2, grid.Widths, grid.Heights, grid.Cells, grid.Truncated, grid.Sheets,
+            sh.FreezeRows, sh.FreezeCols, Formulas = formulas, Conditional = Looks(bytes, null, sh, grid.R1, grid.C1, grid.R2, grid.C2) }, WebJson);
+    }
+
+    /// <summary>
+    /// Stores the first sheet of every current spreadsheet version saved before sheets were stored this way, one at a time, so forms already in use open quickly too.
+    /// </summary>
+    public static async Task PrepareStoredAsync(IServiceProvider services, CancellationToken ct)
+    {
+        List<ImportedFileVersion> versions;
+        using (var scope = services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            versions = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(f => f.Kind == ImportedFileKind.Spreadsheet && !f.IsArchived)
+                .Join(db.ImportedFileVersions.IgnoreQueryFilters().AsNoTracking(), f => new { Id = f.Id, V = f.CurrentVersion }, v => new { Id = v.ImportedFileId, V = v.Version }, (f, v) => v)
+                .Where(v => v.FileName.EndsWith(".xlsx") || v.FileName.EndsWith(".xlsm")).ToListAsync(ct);
+        }
+        var storage = services.GetRequiredService<IFileStorage>();
+        foreach (var v in versions)
+        {
+            if (ct.IsCancellationRequested) return;
+            try
+            {
+                if (await storage.PeekAsync(GridKey(v.StorageKey), ct) is not null) continue;
+                await using var s = await storage.GetAsync(v.StorageKey, ct);
+                if (s is null) continue;
+                using var ms = new MemoryStream(); await s.CopyToAsync(ms, ct);
+                await StoreGridAsync(storage, v, SheetJson(v, ms.ToArray(), null, false), ct);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException and not OperationCanceledException) { }
+        }
+    }
+
+    /// <summary>Works out the first sheet of a newly saved spreadsheet version in the background and stores it, so its first open is quick.</summary>
+    void Prepare(ImportedFileVersion v, byte[] bytes, string ext)
+    {
+        if (ext is not (".xlsx" or ".xlsm")) return;
+        var store = storage;
+        _ = Task.Run(async () =>
+        {
+            try { await StoreGridAsync(store, v, SheetJson(v, bytes, null, false), CancellationToken.None); }
+            catch (Exception e) when (e is not OutOfMemoryException) { }
+        });
     }
 
     /// <summary>Colours from conditional formatting for the cells shown, worked out from the stored values or, with edits, from the values after those edits.</summary>

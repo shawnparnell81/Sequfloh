@@ -330,7 +330,7 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
             if (copies > 0)
                 throw new ConflictException($"{Count(copies, "filled copy was", "filled copies were")} made from this blank form. Delete the filled copies first, or archive the blank form to hide it.");
         }
-        var keys = f.Versions.Select(v => v.StorageKey).Append(f.OriginalStorageKey).ToList();
+        var keys = f.Versions.SelectMany(v => new[] { v.StorageKey, Sequfloh.Imports.ImportedFileService.GridKey(v.StorageKey) }).Append(f.OriginalStorageKey).ToList();
         AuditInterceptor.Note(f, $"with {Count(f.Versions.Count, "saved version", "saved versions")}");
         await ForgetRecentAsync([id], ct);
         db.ImportedFileVersions.RemoveRange(f.Versions);
