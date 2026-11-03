@@ -438,27 +438,39 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     /// <summary>
     /// Stores the first sheet of every current spreadsheet version saved before sheets were stored this way, one at a time, so forms already in use open quickly too.
     /// </summary>
+    const string CutRowsNote = "rows are shown in the app";
+
     public static async Task PrepareStoredAsync(IServiceProvider services, CancellationToken ct)
     {
-        List<ImportedFileVersion> versions;
+        List<(ImportedFileVersion V, bool CutNote)> versions;
         using (var scope = services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            versions = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(f => f.Kind == ImportedFileKind.Spreadsheet && !f.IsArchived)
-                .Join(db.ImportedFileVersions.IgnoreQueryFilters().AsNoTracking(), f => new { Id = f.Id, V = f.CurrentVersion }, v => new { Id = v.ImportedFileId, V = v.Version }, (f, v) => v)
-                .Where(v => v.FileName.EndsWith(".xlsx") || v.FileName.EndsWith(".xlsm")).ToListAsync(ct);
+            versions = (await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(f => f.Kind == ImportedFileKind.Spreadsheet && !f.IsArchived)
+                .Join(db.ImportedFileVersions.IgnoreQueryFilters().AsNoTracking(), f => new { Id = f.Id, V = f.CurrentVersion }, v => new { Id = v.ImportedFileId, V = v.Version }, (f, v) => new { V = v, f.Summary })
+                .Where(x => x.V.FileName.EndsWith(".xlsx") || x.V.FileName.EndsWith(".xlsm")).ToListAsync(ct)).Select(x => (x.V, x.Summary.Contains(CutRowsNote))).ToList();
         }
         var storage = services.GetRequiredService<IFileStorage>();
-        foreach (var v in versions)
+        foreach (var (v, cutNote) in versions)
         {
             if (ct.IsCancellationRequested) return;
             try
             {
-                if (await storage.PeekAsync(GridKey(v.StorageKey), ct) is not null) continue;
+                if (!cutNote && await storage.PeekAsync(GridKey(v.StorageKey), ct) is not null) continue;
                 await using var s = await storage.GetAsync(v.StorageKey, ct);
                 if (s is null) continue;
                 using var ms = new MemoryStream(); await s.CopyToAsync(ms, ct);
-                await StoreGridAsync(storage, v, SheetJson(v, ms.ToArray(), null, false), ct);
+                var bytes = ms.ToArray();
+                if (cutNote)
+                {
+                    // the summary was written before long empty tails were trimmed and may still say rows are cut
+                    var summary = Summarize(ImportedFileKind.Spreadsheet, bytes, Path.GetExtension(v.FileName));
+                    using var scope = services.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.Id == v.ImportedFileId && f.CurrentVersion == v.Version)
+                        .ExecuteUpdateAsync(u => u.SetProperty(f => f.Summary, summary), ct);
+                }
+                await StoreGridAsync(storage, v, SheetJson(v, bytes, null, false), ct);
             }
             catch (Exception e) when (e is not OutOfMemoryException and not OperationCanceledException) { }
         }

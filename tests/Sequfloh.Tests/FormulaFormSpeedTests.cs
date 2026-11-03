@@ -3,6 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Sequfloh.Domain.Security;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Sequfloh.Infrastructure.Persistence;
 using Sequfloh.Imports;
 
 namespace Sequfloh.Tests;
@@ -115,5 +118,18 @@ public sealed class FormulaFormSpeedTests(TestApp app)
         // an edit still recalculates the check
         var pv = await (await user.Http.PostAsJsonAsync($"/api/imported-files/{id}/preview", new { sheet = "Injector", edits = new[] { new { sheet = "Injector", r = 10, c = 5, value = "50" } } })).JsonAsync();
         Assert.Contains(pv.GetProperty("values").EnumerateArray(), v => v.Int("r") == 10 && v.Int("c") == 6 && v.Str("value") == "FAIL");
+
+        // a form imported before the trim still carries the old note about cut rows; the startup pass writes its summary afresh
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stale = "{\"warnings\":[\"Injector: only the first 5000 rows are shown in the app; the file keeps every row.\"]}";
+            await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.Id == id).ExecuteUpdateAsync(u => u.SetProperty(f => f.Summary, stale));
+        }
+        Assert.NotEmpty((await user.GetElAsync($"/api/imported-files/{id}")).GetProperty("summary").GetProperty("warnings").EnumerateArray());
+        await ImportedFileService.PrepareStoredAsync(app.Services, CancellationToken.None);
+        var detail = await user.GetElAsync($"/api/imported-files/{id}");
+        Assert.Empty(detail.GetProperty("summary").GetProperty("warnings").EnumerateArray());
+        Assert.Equal(66, detail.GetProperty("summary").GetProperty("sheets")[0].Int("rows"));
     }
 }
