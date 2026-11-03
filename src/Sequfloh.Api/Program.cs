@@ -149,7 +149,11 @@ if (cfg.GetValue("Database:MigrateOnStartup", true)) await MigrateAsync(app);
 await app.Services.GetRequiredService<IFileStorage>().EnsureReadyAsync(CancellationToken.None);
 // forms saved before their first sheet was stored get it now, in the background, so their first open is quick
 if (!app.Environment.IsEnvironment("Testing"))
-    app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(() => Sequfloh.Imports.ImportedFileService.PrepareStoredAsync(app.Services, app.Lifetime.ApplicationStopping)));
+    app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+    {
+        try { await Sequfloh.Imports.ImportedFileService.PrepareStoredAsync(app.Services, app.Lifetime.ApplicationStopping); }
+        catch (Exception e) when (e is not OperationCanceledException) { app.Logger.LogError(e, "Preparing stored sheets stopped"); }
+    }));
 
 app.UseForwardedHeaders();
 if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing")) app.UseHsts();

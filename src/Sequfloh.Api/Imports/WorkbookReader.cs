@@ -135,12 +135,19 @@ public static class WorkbookReader
     /// </summary>
     internal const int EmptyTailRows = 100;
 
+    static bool BlankResult(IXLCell cell)
+    {
+        try { var v = cell.CachedValue; return v.IsBlank || (v.IsText && v.GetText().Length == 0); }
+        catch (Exception e) when (e is not OutOfMemoryException) { return false; }
+    }
+
     internal static (int Row, int Col) ContentEnd(IXLWorksheet ws, List<XlCheckbox>? checkboxes)
     {
         int lr = 0, lc = 0;
         void Take(int r, int c) { lr = Math.Max(lr, r); lc = Math.Max(lc, c); }
-        if (ws.RangeUsed(XLCellsUsedOptions.AllContents | XLCellsUsedOptions.Comments | XLCellsUsedOptions.MergedRanges) is { } content)
-            Take(content.RangeAddress.LastAddress.RowNumber, content.RangeAddress.LastAddress.ColumnNumber);
+        // a formula copied far down that works out to nothing shows as an empty cell, so it does not hold the grid open
+        foreach (var cell in ws.CellsUsed(XLCellsUsedOptions.AllContents | XLCellsUsedOptions.Comments))
+            if (cell.HasComment || !BlankResult(cell)) Take(cell.Address.RowNumber, cell.Address.ColumnNumber);
         foreach (var m in ws.MergedRanges) Take(m.RangeAddress.LastAddress.RowNumber, m.RangeAddress.LastAddress.ColumnNumber);
         foreach (var p in ws.Pictures) { var to = p.BottomRightCell ?? p.TopLeftCell; Take(to.Address.RowNumber, to.Address.ColumnNumber); }
         foreach (var a in ws.PageSetup.PrintAreas) Take(a.RangeAddress.LastAddress.RowNumber, a.RangeAddress.LastAddress.ColumnNumber);

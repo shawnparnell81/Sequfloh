@@ -206,7 +206,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var folder = await db.DrawingFolders.AsNoTracking().Where(f => f.Id == d.FolderId).Select(f => new { f.Id, f.Name, f.IsArchived,
             Part = db.Parts.Where(p => p.Id == f.PartId).Select(p => new { p.Id, p.PartNumber, p.Name }).FirstOrDefault() }).FirstAsync(ct);
         var revisions = await db.DrawingRevisions.AsNoTracking().Where(v => v.DrawingId == id).OrderByDescending(v => v.CreatedAt)
-            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt }).ToListAsync(ct);
+            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt, v.StorageKey }).ToListAsync(ct);
         var canManage = await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, d.SiteId, d.DepartmentId, ct);
         var parts = (await db.DrawingPartLinks.AsNoTracking().Where(l => l.DrawingId == id).Join(db.Parts, l => l.PartId, p => p.Id, (l, p) => new { p.Id, p.PartNumber, p.Name, p.DrawingNumber, p.Attributes })
             .OrderBy(p => p.PartNumber).ToListAsync(ct)).Select(p => new { p.Id, p.PartNumber, p.Name, Numbers = PartNumbers(p.PartNumber, p.DrawingNumber, p.Attributes) }).ToList();
@@ -214,7 +214,9 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         {
             d.Id, d.Title, d.DrawingNumber, d.Notes, d.CurrentRevision, d.IsArchived, d.CreatedAt, d.UpdatedAt, Folder = folder, CanManage = canManage, Parts = parts,
             Revisions = revisions.Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt,
-                Viewable = Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()), Current = v.Revision == d.CurrentRevision }),
+                Viewable = Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()), Current = v.Revision == d.CurrentRevision,
+                // with bucket storage the viewer loads the file from this address directly instead of going through the file link first
+                ViewUrl = v.SizeBytes <= MaxBytes && Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()) ? storage.ViewUrl(v.StorageKey, v.FileName, v.ContentType, true, TimeSpan.FromMinutes(15)) : null }),
         };
     }
 

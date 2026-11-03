@@ -235,8 +235,19 @@ public sealed class S3FileStorage : IFileStorage
     public string? DownloadUrl(string key, string fileName, TimeSpan valid) =>
         Presign(key, HttpVerb.GET, valid, download: new System.Net.Mime.ContentDisposition { FileName = fileName }.ToString());
 
-    public string? ViewUrl(string key, string fileName, string contentType, bool inline, TimeSpan valid) =>
-        Presign(key, HttpVerb.GET, valid, download: new System.Net.Mime.ContentDisposition { Inline = inline, FileName = fileName }.ToString(), responseType: contentType);
+    // the same address is handed out for most of its life, so a file opened again soon comes from the browser's cache
+    readonly System.Collections.Concurrent.ConcurrentDictionary<(string, string, string, bool), (string Url, DateTime Until)> _views = new();
+
+    public string? ViewUrl(string key, string fileName, string contentType, bool inline, TimeSpan valid)
+    {
+        var now = DateTime.UtcNow;
+        var k = (key, fileName, contentType, inline);
+        if (_views.TryGetValue(k, out var kept) && kept.Until > now) return kept.Url;
+        var url = Presign(key, HttpVerb.GET, valid, download: new System.Net.Mime.ContentDisposition { Inline = inline, FileName = fileName }.ToString(), responseType: contentType);
+        if (_views.Count > 5000) _views.Clear();
+        _views[k] = (url, now.Add(valid * 2 / 3));
+        return url;
+    }
 
     static bool Unreachable(Exception e) => e is AmazonServiceException or AmazonClientException or HttpRequestException or IOException;
 

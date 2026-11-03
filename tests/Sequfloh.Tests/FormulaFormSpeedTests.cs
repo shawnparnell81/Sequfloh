@@ -74,6 +74,7 @@ public sealed class FormulaFormSpeedTests(TestApp app)
             ws.Cell(r, 1).Value = $"Check {r}"; ws.Cell(r, 3).Value = 10; ws.Cell(r, 4).Value = 12; ws.Cell(r, 5).Value = 11;
             ws.Cell(r, 6).FormulaA1 = $"IF(E{r}=\"\",\"\",IF(AND(E{r}>=C{r},E{r}<=D{r}),\"PASS\",\"FAIL\"))";
         }
+        for (var r = 67; r <= 6000; r++) ws.Cell(r, 7).FormulaA1 = $"IF(E{r}=\"\",\"\",E{r}*2)";
         ws.Cell(66, 2).Value = "Signed";
         ws.Range("F1:F6000").AddConditionalFormat().WhenEquals("\"FAIL\"").Fill.SetBackgroundColor(XLColor.Red);
         ws.Range("E5:E6000").CreateDataValidation().Decimal.Between(0, 1000);
@@ -120,16 +121,23 @@ public sealed class FormulaFormSpeedTests(TestApp app)
         Assert.Contains(pv.GetProperty("values").EnumerateArray(), v => v.Int("r") == 10 && v.Int("c") == 6 && v.Str("value") == "FAIL");
 
         // a form imported before the trim still carries the old note about cut rows; the startup pass writes its summary afresh
+        var stale = "{\"warnings\":[\"Injector: only the first 5000 rows are shown in the app; the file keeps every row.\"]}";
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var stale = "{\"warnings\":[\"Injector: only the first 5000 rows are shown in the app; the file keeps every row.\"]}";
             await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.Id == id).ExecuteUpdateAsync(u => u.SetProperty(f => f.Summary, stale));
         }
-        Assert.NotEmpty((await user.GetElAsync($"/api/imported-files/{id}")).GetProperty("summary").GetProperty("warnings").EnumerateArray());
         await ImportedFileService.PrepareStoredAsync(app.Services, CancellationToken.None);
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.DoesNotContain("rows are shown", (await db.ImportedFiles.IgnoreQueryFilters().SingleAsync(f => f.Id == id)).Summary);
+            // and opening the form page refreshes one the startup pass has not reached yet
+            await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.Id == id).ExecuteUpdateAsync(u => u.SetProperty(f => f.Summary, stale));
+        }
         var detail = await user.GetElAsync($"/api/imported-files/{id}");
         Assert.Empty(detail.GetProperty("summary").GetProperty("warnings").EnumerateArray());
         Assert.Equal(66, detail.GetProperty("summary").GetProperty("sheets")[0].Int("rows"));
+        Assert.Empty((await user.GetElAsync($"/api/imported-files/{id}")).GetProperty("summary").GetProperty("warnings").EnumerateArray());
     }
 }

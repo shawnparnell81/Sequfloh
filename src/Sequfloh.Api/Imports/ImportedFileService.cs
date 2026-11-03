@@ -23,7 +23,7 @@ public sealed record ParagraphEdit(int Ref, string Text);
 /// Imported files: upload (Excel, CSV, Word, and legacy xls/doc through the office converter), the in-app view of a worksheet or document,
 /// saving edits as a new version (formulas recalculated by the workbook engine), and downloads. Files go to the configured file storage.
 /// </summary>
-public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, ILegacyOfficeConverter legacy, IAccessService access, ICurrentUser me, Sequfloh.Infrastructure.Modules.Quality.ModuleSupport m)
+public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, ILegacyOfficeConverter legacy, IAccessService access, ICurrentUser me, Sequfloh.Infrastructure.Modules.Quality.ModuleSupport m, ILogger<ImportedFileService> log)
 {
     public const long MaxBytes = 20 * 1024 * 1024;
     public const string XlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -106,6 +106,19 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     public async Task<object> GetAsync(Guid id, CancellationToken ct)
     {
         var f = await LoadAsync(id, Permissions.SequflohViewImportedFiles, ct);
+        var summary = f.Summary;
+        if (f.Kind == ImportedFileKind.Spreadsheet && f.Summary?.Contains(CutRowsNote) == true)
+        {
+            // written before long empty tails were trimmed; worked out again once from the current version
+            try
+            {
+                var (cv, bytes) = await CurrentAsync(f, null, ct);
+                var fresh = Summarize(f.Kind, bytes, Path.GetExtension(cv.FileName));
+                        await db.ImportedFiles.Where(x => x.Id == f.Id && x.CurrentVersion == cv.Version).ExecuteUpdateAsync(u => u.SetProperty(x => x.Summary, fresh), ct);
+                summary = fresh;
+            }
+            catch (Exception e) when (e is not OutOfMemoryException and not OperationCanceledException) { log.LogWarning(e, "Summary of imported file {Id} could not be refreshed", f.Id); }
+        }
         var versions = await db.ImportedFileVersions.AsNoTracking().Where(v => v.ImportedFileId == id).OrderByDescending(v => v.Version)
             .Select(v => new { v.Version, v.FileName, v.SizeBytes, v.Note, v.CreatedAt }).ToListAsync(ct);
         var canEdit = await access.CanAccessAsync(UserId, Permissions.SequflohImportFiles, f.SiteId, f.DepartmentId, ct);
@@ -118,7 +131,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             .Select(c => new { c.Id, c.Number, c.Title, c.BlankFormVersion, c.PartNumber, c.CreatedAt, c.UpdatedAt })
             .Take(500).ToListAsync(ct);
         return new { f.Id, f.Number, f.Title, Kind = KindName(f.Kind), f.SourceFormat, f.OriginalFileName, f.CurrentVersion, f.RowVersion,
-            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(f.Summary).RootElement, Versions = versions, CanEdit = canEdit, LockedNote = lockedNote, f.IsBlankForm, f.IsCompletedForm, BlankForm = blank, Copies = copies, f.PartNumber, f.FamilyId };
+            f.CreatedAt, f.UpdatedAt, Summary = JsonDocument.Parse(summary).RootElement, Versions = versions, CanEdit = canEdit, LockedNote = lockedNote, f.IsBlankForm, f.IsCompletedForm, BlankForm = blank, Copies = copies, f.PartNumber, f.FamilyId };
     }
 
     // ---- upload -------------------------------------------------------------------------------------------------------------------
@@ -448,9 +461,12 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             versions = (await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(f => f.Kind == ImportedFileKind.Spreadsheet && !f.IsArchived)
                 .Join(db.ImportedFileVersions.IgnoreQueryFilters().AsNoTracking(), f => new { Id = f.Id, V = f.CurrentVersion }, v => new { Id = v.ImportedFileId, V = v.Version }, (f, v) => new { V = v, f.Summary })
-                .Where(x => x.V.FileName.EndsWith(".xlsx") || x.V.FileName.EndsWith(".xlsm")).ToListAsync(ct)).Select(x => (x.V, x.Summary.Contains(CutRowsNote))).ToList();
+                .Where(x => x.V.FileName.ToLower().EndsWith(".xlsx") || x.V.FileName.ToLower().EndsWith(".xlsm")).ToListAsync(ct)).Select(x => (x.V, x.Summary?.Contains(CutRowsNote) == true)).ToList();
         }
         var storage = services.GetRequiredService<IFileStorage>();
+        var log = services.GetRequiredService<ILoggerFactory>().CreateLogger<ImportedFileService>();
+        int notes = 0, grids = 0, failed = 0;
+        log.LogInformation("Preparing stored sheets: {Count} spreadsheets, {Notes} with a cut-rows note", versions.Count, versions.Count(x => x.CutNote));
         foreach (var (v, cutNote) in versions)
         {
             if (ct.IsCancellationRequested) return;
@@ -467,13 +483,15 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
                     var summary = Summarize(ImportedFileKind.Spreadsheet, bytes, Path.GetExtension(v.FileName));
                     using var scope = services.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.Id == v.ImportedFileId && f.CurrentVersion == v.Version)
+                    notes += await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.Id == v.ImportedFileId && f.CurrentVersion == v.Version)
                         .ExecuteUpdateAsync(u => u.SetProperty(f => f.Summary, summary), ct);
                 }
                 await StoreGridAsync(storage, v, SheetJson(v, bytes, null, false), ct);
+                grids++;
             }
-            catch (Exception e) when (e is not OutOfMemoryException and not OperationCanceledException) { }
+            catch (Exception e) when (e is not OutOfMemoryException and not OperationCanceledException) { failed++; log.LogWarning(e, "Stored sheet for imported file {Id} could not be prepared", v.ImportedFileId); }
         }
+        log.LogInformation("Prepared stored sheets: {Grids} sheets, {Notes} summaries refreshed, {Failed} failed", grids, notes, failed);
     }
 
     /// <summary>Works out the first sheet of a newly saved spreadsheet version in the background and stores it, so its first open is quick.</summary>

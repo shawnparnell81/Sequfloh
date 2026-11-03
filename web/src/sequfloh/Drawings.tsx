@@ -279,7 +279,7 @@ function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open
 
 interface DrawingDetail { id: string; title: string; drawingNumber?: string; notes?: string; currentRevision: string; isArchived: boolean; createdAt: string; updatedAt: string; canManage: boolean;
   folder: { id: string; name: string; isArchived: boolean; part?: FolderRow['part'] }; parts: { id: string; partNumber: string; name: string; numbers?: string }[];
-  revisions: { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; createdAt: string; viewable: boolean; current: boolean }[] }
+  revisions: { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; createdAt: string; viewable: boolean; current: boolean; viewUrl?: string | null }[] }
 
 export function DrawingPage() {
   const { id } = useParams();
@@ -381,10 +381,12 @@ function LinkPartsDialog({ open, d, onClose, onSaved }: { open: boolean; d: Draw
 }
 
 /** The new-tab viewer: the revision's PDF or image filling the window, with what it is at the top. */
+export const drawingQuery = (id: string) => ({ queryKey: ['drawing', id], queryFn: () => get<DrawingDetail>(`${D}/${id}`) });
+
 export function DrawingViewer() {
   const id = window.location.pathname.split('/').pop()!;
   const rev = new URLSearchParams(window.location.search).get('revision') ?? undefined;
-  const q = useQuery({ queryKey: ['drawing', id], queryFn: () => get<DrawingDetail>(`${D}/${id}`) });
+  const q = useQuery(drawingQuery(id));
   const d = q.data; const r = d ? (rev ? d.revisions.find((x) => x.revision === rev) : d.revisions.find((x) => x.current)) : undefined;
   const isPdf = r?.fileName.toLowerCase().endsWith('.pdf');
   if (d) document.title = `${label(d)} rev ${r?.revision ?? ''}`;
@@ -398,8 +400,8 @@ export function DrawingViewer() {
     </Stack>
     {q.isLoading ? <Loading /> : q.error ? <Box sx={{ p: 3 }}><ErrorState error={q.error} /></Box> : !r ? <Box sx={{ p: 3 }}><Empty text="That revision was not found." /></Box> :
       !r.viewable ? <Box sx={{ p: 3 }}><Empty text="This file type does not open in the browser. Use Download." /></Box> :
-      isPdf ? <Box component="iframe" title="Drawing" src={fileUrl(id, r.revision, true)} sx={{ flex: 1, border: 0, width: '100%' }} data-testid="drawing-frame" />
-        : <Box sx={{ flex: 1, overflow: 'auto', textAlign: 'center', bgcolor: 'grey.100' }}><Box component="img" alt={label(d!)} src={fileUrl(id, r.revision, true)} sx={{ maxWidth: '100%' }} data-testid="drawing-image" /></Box>}
+      isPdf ? <Box component="iframe" title="Drawing" src={r.viewUrl ?? fileUrl(id, r.revision, true)} sx={{ flex: 1, border: 0, width: '100%' }} data-testid="drawing-frame" />
+        : <Box sx={{ flex: 1, overflow: 'auto', textAlign: 'center', bgcolor: 'grey.100' }}><Box component="img" alt={label(d!)} src={r.viewUrl ?? fileUrl(id, r.revision, true)} sx={{ maxWidth: '100%' }} data-testid="drawing-image" /></Box>}
   </Box>;
 }
 

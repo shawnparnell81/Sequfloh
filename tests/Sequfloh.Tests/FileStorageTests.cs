@@ -119,4 +119,14 @@ public sealed class FileStorageTests
         await store.AbortDirectAsync(key, plan.UploadId, default);
         Assert.Null(await store.PeekAsync(key, default));
     }
+
+    [Fact]
+    public void A_drawing_opened_again_soon_gets_the_same_address_so_the_browser_can_reuse_it()
+    {
+        var store = new S3FileStorage(new StorageOptions { Provider = "s3", ServiceUrl = "http://127.0.0.1:9", Bucket = "b", AccessKey = "k", SecretKey = "s" });
+        var a = store.ViewUrl("drawings/x.png", "x.png", "image/png", true, TimeSpan.FromMinutes(15));
+        Assert.Equal(a, store.ViewUrl("drawings/x.png", "x.png", "image/png", true, TimeSpan.FromMinutes(15)));
+        Assert.NotEqual(a, store.ViewUrl("drawings/y.png", "y.png", "image/png", true, TimeSpan.FromMinutes(15)));
+        Assert.Contains("max-age", Uri.UnescapeDataString(a!));
+    }
 }
