@@ -35,7 +35,7 @@ interface LinkedWo { id: string; number: string; type: string; partNumber?: stri
 interface LinkedTotals { workOrders: LinkedWo[]; crewHours: number; userHours: number; totalHours: number; personnel: number; dateFrom?: string | null; dateTo?: string | null;
   partId?: string | null; partNumber?: string | null; partDescription?: string | null; qtyInspected?: number | null; qtyBad?: number | null }
 interface SectionOpt { key: string; label: string; default: boolean }
-interface Block { key: string; heading: string; fields?: { label: string; value: string }[] | null; columns?: string[] | null; rows?: (string | null)[][] | null; photos?: string[] | null; links?: { id: string; fileName: string }[] | null }
+interface Block { key: string; heading: string; fields?: { label: string; value: string }[] | null; columns?: string[] | null; widths?: number[] | null; rows?: (string | null)[][] | null; photos?: string[] | null; links?: { id: string; fileName: string }[] | null }
 const useSectionOptions = () => useQuery({ queryKey: ['sqf-cb-sections'], queryFn: () => get<SectionOpt[]>(`${S}/chargebacks/sections`), staleTime: Infinity });
 
 const crumbs = (label: string) => [{ label: 'SEQUFLOH', to: '/sequfloh' }, { label: 'Reports', to: '/sequfloh/reports/task-performance' }, { label: 'Chargeback Reports', to: '/sequfloh/chargebacks' }, { label }];
@@ -333,6 +333,17 @@ export function ChargebackViewPage() {
   </SqfPage>;
 }
 
+/** Keeps wide report tables inside the page: fixed layout, smaller text for many columns, long words wrap, extra room for Description. */
+const tableFit = (n: number) => ({ tableLayout: 'fixed', width: '100%', '& th, & td': { overflowWrap: 'break-word', verticalAlign: 'top', ...(n > 8 ? { fontSize: '0.72rem', px: 0.5, py: 0.5, lineHeight: 1.3 } : {}) }, ...(n > 8 ? { '& th': { letterSpacing: 0, fontSize: '0.66rem' } } : {}) } as const);
+const colWidth = (b: Block, k: number) => { const w = b.widths; if (!w || w.length !== b.columns?.length) return undefined; const ww = w.map((x, i) => (b.columns![i] === 'Description' ? x * 1.75 : x)); const t = ww.reduce((a, x) => a + x, 0); return `${(ww[k] / t) * 100}%`; };
+/** "2026-10-25 10:27 UTC-04:00" reads as "10/25/26 10:27 AM"; anything else is shown as is. */
+const shortWhen = (c: string | null) => {
+  const m = c && /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d) UTC[+-]\d\d:\d\d$/.exec(c.trim());
+  if (!m) return c;
+  const h = Number(m[4]);
+  return `${m[2]}/${m[3]}/${m[1].slice(2)} ${h % 12 || 12}:${m[5]} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
 /** Opens the saved chargeback report's PDF in a new browser tab. */
 export const openChargebackPdf = (id: string) => window.open(`${S}/chargebacks/${id}/pdf`, '_blank', 'noopener');
 
@@ -341,7 +352,7 @@ function ReportBlocks({ id, title, supplier }: { id: string; title: string; supp
   const q = useQuery({ queryKey: ['sqf-cb-view', id], queryFn: () => get<Block[]>(`${S}/chargebacks/${id}/view`) });
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorState error={q.error} />;
-  return <Paper variant="outlined" sx={{ p: 3, maxWidth: 900 }} data-testid="chargeback-view">
+  return <Paper variant="outlined" sx={{ p: 3, maxWidth: 1200 }} data-testid="chargeback-view">
     <Typography variant="h2">{title}</Typography>
     {supplier && <Typography variant="body2" sx={{ mb: 1 }}>Supplier: {supplier}</Typography>}
     {q.data.length === 0 && <Typography color="text.secondary">No sections are ticked for this report.</Typography>}
@@ -351,9 +362,9 @@ function ReportBlocks({ id, title, supplier }: { id: string; title: string; supp
         {b.fields.map((f) => [<Typography key={`${f.label}-k`} variant="body2" sx={{ fontWeight: 600 }}>{f.label}</Typography>,
           <Typography key={`${f.label}-v`} variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{f.value}</Typography>])}
       </Box>}
-      {b.columns && <Table size="small"><TableHead><TableRow>{b.columns.map((c) => <TableCell key={c} sx={{ fontWeight: 600 }}>{c}</TableCell>)}</TableRow></TableHead>
-        <TableBody>{(b.rows ?? []).map((r, j) => <TableRow key={j}>{r.map((c, k) => <TableCell key={k} sx={r[0] === 'Total' ? { fontWeight: 600 } : undefined}>
-          {b.links?.[j] && k === 0 ? <Link href={eightDUrl(b.links[j].id)} target="_blank" rel="noopener" data-testid="eightd-link">{c}</Link> : b.columns?.[k] === 'Chart' ? <Box data-testid="chart-bar" sx={{ height: 12, bgcolor: 'primary.main', borderRadius: 0.5, width: `${(c ?? '').length * 5}%` }} /> : c}</TableCell>)}</TableRow>)}</TableBody></Table>}
+      {b.columns && <Table size="small" sx={tableFit(b.columns.length)}><TableHead><TableRow>{b.columns.map((c, k) => <TableCell key={c} sx={{ fontWeight: 600, width: colWidth(b, k) }}>{c}</TableCell>)}</TableRow></TableHead>
+        <TableBody>{(b.rows ?? []).map((r, j) => <TableRow key={j}>{r.map((c0, k) => { const c = shortWhen(c0); return <TableCell key={k} sx={r[0] === 'Total' ? { fontWeight: 600 } : undefined}>
+          {b.links?.[j] && k === 0 ? <Link href={eightDUrl(b.links[j].id)} target="_blank" rel="noopener" data-testid="eightd-link">{c}</Link> : b.columns?.[k] === 'Chart' ? <Box data-testid="chart-bar" sx={{ height: 12, bgcolor: 'primary.main', borderRadius: 0.5, width: `${(c ?? '').length * 5}%` }} /> : c}</TableCell>; })}</TableRow>)}</TableBody></Table>}
       {b.photos?.map((p) => <Typography key={p} variant="body2" sx={{ px: 1 }}>Photo: {p}</Typography>)}
     </Box>)}
   </Paper>;

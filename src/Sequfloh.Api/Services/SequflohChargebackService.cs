@@ -472,7 +472,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         return blocks.Select(b => new
         {
             b.Key, b.Heading, Fields = b.Fields?.Where(v => !string.IsNullOrWhiteSpace(v.Value)).Select(v => new { v.Label, v.Value }),
-            Columns = b.Columns?.Select(c => c.Name), b.Rows, Photos = b.Photos?.Select(p => p.Caption), Links = b.Links?.Select(l => new { l.Id, l.FileName }),
+            Columns = b.Columns?.Select(c => c.Name), Widths = b.Columns?.Select(c => c.Width), b.Rows, Photos = b.Photos?.Select(p => p.Caption), Links = b.Links?.Select(l => new { l.Id, l.FileName }),
         });
     }
 
