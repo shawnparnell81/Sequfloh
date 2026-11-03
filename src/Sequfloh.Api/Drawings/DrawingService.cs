@@ -345,12 +345,16 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
     }
 
     /// <summary>For files larger than an ordinary upload, a short-lived address straight to file storage, so big files are not read through this server.</summary>
-    public async Task<string?> DirectDownloadAsync(Guid id, string? revision, CancellationToken ct)
+    public async Task<string?> DirectDownloadAsync(Guid id, string? revision, CancellationToken ct, bool view = false)
     {
         var d = await DrawingAsync(id, Permissions.SequflohViewDrawings, ct);
         var rev = string.IsNullOrWhiteSpace(revision) ? d.CurrentRevision : revision.Trim().ToUpperInvariant();
         var v = await db.DrawingRevisions.AsNoTracking().FirstOrDefaultAsync(x => x.DrawingId == id && x.Revision == rev, ct) ?? throw new NotFoundException("Revision");
-        return v.SizeBytes > MaxBytes ? storage.DownloadUrl(v.StorageKey, v.FileName, TimeSpan.FromMinutes(15)) : null;
+        if (v.SizeBytes > MaxBytes) return storage.DownloadUrl(v.StorageKey, v.FileName, TimeSpan.FromMinutes(15));
+        // with bucket storage the browser reads the drawing straight from the bucket, so it does not pass through this server
+        var viewable = view && Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant());
+        var type = viewable || IsWordType(v.ContentType) ? v.ContentType : "application/octet-stream";
+        return storage.ViewUrl(v.StorageKey, v.FileName, type, viewable, TimeSpan.FromMinutes(15));
     }
 
     public async Task<(Stream Content, string ContentType, string FileName, bool Viewable)> FileAsync(Guid id, string? revision, CancellationToken ct)

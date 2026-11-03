@@ -28,6 +28,11 @@ public interface IFileStorage
     Task AbortDirectAsync(string key, string? uploadId, CancellationToken ct);
     /// <summary>A short-lived download address for the file, or null when files are served by the API.</summary>
     string? DownloadUrl(string key, string fileName, TimeSpan valid);
+    /// <summary>
+    /// A short-lived address the browser reads the file from straight out of storage, opened in the browser (inline) or saved under its name,
+    /// so the bytes do not pass through this server; null when files are served by the API.
+    /// </summary>
+    string? ViewUrl(string key, string fileName, string contentType, bool inline, TimeSpan valid);
 }
 
 /// <summary>One upload: a single PUT address, or a multipart upload with one PUT address per part (each part except the last is PartSize bytes).</summary>
@@ -89,6 +94,7 @@ public sealed class LocalFileStorage(StorageOptions o) : IFileStorage
     public Task CompleteDirectAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct) => Task.CompletedTask;
     public Task AbortDirectAsync(string key, string? uploadId, CancellationToken ct) => DeleteAsync(key, ct);
     public string? DownloadUrl(string key, string fileName, TimeSpan valid) => null;
+    public string? ViewUrl(string key, string fileName, string contentType, bool inline, TimeSpan valid) => null;
 
     public Task EnsureReadyAsync(CancellationToken ct) { Directory.CreateDirectory(Path.GetFullPath(o.LocalPath)); return Task.CompletedTask; }
 }
@@ -169,12 +175,13 @@ public sealed class S3FileStorage : IFileStorage
     public const long PartSize = 64L * 1024 * 1024;
     static readonly TimeSpan UploadWindow = TimeSpan.FromHours(6);
 
-    string Presign(string key, HttpVerb verb, TimeSpan valid, string? uploadId = null, int part = 0, string? contentType = null, string? download = null)
+    string Presign(string key, HttpVerb verb, TimeSpan valid, string? uploadId = null, int part = 0, string? contentType = null, string? download = null, string? responseType = null)
     {
         var r = new GetPreSignedUrlRequest { BucketName = _bucket, Key = key, Verb = verb, Expires = DateTime.UtcNow.Add(valid), Protocol = _https ? Protocol.HTTPS : Protocol.HTTP };
         if (uploadId is not null) { r.UploadId = uploadId; r.PartNumber = part; }
         if (contentType is not null) r.ContentType = contentType;
         if (download is not null) r.ResponseHeaderOverrides.ContentDisposition = download;
+        if (responseType is not null) { r.ResponseHeaderOverrides.ContentType = responseType; r.ResponseHeaderOverrides.CacheControl = "private, max-age=600"; }
         return _s3.GetPreSignedURL(r);
     }
 
@@ -227,6 +234,9 @@ public sealed class S3FileStorage : IFileStorage
 
     public string? DownloadUrl(string key, string fileName, TimeSpan valid) =>
         Presign(key, HttpVerb.GET, valid, download: new System.Net.Mime.ContentDisposition { FileName = fileName }.ToString());
+
+    public string? ViewUrl(string key, string fileName, string contentType, bool inline, TimeSpan valid) =>
+        Presign(key, HttpVerb.GET, valid, download: new System.Net.Mime.ContentDisposition { Inline = inline, FileName = fileName }.ToString(), responseType: contentType);
 
     static bool Unreachable(Exception e) => e is AmazonServiceException or AmazonClientException or HttpRequestException or IOException;
 

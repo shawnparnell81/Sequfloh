@@ -85,6 +85,14 @@ public sealed class FileStorageTests
         var peek = (await store.PeekAsync(key, default))!.Value;
         Assert.Equal(small.Length, peek.Size); Assert.Equal("%PDF-"u8.ToArray(), peek.Start[..5]);
         Assert.Equal(small, await http.GetByteArrayAsync(store.DownloadUrl(key, "small.pdf", TimeSpan.FromMinutes(5))));
+        // a file opened in the browser comes straight from the bucket, inline, with its own type
+        using (var view = await http.GetAsync(store.ViewUrl(key, "small.pdf", "application/pdf", true, TimeSpan.FromMinutes(5))))
+        {
+            Assert.True(view.IsSuccessStatusCode);
+            Assert.Equal("application/pdf", view.Content.Headers.ContentType?.MediaType);
+            Assert.StartsWith("inline", view.Content.Headers.ContentDisposition?.ToString());
+            Assert.Equal(small, await view.Content.ReadAsByteArrayAsync());
+        }
         await store.DeleteAsync(key, default);
 
         // a large file: signed PUTs per part, joined with the ETags

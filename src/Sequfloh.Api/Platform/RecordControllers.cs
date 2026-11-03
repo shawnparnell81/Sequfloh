@@ -157,10 +157,12 @@ public sealed class FilesController(AppDbContext db, IFileStorage storage, IAcce
         var a = await db.Attachments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("File");
         var (site, dept, _) = await OwnerAsync(a.OwnerType, a.OwnerId, ct);
         await RequireViewAsync(site, dept, ct);
-        var s = await storage.GetAsync(a.StorageKey, ct) ?? throw new NotFoundException("File content");
-        Response.Headers["X-Content-Type-Options"] = "nosniff";
         var text = a.ContentType.StartsWith("text/plain");
         var safeInline = inline && (a.ContentType.StartsWith("image/") && a.ContentType != "image/svg+xml" || a.ContentType == "application/pdf" || text);
+        // with bucket storage the browser reads the file straight from the bucket, so large files do not tie up this server
+        if (storage.ViewUrl(a.StorageKey, a.FileName, safeInline ? (text ? "text/plain; charset=utf-8" : a.ContentType) : a.ContentType, safeInline, TimeSpan.FromMinutes(15)) is { } direct) return Redirect(direct);
+        var s = await storage.GetAsync(a.StorageKey, ct) ?? throw new NotFoundException("File content");
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
         if (safeInline)
         {
             // opens in the browser tab (inline, with the file's name), framed by the same site only; images and text are fully sandboxed, a PDF keeps the browser's own viewer

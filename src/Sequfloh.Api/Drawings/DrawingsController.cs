@@ -89,7 +89,7 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     [HttpGet("{id:guid}/file"), RequirePermission(Permissions.SequflohViewDrawings)]
     public async Task<IActionResult> File(Guid id, string? revision, bool view = false, CancellationToken ct = default)
     {
-        if (await drawings.DirectDownloadAsync(id, revision, ct) is { } direct) return Redirect(direct);
+        if (await drawings.DirectDownloadAsync(id, revision, ct, view) is { } direct) return Redirect(direct);
         var (content, type, name, viewable) = await drawings.FileAsync(id, revision, ct);
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         if (view && viewable)

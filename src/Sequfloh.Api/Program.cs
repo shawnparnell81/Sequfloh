@@ -135,6 +135,10 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
     o.KnownIPNetworks.Clear(); o.KnownProxies.Clear();
 });
 builder.Services.AddControllers();
+// API answers (a filled form's grid can be over a megabyte) are compressed; files and pages are left as they are
+builder.Services.AddResponseCompression(o => { o.EnableForHttps = true; o.MimeTypes = ["application/json"]; o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>(); o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>(); });
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ErrorHandler>();
 
@@ -147,6 +151,7 @@ await app.Services.GetRequiredService<IFileStorage>().EnsureReadyAsync(Cancellat
 app.UseForwardedHeaders();
 if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing")) app.UseHsts();
 app.UseExceptionHandler();
+app.UseResponseCompression();
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";

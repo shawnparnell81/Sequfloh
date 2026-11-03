@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Sequfloh.Application.Abstractions;
 using Sequfloh.Application.Security;
 using Sequfloh.Domain.Audit;
@@ -352,9 +353,33 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     {
         var n = version ?? f.CurrentVersion;
         var v = await db.ImportedFileVersions.AsNoTracking().FirstOrDefaultAsync(x => x.ImportedFileId == f.Id && x.Version == n, ct) ?? throw new NotFoundException("Version");
+        // a saved version is never changed (each save adds a new one), so its bytes are kept for a while instead of fetched again
+        if (Cache.TryGetValue(("bytes", v.Id), out byte[]? kept) && kept is not null) return (v, kept);
         await using var s = await storage.GetAsync(v.StorageKey, ct) ?? throw new NotFoundException("File content");
         var ms = new MemoryStream(); await s.CopyToAsync(ms, ct);
-        return (v, ms.ToArray());
+        var bytes = ms.ToArray();
+        Keep(("bytes", v.Id), bytes, bytes.Length);
+        return (v, bytes);
+    }
+
+    /// <summary>Recently opened form versions: their bytes, the read workbook and the sheet as sent to the browser. Versions never change, so nothing goes stale.</summary>
+    static readonly Microsoft.Extensions.Caching.Memory.MemoryCache Cache = new(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions { SizeLimit = 192L * 1024 * 1024 });
+
+    static void Keep(object key, object value, long size) =>
+        Cache.Set(key, value, new Microsoft.Extensions.Caching.Memory.MemoryCacheEntryOptions { Size = Math.Max(1, size), SlidingExpiration = TimeSpan.FromMinutes(20) });
+
+    /// <summary>The read workbook and the grid of one sheet of a version, kept so opening and previewing do not read the file again.</summary>
+    sealed record ReadSheet(WorkbookData Data, GridPreview Grid, XlSheet Sheet);
+
+    static ReadSheet Read(ImportedFileVersion v, byte[] bytes, string? sheet)
+    {
+        var key = ("read", v.Id, sheet ?? "");
+        if (Cache.TryGetValue(key, out ReadSheet? kept) && kept is not null) return kept;
+        var data = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
+        var grid = WorkbookIntake.Grid(data, sheet, 500, 60);
+        var r = new ReadSheet(data, grid, data.Sheet(grid.Sheet)!);
+        Keep(key, r, bytes.Length * 20L);
+        return r;
     }
 
     // ---- spreadsheets -------------------------------------------------------------------------------------------------------------
@@ -364,12 +389,14 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var f = await LoadAsync(id, Permissions.SequflohViewImportedFiles, ct);
         if (f.Kind != ImportedFileKind.Spreadsheet) throw new AppException("This imported file is a document.");
         var (v, bytes) = await CurrentAsync(f, version, ct);
-        var wb = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
-        var grid = WorkbookIntake.Grid(wb, sheet, 500, 60);
-        var sh = wb.Sheet(grid.Sheet)!;
+        var key = ("sheet", v.Id, sheet ?? "");
+        if (Cache.TryGetValue(key, out object? kept) && kept is not null) return kept;
+        var (wb, grid, sh) = Read(v, bytes, sheet);
         var formulas = grid.Cells.Where(c => c.Formula is not null).Select(c => new { c.R, c.C, Classes = FormulaTranslator.Classify(c.Formula!, wb.HasMacros, out var warning), Warning = warning }).ToList();
-        return new { Version = v.Version, grid.Sheet, grid.R1, grid.C1, grid.R2, grid.C2, grid.Widths, grid.Heights, grid.Cells, grid.Truncated, grid.Sheets,
+        var result = new { Version = v.Version, grid.Sheet, grid.R1, grid.C1, grid.R2, grid.C2, grid.Widths, grid.Heights, grid.Cells, grid.Truncated, grid.Sheets,
             sh.FreezeRows, sh.FreezeCols, Formulas = formulas, Conditional = Looks(bytes, null, sh, grid.R1, grid.C1, grid.R2, grid.C2) };
+        Keep(key, result, bytes.Length * 10L);
+        return result;
     }
 
     /// <summary>Colours from conditional formatting for the cells shown, worked out from the stored values or, with edits, from the values after those edits.</summary>
@@ -396,9 +423,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (f.Kind != ImportedFileKind.Spreadsheet) throw new AppException("This imported file is a document.");
         if (edits.Count > 5000) throw new AppException("Preview at most 5000 cells at a time.");
         var (v, bytes) = await CurrentAsync(f, null, ct);
-        var data = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
-        var grid = WorkbookIntake.Grid(data, sheet, 500, 60);
-        var sh = data.Sheet(grid.Sheet)!;
+        var (_, grid, sh) = Read(v, bytes, sheet);
         using var wb = new XLWorkbook(new MemoryStream(bytes));
         Write(wb, edits);
         try { wb.RecalculateAllFormulas(); } catch (Exception e) when (e is not OutOfMemoryException) { return new { Values = Array.Empty<object>(), Conditional = new List<ConditionalLook>() }; }
