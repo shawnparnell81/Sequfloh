@@ -151,7 +151,7 @@ await app.Services.GetRequiredService<IFileStorage>().EnsureReadyAsync(Cancellat
 if (!app.Environment.IsEnvironment("Testing"))
     app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
     {
-        try { await Sequfloh.Imports.ImportedFileService.PrepareStoredAsync(app.Services, app.Lifetime.ApplicationStopping); }
+        try { await Task.Delay(TimeSpan.FromMinutes(1), app.Lifetime.ApplicationStopping); await Sequfloh.Imports.ImportedFileService.PrepareStoredAsync(app.Services, app.Lifetime.ApplicationStopping); }
         catch (Exception e) when (e is not OperationCanceledException) { app.Logger.LogError(e, "Preparing stored sheets stopped"); }
     }));
 

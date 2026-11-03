@@ -2,7 +2,7 @@ services:
   - type: web
     name: sequfloh
     runtime: docker
-    plan: free
+    plan: 1c-2g
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     autoDeploy: true

@@ -5,7 +5,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Sequfloh</RootNamespace>
     <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- one heap, no background collection thread, and memory handed back after large workbooks -->
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" />
+    <RuntimeHostConfigurationOption Include="System.GC.RetainVM" Value="false" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="4.0.104.4" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />

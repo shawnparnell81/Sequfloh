@@ -24,9 +24,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
 WORKDIR /app
 COPY --from=api /app ./
+# the managed heap is held to 60% of the instance memory, leaving room for the runtime and the office converter
 ENV ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_TieredPGO=1 \
     DOTNET_gcServer=0 \
+    DOTNET_GCHeapHardLimitPercent=0x3C \
+    DOTNET_EnableWriteXorExecute=0 \
     STORAGE_LOCAL_PATH=/app/data/files \
     PORT=8080 \
     Imports__LegacyOffice__Command=/usr/bin/soffice

@@ -113,7 +113,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             try
             {
                 var (cv, bytes) = await CurrentAsync(f, null, ct);
-                var fresh = Summarize(f.Kind, bytes, Path.GetExtension(cv.FileName));
+                var fresh = await HeavyAsync(() => Summarize(f.Kind, bytes, Path.GetExtension(cv.FileName)), ct);
                         await db.ImportedFiles.Where(x => x.Id == f.Id && x.CurrentVersion == cv.Version).ExecuteUpdateAsync(u => u.SetProperty(x => x.Summary, fresh), ct);
                 summary = fresh;
             }
@@ -267,7 +267,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
             default: working = original.ToArray(); workingExt = ext; workingType = ext == ".docx" ? DocxType : ext == ".xlsm" ? XlsmType : XlsxType; break;
         }
         string summary;
-        try { summary = Summarize(kind, working, workingExt); }
+        try { summary = await HeavyAsync(() => Summarize(kind, working, workingExt), ct); }
         catch (Exception e) when (e is not AppException and not OutOfMemoryException and not OperationCanceledException)
         { throw new FileUnreadableException($"This file could not be read ({e.GetType().Name}: {e.Message}). Open it in Excel or Word, save it again, and try once more.", e); }
 
@@ -376,8 +376,21 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         return (v, bytes);
     }
 
-    /// <summary>Recently opened form versions: their bytes, the read workbook and the sheet as sent to the browser. Versions never change, so nothing goes stale.</summary>
-    static readonly Microsoft.Extensions.Caching.Memory.MemoryCache Cache = new(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions { SizeLimit = 192L * 1024 * 1024 });
+    /// <summary>
+    /// Recently opened form versions: their bytes and the sheet as sent to the browser. Versions never change, so nothing goes stale.
+    /// Kept small because the server runs in a 512 MB instance; a read workbook is many times its file size, so it is never kept.
+    /// </summary>
+    static readonly Microsoft.Extensions.Caching.Memory.MemoryCache Cache = new(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions { SizeLimit = 40L * 1024 * 1024, CompactionPercentage = 0.25 });
+
+    /// <summary>Reading, recalculating or saving a workbook takes many times the file size in memory, so they run one at a time (background preparing included).</summary>
+    static readonly SemaphoreSlim Heavy = new(1, 1);
+
+    static async Task<T> HeavyAsync<T>(Func<T> work, CancellationToken ct)
+    {
+        await Heavy.WaitAsync(ct);
+        try { return work(); }
+        finally { Heavy.Release(); }
+    }
 
     static void Keep(object key, object value, long size) =>
         Cache.Set(key, value, new Microsoft.Extensions.Caching.Memory.MemoryCacheEntryOptions { Size = Math.Max(1, size), SlidingExpiration = TimeSpan.FromMinutes(20) });
@@ -385,15 +398,11 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     /// <summary>The read workbook and the grid of one sheet of a version, kept so opening and previewing do not read the file again.</summary>
     sealed record ReadSheet(WorkbookData Data, GridPreview Grid, XlSheet Sheet);
 
-    static ReadSheet Read(ImportedFileVersion v, byte[] bytes, string? sheet, bool keep = true)
+    static ReadSheet Read(ImportedFileVersion v, byte[] bytes, string? sheet)
     {
-        var key = ("read", v.Id, sheet ?? "");
-        if (Cache.TryGetValue(key, out ReadSheet? kept) && kept is not null) return kept;
         var data = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
         var grid = WorkbookIntake.Grid(data, sheet, 500, 60);
-        var r = new ReadSheet(data, grid, data.Sheet(grid.Sheet)!);
-        if (keep) Keep(key, r, bytes.Length * 20L);
-        return r;
+        return new ReadSheet(data, grid, data.Sheet(grid.Sheet)!);
     }
 
     // ---- spreadsheets -------------------------------------------------------------------------------------------------------------
@@ -409,7 +418,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         // the first sheet as shown is stored next to the version when it is saved, so even the first open after a restart skips reading the workbook
         if (string.IsNullOrEmpty(sheet) && await StoredGridAsync(v, ct) is { } stored) { Keep(key, stored, stored.GetRawText().Length * 2L); return stored; }
         var (_, bytes) = await CurrentAsync(f, version, ct);
-        var json = SheetJson(v, bytes, sheet);
+        var json = await HeavyAsync(() => SheetJson(v, bytes, sheet), ct);
         if (string.IsNullOrEmpty(sheet)) await StoreGridAsync(storage, v, json, ct);
         var result = JsonDocument.Parse(json).RootElement.Clone();
         Keep(key, result, json.Length * 2L);
@@ -420,6 +429,12 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
 
     /// <summary>Where the first sheet of a version, as sent to the browser, is kept.</summary>
     public static string GridKey(string versionKey) => versionKey + ".grid1.json";
+
+    /// <summary>Marks a version the startup pass could not prepare, so it is not read again on every start; opening it still works it out as before.</summary>
+    public static string SkipKey(string versionKey) => versionKey + ".grid1.skip";
+
+    /// <summary>Larger workbooks are left to their first open rather than read in the background.</summary>
+    const long PrepareMaxBytes = 8L * 1024 * 1024;
 
     async Task<JsonElement?> StoredGridAsync(ImportedFileVersion v, CancellationToken ct)
     {
@@ -440,9 +455,9 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
     }
 
     /// <summary>A sheet of a version as the browser gets it: the grid, how formulas are classed and the conditional formatting colours.</summary>
-    static string SheetJson(ImportedFileVersion v, byte[] bytes, string? sheet, bool keep = true)
+    static string SheetJson(ImportedFileVersion v, byte[] bytes, string? sheet)
     {
-        var (wb, grid, sh) = Read(v, bytes, sheet, keep);
+        var (wb, grid, sh) = Read(v, bytes, sheet);
         var formulas = grid.Cells.Where(c => c.Formula is not null).Select(c => new { c.R, c.C, Classes = FormulaTranslator.Classify(c.Formula!, wb.HasMacros, out var warning), Warning = warning }).ToList();
         return JsonSerializer.Serialize(new { Version = v.Version, grid.Sheet, grid.R1, grid.C1, grid.R2, grid.C2, grid.Widths, grid.Heights, grid.Cells, grid.Truncated, grid.Sheets,
             sh.FreezeRows, sh.FreezeCols, Formulas = formulas, Conditional = Looks(bytes, null, sh, grid.R1, grid.C1, grid.R2, grid.C2) }, WebJson);
@@ -467,31 +482,48 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var log = services.GetRequiredService<ILoggerFactory>().CreateLogger<ImportedFileService>();
         int notes = 0, grids = 0, failed = 0;
         log.LogInformation("Preparing stored sheets: {Count} spreadsheets, {Notes} with a cut-rows note", versions.Count, versions.Count(x => x.CutNote));
+        int skipped = 0;
         foreach (var (v, cutNote) in versions)
         {
             if (ct.IsCancellationRequested) return;
+            // a version that failed before, or whose sheet is stored and summary current, is done
+            if (await storage.PeekAsync(SkipKey(v.StorageKey), ct) is not null) continue;
+            if (!cutNote && await storage.PeekAsync(GridKey(v.StorageKey), ct) is not null) continue;
+            bool ok = false, stillCut = false;
             try
             {
-                if (!cutNote && await storage.PeekAsync(GridKey(v.StorageKey), ct) is not null) continue;
                 await using var s = await storage.GetAsync(v.StorageKey, ct);
                 if (s is null) continue;
-                using var ms = new MemoryStream(); await s.CopyToAsync(ms, ct);
-                var bytes = ms.ToArray();
+                if (s.CanSeek && s.Length > PrepareMaxBytes) { skipped++; ok = true; continue; }
+                byte[] bytes;
+                using (var ms = new MemoryStream()) { await s.CopyToAsync(ms, ct); bytes = ms.ToArray(); }
+                if (bytes.Length > PrepareMaxBytes) { skipped++; ok = true; continue; }
                 if (cutNote)
                 {
                     // the summary was written before long empty tails were trimmed and may still say rows are cut
-                    var summary = Summarize(ImportedFileKind.Spreadsheet, bytes, Path.GetExtension(v.FileName));
+                    var summary = await HeavyAsync(() => Summarize(ImportedFileKind.Spreadsheet, bytes, Path.GetExtension(v.FileName)), ct);
+                    stillCut = summary.Contains(CutRowsNote);
                     using var scope = services.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                     notes += await db.ImportedFiles.IgnoreQueryFilters().Where(f => f.Id == v.ImportedFileId && f.CurrentVersion == v.Version)
                         .ExecuteUpdateAsync(u => u.SetProperty(f => f.Summary, summary), ct);
                 }
-                await StoreGridAsync(storage, v, SheetJson(v, bytes, null, false), ct);
-                grids++;
+                await StoreGridAsync(storage, v, await HeavyAsync(() => SheetJson(v, bytes, null), ct), ct);
+                grids++; ok = true;
             }
-            catch (Exception e) when (e is not OutOfMemoryException and not OperationCanceledException) { failed++; log.LogWarning(e, "Stored sheet for imported file {Id} could not be prepared", v.ImportedFileId); }
+            catch (Exception e) when (e is not OutOfMemoryException and not OperationCanceledException) { failed++; log.LogWarning("Stored sheet for imported file {Id} could not be prepared: {Error}", v.ImportedFileId, e.Message); }
+            finally
+            {
+                // hand the workbook's memory back before the next one; the instance is small and this pass runs alongside requests
+                System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                GC.Collect(2, GCCollectionMode.Forced, true, true);
+            }
+            if (!ok || stillCut)
+                try { await storage.PutAsync(SkipKey(v.StorageKey), new MemoryStream([]), "text/plain", ct); }
+                catch (Exception e) when (e is StorageUnavailableException or IOException) { }
+            await Task.Delay(250, ct);
         }
-        log.LogInformation("Prepared stored sheets: {Grids} sheets, {Notes} summaries refreshed, {Failed} failed", grids, notes, failed);
+        log.LogInformation("Prepared stored sheets: {Grids} sheets, {Notes} summaries refreshed, {Failed} failed, {Skipped} left for their first open", grids, notes, failed, skipped);
     }
 
     /// <summary>Works out the first sheet of a newly saved spreadsheet version in the background and stores it, so its first open is quick.</summary>
@@ -501,7 +533,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var store = storage;
         _ = Task.Run(async () =>
         {
-            try { await StoreGridAsync(store, v, SheetJson(v, bytes, null, false), CancellationToken.None); }
+            try { await StoreGridAsync(store, v, await HeavyAsync(() => SheetJson(v, bytes, null), CancellationToken.None), CancellationToken.None); }
             catch (Exception e) when (e is not OutOfMemoryException) { }
         });
     }
@@ -530,6 +562,11 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (f.Kind != ImportedFileKind.Spreadsheet) throw new AppException("This imported file is a document.");
         if (edits.Count > 5000) throw new AppException("Preview at most 5000 cells at a time.");
         var (v, bytes) = await CurrentAsync(f, null, ct);
+        return await HeavyAsync(() => Preview(v, bytes, sheet, edits), ct);
+    }
+
+    static object Preview(ImportedFileVersion v, byte[] bytes, string sheet, IReadOnlyList<CellEdit> edits)
+    {
         var (_, grid, sh) = Read(v, bytes, sheet);
         using var wb = new XLWorkbook(new MemoryStream(bytes));
         Write(wb, edits);
@@ -561,7 +598,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (edits.Count == 0) throw new AppException("There are no changes to save.");
         if (edits.Count > 5000) throw new AppException("Save at most 5000 cells at a time.");
         var (v, bytes) = await CurrentAsync(f, null, ct);
-        var (saved, recalculated) = ApplyCells(bytes, edits);
+        var (saved, recalculated) = await HeavyAsync(() => ApplyCells(bytes, edits), ct);
         return await SaveVersionAsync(f, v, saved, Describe(edits), recalculated ? null : "Formulas will be recalculated when the file is opened in Excel.", ct);
     }
 
@@ -612,7 +649,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var next = f.CurrentVersion + 1;
         db.ImportedFileVersions.Add(await StoreVersionAsync(f, next, bytes, Path.GetExtension(from.FileName), from.ContentType, description.Length > 500 ? description[..497] + "..." : description, ct));
         f.CurrentVersion = next;
-        f.Summary = Summarize(f.Kind, bytes, Path.GetExtension(from.FileName));
+        f.Summary = await HeavyAsync(() => Summarize(f.Kind, bytes, Path.GetExtension(from.FileName)), ct);
         db.AuditEntries.Add(new AuditEntry
         {
             OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Edited", EntityType = nameof(ImportedFile), EntityId = f.Id, SiteId = f.SiteId,
@@ -689,7 +726,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         {
             var list = cells ?? [];
             if (list.Count > 5000) throw new AppException("Save at most 5000 cells at a time.");
-            if (list.Count > 0) bytes = ApplyCells(bytes, list).Bytes;
+            if (list.Count > 0) { var b0 = bytes; bytes = (await HeavyAsync(() => ApplyCells(b0, list), ct)).Bytes; }
             note = list.Count > 0 ? Describe(list) : "No changes";
         }
         else
@@ -714,11 +751,12 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         var n = RecordNumbers.Clean(number, 300);
         await RecordNumbers.EnsureFreeAsync(db.ImportedFiles.Select(o => o.Number), n, "A file numbered", ct);
         var t = string.IsNullOrWhiteSpace(title) ? n : title.Trim();
+        var copySummary = await HeavyAsync(() => Summarize(from.Kind, bytes, ext), ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var copy = new ImportedFile
         {
             Number = n, Title = t.Length > 300 ? t[..300] : t, Kind = from.Kind, SourceFormat = ext.TrimStart('.'),
-            OriginalFileName = SafeFileName(n) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = Summarize(from.Kind, bytes, ext),
+            OriginalFileName = SafeFileName(n) + ext, SiteId = from.SiteId, DepartmentId = from.DepartmentId, Summary = copySummary,
             BlankFormId = blankId, BlankFormVersion = blankVersion, FamilyId = blankId is null ? null : familyId, WorkOrderId = workOrderId,
             PartNumber = string.IsNullOrWhiteSpace(partNumber) ? (from.IsBlankForm ? null : from.PartNumber) : partNumber.Trim().Length > 100 ? partNumber.Trim()[..100] : partNumber.Trim(),
         };
@@ -874,7 +912,7 @@ public sealed class ImportedFileService(AppDbContext db, IFileStorage storage, I
         if (f.Kind == ImportedFileKind.Spreadsheet)
         {
             var (v, bytes) = await CurrentAsync(f, null, ct);
-            var wb = WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.'));
+            var wb = await HeavyAsync(() => WorkbookReader.Read(new MemoryStream(bytes), Path.GetExtension(v.FileName).TrimStart('.')), ct);
             var grid = WorkbookIntake.Grid(wb, sheet, 500, 60);
             (edits, filled) = UpcEdits(grid.Sheet, grid.Cells, UpcFields(p, family));
         }

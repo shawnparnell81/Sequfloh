@@ -141,6 +141,17 @@ public static class WorkbookReader
         catch (Exception e) when (e is not OutOfMemoryException) { return false; }
     }
 
+    /// <summary>The cell a picture ends in. A picture placed by position only (not anchored to cells) has no end cell, and asking for it throws.</summary>
+    static IXLCell? PictureEnd(ClosedXML.Excel.Drawings.IXLPicture p)
+    {
+        try { return p.BottomRightCell ?? p.TopLeftCell; }
+        catch (Exception e) when (e is NullReferenceException or InvalidOperationException or ArgumentException)
+        {
+            try { return p.TopLeftCell; }
+            catch (Exception e2) when (e2 is NullReferenceException or InvalidOperationException or ArgumentException) { return null; }
+        }
+    }
+
     internal static (int Row, int Col) ContentEnd(IXLWorksheet ws, List<XlCheckbox>? checkboxes)
     {
         int lr = 0, lc = 0;
@@ -149,7 +160,7 @@ public static class WorkbookReader
         foreach (var cell in ws.CellsUsed(XLCellsUsedOptions.AllContents | XLCellsUsedOptions.Comments))
             if (cell.HasComment || !BlankResult(cell)) Take(cell.Address.RowNumber, cell.Address.ColumnNumber);
         foreach (var m in ws.MergedRanges) Take(m.RangeAddress.LastAddress.RowNumber, m.RangeAddress.LastAddress.ColumnNumber);
-        foreach (var p in ws.Pictures) { var to = p.BottomRightCell ?? p.TopLeftCell; Take(to.Address.RowNumber, to.Address.ColumnNumber); }
+        foreach (var p in ws.Pictures) if (PictureEnd(p) is { } to) Take(to.Address.RowNumber, to.Address.ColumnNumber);
         foreach (var a in ws.PageSetup.PrintAreas) Take(a.RangeAddress.LastAddress.RowNumber, a.RangeAddress.LastAddress.ColumnNumber);
         foreach (var b in checkboxes ?? []) if (b.R is { } r && b.C is { } c) Take(r, c);
         foreach (var dv in ws.DataValidations)

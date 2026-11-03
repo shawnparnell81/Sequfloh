@@ -140,4 +140,31 @@ public sealed class FormulaFormSpeedTests(TestApp app)
         Assert.Equal(66, detail.GetProperty("summary").GetProperty("sheets")[0].Int("rows"));
         Assert.Empty((await user.GetElAsync($"/api/imported-files/{id}")).GetProperty("summary").GetProperty("warnings").EnumerateArray());
     }
+
+    [Fact]
+    public async Task Form_with_a_picture_placed_by_position_opens_and_is_prepared_once()
+    {
+        // a 1x1 PNG placed by position only, as some forms carry a logo
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==");
+        using var wb = new XLWorkbook();
+        var ws = wb.AddWorksheet("Logo form");
+        for (var r = 1; r <= 12; r++) { ws.Cell(r, 1).Value = $"Check {r}"; ws.Cell(r, 2).FormulaA1 = $"LEN(A{r})"; }
+        var pic = ws.AddPicture(new MemoryStream(png)).MoveTo(40, 40);
+        pic.Placement = ClosedXML.Excel.Drawings.XLPicturePlacement.FreeFloating;
+        var ms = new MemoryStream(); wb.SaveAs(ms);
+        var bytes = ms.ToArray();
+        var sh = WorkbookReader.Read(new MemoryStream(bytes), "xlsx").Sheet("Logo form")!;
+        Assert.True(sh.LastRow >= 12);
+
+        var site = await app.CreateSiteAsync();
+        var (_, user) = await app.CreateUserAsync([Permissions.SequflohAccess, Permissions.SequflohViewImportedFiles, Permissions.SequflohImportFiles], site);
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(bytes), "file", $"Logo {Guid.NewGuid():N}"[..20] + ".xlsx");
+        form.Add(new StringContent(site.ToString()), "siteId");
+        var id = (await (await user.Http.PostAsync("/api/imported-files", form)).JsonAsync()).Id();
+        var grid = await user.GetElAsync($"/api/imported-files/{id}/sheet");
+        Assert.Equal("7", Cell(grid, 1, 2).Str("cached"));
+        await ImportedFileService.PrepareStoredAsync(app.Services, CancellationToken.None);
+        Assert.Equal(grid.GetRawText(), (await user.GetElAsync($"/api/imported-files/{id}/sheet")).GetRawText());
+    }
 }
