@@ -35,7 +35,7 @@ public sealed class UsersController(AppDbContext db, IPasswordHasher<Application
     {
         var users = await db.Users.AsNoTracking().OrderBy(u => u.DisplayName).ToListAsync(ct);
         var roles = await db.UserRoleAssignments.AsNoTracking().Join(db.QmsRoles, a => a.RoleId, r => r.Id, (a, r) => new { a.Id, a.UserId, a.RoleId, Role = r.Name, a.SiteId, a.DepartmentId }).ToListAsync(ct);
-        return users.Select(u => new { u.Id, u.Email, u.DisplayName, u.JobTitle, u.IsActive, u.DefaultSiteId, u.LastSignInAt, u.MustChangePassword, u.CreatedAt,
+        return users.Select(u => new { u.Id, u.Email, u.DisplayName, u.JobTitle, u.IsActive, u.DefaultSiteId, u.LastSignInAt, u.LastSeenAt, u.MustChangePassword, u.CreatedAt,
             Roles = roles.Where(r => r.UserId == u.Id).Select(r => new { r.Id, r.RoleId, r.Role, r.SiteId, r.DepartmentId }) });
     }
 
@@ -122,7 +122,7 @@ public sealed class UserLookupController(AppDbContext db) : ControllerBase
     /// <summary>Active people, for assignment pickers.</summary>
     [HttpGet("lookup")]
     public async Task<object> Lookup(CancellationToken ct) =>
-        await db.Users.AsNoTracking().Where(u => u.IsActive).OrderBy(u => u.DisplayName).Select(u => new { u.Id, u.DisplayName, u.Email }).ToListAsync(ct);
+        await db.Users.AsNoTracking().Where(u => u.IsActive).OrderBy(u => u.DisplayName).Select(u => new { u.Id, u.DisplayName, u.Email, u.LastSeenAt }).ToListAsync(ct);
 }
 
 [ApiController, Route("api/admin/roles")]

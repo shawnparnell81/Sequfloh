@@ -33,3 +33,21 @@ public class Message : Entity
     public Guid? LinkId { get; set; }
     public string? LinkLabel { get; set; }
 }
+
+/// <summary>A file kept with a message. The bytes live in file storage under a messages/ key; only the people in the conversation can read them.</summary>
+public class MessageAttachment : Entity
+{
+    public Guid MessageId { get; set; }
+    public string FileName { get; set; } = "";
+    public string ContentType { get; set; } = "application/octet-stream";
+    public long SizeBytes { get; set; }
+    public string StorageKey { get; set; } = "";
+}
+
+/// <summary>One emoji a person added to a message. Adding it again removes it.</summary>
+public class MessageReaction : Entity
+{
+    public Guid MessageId { get; set; }
+    public Guid UserId { get; set; }
+    public string Emoji { get; set; } = "";
+}

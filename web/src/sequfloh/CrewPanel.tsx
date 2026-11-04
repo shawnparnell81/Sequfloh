@@ -7,6 +7,7 @@ import EditOutlined from '@mui/icons-material/EditOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { fmtDateTime } from '../components/Status';
+import { UserAvatar } from '../components/UserAvatar';
 import { S } from './common';
 
 interface Pause { from: string; to: string }
@@ -242,7 +243,7 @@ function DayWorkers({ recordId, notStarted, d, now, onEdit, onAddPast, onError, 
           const mine = d.sessions.filter((s) => s.workerId === w.id);
           const runSec = w.running ? w.running.seconds + (w.running.pausedAt ? 0 : now) : 0;
           return <Fragment key={w.id}><TableRow data-testid="day-worker-row" data-name={w.name}>
-            <TableCell><b>{w.name}</b></TableCell>
+            <TableCell><Stack direction="row" gap={1} alignItems="center"><UserAvatar name={w.name} showPresence={false} size={28} /><b>{w.name}</b></Stack></TableCell>
             <TableCell sx={{ whiteSpace: 'nowrap' }}>
               {w.running ? <Typography component="span" variant="body2" sx={{ mr: 1, fontVariantNumeric: 'tabular-nums' }} data-testid="day-worker-clock">{clock(runSec)}{w.running.pausedAt ? ' (paused)' : ''}</Typography> : null}
               {!d.canEdit && d.canClockOff && w.running && <Button size="small" color="error" variant="contained" disabled={busy} data-testid="day-worker-stop" onClick={() => go(w, 'stop')}>Stop</Button>}

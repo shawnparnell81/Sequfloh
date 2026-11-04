@@ -5,7 +5,7 @@ import { Alert, Box, Button, Chip, List, ListItemButton, ListItemText, Paper, St
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { useSites, useUsers } from '../components/Kit';
-import { fmtDateTime } from '../components/Status';
+import { PriorityTag, fmtDateTime } from '../components/Status';
 import { Empty, ErrorState, Filters, Loading, Mono, PagedTable, S, SqfPage, SqfStatus, fmtSeconds, nul, qs, useOptions, words, type Col } from './common';
 import { OpenInspectionRequestsPanel } from './InspectionRequests';
 import { LiveClock, TaskActionDialog, newOpId, trackingStatuses, trackingTypeOptions, trackingTypes, type TrAction, type TrRow } from './Tracking';
@@ -103,7 +103,7 @@ export function ExecutionQueuePage() {
     : [...base,
     { key: 'assignedUser', label: 'Assigned', render: (r) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
     { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
-    { key: 'priority', label: 'Priority', sort: true },
+    { key: 'priority', label: 'Priority', sort: true, render: (r) => <PriorityTag value={r.priority} /> },
     { key: 'dueAt', label: 'Due', sort: true, render: (r) => <>{fmtDateTime(r.dueAt)}{r.overdueSeconds > 0 && <Chip size="small" color="error" variant="outlined" label="Overdue" sx={{ ml: 0.5 }} />}</> },
     ...(view === 'mine' ? [{ key: 'elapsed', label: 'Elapsed', render: (r: ExRow) => <LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} /> }] : []), ...tail];
   return (

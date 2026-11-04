@@ -1,5 +1,12 @@
 # Changes
 
+## A lighter shell, and more in Messages
+
+- The app uses a pale page, white rounded cards, an indigo menu and magenta action buttons. Status and priority show as soft coloured tags. People show as initials on a coloured circle, the same colour every time, with a green dot when they have been active in the last couple of minutes.
+- Messages reads as a conversation: your notes on the right, theirs on the left, with faces, an unread dot, and a paperclip for files. A work order linked to a message shows its number, part, status and supplier. An emoji can be added from the picker, typed as :smile:, or tapped onto a message.
+- Files on a message stay in the same file storage as the rest of the app, under messages/. Pictures show in the thread. Only the people in the conversation, and someone reviewing conversations, can open a file. The audit trail records who attached it.
+- Printed forms and chargeback PDFs are unchanged.
+
 ## Messages between people
 
 - Messages is in the left menu, with a count of conversations that still have something you have not opened. The list is newest first, unread rows are highlighted, and each row shows the last message.

@@ -1,5 +1,4 @@
 import { Box, Chip } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
 
 const colors: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info' | 'primary' | 'secondary'> = {
   Draft: 'default', InReview: 'warning', Approved: 'info', Effective: 'success', Active: 'success', Superseded: 'default', Obsolete: 'error',
@@ -13,15 +12,22 @@ const labels: Record<string, string> = { InReview: 'In review', InProgress: 'In 
 
 /** Soft tinted status pill with a dot in the status colour. */
 export const StatusChip = ({ status }: { status: string }) => {
-  const t = useTheme();
   const c = colors[status] ?? 'default';
-  const dark = t.palette.mode === 'dark';
-  const tone = c === 'default' ? (dark ? '#A8B3C2' : '#6B7790') : t.palette[c].main;
-  // text one step darker (lighter in dark mode) than the dot so it stays readable on the tint
-  const ink = c === 'default' ? (dark ? '#C2CBD8' : '#556179') : dark ? t.palette[c].light : t.palette[c].dark;
-  return <Chip size="small" label={labels[status] ?? status} icon={<Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: tone, ml: '8px !important' }} />}
-    sx={{ bgcolor: alpha(tone, 0.12), color: ink, border: `1px solid ${alpha(tone, 0.2)}`, fontWeight: 700 }} />;
+  return <Chip size="small" color={c} label={labels[status] ?? status} icon={<Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'currentColor', ml: '8px !important' }} />} />;
 };
+
+const priorityColor = (value: string): 'default' | 'success' | 'warning' | 'error' | 'info' => {
+  const s = value.toLowerCase();
+  if (/high|urgent|critical|important|fail|overdue/.test(s)) return 'error';
+  if (/medium|pending|progress|warn/.test(s)) return 'warning';
+  if (/pass|done|released|current|complete|active|ok/.test(s)) return 'success';
+  if (/low|info/.test(s)) return 'info';
+  return 'default';
+};
+
+/** Pastel priority tag. The same words land on the same colour everywhere they show up. */
+export const PriorityTag = ({ value }: { value?: string | null }) =>
+  value ? <Chip size="small" color={priorityColor(value)} label={value} /> : <span>—</span>;
 
 /** The date format chosen in settings ("auto" follows the browser). Set once preferences load. */
 let dateFormat = (() => { try { return localStorage.getItem('sqf.dateFormat') ?? 'auto'; } catch { return 'auto'; } })();

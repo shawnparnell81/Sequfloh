@@ -35,10 +35,11 @@ export function ModuleWorkspace({ module, crumbs, title, subtitle, meta, actions
   const collapsed = narrow ? !peek : stored;
   const toggle = () => { if (narrow) { setPeek(!peek); return; } localStorage.setItem('sqf.menu.collapsed', stored ? '0' : '1'); setStored(!stored); };
   return (
-    <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 56px)', position: 'relative' }}>
-      {narrow && <Box sx={{ width: 48, flexShrink: 0 }} />}
-      <Box component="aside" className="sqf-no-print" sx={{ width: collapsed ? 48 : 256, flexShrink: 0, borderRight: 1, background: tk.glass.side, backdropFilter: 'blur(14px)', borderColor: tk.glass.edge, transition: 'width 150ms',
-        ...(narrow ? { position: 'absolute', top: 0, bottom: 0, left: 0, zIndex: 20, boxShadow: peek ? 6 : 0 } : {}) }}>
+    <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 64px)', position: 'relative', gap: { md: 1.5 }, p: { md: 1.5 }, alignItems: 'stretch' }}>
+      {narrow && <Box sx={{ width: 56, flexShrink: 0 }} />}
+      <Box component="aside" className="sqf-no-print" sx={{ width: collapsed ? 64 : 248, flexShrink: 0, background: tk.glass.side, border: '1px solid', borderColor: tk.glass.edge, borderRadius: '16px',
+        boxShadow: '0 1px 2px rgba(30,27,75,0.04), 0 8px 24px rgba(30,27,75,0.06)', overflow: 'auto', transition: 'width 150ms',
+        ...(narrow ? { position: 'absolute', top: 8, bottom: 8, left: 8, zIndex: 20, boxShadow: peek ? 6 : 0 } : {}) }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', px: collapsed ? 0 : 2, py: 1.5 }}>
           {!collapsed && <Typography variant="overline" color="text.secondary" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>{mod.icon}Menu</Typography>}
           <Tooltip title={collapsed ? 'Expand menu' : 'Collapse menu'}><IconButton size="small" onClick={toggle}>{collapsed ? <ChevronRight /> : <ChevronLeft />}</IconButton></Tooltip>
@@ -70,8 +71,11 @@ function SideNav({ items, compact }: { items: NavItem[]; compact: boolean }) {
         const label = messages && unread > 0 ? `${i.label}, ${unread} unread` : i.label;
         return (
           <Tooltip key={i.label} title={compact ? label : ''} placement="right"><ListItemButton component={RouterLink} to={landingOf(i, can)} selected={selected} aria-current={selected ? 'page' : undefined} aria-label={compact ? label : undefined} data-testid={`section-${i.label}`} {...(messages ? { 'data-unread-count': unread } : {})}
-            sx={{ mx: compact ? 0.5 : 1, my: 0.25, pl: compact ? 1 : 1.25, justifyContent: compact ? 'center' : undefined, borderRadius: '10px', '&.Mui-selected': { background: tk.gradient, color: '#FFFFFF', boxShadow: `0 6px 14px ${tk.glow}`, '& .MuiListItemIcon-root': { color: '#FFFFFF' }, '&:hover': { background: tk.gradient, filter: 'brightness(1.08)' } } }}>
-            {i.icon && <ListItemIcon sx={{ minWidth: compact ? 0 : 32, color: 'primary.main' }}>{messages && compact ? <Badge color="error" badgeContent={unread} invisible={unread === 0} max={99}>{i.icon}</Badge> : i.icon}</ListItemIcon>}
+            sx={{ mx: compact ? 0.75 : 1, my: 0.35, px: compact ? 1 : 1.25, justifyContent: compact ? 'center' : undefined, borderRadius: 999, color: 'text.secondary',
+              '& .MuiListItemIcon-root': { color: 'text.secondary' },
+              '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
+              '&.Mui-selected': { bgcolor: 'primary.main', color: '#FFFFFF', boxShadow: `0 6px 14px ${tk.glow}`, '& .MuiListItemIcon-root': { color: '#FFFFFF' }, '&:hover': { bgcolor: 'primary.main', filter: 'brightness(1.06)' } } }}>
+            {i.icon && <ListItemIcon sx={{ minWidth: compact ? 0 : 32 }}>{messages && compact ? <Badge color="error" badgeContent={unread} invisible={unread === 0} max={99}>{i.icon}</Badge> : i.icon}</ListItemIcon>}
             {!compact && <ListItemText primary={i.label} slotProps={{ primary: { fontSize: 13.5, fontWeight: selected ? 700 : 500 } }} />}
             {!compact && messages && unread > 0 && <Chip size="small" color="error" label={unread > 99 ? '99+' : unread} data-testid="messages-unread" sx={{ height: 20, ml: 0.5, '& .MuiChip-label': { px: 0.75, fontSize: 11, fontWeight: 700 } }} />}
           </ListItemButton></Tooltip>
@@ -94,16 +98,15 @@ function SectionMenu({ section }: { section: NavItem }) {
   const active = exact ?? pages.find((c) => !c.path.includes('?') && c.path === loc.pathname);
   return (
     <Box component="nav" aria-label={`${section.label} pages`} data-testid="section-menu" className="sqf-no-print"
-      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: { xs: 1.5, md: 3.5 }, py: 0.75, overflowX: 'auto', borderBottom: 1, borderColor: 'divider', background: tk.glass.section, backdropFilter: 'blur(14px)',
-        scrollbarWidth: 'thin' }}>
+      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: { xs: 1.5, md: 3 }, py: 1, overflowX: 'auto', scrollbarWidth: 'thin' }}>
       <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'text.secondary', mr: 1, whiteSpace: 'nowrap', display: { xs: 'none', md: 'block' } }}>{section.label}</Typography>
       {pages.map((c) => {
         const on = c === active;
         return (
           <Box key={c.path} component={RouterLink} to={c.path} aria-current={on ? 'page' : undefined} data-testid="section-page"
             sx={{ flexShrink: 0, px: 1.5, py: 0.75, borderRadius: 999, fontSize: 13, fontWeight: on ? 700 : 500, textDecoration: 'none', whiteSpace: 'nowrap',
-              color: on ? '#FFFFFF' : 'text.primary', background: on ? tk.gradient : 'transparent', boxShadow: on ? `0 4px 12px ${tk.glow}` : 'none',
-              '&:hover': { background: on ? tk.gradient : tk.glass.field }, '&:focus-visible': { outline: '2px solid #1257C4', outlineOffset: 1 } }}>
+              color: on ? '#FFFFFF' : 'text.secondary', bgcolor: on ? 'primary.main' : 'transparent', boxShadow: on ? `0 4px 12px ${tk.glow}` : 'none',
+              '&:hover': { bgcolor: on ? 'primary.main' : tk.glass.field, color: on ? '#FFFFFF' : 'text.primary' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 1 } }}>
             {c.label}
           </Box>
         );

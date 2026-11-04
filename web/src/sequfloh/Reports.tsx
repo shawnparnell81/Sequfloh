@@ -1,13 +1,14 @@
 import { setupOptions } from '../components/SetupLink';
 import { ListToolbar } from '../layout/PageHeader';
 import { FormDialogTitle } from '../components/FullScreen';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Box, Button, Dialog, DialogActions, DialogContent, Link, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../api';
 import { useUsers } from '../components/Kit';
 import { fmtDate, fmtDateTime } from '../components/Status';
+import { PersonLabel } from '../components/UserAvatar';
 import { Empty, ErrorState, Filters, Grid, Loading, Mono, PagedTable, S, SqfPage, qs, words } from './common';
 import { Stat, Stats } from './Personnel';
 
@@ -142,7 +143,7 @@ export function ExportCenterPage() {
 
 // ------------------------------------------------------------------ audit trail
 const auditViews: Record<string, string> = { system: 'System Audit Events', instructions: 'Work Instruction History', access: 'User Access History', changes: 'Record Change History', exports: 'Export History' };
-interface AuditRow { id: number; occurredAt: string; userName: string; action: string; entityType: string; entityId: string; description: string; reason?: string }
+interface AuditRow { id: number; occurredAt: string; userName: string; userId?: string | null; action: string; entityType: string; entityId: string; description: string; reason?: string }
 interface AuditDetail extends AuditRow { changes?: string; correlationId?: string; site?: string; path?: string }
 
 /** Old SEQUFLOH audit links now open the Audit Trail section of the user's own Settings page (the full trail is on the Administration page). */
@@ -182,7 +183,7 @@ export function AuditTrailSection() {
         filters={[{ key: 'action', label: 'Action', options: (q.data?.actions ?? []).map((a) => [a, words(a)]) }]} extra={<DateUserFilters v={v} set={set} />} />
       <PagedTable q={rows} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => setOpen(Number(r.id))}
         empty={'No audit events match these filters.'} cols={[
-          { key: 'occurredAt', label: 'When', sort: true, render: (r) => fmtDateTime(r.occurredAt) }, { key: 'user', label: 'Who', sort: true, render: (r) => r.userName },
+          { key: 'occurredAt', label: 'When', sort: true, render: (r) => fmtDateTime(r.occurredAt) }, { key: 'user', label: 'Who', sort: true, render: (r) => <PersonLabel id={r.userId} name={r.userName} /> },
           { key: 'action', label: 'What', sort: true, render: (r) => words(r.action) }, { key: 'description', label: 'Description' }, { key: 'reason', label: 'Reason', render: (r) => r.reason ?? '—' }]} />
       {open !== null && <AuditDetailDialog id={open} onClose={() => setOpen(null)} />}
     </Paper>
@@ -200,8 +201,8 @@ function AuditDetailDialog({ id, onClose }: { id: number; onClose: () => void })
       <DialogContent>
         {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : d && <>
           <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '160px minmax(0, 1fr)' }, gap: 1, m: 0 }}>
-            {([['When', fmtDateTime(d.occurredAt)], ['Who', d.userName], ['What', words(d.action)], ['Description', d.description], ['Reason', d.reason ?? '—'], ['Record type', words(d.entityType.replace('Sequfloh', ''))],
-              ['Site', d.site ?? '—'], ['Correlation', d.correlationId ?? '—']] as [string, string][]).map(([k, val]) => <Box key={k} sx={{ display: 'contents' }}>
+            {([['When', fmtDateTime(d.occurredAt)], ['Who', <PersonLabel id={d.userId} name={d.userName} />], ['What', words(d.action)], ['Description', d.description], ['Reason', d.reason ?? '—'], ['Record type', words(d.entityType.replace('Sequfloh', ''))],
+              ['Site', d.site ?? '—'], ['Correlation', d.correlationId ?? '—']] as [string, ReactNode][]).map(([k, val]) => <Box key={k} sx={{ display: 'contents' }}>
               <Typography component="dt" variant="body2" color="text.secondary">{k}</Typography><Typography component="dd" variant="body2" sx={{ m: 0 }}>{val}</Typography></Box>)}
           </Box>
           {d.path && <Link component={RouterLink} to={d.path} sx={{ display: 'inline-block', mt: 2 }}>Open the record</Link>}

@@ -95,7 +95,7 @@ export function ScanProvider({ children }: { children: ReactNode }) {
 export function ScanBox() {
   const { scan } = useScan();
   const [v, setV] = useState('');
-  return <TextField size="small" placeholder="Scan or type a code" value={v} onChange={(e) => setV(e.target.value)} sx={{ width: 220 }}
+  return <TextField size="small" placeholder="Scan or type a code" value={v} onChange={(e) => setV(e.target.value)} sx={{ width: { xs: 160, md: 220 }, '& .MuiOutlinedInput-root': { borderRadius: 999, bgcolor: 'action.hover' } }}
     inputProps={{ 'data-testid': 'scan-box', 'aria-label': 'Scan' }}
     InputProps={{ startAdornment: <InputAdornment position="start"><QrCodeScanner fontSize="small" /></InputAdornment> }}
     onKeyDown={(e) => { if (e.key === 'Enter' && v.trim()) { e.preventDefault(); const c = v; setV(''); void scan(c); } }} />;

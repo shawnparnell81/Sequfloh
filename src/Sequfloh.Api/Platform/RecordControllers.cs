@@ -29,7 +29,7 @@ public sealed class AuditTrailController(AppDbContext db) : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 200); page = Math.Max(1, page);
         var total = await query.CountAsync(ct);
         var items = await query.OrderByDescending(a => a.OccurredAt).ThenByDescending(a => a.Id).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(a => new { a.Id, Who = a.UserName, What = a.Action, When = a.OccurredAt, a.Description, a.EntityType, a.EntityId }).ToListAsync(ct);
+            .Select(a => new { a.Id, Who = a.UserName, WhoId = a.UserId, What = a.Action, When = a.OccurredAt, a.Description, a.EntityType, a.EntityId }).ToListAsync(ct);
         return new { total, items };
     }
 
