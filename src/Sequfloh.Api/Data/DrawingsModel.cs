@@ -59,8 +59,12 @@ public partial class AppDbContext
             e.Property(x => x.StorageKey).HasMaxLength(300);
             e.Property(x => x.Sha256).HasMaxLength(64);
             e.Property(x => x.Notes).HasMaxLength(2000);
+            e.Property(x => x.Reason).HasMaxLength(2000);
+            e.Property(x => x.ChangeReference).HasMaxLength(100);
+            e.Property(x => x.ReleasedByName).HasMaxLength(200);
             e.Property(x => x.CreatedByName).HasMaxLength(200);
             e.HasIndex(x => new { x.DrawingId, x.Revision }).IsUnique();
+            e.HasIndex(x => new { x.DrawingId, x.Status });
             e.HasOne<Drawing>().WithMany().HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Cascade);
         });
     }

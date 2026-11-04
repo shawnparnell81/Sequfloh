@@ -1,6 +1,16 @@
+using System.Text.Json.Serialization;
 using Sequfloh.Domain.Common;
 
 namespace Sequfloh.Domain.Drawings;
+
+/// <summary>Where a drawing revision sits. Pending waits for release. Current is the one in use. Superseded stays on file and is never replaced.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum DrawingRevisionStatus
+{
+    Pending = 0,
+    Current = 1,
+    Superseded = 2,
+}
 
 /// <summary>A folder of drawings, for example one per part number. Folders can hold subfolders and can be linked to a part.</summary>
 public class DrawingFolder : Entity, IAudited, IArchivable, ISiteScoped
@@ -62,5 +72,12 @@ public class DrawingRevision : Entity
     public long SizeBytes { get; set; }
     public string Sha256 { get; set; } = "";
     public string? Notes { get; set; }
+    /// <summary>Why this revision was made.</summary>
+    public string? Reason { get; set; }
+    /// <summary>Optional engineering change number or other change reference.</summary>
+    public string? ChangeReference { get; set; }
+    public DrawingRevisionStatus Status { get; set; } = DrawingRevisionStatus.Current;
+    public DateTimeOffset? ReleasedAt { get; set; }
+    public string? ReleasedByName { get; set; }
     public string CreatedByName { get; set; } = "";
 }

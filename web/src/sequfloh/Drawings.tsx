@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, Tab, Tabs, DialogActions, DialogContent, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, MenuItem, Tab, Tabs, DialogActions, DialogContent, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
 import OpenInNew from '@mui/icons-material/OpenInNew';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import Article from '@mui/icons-material/Article';
@@ -92,12 +92,14 @@ export function RecordDrawings({ recordId }: { recordId: string }) {
       <Chip size="small" label={d.attachedRevision === d.currentRevision ? `Rev ${d.currentRevision} (attached)` : `Attached rev ${d.attachedRevision} · now rev ${d.currentRevision}`}
         color={d.attachedRevision === d.currentRevision ? 'default' : 'warning'} variant="outlined" />
       <OpenDrawingButton d={d} />
+      {d.attachedRevision && d.attachedRevision !== d.currentRevision && <Button size="small" component="a" href={viewerUrl(d.id, d.attachedRevision)} target="_blank" rel="noopener">View attached rev {d.attachedRevision}</Button>}
     </Stack>)}</Stack>
   </Paper>;
 }
 
 interface Opt { id: string; label: string; extra?: string }
 interface SearchRow { id: string; title: string; drawingNumber?: string; currentRevision: string; viewable?: boolean; folder?: string; partNumber?: string; isArchived?: boolean; updatedAt?: string;
+  revisionStatus?: string; pendingRevision?: string | null;
   file?: { fileName: string; sizeBytes: number; createdAt: string } }
 
 /** Picks drawings by part number, drawing number or title. */
@@ -154,14 +156,14 @@ export function DrawingsPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
-  const folder = sp.get('folder') ?? ''; const archived = sp.get('archived') === '1'; const search = sp.get('q') ?? '';
+  const folder = sp.get('folder') ?? ''; const archived = sp.get('archived') === '1'; const search = sp.get('q') ?? ''; const revisionStatus = sp.get('status') ?? '';
   const set = (k: string, v: string) => { const n = new URLSearchParams(sp); if (v) n.set(k, v); else n.delete(k); setSp(n); };
-  const q = useQuery({ queryKey: ['drawing-folders', folder, archived], queryFn: () => get<FolderView>(`${D}/folders?${qs({ parentId: folder || undefined, archived: archived || undefined })}`) });
+  const q = useQuery({ queryKey: ['drawing-folders', folder, archived, revisionStatus], queryFn: () => get<FolderView>(`${D}/folders?${qs({ parentId: folder || undefined, archived: archived || undefined, revisionStatus: revisionStatus || undefined })}`) });
   const roots = useQuery({ queryKey: ['drawing-folders', '', archived], queryFn: () => get<FolderView>(`${D}/folders?${qs({ archived: archived || undefined })}`) });
   const family = folder ? (q.data?.path?.[0]?.id ?? (q.data?.parent && !q.data.parent.parentId ? q.data.parent.id : '')) : '';
   const everywhere = sp.get('all') === '1';
   const scope = family && !everywhere ? family : undefined;
-  const found = useQuery({ queryKey: ['drawing-search', search, scope], enabled: !!search, queryFn: () => get<SearchRow[]>(`${D}/search?${qs({ q: search, family: scope })}`) });
+  const found = useQuery({ queryKey: ['drawing-search', search, scope, revisionStatus], enabled: !!search || !!revisionStatus, queryFn: () => get<SearchRow[]>(`${D}/search?${qs({ q: search || undefined, family: scope, revisionStatus: revisionStatus || undefined })}`) });
   const familyName = roots.data?.folders.find((f) => f.id === family)?.name;
   const [text, setText] = useState(search);
   const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'import' | 'relink'>(null);
@@ -180,17 +182,23 @@ export function DrawingsPage() {
         {!here && <Button variant="outlined" onClick={() => setDlg('relink')}>Relink drawings</Button>}
       </>}>
       <Tabs value={folder && !family && q.isLoading ? false : family} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile data-testid="family-tabs" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
-        onChange={(_, id: string) => { const n = new URLSearchParams(); if (id) n.set('folder', id); if (archived) n.set('archived', '1'); if (search) n.set('q', search); if (everywhere) n.set('all', '1'); setSp(n); }}>
+        onChange={(_, id: string) => { const n = new URLSearchParams(); if (id) n.set('folder', id); if (archived) n.set('archived', '1'); if (search) n.set('q', search); if (revisionStatus) n.set('status', revisionStatus); if (everywhere) n.set('all', '1'); setSp(n); }}>
         <Tab value="" label="All" data-testid="family-tab-all" />
         {(roots.data?.folders ?? []).map((f) => <Tab key={f.id} value={f.id} label={familyLabel(f.name)} data-testid="family-tab" data-family={f.name} />)}
       </Tabs>
       <ListToolbar onSubmit={() => set('q', text.trim())}
         end={<FormControlLabel control={<Checkbox checked={archived} onChange={(_, c) => set('archived', c ? '1' : '')} />} label="Show archived" />}>
         <TextField size="small" label={family && !everywhere ? `Search ${familyLabel(familyName ?? '')} drawings` : 'Search drawings'} placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} />
-        <Button type="submit" variant="outlined">Search</Button>{search && <Button onClick={() => { setText(''); set('q', ''); }}>Clear</Button>}
+        <TextField select size="small" label="Revision status" value={revisionStatus} onChange={(e) => set('status', e.target.value)} sx={{ minWidth: 160 }} slotProps={{ select: { displayEmpty: true } }} data-testid="revision-status-filter">
+          <MenuItem value="">All statuses</MenuItem>
+          <MenuItem value="Current">Current</MenuItem>
+          <MenuItem value="Pending">Pending</MenuItem>
+          <MenuItem value="Superseded">Superseded</MenuItem>
+        </TextField>
+        <Button type="submit" variant="outlined">Search</Button>{(search || revisionStatus) && <Button onClick={() => { setText(''); const n = new URLSearchParams(sp); n.delete('q'); n.delete('status'); setSp(n); }}>Clear</Button>}
         {family && <FormControlLabel control={<Checkbox checked={everywhere} inputProps={{ 'data-testid': 'search-all-families' } as object} onChange={(_, c) => set('all', c ? '1' : '')} />} label="Search all families" />}
       </ListToolbar>
-      {search ? (found.isLoading ? <Loading /> : found.error ? <ErrorState error={found.error} /> : !found.data?.length ? <Empty text="No drawings match." /> :
+      {(search || (!folder && revisionStatus)) ? (found.isLoading ? <Loading /> : found.error ? <ErrorState error={found.error} /> : !found.data?.length ? <Empty text="No drawings match." /> :
         <DrawingTable rows={found.data} onRow={(id) => nav(`/sequfloh/drawings/d/${id}`)} withFolder />) : <>
         <Breadcrumbs sx={{ mb: SPACE.block }} data-testid="folder-crumbs">
           <Link component="button" onClick={() => setSp(archived ? { archived: '1' } : {})}>All folders</Link>
@@ -209,10 +217,11 @@ export function DrawingsPage() {
             <Link key="n" component="button" onClick={() => open(f.id)} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><FolderOutlined fontSize="small" />{f.name}</Link>,
             f.part ? <Mono key="p">{f.part.partNumber}</Mono> : '—', `${f.folders} folder${f.folders === 1 ? '' : 's'} · ${f.drawings} drawing${f.drawings === 1 ? '' : 's'}`, fmtDateTime(f.updatedAt)])} />}
           {here && v!.drawings.length > 0 && <Box sx={{ mt: 2 }}><DrawingTable rows={v!.drawings} onRow={(id) => nav(`/sequfloh/drawings/d/${id}`)} /></Box>}
-          {here && v!.drawings.length === 1 && v!.folders.length === 0 && /\.pdf$/i.test(v!.drawings[0].file?.fileName ?? '') &&
+          {here && revisionStatus && v!.drawings.length === 0 && <Empty text="No drawings with that revision status." />}
+          {here && v!.drawings.length === 1 && v!.folders.length === 0 && !revisionStatus && /\.pdf$/i.test(v!.drawings[0].file?.fileName ?? '') &&
             <Box component="iframe" title={v!.drawings[0].title} src={fileUrl(v!.drawings[0].id, undefined, true)} data-testid="folder-inline-drawing"
               sx={{ mt: 2, width: '100%', height: '75vh', border: 1, borderColor: 'divider' }} />}
-          {v!.folders.length === 0 && (!here || v!.drawings.length === 0) && <Empty text={here ? (archived ? 'Nothing archived here.' : 'This folder is empty.') : archived ? 'No archived folders.' : 'No drawing folders yet. Make one for each part number, for example.'} />}
+          {v!.folders.length === 0 && (!here || (v!.drawings.length === 0 && !revisionStatus)) && <Empty text={here ? (archived ? 'Nothing archived here.' : 'This folder is empty.') : archived ? 'No archived folders.' : 'No drawing folders yet. Make one for each part number, for example.'} />}
         </>}
       </>}
       <FolderDialog open={dlg === 'new' || dlg === 'edit'} edit={dlg === 'edit' ? here ?? undefined : undefined} parentId={dlg === 'new' ? (here?.id ?? null) : here?.parentId ?? null}
@@ -230,8 +239,9 @@ export function DrawingsPage() {
 
 function DrawingTable({ rows, onRow, withFolder }: { rows: SearchRow[]; onRow: (id: string) => void; withFolder?: boolean }) {
   const view = (d: SearchRow) => (/\.(pdf|png|jpe?g)$/i.test(d.file?.fileName ?? '') ? viewerUrl(d.id) : fileUrl(d.id));
-  return <SimpleTable head={['Drawing number', 'Title', 'Current rev', ...(withFolder ? ['Folder', 'Part'] : []), 'File', 'Updated', '']} rows={rows.map((d) => [
+  return <SimpleTable head={['Drawing number', 'Title', 'Current rev', 'Status', ...(withFolder ? ['Folder', 'Part'] : []), 'File', 'Updated', '']} rows={rows.map((d) => [
     <Link key="n" href={view(d)} target="_blank" rel="noopener" data-testid="drawing-open"><Mono>{d.drawingNumber || '—'}</Mono></Link>, d.title, <Chip key="r" size="small" label={`Rev ${d.currentRevision}`} />,
+    <Stack key="s" direction="row" gap={0.5}><Chip size="small" color="primary" variant="outlined" label={d.revisionStatus || 'Current'} />{d.pendingRevision && <Chip size="small" color="warning" label={`Pending ${d.pendingRevision}`} />}</Stack>,
     ...(withFolder ? [d.folder ?? '—', d.partNumber ?? '—'] : []), d.file ? <FileName key="f" name={d.file.fileName} sizeBytes={d.file.sizeBytes} /> : '—', fmtDateTime(d.updatedAt ?? d.file?.createdAt),
     <Button key="d" size="small" data-testid="drawing-details" onClick={() => onRow(d.id)}>Details</Button>])} />;
 }
@@ -277,9 +287,12 @@ function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open
 }
 
 
+interface RevRow { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; reason?: string; changeReference?: string; createdAt: string; uploadedBy?: string;
+  status: string; releasedAt?: string; releasedByName?: string; viewable: boolean; current: boolean; viewUrl?: string | null }
 interface DrawingDetail { id: string; title: string; drawingNumber?: string; notes?: string; currentRevision: string; isArchived: boolean; createdAt: string; updatedAt: string; canManage: boolean;
+  canRevise: boolean; canRelease: boolean; approvalRequired: boolean;
   folder: { id: string; name: string; isArchived: boolean; part?: FolderRow['part'] }; parts: { id: string; partNumber: string; name: string; numbers?: string }[];
-  revisions: { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; createdAt: string; viewable: boolean; current: boolean; viewUrl?: string | null }[] }
+  revisions: RevRow[] }
 
 export function DrawingPage() {
   const { id } = useParams();
@@ -288,6 +301,7 @@ export function DrawingPage() {
   const [tab, setTab] = useState('revisions');
   const [dlg, setDlg] = useState<null | 'rev' | 'edit' | 'parts'>(null);
   const [confirm, setConfirm] = useState(false);
+  const [releaseRev, setReleaseRev] = useState<string | null>(null);
   const d = q.data;
   const refresh = () => { qc.invalidateQueries({ queryKey: ['drawing', id] }); qc.invalidateQueries({ queryKey: ['drawings-for-part'] }); };
   return (
@@ -295,7 +309,7 @@ export function DrawingPage() {
       tabs={[{ label: 'Revisions', value: 'revisions' }]} tab={tab} onTab={setTab}
       actions={d && <RecordActions surface="drawing" edit={d.canManage && !d.isArchived && { onClick: () => setDlg('edit') }}
         print={{ href: fileUrl(d.id, undefined, true) }}
-        importNode={d.canManage && !d.isArchived && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setDlg('rev')}>New revision</Button>}
+        importNode={d.canRevise && !d.isArchived && <Button variant="contained" startIcon={<UploadFileOutlined />} onClick={() => setDlg('rev')}>New revision</Button>}
         del={{ what: `drawing ${d.drawingNumber || d.title}`, url: `${D}/${d.id}`, to: `/sequfloh/drawings?folder=${d.folder.id}`,
           extra: 'Every revision and its file is removed, and it is unlinked from parts and work orders.' }}
         more={[d.canManage && { label: d.isArchived ? 'Restore drawing' : 'Archive drawing', danger: !d.isArchived, onClick: () => setConfirm(true) }]}>
@@ -316,15 +330,22 @@ export function DrawingPage() {
           </Stack>
           {d.notes && <Typography variant="body2" sx={{ mt: 1.5, whiteSpace: 'pre-wrap' }}>{d.notes}</Typography>}
         </Paper>
-        {tab === 'revisions' && <SimpleTable head={['Revision', 'File', 'Notes', 'Uploaded', '']} rows={d.revisions.map((r) => [
-          <Stack key="r" direction="row" gap={1} alignItems="center"><b>{r.revision}</b>{r.current && <Chip size="small" color="primary" label="Current" />}</Stack>,
-          <FileName key="f" name={r.fileName} sizeBytes={r.sizeBytes} />, r.notes ?? '—', fmtDateTime(r.createdAt),
-          <Stack key="a" direction="row" gap={1}>{r.viewable && <Button size="small" component="a" href={viewerUrl(d.id, r.revision)} target="_blank" rel="noopener">View</Button>}
+        {d.revisions.some((r) => r.status === 'Pending') && <Alert severity="info" sx={{ mb: 2 }} data-testid="pending-revision">
+          Revision {d.revisions.find((r) => r.status === 'Pending')?.revision} is pending release. The current revision stays {d.currentRevision} until it is released.</Alert>}
+        {tab === 'revisions' && <Box data-testid="revision-history"><SimpleTable head={['Revision', 'Date', 'Uploaded by', 'Reason', 'Status', 'File', '']} rows={d.revisions.map((r) => [
+          <b key="r">{r.revision}</b>, fmtDateTime(r.createdAt), r.uploadedBy || '—',
+          <Box key="why"><span>{r.reason || '—'}</span>{r.changeReference && <Typography variant="caption" display="block" color="text.secondary">{r.changeReference}</Typography>}</Box>,
+          <Chip key="s" size="small" color={r.status === 'Current' ? 'primary' : r.status === 'Pending' ? 'warning' : 'default'} label={r.status} />,
+          <FileName key="f" name={r.fileName} sizeBytes={r.sizeBytes} />,
+          <Stack key="a" direction="row" gap={1}>{r.viewable && <Button size="small" component="a" href={viewerUrl(d.id, r.current ? undefined : r.revision)} target="_blank" rel="noopener">View</Button>}
             <Button size="small" component="a" href={fileUrl(d.id, r.revision)}>Download</Button>
-            <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file for this revision is removed." /></Stack>])} />}
+            {d.canRelease && r.status === 'Pending' && <Button size="small" variant="contained" data-testid="release-revision" onClick={() => setReleaseRev(r.revision)}>Release</Button>}
+            <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file for this revision is removed." /></Stack>])} /></Box>}
         <RevisionDialog open={dlg === 'rev'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <EditDialog open={dlg === 'edit'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <LinkPartsDialog open={dlg === 'parts'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
+        <Confirm open={!!releaseRev} title={`Release revision ${releaseRev ?? ''}`} confirm="Release" text={`Revision ${releaseRev ?? ''} becomes the current revision. Revision ${d.currentRevision} is marked superseded and its file is kept.`}
+          onClose={() => setReleaseRev(null)} onConfirm={async () => { await post(`${D}/${d.id}/revisions/${encodeURIComponent(releaseRev!)}/release`); setReleaseRev(null); refresh(); }} />
         <Confirm open={confirm} title={d.isArchived ? 'Restore drawing' : 'Archive drawing'} confirm={d.isArchived ? 'Restore' : 'Archive'} danger={!d.isArchived}
           text={d.isArchived ? 'The drawing shows in its folder and in search again.' : 'The drawing is hidden from its folder, search and parts. Nothing is deleted.'}
           onClose={() => setConfirm(false)} onConfirm={async () => { await post(`${D}/${d.id}/archive`, { archived: !d.isArchived }); refresh(); }} />
@@ -335,22 +356,25 @@ export function DrawingPage() {
 
 const nextRev = (r: string) => (/^[A-Y]$/.test(r) ? String.fromCharCode(r.charCodeAt(0) + 1) : /^\d+$/.test(r) ? String(Number(r) + 1) : '');
 function RevisionDialog({ open, d, onClose, onSaved }: { open: boolean; d: DrawingDetail; onClose: () => void; onSaved: () => void }) {
-  const [file, setFile] = useState<File | null>(null); const [rev, setRev] = useState(''); const [notes, setNotes] = useState(''); const [err, setErr] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null); const [rev, setRev] = useState(''); const [reason, setReason] = useState(''); const [ecn, setEcn] = useState(''); const [err, setErr] = useState<string | null>(null);
   const save = async () => {
     setErr(null);
-    const fd = new FormData(); fd.append('file', file!); fd.append('revision', rev); fd.append('notes', notes);
+    const fd = new FormData(); fd.append('file', file!); fd.append('revision', rev); fd.append('reason', reason); fd.append('changeReference', ecn);
     try { await post(`${D}/${d.id}/revisions`, fd); onSaved(); onClose(); } catch (e) { setErr((e as Error).message); }
   };
-  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setFile(null); setRev(nextRev(d.currentRevision)); setNotes(''); setErr(null); } }}>
+  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setFile(null); setRev(nextRev(d.revisions[0]?.revision || d.currentRevision)); setReason(''); setEcn(''); setErr(null); } }}>
     <FormDialogTitle>New revision of {label(d)}</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
       {err && <Alert severity="error">{err}</Alert>}
-      <Typography variant="body2" color="text.secondary">Revision {d.currentRevision} and earlier stay in the history.</Typography>
+      <Typography variant="body2" color="text.secondary">{d.approvalRequired
+        ? `Revision ${d.currentRevision} stays current until this one is released. The earlier file is kept.`
+        : `Revision ${d.currentRevision} is marked superseded and stays in the history. The earlier file is kept.`}</Typography>
       <Button variant="outlined" component="label">{file ? file.name : 'Choose file'}<input hidden type="file" accept={ACCEPT} data-testid="revision-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button>
       <TextField label="Revision" required value={rev} onChange={(e) => setRev(e.target.value.toUpperCase())} />
-      <TextField label="What changed" multiline minRows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <TextField label="Reason for change" required multiline minRows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <TextField label="Change reference" value={ecn} onChange={(e) => setEcn(e.target.value)} helperText="Optional. An ECN or other change number." />
     </Stack></DialogContent>
-    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={!file || !rev.trim()}>Upload revision</Button></DialogActions>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={!file || !rev.trim() || !reason.trim()}>{d.approvalRequired ? 'Submit for release' : 'Upload revision'}</Button></DialogActions>
   </Dialog>;
 }
 
@@ -387,17 +411,20 @@ export function DrawingViewer() {
   const id = window.location.pathname.split('/').pop()!;
   const rev = new URLSearchParams(window.location.search).get('revision') ?? undefined;
   const q = useQuery(drawingQuery(id));
-  const d = q.data; const r = d ? (rev ? d.revisions.find((x) => x.revision === rev) : d.revisions.find((x) => x.current)) : undefined;
+  const d = q.data; const r = d ? (rev ? d.revisions.find((x) => x.revision.toUpperCase() === rev.toUpperCase()) : d.revisions.find((x) => x.current)) : undefined;
   const isPdf = r?.fileName.toLowerCase().endsWith('.pdf');
   if (d) document.title = `${label(d)} rev ${r?.revision ?? ''}`;
   return <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
     <Stack direction="row" alignItems="center" gap={2} sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }}>
       <span data-fullscreen-viewer="drawing-viewer" style={{ display: 'contents' }}><FullScreenButton size="small" /></span>
       <Typography sx={{ fontWeight: 700 }} data-testid="viewer-title">{d ? `${label(d)} · rev ${r?.revision ?? '?'}` : 'Drawing'}</Typography>
-      {r && !r.current && <Chip size="small" color="warning" label={`Not current · current is rev ${d!.currentRevision}`} />}
       {r?.current && <Chip size="small" color="primary" label="Current revision" />}
       <Box sx={{ flex: 1 }} />{r && <Button size="small" component="a" href={fileUrl(id, r.revision)}>Download</Button>}
     </Stack>
+    {r && r.status === 'Superseded' && <Alert severity="warning" data-testid="superseded-banner" sx={{ borderRadius: 0 }}>
+      You are looking at superseded revision {r.revision}. The current revision is {d!.currentRevision}. This file is unchanged.</Alert>}
+    {r && r.status === 'Pending' && <Alert severity="info" data-testid="pending-banner" sx={{ borderRadius: 0 }}>
+      Revision {r.revision} is pending release and is not the current revision. The current revision is {d!.currentRevision}.</Alert>}
     {q.isLoading ? <Loading /> : q.error ? <Box sx={{ p: 3 }}><ErrorState error={q.error} /></Box> : !r ? <Box sx={{ p: 3 }}><Empty text="That revision was not found." /></Box> :
       !r.viewable ? <Box sx={{ p: 3 }}><Empty text="This file type does not open in the browser. Use Download." /></Box> :
       isPdf ? <Box component="iframe" title="Drawing" src={r.viewUrl ?? fileUrl(id, r.revision, true)} sx={{ flex: 1, border: 0, width: '100%' }} data-testid="drawing-frame" />

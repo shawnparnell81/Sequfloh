@@ -289,6 +289,10 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         db.DrawingRevisions.Remove(rev);
         var current = revs.Where(r => r != rev).Last();
         d.CurrentRevision = current.Revision;
+        current.Status = DrawingRevisionStatus.Current;
+        if (current.ReleasedAt is null) { current.ReleasedAt = DateTimeOffset.UtcNow; current.ReleasedByName = me.UserName; }
+        foreach (var other in revs.Where(r => r != rev && r.Id != current.Id && r.Status == DrawingRevisionStatus.Current))
+            other.Status = DrawingRevisionStatus.Superseded;
         db.AuditEntries.Add(new AuditEntry
         {
             OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Deleted", EntityType = nameof(Drawing), EntityId = d.Id, SiteId = d.SiteId,

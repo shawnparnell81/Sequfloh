@@ -14,7 +14,7 @@ namespace Sequfloh.Tests;
 public sealed class DrawingTests(TestApp app)
 {
     const string D = "/api/drawings";
-    static readonly string[] Manager = [Permissions.SequflohAccess, Permissions.SequflohViewDrawings, Permissions.SequflohManageDrawings];
+    static readonly string[] Manager = [Permissions.SequflohAccess, Permissions.SequflohViewDrawings, Permissions.SequflohManageDrawings, Permissions.SequflohReviseDrawings];
     static readonly string[] Viewer = [Permissions.SequflohAccess, Permissions.SequflohViewDrawings];
 
     /// <summary>A tiny made-up PDF (only the signature matters to the upload check).</summary>
@@ -71,7 +71,7 @@ public sealed class DrawingTests(TestApp app)
         var exe = await mgr.Http.PostAsync($"{D}/folders/{sub}/drawings", Form(Pdf("x"), "tool.exe", ("title", "x"), ("revision", "A")));
         Assert.Equal(HttpStatusCode.BadRequest, exe.StatusCode);
 
-        var dup = await mgr.Http.PostAsync($"{D}/{id}/revisions", Form(Pdf("again"), "bracket.pdf", ("revision", "A")));
+        var dup = await mgr.Http.PostAsync($"{D}/{id}/revisions", Form(Pdf("again"), "bracket.pdf", ("revision", "A"), ("reason", "Same letter")));
         Assert.Equal(HttpStatusCode.Conflict, dup.StatusCode);
         Assert.True((await mgr.Http.PostAsync($"{D}/{id}/revisions", Form(Pdf("rev b"), "bracket-b.pdf", ("revision", "B"), ("notes", "Hole moved")))).IsSuccessStatusCode);
 
@@ -79,6 +79,9 @@ public sealed class DrawingTests(TestApp app)
         Assert.Equal("B", d.Str("currentRevision"));
         var revs = d.GetProperty("revisions").EnumerateArray().Select(r => r.Str("revision")).ToList();
         Assert.Equal(["B", "A"], revs);
+        Assert.Equal("Current", d.GetProperty("revisions").EnumerateArray().First(r => r.Str("revision") == "B").Str("status"));
+        Assert.Equal("Superseded", d.GetProperty("revisions").EnumerateArray().First(r => r.Str("revision") == "A").Str("status"));
+        Assert.Equal("Hole moved", d.GetProperty("revisions").EnumerateArray().First(r => r.Str("revision") == "B").Str("reason"));
 
         var inline = await viewer.GetAsync($"{D}/{id}/file?view=true");
         Assert.Equal("application/pdf", inline.Content.Headers.ContentType?.MediaType);
@@ -163,7 +166,7 @@ public sealed class DrawingTests(TestApp app)
         var rec = (await (await planner.PostOkAsync("/api/sequfloh/tracking", new { type = "Validation", workInstructionId = wi, siteId = site, partId })).JsonAsync()).Id();
         var fai = (await (await planner.PostOkAsync("/api/sequfloh/tracking", new { type = "Fai", workInstructionId = wiFai, siteId = site, partId })).JsonAsync()).Id();
 
-        Assert.True((await mgr.Http.PostAsync($"{D}/{dwg}/revisions", Form(Pdf("b"), "housing-b.pdf", ("revision", "B")))).IsSuccessStatusCode);
+        Assert.True((await mgr.Http.PostAsync($"{D}/{dwg}/revisions", Form(Pdf("b"), "housing-b.pdf", ("revision", "B"), ("reason", "Housing change")))).IsSuccessStatusCode);
         var att = await planner.GetElAsync($"{D}/for-record/{rec}");
         var one = Assert.Single(att.EnumerateArray());
         Assert.Equal("A", one.Str("attachedRevision"));

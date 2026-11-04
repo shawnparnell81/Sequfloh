@@ -39,7 +39,7 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     const long Limit = DrawingService.MaxBytes + 64 * 1024;
 
     [HttpGet("folders"), RequirePermission(Permissions.SequflohViewDrawings)]
-    public Task<object> Folders(Guid? parentId, bool archived = false, CancellationToken ct = default) => drawings.FoldersAsync(parentId, archived, ct);
+    public Task<object> Folders(Guid? parentId, bool archived = false, string? revisionStatus = null, CancellationToken ct = default) => drawings.FoldersAsync(parentId, archived, ct, revisionStatus);
 
     [HttpPost("folders"), RequirePermission(Permissions.SequflohManageDrawings)]
     public Task<object> CreateFolder(DrawingService.FolderRequest r, CancellationToken ct) => drawings.CreateFolderAsync(r, ct);
@@ -66,7 +66,7 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     }
 
     [HttpGet("search"), RequirePermission(Permissions.SequflohViewDrawings)]
-    public Task<object> Search(string? q, Guid? family, CancellationToken ct) => drawings.SearchAsync(q, ct, family);
+    public Task<object> Search(string? q, Guid? family, string? revisionStatus, CancellationToken ct) => drawings.SearchAsync(q, ct, family, revisionStatus);
 
     [HttpGet("{id:guid}"), RequirePermission(Permissions.SequflohViewDrawings)]
     public Task<object> Get(Guid id, CancellationToken ct) => drawings.GetAsync(id, ct);
@@ -77,13 +77,17 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     [HttpPost("{id:guid}/archive"), RequirePermission(Permissions.SequflohManageDrawings)]
     public async Task<IActionResult> Archive(Guid id, ArchiveRequest r, CancellationToken ct) { await drawings.ArchiveAsync(id, r.Archived, ct); return NoContent(); }
 
-    [HttpPost("{id:guid}/revisions"), RequirePermission(Permissions.SequflohManageDrawings), RequestSizeLimit(Limit), RequestFormLimits(MultipartBodyLengthLimit = Limit)]
-    public async Task<object> UploadRevision(Guid id, IFormFile file, [FromForm] string? revision, [FromForm] string? notes, CancellationToken ct)
+    [HttpPost("{id:guid}/revisions"), RequirePermission(Permissions.SequflohReviseDrawings), RequestSizeLimit(Limit), RequestFormLimits(MultipartBodyLengthLimit = Limit)]
+    public async Task<object> UploadRevision(Guid id, IFormFile file, [FromForm] string? revision, [FromForm] string? reason, [FromForm] string? changeReference, [FromForm] string? notes, CancellationToken ct)
     {
         if (file is null || file.Length == 0) throw new Application.Abstractions.AppException("Choose a file.");
         await using var s = file.OpenReadStream();
-        return await drawings.UploadRevisionAsync(id, s, file.FileName, revision, notes, ct);
+        return await drawings.UploadRevisionAsync(id, s, file.FileName, revision, reason, changeReference, notes, ct);
     }
+
+    /// <summary>Makes a pending revision the current one. The revision it replaces is marked superseded and its file stays.</summary>
+    [HttpPost("{id:guid}/revisions/{revision}/release"), RequirePermission(Permissions.SequflohReleaseDrawings)]
+    public async Task<IActionResult> Release(Guid id, string revision, CancellationToken ct) { await drawings.ReleaseAsync(id, revision, ct); return NoContent(); }
 
     /// <summary>The file of a revision (the current one by default). PDF and images open in the browser when view=true; everything else downloads.</summary>
     [HttpGet("{id:guid}/file"), RequirePermission(Permissions.SequflohViewDrawings)]

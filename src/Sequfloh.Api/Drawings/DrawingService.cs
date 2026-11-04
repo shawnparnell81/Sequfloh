@@ -5,6 +5,7 @@ using Sequfloh.Application.Security;
 using Sequfloh.Domain.Audit;
 using Sequfloh.Domain.Drawings;
 using Sequfloh.Domain.Security;
+using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
 using Sequfloh.Infrastructure.Services;
 using Sequfloh.Platform;
@@ -58,7 +59,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
     // ---- folders ------------------------------------------------------------------------------------------------------------------
 
     /// <summary>The folders directly inside a folder (or at the top), with what they hold.</summary>
-    public async Task<object> FoldersAsync(Guid? parentId, bool archived, CancellationToken ct)
+    public async Task<object> FoldersAsync(Guid? parentId, bool archived, CancellationToken ct, string? revisionStatus = null)
     {
         object? parent = null; List<object> path = [];
         if (parentId is { } pid)
@@ -84,7 +85,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
                 Drawings = db.Drawings.Count(d => d.FolderId == f.Id && !d.IsArchived),
             }).ToListAsync(ct);
         var folders = rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => new { r.Id, r.Name, r.IsArchived, r.UpdatedAt, r.Part, r.Folders, r.Drawings }).ToList();
-        var drawings = parentId is null ? [] : await DrawingRowsAsync(db.Drawings.Where(d => d.FolderId == parentId && d.IsArchived == archived), scope, ct);
+        var drawings = parentId is null ? [] : await DrawingRowsAsync(ByStatus(db.Drawings.Where(d => d.FolderId == parentId && d.IsArchived == archived), revisionStatus), scope, ct);
         var canCreate = parentId is null ? await access.HasPermissionAsync(UserId, Permissions.SequflohManageDrawings, ct) : false;
         return new { Parent = parent, Path = path, Folders = folders, Drawings = drawings, CanCreate = canCreate };
     }
@@ -165,20 +166,45 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
                 PartNumber = db.DrawingFolders.Where(f => f.Id == d.FolderId).SelectMany(f => db.Parts.Where(p => p.Id == f.PartId).Select(p => p.PartNumber)).FirstOrDefault()
                     ?? db.DrawingPartLinks.Where(l => l.DrawingId == d.Id).SelectMany(l => db.Parts.Where(p => p.Id == l.PartId).Select(p => p.PartNumber)).OrderBy(x => x).FirstOrDefault(),
                 File = db.DrawingRevisions.Where(v => v.DrawingId == d.Id && v.Revision == d.CurrentRevision).Select(v => new { v.FileName, v.SizeBytes, v.CreatedAt }).FirstOrDefault(),
+                RevisionStatus = db.DrawingRevisions.Where(v => v.DrawingId == d.Id && v.Revision == d.CurrentRevision).Select(v => (DrawingRevisionStatus?)v.Status).FirstOrDefault(),
+                PendingRevision = db.DrawingRevisions.Where(v => v.DrawingId == d.Id && v.Status == DrawingRevisionStatus.Pending).OrderByDescending(v => v.CreatedAt).Select(v => v.Revision).FirstOrDefault(),
             }).ToListAsync(ct);
-        return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new { r.Id, r.Title, r.DrawingNumber, r.CurrentRevision, r.FolderId, r.Folder, r.PartNumber, r.IsArchived, r.UpdatedAt, r.File }).ToList();
+        return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new
+        {
+            r.Id, r.Title, r.DrawingNumber, r.CurrentRevision, r.FolderId, r.Folder, r.PartNumber, r.IsArchived, r.UpdatedAt, r.File,
+            RevisionStatus = (r.RevisionStatus ?? DrawingRevisionStatus.Current).ToString(), r.PendingRevision,
+        }).ToList();
+    }
+
+    /// <summary>Keeps drawings whose revision history matches a status: Current is the revision in use, Pending is waiting for release, Superseded has an earlier file still on record.</summary>
+    IQueryable<Drawing> ByStatus(IQueryable<Drawing> q, string? revisionStatus)
+    {
+        if (string.IsNullOrWhiteSpace(revisionStatus)) return q;
+        if (!Enum.TryParse<DrawingRevisionStatus>(revisionStatus.Trim(), true, out var status) || !Enum.IsDefined(status))
+            throw new AppException("Revision status must be Current, Pending or Superseded.");
+        return status switch
+        {
+            DrawingRevisionStatus.Pending => q.Where(d => db.DrawingRevisions.Any(v => v.DrawingId == d.Id && v.Status == DrawingRevisionStatus.Pending)),
+            DrawingRevisionStatus.Superseded => q.Where(d => db.DrawingRevisions.Any(v => v.DrawingId == d.Id && v.Status == DrawingRevisionStatus.Superseded)),
+            _ => q.Where(d => db.DrawingRevisions.Any(v => v.DrawingId == d.Id && v.Revision == d.CurrentRevision && v.Status == DrawingRevisionStatus.Current)),
+        };
     }
 
     /// <summary>Finds drawings by any number of a part (OR #, DWG # and every cross-reference number such as NAPA, DMA, Cross or JH; a linked part, the folder's part or the folder name), drawing number or title. Archived drawings and folders are left out. With a family (a top-level folder) only that folder and the folders under it are searched.</summary>
-    public async Task<object> SearchAsync(string? q, CancellationToken ct, Guid? family = null)
+    public async Task<object> SearchAsync(string? q, CancellationToken ct, Guid? family = null, string? revisionStatus = null)
     {
         var scope = await ScopeAsync(ct);
-        if (scope.IsEmpty || string.IsNullOrWhiteSpace(q)) return Array.Empty<object>();
-        var t = "%" + q.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+        if (scope.IsEmpty || (string.IsNullOrWhiteSpace(q) && string.IsNullOrWhiteSpace(revisionStatus))) return Array.Empty<object>();
         var live = db.DrawingFolders.Where(f => !f.IsArchived);
-        var query = db.Drawings.Where(d => !d.IsArchived && live.Any(f => f.Id == d.FolderId) && (EF.Functions.ILike(d.Title, t) || EF.Functions.ILike(d.DrawingNumber ?? "", t)
-            || db.DrawingFolders.Any(f => f.Id == d.FolderId && (EF.Functions.ILike(f.Name, t) || db.Parts.Any(p => p.Id == f.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t)))))
-            || db.DrawingPartLinks.Any(l => l.DrawingId == d.Id && db.Parts.Any(p => p.Id == l.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t))))));
+        var query = db.Drawings.Where(d => !d.IsArchived && live.Any(f => f.Id == d.FolderId));
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var t = "%" + q.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+            query = query.Where(d => EF.Functions.ILike(d.Title, t) || EF.Functions.ILike(d.DrawingNumber ?? "", t)
+                || db.DrawingFolders.Any(f => f.Id == d.FolderId && (EF.Functions.ILike(f.Name, t) || db.Parts.Any(p => p.Id == f.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t)))))
+                || db.DrawingPartLinks.Any(l => l.DrawingId == d.Id && db.Parts.Any(p => p.Id == l.PartId && (EF.Functions.ILike(p.PartNumber, t) || EF.Functions.ILike(p.Name, t) || EF.Functions.ILike(p.DrawingNumber ?? "", t) || EF.Functions.ILike(p.AttributeText ?? "", t)))));
+        }
+        query = ByStatus(query, revisionStatus);
         if (family is Guid root)
         {
             var all = await db.DrawingFolders.AsNoTracking().Select(f => new { f.Id, f.ParentId }).ToListAsync(ct);
@@ -206,15 +232,20 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var folder = await db.DrawingFolders.AsNoTracking().Where(f => f.Id == d.FolderId).Select(f => new { f.Id, f.Name, f.IsArchived,
             Part = db.Parts.Where(p => p.Id == f.PartId).Select(p => new { p.Id, p.PartNumber, p.Name }).FirstOrDefault() }).FirstAsync(ct);
         var revisions = await db.DrawingRevisions.AsNoTracking().Where(v => v.DrawingId == id).OrderByDescending(v => v.CreatedAt)
-            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt, v.StorageKey }).ToListAsync(ct);
+            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.Reason, v.ChangeReference, v.Status, v.CreatedAt, v.CreatedByName, v.ReleasedAt, v.ReleasedByName, v.StorageKey }).ToListAsync(ct);
         var canManage = await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, d.SiteId, d.DepartmentId, ct);
+        var canRevise = await access.CanAccessAsync(UserId, Permissions.SequflohReviseDrawings, d.SiteId, d.DepartmentId, ct);
+        var canRelease = await access.CanAccessAsync(UserId, Permissions.SequflohReleaseDrawings, d.SiteId, d.DepartmentId, ct);
+        var approvalRequired = await ApprovalRequiredAsync(ct);
         var parts = (await db.DrawingPartLinks.AsNoTracking().Where(l => l.DrawingId == id).Join(db.Parts, l => l.PartId, p => p.Id, (l, p) => new { p.Id, p.PartNumber, p.Name, p.DrawingNumber, p.Attributes })
             .OrderBy(p => p.PartNumber).ToListAsync(ct)).Select(p => new { p.Id, p.PartNumber, p.Name, Numbers = PartNumbers(p.PartNumber, p.DrawingNumber, p.Attributes) }).ToList();
         return new
         {
-            d.Id, d.Title, d.DrawingNumber, d.Notes, d.CurrentRevision, d.IsArchived, d.CreatedAt, d.UpdatedAt, Folder = folder, CanManage = canManage, Parts = parts,
-            Revisions = revisions.Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.CreatedAt,
-                Viewable = Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()), Current = v.Revision == d.CurrentRevision,
+            d.Id, d.Title, d.DrawingNumber, d.Notes, d.CurrentRevision, d.IsArchived, d.CreatedAt, d.UpdatedAt, Folder = folder, CanManage = canManage, CanRevise = canRevise, CanRelease = canRelease,
+            ApprovalRequired = approvalRequired, Parts = parts,
+            Revisions = revisions.Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, Reason = v.Reason ?? v.Notes, v.ChangeReference, v.CreatedAt,
+                UploadedBy = v.CreatedByName, Status = v.Status.ToString(), v.ReleasedAt, v.ReleasedByName,
+                Viewable = Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()), Current = v.Status == DrawingRevisionStatus.Current,
                 // with bucket storage the viewer loads the file from this address directly instead of going through the file link first
                 ViewUrl = v.SizeBytes <= MaxBytes && Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()) ? storage.ViewUrl(v.StorageKey, v.FileName, v.ContentType, true, TimeSpan.FromMinutes(15)) : null }),
         };
@@ -242,22 +273,75 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         return new { d.Id, d.Title };
     }
 
-    /// <summary>Adds a new revision; the earlier ones are kept.</summary>
-    public async Task<object> UploadRevisionAsync(Guid id, Stream content, string fileName, string? revision, string? notes, CancellationToken ct)
+    /// <summary>
+    /// Adds a new revision. The earlier file stays where it is. When drawing approval is on, the new revision waits as Pending and the current one does not change
+    /// until it is released. Otherwise the new revision becomes current and the previous one is superseded.
+    /// </summary>
+    public async Task<object> UploadRevisionAsync(Guid id, Stream content, string fileName, string? revision, string? reason, string? changeReference, string? notes, CancellationToken ct)
     {
-        var d = await DrawingAsync(id, Permissions.SequflohManageDrawings, ct);
+        var d = await DrawingAsync(id, Permissions.SequflohReviseDrawings, ct);
         if (d.IsArchived) throw new AppException("The drawing is archived. Restore it first.");
         var (bytes, name, ext) = await ReadFileAsync(content, fileName, ct);
         var rev = Revision(revision);
+        var why = Clean(string.IsNullOrWhiteSpace(reason) ? notes : reason, 2000, "the reason for the change");
+        var ecn = Clean(changeReference, 100, "the change reference", false);
+        if (ecn.Length == 0) ecn = null;
         if (await db.DrawingRevisions.AnyAsync(v => v.DrawingId == id && v.Revision == rev, ct)) throw new ConflictException($"Revision {rev} is already uploaded. Use the next revision letter.");
+        var approval = await ApprovalRequiredAsync(ct);
         var previous = d.CurrentRevision;
+        var ecnText = ecn is null ? "" : $" Change reference: {ecn}.";
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await StoreRevisionAsync(d, rev, bytes, name, ext, Clean(notes, 2000, "revision notes", false) is { Length: > 0 } n ? n : null, ct);
-        d.CurrentRevision = rev;
-        Audit(d.Id, d.SiteId, "Uploaded revision", $"Uploaded {d.AuditLabel} revision {rev} ({name}); revision {previous} is kept in the history");
+        if (approval)
+        {
+            if (await db.DrawingRevisions.AnyAsync(v => v.DrawingId == id && v.Status == DrawingRevisionStatus.Pending, ct))
+                throw new ConflictException("A revision is already waiting to be released.");
+            await StoreRevisionAsync(d, rev, bytes, name, ext, why, ct, DrawingRevisionStatus.Pending, why, ecn);
+            Audit(d.Id, d.SiteId, "Submitted revision", $"Submitted {d.AuditLabel} revision {rev} ({name}) for release. Reason: {why}.{ecnText} Revision {previous} stays current until this one is released. The earlier file is kept.");
+        }
+        else
+        {
+            await SupersedeCurrentAsync(d.Id, ct);
+            await StoreRevisionAsync(d, rev, bytes, name, ext, why, ct, DrawingRevisionStatus.Current, why, ecn);
+            d.CurrentRevision = rev;
+            Audit(d.Id, d.SiteId, "Uploaded revision", $"Uploaded {d.AuditLabel} revision {rev} ({name}); revision {previous} is kept in the history. Reason: {why}.{ecnText}");
+        }
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return new { Revision = rev };
+        return new { Revision = rev, Status = approval ? nameof(DrawingRevisionStatus.Pending) : nameof(DrawingRevisionStatus.Current) };
+    }
+
+    /// <summary>Releases a pending revision. It becomes the current revision and the one that was current is superseded. The earlier file is not moved or removed.</summary>
+    public async Task ReleaseAsync(Guid id, string revision, CancellationToken ct)
+    {
+        var d = await DrawingAsync(id, Permissions.SequflohReleaseDrawings, ct);
+        if (d.IsArchived) throw new AppException("The drawing is archived. Restore it first.");
+        var rev = Revision(revision);
+        var v = await db.DrawingRevisions.FirstOrDefaultAsync(x => x.DrawingId == id && x.Revision == rev, ct) ?? throw new NotFoundException("Revision");
+        if (v.Status != DrawingRevisionStatus.Pending) throw new ConflictException($"Revision {rev} is {v.Status} and cannot be released.");
+        var previous = d.CurrentRevision;
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await SupersedeCurrentAsync(id, ct);
+        v.Status = DrawingRevisionStatus.Current;
+        v.ReleasedAt = DateTimeOffset.UtcNow;
+        v.ReleasedByName = me.UserName;
+        d.CurrentRevision = rev;
+        var why = string.IsNullOrWhiteSpace(v.Reason) ? "" : $" Reason: {v.Reason}.";
+        var ecn = string.IsNullOrWhiteSpace(v.ChangeReference) ? "" : $" Change reference: {v.ChangeReference}.";
+        Audit(d.Id, d.SiteId, "Released revision", $"Released {d.AuditLabel} revision {rev} ({v.FileName}). It is now the current revision and revision {previous} is superseded. The earlier file is kept.{why}{ecn}");
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    async Task<bool> ApprovalRequiredAsync(CancellationToken ct)
+    {
+        var json = await db.SequflohSettings.AsNoTracking().Select(s => s.Numbering).FirstOrDefaultAsync(ct);
+        return SequflohJson.Read<NumberingSettings>(json).DrawingApprovalRequired;
+    }
+
+    async Task SupersedeCurrentAsync(Guid drawingId, CancellationToken ct)
+    {
+        var rows = await db.DrawingRevisions.Where(v => v.DrawingId == drawingId && v.Status == DrawingRevisionStatus.Current).ToListAsync(ct);
+        foreach (var row in rows) row.Status = DrawingRevisionStatus.Superseded;
     }
 
     internal static string Revision(string? r)
@@ -319,10 +403,14 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".doc" => "application/msword", _ => "application/octet-stream",
     };
 
-    async Task StoreRevisionAsync(Drawing d, string rev, byte[] bytes, string name, string ext, string? notes, CancellationToken ct)
+    async Task StoreRevisionAsync(Drawing d, string rev, byte[] bytes, string name, string ext, string? notes, CancellationToken ct,
+        DrawingRevisionStatus status = DrawingRevisionStatus.Current, string? reason = null, string? changeReference = null)
     {
+        var now = DateTimeOffset.UtcNow;
+        // a new key every time, so an earlier revision's file is never overwritten
         var v = new DrawingRevision { DrawingId = d.Id, Revision = rev, FileName = name, ContentType = TypeOf(ext), SizeBytes = bytes.Length, Sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
-            Notes = notes, CreatedByName = me.UserName };
+            Notes = notes, Reason = reason, ChangeReference = changeReference, Status = status, CreatedByName = me.UserName,
+            ReleasedAt = status == DrawingRevisionStatus.Current ? now : null, ReleasedByName = status == DrawingRevisionStatus.Current ? me.UserName : null };
         v.StorageKey = $"drawings/{d.Id:N}/{v.Id:N}{ext}";
         await storage.PutAsync(v.StorageKey, new MemoryStream(bytes), v.ContentType, ct);
         db.DrawingRevisions.Add(v);
