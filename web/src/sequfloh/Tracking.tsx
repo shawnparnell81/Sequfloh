@@ -10,7 +10,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
-import { fmtDateTime } from '../components/Status';
+import { PriorityTag, fmtDateTime } from '../components/Status';
+import { PersonLabel } from '../components/UserAvatar';
 import { AssigneesPanel, TimePanel, type Person } from './TimePanel';
 import { CrewPanel } from './CrewPanel';
 import { MOVE_KEY, TimeCorrections, type MoveSelection } from './TimeCorrections';
@@ -91,7 +92,7 @@ export const trackingCols = (extra: { key: string; label: string; render?: (r: T
   ...extra,
   { key: 'assignedUser', label: 'Assigned', render: (r: TrRow) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
   { key: 'status', label: 'Status', sort: true, render: (r: TrRow) => <SqfStatus status={r.status} /> },
-  { key: 'priority', label: 'Priority', sort: true },
+  { key: 'priority', label: 'Priority', sort: true, render: (r: TrRow) => <PriorityTag value={r.priority} /> },
   { key: 'dueAt', label: 'Due', sort: true, render: (r: TrRow) => fmtDateTime(r.dueAt) },
   { key: 'elapsed', label: 'Elapsed', render: (r: TrRow) => <Elapsed r={r} /> },
 ];
@@ -352,7 +353,7 @@ type J = Record<string, unknown>;
 interface TrRecord extends J { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionId?: string | null; workInstructionNumber: string;
   workInstructionRevision: string; workInstructionTitle: string; stateVersion: number; elapsedSeconds: number; pausedSeconds: number; holdSeconds: number; steps: J[]; characteristics: J[];
   partsRows: J[]; details: Record<string, string>; assignedUserId?: string; assignees?: Person[]; createdAt: string }
-interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
+interface TrEvent { id: string; eventType: string; fromStatus?: string; toStatus?: string; createdAt: string; userId?: string | null; userName: string; reason?: string; comment?: string; activeSeconds: number; pausedSeconds: number;
   holdSeconds: number; operationId: string; assignedBefore?: string; assignedAfter?: string }
 export interface TrAction { action: string; label: string; reasonRequired: boolean }
 interface TrResponse { record: TrRecord; events: TrEvent[] | null; canViewTaskEvents?: boolean; clockedSeconds?: number; clockedPersonnel?: number; firstClockOn?: string | null; actions: TrAction[]; completionProblems: string[]; canEnter: boolean; canPlan: boolean; canQualityComment: boolean; canEngineeringComment: boolean; canAttachForm?: boolean; canChangeFormChoice?: boolean; canAssign?: boolean; canDelete?: boolean; canDeletePermanently?: boolean; serverTime: string;
@@ -704,7 +705,7 @@ function EntryTable({ title, rows, cols, entryHead, entry }: { title: string; ro
 export function TaskEvents({ events }: { events: TrEvent[] }) {
   if (events.length === 0) return <Empty text="No task events yet." />;
   return <SimpleTable head={['When', 'Event', 'Previous status', 'New status', 'User', 'Assigned before', 'Assigned after', 'Reason', 'Comment', 'Active', 'Paused']}
-    rows={events.map((e) => [fmtDateTime(e.createdAt), words(e.eventType), e.fromStatus ? words(e.fromStatus) : '—', e.toStatus ? words(e.toStatus) : '—', e.userName, e.assignedBefore ?? '—', e.assignedAfter ?? '—',
+    rows={events.map((e) => [fmtDateTime(e.createdAt), words(e.eventType), e.fromStatus ? words(e.fromStatus) : '—', e.toStatus ? words(e.toStatus) : '—', <PersonLabel id={e.userId} name={e.userName} />, e.assignedBefore ?? '—', e.assignedAfter ?? '—',
       e.reason ?? '—', e.comment ?? '—', <Mono>{fmtSeconds(e.activeSeconds)}</Mono>, <Mono>{fmtSeconds(e.pausedSeconds)}</Mono>])} />;
 }
 

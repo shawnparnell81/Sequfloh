@@ -12,6 +12,7 @@ import { useTabs } from '../tabs/Workspace';
 import { ModuleWorkspace, type Crumb } from '../layout/ModuleWorkspace';
 import { ListToolbar } from '../layout/PageHeader';
 import { mono } from '../theme';
+import { UserAvatar } from '../components/UserAvatar';
 
 export const S = '/api/sequfloh';
 export const base = '/sequfloh';
@@ -82,7 +83,7 @@ export function SqfPage({ title, description, crumbs, actions, summary, tabs, ta
         <Chip size="small" color="primary" variant="outlined" label={`${c.module.displayName} · ${c.module.subtitle}`} />
         {c.organization && <Chip size="small" variant="outlined" label={c.organization} />}
         {c.sites.length > 0 && <Chip size="small" variant="outlined" label={c.sites.map((s) => s.code).join(', ')} />}
-        <Chip size="small" variant="outlined" label={`${c.user.displayName}${c.roles.length ? ' · ' + c.roles.join(', ') : ''}`} />
+        <Stack direction="row" gap={0.75} alignItems="center"><UserAvatar id={c.user.id} name={c.user.displayName} size={22} /><Chip size="small" variant="outlined" label={`${c.user.displayName}${c.roles.length ? ' · ' + c.roles.join(', ') : ''}`} /></Stack>
         {import.meta.env.DEV && <Chip size="small" color="warning" variant="outlined" label="Development" />}
         {summary && pinBtn}
       </>}
@@ -99,7 +100,7 @@ export const Loading = () => <Stack alignItems="center" sx={{ py: 6 }}><Circular
 export const ErrorState = ({ error, retry }: { error: unknown; retry?: () => void }) =>
   <Alert severity="error" action={retry && <Button color="inherit" size="small" onClick={retry}>Retry</Button>}>{(error as Error)?.message ?? 'Something went wrong.'}</Alert>;
 export const Empty = ({ text, action }: { text: string; action?: ReactNode }) =>
-  <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}><Typography color="text.secondary" sx={{ mb: action ? 2 : 0 }}>{text}</Typography>{action}</Paper>;
+  <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}><Typography sx={{ fontSize: 28, mb: 0.5 }} aria-hidden>🗂️</Typography><Typography color="text.secondary">{text}</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: action ? 2 : 0 }}>Even the busiest cell gets a quiet minute.</Typography>{action}</Paper>;
 
 /** Confirmation dialog; when a reason is required the confirm button stays disabled until one is entered. */
 export function Confirm({ open, title, text, confirm, danger, reason, reasonLabel, reasonOptions, onClose, onConfirm }: {

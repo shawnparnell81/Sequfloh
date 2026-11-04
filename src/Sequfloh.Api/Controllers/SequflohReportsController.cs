@@ -77,7 +77,7 @@ public sealed class SequflohReportsController(AppDbContext db, ModuleSupport m, 
             "action:asc" => query.OrderBy(a => a.Action).ThenByDescending(a => a.OccurredAt), "action:desc" => query.OrderByDescending(a => a.Action).ThenByDescending(a => a.OccurredAt),
             _ => query.OrderByDescending(a => a.OccurredAt),
         };
-        var paged = await Paging.PageAsync(query.Select(a => new { a.Id, a.OccurredAt, a.UserName, a.Action, a.EntityType, a.EntityId, a.Description, a.Reason }), page, pageSize, ct);
+        var paged = await Paging.PageAsync(query.Select(a => new { a.Id, a.OccurredAt, a.UserName, a.UserId, a.Action, a.EntityType, a.EntityId, a.Description, a.Reason }), page, pageSize, ct);
         var actions = await SequflohReportService.AuditView(await reports.AuditQueryAsync(ct), view).Select(a => a.Action).Distinct().OrderBy(a => a).Take(200).ToListAsync(ct);
         return new { Title = title, paged.Items, paged.Total, Actions = actions };
     }

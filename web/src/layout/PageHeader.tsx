@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Breadcrumbs, Link, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { Box, Chip, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { PageNav } from '../tabs/Workspace';
 import { SPACE } from './spacing';
@@ -23,12 +23,12 @@ export function PageHeader({ crumbs, homeLabel, title, icon, subtitle, meta, act
     <Box data-page-header sx={{ px: SPACE.pageX, pt: 3, pb: tabs ? 0 : SPACE.header - 1, color: tk.header.fg }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: SPACE.crumbs }}>
         <PageNav />
-        <Breadcrumbs separator="/" className="sqf-no-print" sx={{ fontSize: 11.5, letterSpacing: '0.04em', color: tk.header.muted, '& .MuiBreadcrumbs-separator': { mx: 0.75, color: 'divider' } }}>
-          <Link component={RouterLink} to="/sequfloh" underline="hover" sx={{ color: tk.header.muted }}>Home</Link>
+        <Stack direction="row" gap={0.75} flexWrap="wrap" className="sqf-no-print" aria-label="Breadcrumb">
+          <Chip size="small" label="Home" component={RouterLink} to="/sequfloh" clickable sx={{ bgcolor: tk.glass.field, fontWeight: 600 }} />
           {crumbs.filter((c, i) => !(i === 0 && c.label === homeLabel)).map((c, i) => c.to
-            ? <Link key={i} component={RouterLink} to={c.to} underline="hover" sx={{ color: tk.header.muted }}>{c.label}</Link>
-            : <Typography key={i} fontSize={11.5} fontWeight={600} sx={{ color: tk.header.fg }}>{c.label}</Typography>)}
-        </Breadcrumbs>
+            ? <Chip key={i} size="small" label={c.label} component={RouterLink} to={c.to} clickable sx={{ bgcolor: tk.glass.field, fontWeight: 600 }} />
+            : <Chip key={i} size="small" label={c.label} sx={{ fontWeight: 700 }} />)}
+        </Stack>
       </Box>
       {summary ? <>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>

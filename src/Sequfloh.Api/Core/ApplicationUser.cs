@@ -15,6 +15,8 @@ public class ApplicationUser
     public Guid? DepartmentId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastSignInAt { get; set; }
+    /// <summary>Last authenticated activity. A person is shown online while this is within the last couple of minutes.</summary>
+    public DateTimeOffset? LastSeenAt { get; set; }
     /// <summary>Set when an administrator gives a temporary password: the next sign-in must choose a new password first.</summary>
     public bool MustChangePassword { get; set; }
     public DateTimeOffset? PasswordChangedAt { get; set; }

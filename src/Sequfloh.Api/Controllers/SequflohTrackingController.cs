@@ -55,7 +55,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
         var canEvents = await m.CanAsync(Permissions.SequflohViewTaskEvents, x.SiteId, x.DepartmentId, ct);
         var clocked = await SequflohJobService.ClockedAsync(db, id, now, ct);
         var events = !canEvents ? null : await db.SequflohTaskEvents.AsNoTracking().Where(e => e.TrackingRecordId == id).OrderBy(e => e.CreatedAt)
-            .Select(e => new { e.Id, e.EventType, e.FromStatus, e.ToStatus, e.CreatedAt, e.UserName, e.Reason, e.Comment, e.ActiveSeconds, e.PausedSeconds, e.HoldSeconds, e.OperationId,
+            .Select(e => new { e.Id, e.EventType, e.FromStatus, e.ToStatus, e.CreatedAt, e.UserId, e.UserName, e.Reason, e.Comment, e.ActiveSeconds, e.PausedSeconds, e.HoldSeconds, e.OperationId,
                 AssignedBefore = db.Users.Where(u => u.Id == e.AssignedBeforeId).Select(u => u.DisplayName).FirstOrDefault(),
                 AssignedAfter = db.Users.Where(u => u.Id == e.AssignedAfterId).Select(u => u.DisplayName).FirstOrDefault() }).ToListAsync(ct);
         var problems = await tracking.CompletionProblemsAsync(x, ct);

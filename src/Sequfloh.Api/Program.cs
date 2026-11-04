@@ -188,6 +188,20 @@ app.Use(async (ctx, next) =>
     await next();
 });
 app.UseAuthorization();
+// a signed-in person's activity updates last-seen, at most once a minute, so avatar dots stay honest without a write on every call
+app.Use(async (ctx, next) =>
+{
+    if (ctx.User.Identity?.IsAuthenticated == true
+        && Guid.TryParse(ctx.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+        && ctx.Request.Path.StartsWithSegments("/api")
+        && !(HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Path.StartsWithSegments("/api/presence"))
+        && Sequfloh.Platform.Presence.Due(id))
+    {
+        var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
+        await db.Users.Where(u => u.Id == id).ExecuteUpdateAsync(s => s.SetProperty(u => u.LastSeenAt, DateTimeOffset.UtcNow));
+    }
+    await next();
+});
 // health check for the hosting platform; it does not touch the database so a sleeping database is not woken for nothing
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 // the running build, so signed-in pages can offer a refresh after an update; open and light like the health check

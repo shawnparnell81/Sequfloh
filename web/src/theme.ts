@@ -43,9 +43,11 @@ declare module '@mui/material/styles' {
 
 /** Accent green: deep enough for white text (4.6:1) and to sit beside the logo blue. Slate is the second form palette's edge. */
 export const GREEN = '#0E8550', GREEN_ON_DARK = '#4CC98A', SLATE = '#334155', SLATE_ON_DARK = '#9AA9BF';
+/** Form documents keep this blue so a printed form does not pick up the shell's indigo. */
+const formBlue = '#1257C4', formBlueOnDark = '#4A8FF0';
 
 /** The two built-in form palettes: 1 green and blue (checklists, investigations, plans), 2 slate and blue (certificates, reports, worksheets, registers). */
-export const formPalettes = { palette1: { edge: GREEN, accent: brand.blue }, palette2: { edge: SLATE, accent: brand.blue } } as const;
+export const formPalettes = { palette1: { edge: GREEN, accent: formBlue }, palette2: { edge: SLATE, accent: formBlue } } as const;
 export const defaultPalette = (f: FormFamily): 'palette1' | 'palette2' => (f === 'checklist' || f === 'investigation' || f === 'plan' ? 'palette1' : 'palette2');
 
 /** Options from Settings › Appearance (organization default, then the person's override). */
@@ -57,8 +59,8 @@ function familyColours(dark: boolean, forms: ThemeOptionsExtra['forms']): ShellT
   for (const f of formFamilies) {
     const p = forms?.[f];
     if (p?.palette === 'custom' && valid(p.edge) && valid(p.accent)) out[f] = { edge: lift(p.edge!), accent: lift(p.accent!) };
-    else if ((p?.palette ?? defaultPalette(f)) === 'palette1') out[f] = dark ? { edge: GREEN_ON_DARK, accent: brand.blueOnDark } : { ...formPalettes.palette1 };
-    else out[f] = dark ? { edge: SLATE_ON_DARK, accent: brand.blueOnDark } : { ...formPalettes.palette2 };
+    else if ((p?.palette ?? defaultPalette(f)) === 'palette1') out[f] = dark ? { edge: GREEN_ON_DARK, accent: formBlueOnDark } : { ...formPalettes.palette1 };
+    else out[f] = dark ? { edge: SLATE_ON_DARK, accent: formBlueOnDark } : { ...formPalettes.palette2 };
   }
   return out;
 }
@@ -72,31 +74,31 @@ function tokens(dark: boolean, main: string, accent: string | null, forms: Theme
   const hoverBg = `linear-gradient(135deg, ${green} 0%, ${main} 100%)`;
   return dark
     ? {
-        page: `radial-gradient(1100px 620px at 0% 0%, rgba(74,143,240,0.10), transparent 62%), radial-gradient(1000px 600px at 100% 0%, ${alpha(green, 0.08)}, transparent 58%), linear-gradient(180deg, #15181D 0%, #17191E 55%, #181A1D 100%)`,
+        page: `radial-gradient(900px 520px at 0% 0%, rgba(129,140,248,0.16), transparent 60%), radial-gradient(800px 480px at 100% 0%, rgba(244,114,182,0.10), transparent 55%), linear-gradient(180deg, #16141F 0%, #1A1726 100%)`,
         gradient, green, glow: 'rgba(0,0,0,0.45)',
-        glass: { side: 'rgba(30,33,39,0.7)', section: 'rgba(36,40,47,0.62)', table: 'rgba(30,33,39,0.75)', edge: 'rgba(255,255,255,0.07)', field: 'rgba(255,255,255,0.06)' },
-        bar: { bg: 'rgba(24,27,32,0.78)', fg: '#E6E9EE', muted: '#A7AFBB', activeLine: green },
-        header: { fg: '#EEF0F3', muted: '#9AA2AE' },
-        icon: { size: 52, radius: 16, hoverBg },
-        greeting: `linear-gradient(90deg, #EEF0F3 0%, ${main} 60%, ${green} 100%)`,
-        form: { radius: 14, paperPad: 4, callout: 'rgba(74,143,240,0.08)' }, families,
+        glass: { side: '#241F33', section: '#2A2540', table: '#241F33', edge: 'rgba(255,255,255,0.08)', field: 'rgba(255,255,255,0.06)' },
+        bar: { bg: '#1E1A2C', fg: '#F4F1FB', muted: '#B7B3C9', activeLine: main },
+        header: { fg: '#F4F1FB', muted: '#B7B3C9' },
+        icon: { size: 48, radius: 14, hoverBg },
+        greeting: `linear-gradient(90deg, #F4F1FB 0%, ${main} 70%, ${brand.pink} 100%)`,
+        form: { radius: 14, paperPad: 4, callout: 'rgba(165,180,252,0.10)' }, families,
       }
     : {
-        page: `radial-gradient(1100px 620px at 0% 0%, rgba(18,87,196,0.18), transparent 62%), radial-gradient(1000px 600px at 100% 0%, ${alpha(green, 0.14)}, transparent 58%), radial-gradient(900px 700px at 100% 100%, ${alpha(green, 0.07)}, transparent 60%), radial-gradient(900px 700px at 0% 100%, rgba(18,87,196,0.08), transparent 60%), linear-gradient(180deg, #EEF3FB 0%, #EFF6F3 55%, #F4F6F8 100%)`,
-        gradient, green, glow: 'rgba(18,87,196,0.24)',
-        glass: { side: 'rgba(255,255,255,0.55)', section: 'rgba(255,255,255,0.66)', table: 'rgba(255,255,255,0.7)', edge: 'rgba(255,255,255,0.9)', field: 'rgba(255,255,255,0.8)' },
-        bar: { bg: 'rgba(255,255,255,0.7)', fg: brand.charcoal, muted: '#5E6A7A', activeLine: green },
-        header: { fg: '#1B2430', muted: '#66717F' },
-        icon: { size: 52, radius: 16, hoverBg },
-        greeting: `linear-gradient(90deg, #1B2430 0%, ${main} 55%, ${green} 100%)`,
-        form: { radius: 14, paperPad: 4, callout: 'rgba(18,87,196,0.05)' }, families,
+        page: 'linear-gradient(180deg, #F4F1FB 0%, #EEF1F8 100%)',
+        gradient, green, glow: 'rgba(79,70,229,0.22)',
+        glass: { side: '#FFFFFF', section: '#FFFFFF', table: '#FFFFFF', edge: '#E6E8F2', field: '#F4F2FA' },
+        bar: { bg: '#FFFFFF', fg: '#1E1B2E', muted: '#667085', activeLine: main },
+        header: { fg: '#1E1B2E', muted: '#667085' },
+        icon: { size: 48, radius: 14, hoverBg },
+        greeting: `linear-gradient(90deg, #1E1B2E 0%, ${main} 62%, ${brand.pink} 100%)`,
+        form: { radius: 14, paperPad: 4, callout: 'rgba(79,70,229,0.06)' }, families,
       };
 }
 
 /**
- * Application theme: a light, airy shell (soft blue and green page glow, frosted top bar, side menu and panels with large radii, blue-to-green
- * module badges and soft status pills) in light and dark modes that share one structure. An organization colour from Settings › Branding
- * replaces the light-mode primary; dark mode keeps the lifted logo blue so text and links stay readable.
+ * Application theme: a pale lavender page, white rounded cards, an indigo primary and a magenta button, in light and dark modes that share one
+ * structure. An organization colour from Settings › Branding replaces the light-mode primary; dark mode keeps the lifted indigo so text stays readable.
+ * Printed pages drop the shadows and the magenta fill so a form or job report still prints as a plain document.
  */
 export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', options: ThemeOptionsExtra = {}) => {
   const dark = mode === 'dark';
@@ -104,9 +106,13 @@ export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', 
   const main = custom ?? (dark ? brand.blueOnDark : brand.blue);
   const focus = dark ? '#8DB8F7' : brand.blue;
   const tk = tokens(dark, main, valid(options.accent), options.forms);
-  const line = dark ? 'rgba(255,255,255,0.09)' : 'rgba(18,87,196,0.12)';
-  const paper = dark ? 'rgba(33,36,42,0.82)' : 'rgba(255,255,255,0.74)';
-  const solid = dark ? '#202328' : '#FFFFFF';
+  const line = dark ? 'rgba(255,255,255,0.10)' : '#E6E8F2';
+  const paper = dark ? '#241F33' : '#FFFFFF';
+  const solid = dark ? '#241F33' : '#FFFFFF';
+  const pink = brand.pink;
+  const chip = dark
+    ? { success: ['#064E3B', '#BBF7D0'], warning: ['#78350F', '#FDE68A'], error: ['#881337', '#FECDD3'], info: ['#312E81', '#C7D2FE'], primary: ['#4C1D95', '#E9D5FF'], secondary: ['#831843', '#FBCFE8'], default: ['#334155', '#E2E8F0'] }
+    : { success: ['#DCFCE7', '#166534'], warning: ['#FEF3C7', '#92400E'], error: ['#FCE7F3', '#9F1239'], info: ['#E0E7FF', '#3730A3'], primary: ['#EDE9FE', '#5B21B6'], secondary: ['#FCE7F3', '#9D174D'], default: ['#F1F5F9', '#334155'] };
   return createTheme({
     tk,
     palette: {
@@ -116,16 +122,16 @@ export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', 
         : dark
           ? { main: brand.blueOnDark, light: '#7AAEF5', dark: '#2F74D6', contrastText: '#0B1220' }
           : { main: brand.blue, light: brand.blueLight, dark: brand.blueDark, contrastText: '#FFFFFF' },
-      secondary: valid(options.accent) ? { main: tk.green } : dark ? { main: GREEN_ON_DARK, contrastText: '#0E1A14' } : { main: GREEN, dark: '#0D7547', contrastText: '#FFFFFF' },
+      secondary: { main: pink, dark: brand.pinkHover, light: '#F472B6', contrastText: '#FFFFFF' },
       background: dark
-        ? { default: '#16191E', paper: solid, sidebar: tk.glass.side, bar: '#1B1E23', band: 'rgba(255,255,255,0.04)' }
-        : { default: '#F3F6F8', paper: solid, sidebar: tk.glass.side, bar: '#F7F9FA', band: 'rgba(18,87,196,0.04)' },
-      text: dark ? { primary: '#E6E9EE', secondary: '#A7AFBB' } : { primary: '#1B2430', secondary: '#5E6A7A' },
+        ? { default: '#16141F', paper: solid, sidebar: tk.glass.side, bar: '#1E1A2C', band: 'rgba(255,255,255,0.04)' }
+        : { default: '#F4F1FB', paper: solid, sidebar: '#FFFFFF', bar: '#FFFFFF', band: 'rgba(79,70,229,0.05)' },
+      text: dark ? { primary: '#F4F1FB', secondary: '#B7B3C9' } : { primary: '#1E1B2E', secondary: '#667085' },
       divider: line,
-      success: { main: dark ? '#5DCB8B' : '#0E8550' },
-      warning: { main: dark ? '#F2B04A' : '#F08C00' },
-      error: { main: dark ? '#F27B7E' : '#E5484D' },
-      info: { main: dark ? '#7FB0FF' : '#3B82F6' },
+      success: { main: '#067647', light: '#BBF7D0', dark: '#14532D', contrastText: '#FFFFFF' },
+      warning: { main: '#92400E', light: '#FDE68A', dark: '#78350F', contrastText: '#FFFFFF' },
+      error: { main: '#9F1239', light: '#FECDD3', dark: '#881337', contrastText: '#FFFFFF' },
+      info: { main: '#3730A3', light: '#C7D2FE', dark: '#312E81', contrastText: '#FFFFFF' },
       action: dark ? { hover: alpha('#FFFFFF', 0.06), selected: alpha(brand.blueOnDark, 0.16) } : { hover: alpha(brand.blue, 0.05), selected: alpha(brand.blue, 0.1) },
     },
     shape: { borderRadius: 12 },
@@ -142,8 +148,14 @@ export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', 
     components: {
       MuiCssBaseline: {
         styleOverrides: {
-          html: { background: dark ? '#16191E' : '#F1F5F6' },
+          html: { background: dark ? '#16141F' : '#F4F1FB' },
           body: { background: tk.page, minHeight: '100vh' },
+          '@media print': {
+            'html, body': { background: '#fff !important', backgroundImage: 'none !important' },
+            '.MuiPaper-root, .MuiCard-root, .MuiAppBar-root, .MuiTableContainer-root': { boxShadow: 'none !important', backgroundImage: 'none !important', backdropFilter: 'none !important' },
+            '.MuiButton-contained': { backgroundImage: 'none !important', boxShadow: 'none !important' },
+          },
+          '@media (prefers-reduced-motion: reduce)': { '*, *::before, *::after': { animation: 'none !important', transition: 'none !important' } },
           // one visible keyboard focus ring everywhere (mouse clicks do not show it)
           ':focus-visible': { outline: `2px solid ${focus}`, outlineOffset: 2 },
           a: { color: main },
@@ -153,13 +165,13 @@ export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', 
           '.MuiChip-root': { maxWidth: '100%' },
         },
       },
-      // Frosted panels with a light edge; clickable cards lift on hover with a soft blue glow.
+      // White cards: a thin edge, a soft shadow, and a little lift when the card itself is clickable.
       MuiPaper: {
         defaultProps: { elevation: 0 },
         styleOverrides: {
-          root: { backgroundColor: paper, backgroundImage: 'none', backdropFilter: 'blur(16px) saturate(140%)', border: `1px solid ${tk.glass.edge}`,
-            boxShadow: dark ? '0 1px 0 rgba(255,255,255,0.04) inset, 0 10px 30px rgba(0,0,0,0.35)' : '0 1px 0 rgba(255,255,255,0.8) inset, 0 10px 30px rgba(32,56,120,0.08)' },
-          rounded: { borderRadius: 16 },
+          root: { backgroundColor: paper, backgroundImage: 'none', border: `1px solid ${tk.glass.edge}`,
+            boxShadow: dark ? '0 8px 24px rgba(0,0,0,0.28)' : '0 1px 2px rgba(30,27,75,0.04), 0 8px 24px rgba(30,27,75,0.06)' },
+          rounded: { borderRadius: 14 },
         },
       },
       MuiCard: {
@@ -190,11 +202,10 @@ export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', 
         defaultProps: { disableElevation: true },
         styleOverrides: {
           root: { borderRadius: 999, fontWeight: 700, paddingLeft: 18, paddingRight: 18 },
-          containedPrimary: custom ? {} : {
-            background: dark ? 'linear-gradient(135deg, #2F6FD0 0%, #1E8A57 100%)' : tk.gradient, color: '#FFFFFF',
-            textShadow: '0 1px 1px rgba(0,0,0,0.25)', boxShadow: `0 6px 16px ${alpha(main, dark ? 0.35 : 0.3)}`,
-            '&:hover': { color: '#FFFFFF', background: dark ? 'linear-gradient(135deg, #3A7DE0 0%, #24995F 100%)' : `linear-gradient(135deg, ${brand.blueHover} 0%, #0D7547 100%)` },
-            '&.Mui-disabled': { color: 'rgba(255,255,255,0.92)', background: dark ? 'linear-gradient(135deg, #2F6FD0 0%, #1E8A57 100%)' : tk.gradient, opacity: 0.55, boxShadow: 'none' },
+          containedPrimary: {
+            background: pink, color: '#FFFFFF', boxShadow: '0 6px 16px rgba(190,24,93,0.28)',
+            '&:hover': { color: '#FFFFFF', background: brand.pinkHover, transform: 'translateY(-1px)' },
+            '&.Mui-disabled': { color: 'rgba(255,255,255,0.92)', background: pink, opacity: 0.5, boxShadow: 'none' },
           },
           outlined: { backgroundColor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.7)', borderColor: alpha(main, dark ? 0.45 : 0.3) },
         },
@@ -202,14 +213,21 @@ export const makeTheme = (primary?: string | null, mode: PaletteMode = 'light', 
       MuiTableContainer: { styleOverrides: { root: { borderRadius: 16 } } },
       MuiTableCell: {
         styleOverrides: {
-          root: { borderColor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(18,87,196,0.08)', paddingTop: 12, paddingBottom: 12 },
-          head: { fontWeight: 700, color: dark ? '#9AA2AE' : '#66717F', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', backgroundColor: 'transparent', borderBottom: `1px solid ${line}` },
+          root: { borderColor: dark ? 'rgba(255,255,255,0.06)' : '#EEF0F6', paddingTop: 12, paddingBottom: 12 },
+          head: { fontWeight: 700, color: dark ? '#B7B3C9' : '#667085', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', backgroundColor: dark ? 'rgba(255,255,255,0.03)' : '#F7F6FB', borderBottom: `1px solid ${line}` },
           // sticky heads stay opaque so scrolled rows do not show through
           stickyHeader: { backgroundColor: solid },
         },
       },
-      MuiTableRow: { styleOverrides: { root: { '&.MuiTableRow-hover:hover td': { backgroundColor: alpha(tk.green, dark ? 0.08 : 0.05) } } } },
-      MuiChip: { styleOverrides: { root: { fontWeight: 700, borderRadius: 999 }, sizeSmall: { height: 22, fontSize: 11.5 } } },
+      MuiTableRow: { styleOverrides: { root: { transition: 'background-color .15s ease', '&.MuiTableRow-hover:hover td': { backgroundColor: alpha(main, dark ? 0.12 : 0.05) } } } },
+      MuiChip: { styleOverrides: {
+        root: ({ ownerState }) => {
+          const tone = chip[(ownerState.color && ownerState.color !== 'default' ? ownerState.color : 'default') as keyof typeof chip] ?? chip.default;
+          const colored = ownerState.color && ownerState.color !== 'default';
+          return { fontWeight: 700, borderRadius: 999, ...(colored ? { backgroundColor: tone[0], color: tone[1], borderColor: 'transparent' } : { backgroundColor: tone[0], color: tone[1] }) };
+        },
+        sizeSmall: { height: 22, fontSize: 11.5 },
+      } },
       MuiLink: { defaultProps: { underline: 'hover' } },
     },
   });

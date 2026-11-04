@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, Route, Routes, useLocation, useNavigate, type Location } from 'react-router-dom';
-import { AppBar, Box, Button, CircularProgress, Divider, ListItemIcon, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography } from '@mui/material';
+import { AppBar, Badge, Box, Button, CircularProgress, Divider, IconButton, InputAdornment, ListItemIcon, Menu, MenuItem, Stack, TextField, Toolbar, Tooltip, Typography } from '@mui/material';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
-import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import KeyOutlined from '@mui/icons-material/KeyOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
+import SearchOutlined from '@mui/icons-material/SearchOutlined';
+import ForumOutlined from '@mui/icons-material/ForumOutlined';
 import { useTheme } from '@mui/material/styles';
 import { useAuth, useBranding } from './auth';
 import { LoginPage, SetupPage, ChangePasswordPage } from './pages/SignIn';
@@ -14,6 +15,9 @@ import { UpdateBanner } from './components/UpdateBanner';
 
 import { ScanBox, ScanProvider } from './scan/ScanProvider';
 import { NotificationBell } from './components/NotificationBell';
+import { UserAvatar } from './components/UserAvatar';
+import { PresenceProvider } from './components/Presence';
+import { useMessageUnreadCount } from './components/MessageBadge';
 const Preferences = lazy(() => import('./pages/Account').then((m) => ({ default: m.PreferencesPage })));
 
 const SqfDrawings = lazy(() => import('./sequfloh/Drawings').then((m) => ({ default: m.DrawingsPage })));
@@ -80,23 +84,39 @@ function TopBar() {
   const nav = useNavigate();
   const loc = useLocation();
   const tk = useTheme().tk;
+  const unread = useMessageUnreadCount();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [find, setFind] = useState('');
   const atHome = loc.pathname === '/sequfloh';
+  const messages = can('messages.use') || can('messages.admin');
   return (
-    <AppBar position="sticky" color="inherit" className="sqf-no-print" sx={{ background: tk.bar.bg, backdropFilter: 'blur(14px)', borderBottom: 1, borderColor: 'divider', color: tk.bar.fg }}>
-      <Toolbar variant="dense" sx={{ minHeight: 56, gap: 1 }}>
+    <AppBar position="sticky" color="inherit" className="sqf-no-print" sx={{ background: tk.bar.bg, borderBottom: 1, borderColor: 'divider', color: tk.bar.fg, boxShadow: '0 1px 0 rgba(30,27,75,0.04)' }}>
+      <Toolbar variant="dense" sx={{ minHeight: 64, gap: 1 }}>
         <Box component={RouterLink} to="/sequfloh" sx={{ display: 'flex', alignItems: 'center', gap: 1.25, color: 'inherit', textDecoration: 'none', mr: 1 }}>
           <Box component="img" src="/favicon.svg" alt="" sx={{ width: 30, height: 30 }} />
-          <Box>
+          <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
             <Typography sx={{ fontWeight: 800, letterSpacing: '0.08em', fontSize: 15, lineHeight: 1.1 }}>SEQUFLOH</Typography>
             <Typography sx={{ fontSize: 10.5, color: tk.bar.muted, lineHeight: 1.1 }}>{branding.data?.organizationName || 'Job tracking'}</Typography>
           </Box>
         </Box>
-        <Button startIcon={<HomeOutlined />} component={RouterLink} to="/sequfloh" variant={atHome ? 'contained' : 'text'} size="small">Home</Button>
+        <TextField size="small" placeholder="Search tasks, parts, people…" value={find} onChange={(e) => setFind(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && find.trim()) nav(`/sequfloh/search?q=${encodeURIComponent(find.trim())}`); }}
+          sx={{ width: { xs: 120, md: 320 }, '& .MuiOutlinedInput-root': { borderRadius: 999, bgcolor: tk.glass.field } }}
+          inputProps={{ 'aria-label': 'Search records' }}
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined fontSize="small" /></InputAdornment> }} />
+        <Button startIcon={<HomeOutlined />} component={RouterLink} to="/sequfloh" variant="text" size="small" color={atHome ? 'primary' : 'inherit'} sx={{ display: { xs: 'none', md: 'inline-flex' }, fontWeight: atHome ? 800 : 600 }}>Home</Button>
         <Box sx={{ flex: 1 }} />
-        {can('sequfloh.access') && <ScanBox />}
+        {can('sequfloh.access') && <Box sx={{ display: { xs: 'none', sm: 'block' } }}><ScanBox /></Box>}
         <NotificationBell />
-        <Tooltip title="Your account"><Button data-testid="user-menu" onClick={(e) => setAnchor(e.currentTarget)} startIcon={<AccountCircleOutlined />} size="small" color="inherit">{me?.displayName}</Button></Tooltip>
+        {messages && <Tooltip title={unread ? `Messages, ${unread} unread` : 'Messages'}>
+          <IconButton component={RouterLink} to="/messages" color="inherit" aria-label={unread ? `Messages, ${unread} unread` : 'Messages'} data-testid="messages-button">
+            <Badge badgeContent={unread} color="error" max={99}><ForumOutlined /></Badge>
+          </IconButton>
+        </Tooltip>}
+        <Tooltip title="Your account"><Button data-testid="user-menu" onClick={(e) => setAnchor(e.currentTarget)} size="small" color="inherit" sx={{ borderRadius: 999, textTransform: 'none', gap: 1, color: 'text.primary' }}>
+          <UserAvatar id={me?.id} name={me?.displayName} size={32} />
+          <Box component="span" sx={{ display: { xs: 'none', md: 'inline' }, fontWeight: 700 }}>{me?.displayName}</Box>
+        </Button></Tooltip>
         <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
           <MenuItem disabled><Typography variant="body2">{me?.email}</Typography></MenuItem>
           <Divider />
@@ -110,7 +130,7 @@ function TopBar() {
 }
 
 function Signed({ children }: { children: ReactNode }) {
-  return <ScanProvider><TopBar /><UpdateBanner />{children}</ScanProvider>;
+  return <PresenceProvider><ScanProvider><TopBar /><UpdateBanner />{children}</ScanProvider></PresenceProvider>;
 }
 
 export function App() {

@@ -12,20 +12,26 @@ using Sequfloh.Domain.Security;
 using Sequfloh.Infrastructure.Identity;
 using Sequfloh.Infrastructure.Modules.Quality;
 using Sequfloh.Infrastructure.Persistence;
+using Sequfloh.Platform;
 
 namespace Sequfloh.Infrastructure.Modules.Messages;
 
 public sealed record MessageLinkInput(string? LinkKind, Guid? LinkId);
+public sealed record IncomingFile(string FileName, string? ContentType, byte[] Bytes);
 
 /// <summary>
 /// One-to-one and named group conversations. Who a person may message follows the same site scope as the rest of the app.
 /// A role for the whole of a main site is already treated as every site, so those people can message anyone.
 /// </summary>
-public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessService access, ICurrentUser current)
+public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessService access, ICurrentUser current, IFileStorage storage)
 {
     public const int MaxBody = 4000;
     public const int MaxTitle = 120;
+    public const long MaxFileBytes = 10 * 1024 * 1024;
+    public const int MaxFiles = 5;
     const int MaxPeople = 25;
+    public static readonly string[] Emojis = ["\uD83D\uDC4D", "\uD83D\uDC4E", "\uD83D\uDE00", "\uD83D\uDE02", "\uD83C\uDF89", "\u2705", "\uD83D\uDC40", "\uD83D\uDD25", "\uD83D\uDE4F", "\uD83D\uDCA1", "\u2764\uFE0F", "\uD83D\uDC4F", "\uD83D\uDE05", "\uD83E\uDD14", "\uD83D\uDE80"];
+    static readonly HashSet<string> FileTypes = new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".csv", ".xlsx", ".docx" };
 
     public async Task<object> UnreadCountAsync(CancellationToken ct)
     {
@@ -46,8 +52,10 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
             var like = "%" + q.Trim() + "%";
             query = query.Where(u => EF.Functions.ILike(u.DisplayName + " " + u.Email, like));
         }
-        return await query.OrderBy(u => u.DisplayName).Take(300)
-            .Select(u => new { u.Id, u.DisplayName, u.Email }).ToListAsync(ct);
+        var rows = await query.OrderBy(u => u.DisplayName).Take(300)
+            .Select(u => new { u.Id, u.DisplayName, u.Email, u.LastSeenAt }).ToListAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        return rows.Select(u => new { u.Id, u.DisplayName, u.Email, u.LastSeenAt, Online = Presence.IsOnline(u.LastSeenAt, now) });
     }
 
     public async Task<object> RecordsAsync(string? kind, string? q, CancellationToken ct)
@@ -107,10 +115,11 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
         return await ThreadAsync(id, revealDeleted: true, ct);
     }
 
-    public async Task<object> StartAsync(IReadOnlyList<Guid>? recipientIds, string? title, string? body, MessageLinkInput link, CancellationToken ct)
+    public async Task<object> StartAsync(IReadOnlyList<Guid>? recipientIds, string? title, string? body, MessageLinkInput link, CancellationToken ct, IReadOnlyList<IncomingFile>? files = null)
     {
         var scope = await RequireUseAsync(ct);
-        var text = CleanBody(body);
+        var prepared = PrepareFiles(files);
+        var text = CleanBody(body, prepared.Count > 0);
         var me = m.UserId;
         var recipients = (recipientIds ?? []).Where(id => id != me).Distinct().ToList();
         if (recipients.Count == 0) throw new AppException("Choose at least one person.");
@@ -140,31 +149,82 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
         }
         else conversation = NewConversation(true, groupTitle, recipients.Append(me));
 
-        var message = AddMessage(conversation, text, linked);
-        await TouchMineAsync(conversation.Id, ct);
-        var who = string.Join(", ", recipients.Select(id => names.GetValueOrDefault(id) ?? "someone"));
-        var place = group ? $"group \"{groupTitle}\"" : "a conversation with " + who;
-        var sentence = group
-            ? "Started " + place + " with " + who + " and sent: " + Quote(text)
-            : "Sent a message in " + place + ": " + Quote(text);
-        Audit(message, "MessageSent", sentence + LinkedWords(linked), await HomeSiteAsync(ct));
-        await db.SaveChangesAsync(ct);
+        var message = AddMessage(conversation, text, linked, PreviewText(text, prepared));
+        List<string> stored = [];
+        try
+        {
+            stored = await StoreFilesAsync(message, prepared, ct);
+            await TouchMineAsync(conversation.Id, ct);
+            var who = string.Join(", ", recipients.Select(id => names.GetValueOrDefault(id) ?? "someone"));
+            var place = group ? $"group \"{groupTitle}\"" : "a conversation with " + who;
+            var said = text.Length == 0 ? "" : ": " + Quote(text);
+            var sentence = group
+                ? "Started " + place + " with " + who + (text.Length == 0 ? "" : " and sent: " + Quote(text))
+                : "Sent a message in " + place + said;
+            Audit(message, "MessageSent", sentence + FileWords(prepared) + LinkedWords(linked), await HomeSiteAsync(ct));
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            await ForgetFilesAsync(stored);
+            throw;
+        }
         return new { Id = conversation.Id, MessageId = message.Id, conversation.IsGroup };
     }
 
-    public async Task<object> ReplyAsync(Guid conversationId, string? body, MessageLinkInput link, CancellationToken ct)
+    public async Task<object> ReplyAsync(Guid conversationId, string? body, MessageLinkInput link, CancellationToken ct, IReadOnlyList<IncomingFile>? files = null)
     {
         await RequireUseAsync(ct);
+        var prepared = PrepareFiles(files);
         var conversation = await OpenMemberAsync(conversationId, ct);
-        var text = CleanBody(body);
+        var text = CleanBody(body, prepared.Count > 0);
         var linked = await ResolveLinkAsync(link, ct);
-        var message = AddMessage(conversation, text, linked);
-        await TouchMineAsync(conversation.Id, ct);
-        var others = await OtherNamesAsync(conversation.Id, ct);
-        var place = conversation.IsGroup ? $"group \"{conversation.Title}\"" : "a conversation with " + string.Join(" and ", others);
-        Audit(message, "MessageSent", "Sent a message in " + place + ": " + Quote(text) + LinkedWords(linked), await HomeSiteAsync(ct));
-        await db.SaveChangesAsync(ct);
+        var message = AddMessage(conversation, text, linked, PreviewText(text, prepared));
+        List<string> stored = [];
+        try
+        {
+            stored = await StoreFilesAsync(message, prepared, ct);
+            await TouchMineAsync(conversation.Id, ct);
+            var others = await OtherNamesAsync(conversation.Id, ct);
+            var place = conversation.IsGroup ? $"group \"{conversation.Title}\"" : "a conversation with " + string.Join(" and ", others);
+            var said = text.Length == 0 ? "" : ": " + Quote(text);
+            Audit(message, "MessageSent", "Sent a message in " + place + said + FileWords(prepared) + LinkedWords(linked), await HomeSiteAsync(ct));
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            await ForgetFilesAsync(stored);
+            throw;
+        }
         return new { Id = message.Id, ConversationId = conversation.Id };
+    }
+
+    public async Task ToggleReactionAsync(Guid messageId, string? emoji, CancellationToken ct)
+    {
+        await RequireUseAsync(ct);
+        var message = await db.Messages.FirstOrDefaultAsync(x => x.Id == messageId, ct) ?? throw new NotFoundException("Message");
+        if (!await IsMemberAsync(message.ConversationId, m.UserId, ct)) throw new NotFoundException("Message");
+        if (message.DeletedAt is not null) throw new AppException("That message was deleted.");
+        var face = (emoji ?? "").Trim();
+        if (!Emojis.Contains(face)) throw new AppException("Pick an emoji from the list.");
+        var mine = m.UserId;
+        var existing = await db.MessageReactions.FirstOrDefaultAsync(r => r.MessageId == messageId && r.UserId == mine && r.Emoji == face, ct);
+        if (existing is null) db.MessageReactions.Add(new MessageReaction { MessageId = messageId, UserId = mine, Emoji = face });
+        else db.MessageReactions.Remove(existing);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<(Stream Stream, string ContentType, string FileName)> OpenFileAsync(Guid id, CancellationToken ct)
+    {
+        var file = await db.MessageAttachments.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id, ct) ?? throw new NotFoundException("File");
+        var message = await db.Messages.AsNoTracking().FirstAsync(x => x.Id == file.MessageId, ct);
+        var member = await IsMemberAsync(message.ConversationId, m.UserId, ct);
+        var scope = await access.GetScopeAsync(m.UserId, Permissions.MessagesAdmin, ct);
+        var admin = !scope.IsEmpty && await AdminCanSeeAsync(message.ConversationId, scope, ct);
+        if (!member && !admin) throw new NotFoundException("File");
+        if (message.DeletedAt is not null && !admin) throw new NotFoundException("File");
+        var stream = await storage.GetAsync(file.StorageKey, ct) ?? throw new NotFoundException("File");
+        return (stream, file.ContentType, file.FileName);
     }
 
     public async Task MarkReadAsync(Guid conversationId, CancellationToken ct)
@@ -219,7 +279,7 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
         return conversation;
     }
 
-    Message AddMessage(Conversation conversation, string text, ResolvedLink? linked)
+    Message AddMessage(Conversation conversation, string text, ResolvedLink? linked, string preview)
     {
         var message = new Message
         {
@@ -229,7 +289,7 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
         db.Messages.Add(message);
         conversation.LastMessageAt = m.Now;
         conversation.LastMessageId = message.Id;
-        conversation.LastMessagePreview = Preview(text);
+        conversation.LastMessagePreview = preview;
         return message;
     }
 
@@ -257,7 +317,7 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
         var rows = await db.Conversations.AsNoTracking().Where(c => ids.Contains(c.Id)).OrderByDescending(c => c.LastMessageAt)
             .Select(c => new { c.Id, c.Title, c.IsGroup, c.LastMessageAt, c.LastMessagePreview }).ToListAsync(ct);
         var members = await db.ConversationMembers.AsNoTracking().Where(x => ids.Contains(x.ConversationId))
-            .Join(db.Users.AsNoTracking(), x => x.UserId, u => u.Id, (x, u) => new { x.ConversationId, x.UserId, x.LastReadAt, u.DisplayName }).ToListAsync(ct);
+            .Join(db.Users.AsNoTracking(), x => x.UserId, u => u.Id, (x, u) => new { x.ConversationId, x.UserId, x.LastReadAt, u.DisplayName, u.LastSeenAt }).ToListAsync(ct);
         var unread = new HashSet<Guid>();
         if (inbox)
         {
@@ -271,10 +331,11 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
             var people = members.Where(x => x.ConversationId == c.Id).OrderBy(x => x.DisplayName).ToList();
             var others = people.Where(x => x.UserId != me).Select(x => x.DisplayName).ToList();
             var heading = c.IsGroup ? (c.Title ?? "Group") : (others.Count == 0 ? "Conversation" : string.Join(", ", others));
+            var seen = DateTimeOffset.UtcNow;
             return (object)new
             {
                 c.Id, c.IsGroup, Heading = heading, c.LastMessageAt, Preview = c.LastMessagePreview, Unread = unread.Contains(c.Id),
-                Participants = people.Select(x => new { Id = x.UserId, x.DisplayName }).ToList(),
+                Participants = people.Select(x => new { Id = x.UserId, x.DisplayName, x.LastSeenAt, Online = Presence.IsOnline(x.LastSeenAt, seen) }).ToList(),
             };
         }).ToList();
     }
@@ -283,17 +344,24 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
     {
         var conversation = await db.Conversations.AsNoTracking().FirstAsync(c => c.Id == id, ct);
         var members = await db.ConversationMembers.AsNoTracking().Where(x => x.ConversationId == id)
-            .Join(db.Users.AsNoTracking(), x => x.UserId, u => u.Id, (x, u) => new { x.UserId, u.DisplayName }).OrderBy(x => x.DisplayName).ToListAsync(ct);
+            .Join(db.Users.AsNoTracking(), x => x.UserId, u => u.Id, (x, u) => new { x.UserId, u.DisplayName, u.LastSeenAt }).OrderBy(x => x.DisplayName).ToListAsync(ct);
         var messages = await db.Messages.AsNoTracking().Where(x => x.ConversationId == id).OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync(ct);
         messages.Reverse();
         var names = members.ToDictionary(x => x.UserId, x => x.DisplayName);
         var me = m.UserId;
+        var messageIds = messages.Select(x => x.Id).ToList();
+        var attachments = await db.MessageAttachments.AsNoTracking().Where(a => messageIds.Contains(a.MessageId))
+            .Select(a => new { a.Id, a.MessageId, a.FileName, a.ContentType, a.SizeBytes }).ToListAsync(ct);
+        var reactions = await db.MessageReactions.AsNoTracking().Where(r => messageIds.Contains(r.MessageId))
+            .Join(db.Users.AsNoTracking(), r => r.UserId, u => u.Id, (r, u) => new { r.MessageId, r.Emoji, r.UserId, u.DisplayName }).ToListAsync(ct);
+        var cards = await LinkCardsAsync(messages, ct);
         var others = members.Where(x => x.UserId != me).Select(x => x.DisplayName).ToList();
+        var seen = DateTimeOffset.UtcNow;
         return new
         {
             conversation.Id, conversation.IsGroup,
             Heading = conversation.IsGroup ? (conversation.Title ?? "Group") : (others.Count == 0 ? "Conversation" : string.Join(", ", others)),
-            Participants = members.Select(x => new { Id = x.UserId, x.DisplayName }).ToList(),
+            Participants = members.Select(x => new { Id = x.UserId, x.DisplayName, x.LastSeenAt, Online = Presence.IsOnline(x.LastSeenAt, seen) }).ToList(),
             CanSend = members.Any(x => x.UserId == me),
             Messages = messages.Select(msg =>
             {
@@ -305,6 +373,12 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
                     Body = hide ? null : msg.Body, msg.CreatedAt, msg.EditedAt, Deleted = deleted,
                     LinkKind = hide ? null : msg.LinkKind, LinkId = hide ? (Guid?)null : msg.LinkId, LinkLabel = hide ? null : msg.LinkLabel,
                     LinkPath = hide ? null : PathOf(msg.LinkKind, msg.LinkId),
+                    LinkCard = hide || msg.LinkId is not { } lid || !cards.TryGetValue((msg.LinkKind ?? "") + ":" + lid, out var card) ? null : card,
+                    Attachments = hide ? [] : attachments.Where(a => a.MessageId == msg.Id).Select(a => new { a.Id, a.FileName, a.ContentType, a.SizeBytes, Image = a.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) }).ToList(),
+                    Reactions = hide ? [] : reactions.Where(r => r.MessageId == msg.Id).GroupBy(r => r.Emoji).Select(g => new
+                    {
+                        Emoji = g.Key, Count = g.Count(), Mine = g.Any(x => x.UserId == me), Names = g.Select(x => x.DisplayName).OrderBy(n => n).ToList(),
+                    }).OrderBy(x => x.Emoji).ToList(),
                 };
             }).ToList(),
         };
@@ -460,13 +534,159 @@ public sealed class MessageService(AppDbContext db, ModuleSupport m, IAccessServ
             Changes = JsonSerializer.Serialize(new { message.Body, message.DeletedAt, message.EditedAt }),
         });
 
-    static string CleanBody(string? body)
+    static string CleanBody(string? body, bool allowEmpty = false)
     {
         var text = (body ?? "").Trim();
-        if (text.Length == 0) throw new AppException("Type a message.");
+        if (text.Length == 0)
+        {
+            if (allowEmpty) return "";
+            throw new AppException("Type a message.");
+        }
         if (text.Length > MaxBody) throw new AppException($"A message can be up to {MaxBody} characters.");
         return text;
     }
+
+    sealed record PreparedFile(string Name, string Ext, string ContentType, byte[] Bytes);
+
+    List<PreparedFile> PrepareFiles(IReadOnlyList<IncomingFile>? files)
+    {
+        var list = (files ?? []).Where(f => f.Bytes is { Length: > 0 }).ToList();
+        if (list.Count == 0) return [];
+        if (list.Count > MaxFiles) throw new AppException($"A message can include up to {MaxFiles} files.");
+        var prepared = new List<PreparedFile>();
+        foreach (var file in list)
+        {
+            if (file.Bytes.LongLength > MaxFileBytes) throw new AppException("Files are limited to 10 MB.");
+            var name = Path.GetFileName(file.FileName ?? "").Trim();
+            if (name.Length == 0) throw new AppException("Choose a file.");
+            if (name.Length > 200) name = name[^200..];
+            var ext = Path.GetExtension(name).ToLowerInvariant();
+            if (!FileTypes.Contains(ext)) throw new AppException("This file type is not accepted. Use a picture, PDF, text, CSV, Excel or Word file.");
+            prepared.Add(new PreparedFile(name, ext, TypeFor(ext), file.Bytes));
+        }
+        return prepared;
+    }
+
+    async Task<List<string>> StoreFilesAsync(Message message, List<PreparedFile> files, CancellationToken ct)
+    {
+        var keys = new List<string>();
+        try
+        {
+            foreach (var file in files)
+            {
+                var row = new MessageAttachment
+                {
+                    MessageId = message.Id, FileName = file.Name, ContentType = file.ContentType, SizeBytes = file.Bytes.LongLength,
+                    StorageKey = $"messages/{message.ConversationId:N}/{Guid.CreateVersion7():N}{file.Ext}",
+                };
+                db.MessageAttachments.Add(row);
+                keys.Add(row.StorageKey);
+                await storage.PutAsync(row.StorageKey, new MemoryStream(file.Bytes), file.ContentType, ct);
+            }
+        }
+        catch
+        {
+            await ForgetFilesAsync(keys);
+            throw;
+        }
+        return keys;
+    }
+
+    async Task ForgetFilesAsync(List<string> keys)
+    {
+        foreach (var key in keys)
+            try { await storage.DeleteAsync(key, CancellationToken.None); } catch { /* the send already failed; a leftover file is removed on the next try */ }
+    }
+
+    async Task<Dictionary<string, object>> LinkCardsAsync(List<Message> messages, CancellationToken ct)
+    {
+        var cards = new Dictionary<string, object>();
+        var orders = messages.Where(x => x.LinkKind == "work-order" && x.LinkId is not null).Select(x => x.LinkId!.Value).Distinct().ToList();
+        var parts = messages.Where(x => x.LinkKind == "part" && x.LinkId is not null).Select(x => x.LinkId!.Value).Distinct().ToList();
+        var drawings = messages.Where(x => x.LinkKind == "drawing" && x.LinkId is not null).Select(x => x.LinkId!.Value).Distinct().ToList();
+        if (orders.Count > 0)
+        {
+            var rows = await db.SequflohTrackingRecords.AsNoTracking().Where(x => orders.Contains(x.Id))
+                .Select(x => new { x.Id, x.Number, x.WorkOrder, x.PartNumber, x.PartDescription, x.Status, x.Findings }).ToListAsync(ct);
+            var suppliers = await db.SequflohChargebackReports.AsNoTracking()
+                .Where(c => c.TrackingRecordId != null && orders.Contains(c.TrackingRecordId.Value) && c.Supplier != null && c.Supplier != "")
+                .OrderByDescending(c => c.CreatedAt).Select(c => new { Id = c.TrackingRecordId!.Value, c.Supplier }).ToListAsync(ct);
+            foreach (var row in rows)
+            {
+                var supplier = ReadSupplier(row.Findings) ?? suppliers.FirstOrDefault(s => s.Id == row.Id)?.Supplier;
+                cards["work-order:" + row.Id] = new
+                {
+                    Kind = "work-order", row.Id, Number = row.Number, WorkOrder = row.WorkOrder, Part = row.PartNumber, PartName = row.PartDescription,
+                    Status = row.Status.ToString(), Supplier = supplier, Path = "/sequfloh/record/" + row.Id,
+                };
+            }
+        }
+        if (parts.Count > 0)
+        {
+            var rows = await db.Parts.AsNoTracking().Where(x => parts.Contains(x.Id)).Select(x => new { x.Id, x.PartNumber, x.Name, x.Status }).ToListAsync(ct);
+            foreach (var row in rows)
+                cards["part:" + row.Id] = new { Kind = "part", row.Id, Number = row.PartNumber, Part = row.PartNumber, PartName = row.Name, Status = row.Status.ToString(), Supplier = (string?)null, Path = "/sequfloh/parts/" + row.Id };
+        }
+        if (drawings.Count > 0)
+        {
+            var rows = await db.Drawings.AsNoTracking().Where(x => drawings.Contains(x.Id))
+                .Select(x => new { x.Id, x.DrawingNumber, x.Title, x.CurrentRevision }).ToListAsync(ct);
+            var revs = await db.DrawingRevisions.AsNoTracking().Where(r => drawings.Contains(r.DrawingId))
+                .Select(r => new { r.DrawingId, r.Revision, r.Status }).ToListAsync(ct);
+            foreach (var row in rows)
+            {
+                var status = revs.FirstOrDefault(r => r.DrawingId == row.Id && r.Revision == row.CurrentRevision)?.Status.ToString() ?? "Current";
+                cards["drawing:" + row.Id] = new { Kind = "drawing", row.Id, Number = row.DrawingNumber, Part = (string?)null, PartName = row.Title, Status = status, Supplier = (string?)null, Path = "/sequfloh/drawings/d/" + row.Id };
+            }
+        }
+        return cards;
+    }
+
+    static string? ReadSupplier(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            foreach (var p in doc.RootElement.EnumerateObject())
+                if (p.Name.Equals("supplier", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.String)
+                {
+                    var s = p.Value.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) return s.Trim();
+                }
+        }
+        catch { /* findings that are not an object simply have no supplier */ }
+        return null;
+    }
+
+    static string TypeFor(string ext) => ext switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".pdf" => "application/pdf",
+        ".txt" => "text/plain",
+        ".csv" => "text/csv",
+        ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        _ => "application/octet-stream",
+    };
+
+    static string PreviewText(string text, List<PreparedFile> files)
+    {
+        if (text.Length > 0) return Preview(text);
+        if (files.Count == 1) return files[0].Name;
+        return files.Count + " files";
+    }
+
+    static string FileWords(List<PreparedFile> files)
+    {
+        if (files.Count == 0) return "";
+        return " Attached " + string.Join(", ", files.Select(f => f.Name + " (" + SizeWords(f.Bytes.LongLength) + ")")) + ".";
+    }
+
+    static string SizeWords(long n) => n < 1024 ? n + " B" : n < 1024 * 1024 ? (n / 1024d).ToString("0.#") + " KB" : (n / 1024d / 1024d).ToString("0.#") + " MB";
 
     static string Preview(string body)
     {

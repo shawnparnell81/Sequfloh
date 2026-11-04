@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { otherNumbers, usePartSearch } from './partSearch';
 import { fmtDateTime } from '../components/Status';
+import { PersonLabel } from '../components/UserAvatar';
 import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, SqfPage, qs } from './common';
 import { partOption } from './partLabel';
 import { SimpleTable } from './Parts';
@@ -287,7 +288,7 @@ function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open
 }
 
 
-interface RevRow { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; reason?: string; changeReference?: string; createdAt: string; uploadedBy?: string;
+interface RevRow { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; reason?: string; changeReference?: string; createdAt: string; uploadedBy?: string; uploadedById?: string | null;
   status: string; releasedAt?: string; releasedByName?: string; viewable: boolean; current: boolean; viewUrl?: string | null }
 interface DrawingDetail { id: string; title: string; drawingNumber?: string; notes?: string; currentRevision: string; isArchived: boolean; createdAt: string; updatedAt: string; canManage: boolean;
   canRevise: boolean; canRelease: boolean; approvalRequired: boolean;
@@ -333,7 +334,7 @@ export function DrawingPage() {
         {d.revisions.some((r) => r.status === 'Pending') && <Alert severity="info" sx={{ mb: 2 }} data-testid="pending-revision">
           Revision {d.revisions.find((r) => r.status === 'Pending')?.revision} is pending release. The current revision stays {d.currentRevision} until it is released.</Alert>}
         {tab === 'revisions' && <Box data-testid="revision-history"><SimpleTable head={['Revision', 'Date', 'Uploaded by', 'Reason', 'Status', 'File', '']} rows={d.revisions.map((r) => [
-          <b key="r">{r.revision}</b>, fmtDateTime(r.createdAt), r.uploadedBy || '—',
+          <b key="r">{r.revision}</b>, fmtDateTime(r.createdAt), r.uploadedBy ? <PersonLabel id={r.uploadedById} name={r.uploadedBy} /> : '—',
           <Box key="why"><span>{r.reason || '—'}</span>{r.changeReference && <Typography variant="caption" display="block" color="text.secondary">{r.changeReference}</Typography>}</Box>,
           <Chip key="s" size="small" color={r.status === 'Current' ? 'primary' : r.status === 'Pending' ? 'warning' : 'default'} label={r.status} />,
           <FileName key="f" name={r.fileName} sizeBytes={r.sizeBytes} />,

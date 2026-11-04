@@ -13,7 +13,7 @@ import Restore from '@mui/icons-material/Restore';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { del, get, post, put } from '../api';
 import { PanelHead, Readout } from '../components/Kit';
-import { fmtDate, localDate } from '../components/Status';
+import { PriorityTag, fmtDate, localDate } from '../components/Status';
 import { ErrorState, Loading, Mono, S, SqfStatus } from './common';
 
 export interface WorkItem {
@@ -34,7 +34,7 @@ function WorkRow({ w }: { w: WorkItem }) {
           <SqfStatus status={w.status} />
           {w.overdue && <Chip size="small" color="error" label="Overdue" />}
           {w.inProgress && !w.overdue && <Chip size="small" color="primary" variant="outlined" label={w.clockedOn ? 'Clocked on' : 'In progress'} />}
-          {w.priority !== 'Normal' && <Chip size="small" variant="outlined" label={w.priority} />}
+          {w.priority !== 'Normal' && <PriorityTag value={w.priority} />}
         </Stack>}
         secondary={<Box sx={{ mt: 0.5 }}>
           <Typography variant="body2">{w.description || w.typeLabel}</Typography>

@@ -10,10 +10,11 @@ import { useAuth } from '../auth';
 import { ModuleWorkspace } from '../layout/ModuleWorkspace';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
+import { PersonLabel } from '../components/UserAvatar';
 import { DeleteButton } from '../sequfloh/common';
 
 interface RoleRow { id: string; name: string; description: string | null; isSystem: boolean; permissions: string[]; users: number }
-interface UserRow { id: string; email: string; displayName: string; jobTitle: string | null; isActive: boolean; defaultSiteId: string | null; lastSignInAt: string | null; mustChangePassword: boolean;
+interface UserRow { id: string; email: string; displayName: string; jobTitle: string | null; isActive: boolean; defaultSiteId: string | null; lastSignInAt: string | null; lastSeenAt?: string | null; mustChangePassword: boolean;
   roles: { id: string; roleId: string; role: string; siteId: string | null; departmentId: string | null }[] }
 interface PermInfo { code: string; group: string; label: string }
 
@@ -52,7 +53,7 @@ export function UsersPage() {
             <TableBody>
               {rows.map((u) => (
                 <TableRow key={u.id} hover>
-                  <TableCell><Typography fontWeight={600} fontSize={14}>{u.displayName}</Typography>{u.jobTitle && <Typography variant="caption" color="text.secondary">{u.jobTitle}</Typography>}</TableCell>
+                  <TableCell><PersonLabel id={u.id} name={u.displayName} lastSeenAt={u.lastSeenAt} online={!!u.lastSeenAt && Date.now() - new Date(u.lastSeenAt).getTime() < 120_000} />{u.jobTitle && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pl: 4 }}>{u.jobTitle}</Typography>}</TableCell>
                   <TableCell>{u.email}</TableCell>
                   <TableCell><Stack direction="row" gap={0.5} flexWrap="wrap">{u.roles.map((r) => <Chip key={r.id} size="small" variant="outlined" label={`${r.role} · ${siteCode(r.siteId)}`} />)}</Stack></TableCell>
                   <TableCell>{u.lastSignInAt ? fmtDateTime(u.lastSignInAt) : 'Never'}</TableCell>
@@ -290,7 +291,7 @@ export function SitesPage() {
 }
 
 // ------------------------------------------------------------------ audit trail
-interface AuditRow { id: number; who: string; what: string; when: string; description: string; entityType: string; entityId: string }
+interface AuditRow { id: number; who: string; whoId?: string | null; what: string; when: string; description: string; entityType: string; entityId: string }
 const spaced = (x: string) => x.replace(/^Sequfloh/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
 /** The full audit trail, only on the Administration page: filter by record type, record, user, action and date. */
 export function AuditTrailPage() {
@@ -330,7 +331,7 @@ export function AuditTrailPage() {
             <TableBody>
               {(recordOk ? data.data?.items ?? [] : []).map((a) => (
                 <TableRow key={a.id} hover>
-                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{a.who}</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}><PersonLabel id={a.whoId} name={a.who} /></TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>{spaced(a.what)}</TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(a.when)}</TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}><Button size="small" sx={{ p: 0, minWidth: 0, textTransform: 'none' }} title="Show only this record" onClick={() => { const n = new URLSearchParams(sp); n.set('entityType', a.entityType); n.set('entityId', a.entityId); setSp(n, { replace: true }); setPage(0); }}>{spaced(a.entityType)}</Button></TableCell>

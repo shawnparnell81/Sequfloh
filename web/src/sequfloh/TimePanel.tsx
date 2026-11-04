@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
 import { useUsers } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
+import { PersonLabel } from '../components/UserAvatar';
 import { S, fmtSeconds } from './common';
 import { AddPastTimeButton } from './AddPastTime';
 
@@ -33,7 +34,7 @@ export function AssigneesPanel({ recordId, people, canAssign }: { recordId: stri
         {canAssign && <Button size="small" variant="outlined" data-testid="edit-assignees" onClick={() => { setPick(people); setErr(null); setOpen(true); }}>Change</Button>}
       </Stack>
       <Stack direction="row" gap={1} flexWrap="wrap" data-testid="assignees">
-        {people.length ? people.map((p) => <Chip key={p.id} label={p.displayName} />) : <Typography variant="body2" color="text.secondary">Nobody yet.</Typography>}
+        {people.length ? people.map((p) => <PersonLabel key={p.id} id={p.id} name={p.displayName} />) : <Typography variant="body2" color="text.secondary">Nobody yet. The bench is all yours.</Typography>}
       </Stack>
       <Dialog open={open} onClose={busy ? undefined : () => setOpen(false)} fullWidth maxWidth="sm">
         <FormDialogTitle>Assigned people</FormDialogTitle>
@@ -94,7 +95,7 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
         <Table size="small" data-testid="time-people">
           <TableHead><TableRow><TableCell>Person</TableCell><TableCell align="right">Worked</TableCell><TableCell align="right">Paused (not counted)</TableCell><TableCell align="right">Sessions</TableCell><TableCell>Now</TableCell></TableRow></TableHead>
           <TableBody>{d.people.map((p) => <TableRow key={p.userId}>
-            <TableCell>{p.name}</TableCell><TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(live(p))}</TableCell>
+            <TableCell><PersonLabel id={p.userId} name={p.name} /></TableCell><TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(live(p))}</TableCell>
             <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', color: 'text.secondary' }}>{fmtSeconds(livePaused(p))}</TableCell>
             <TableCell align="right">{p.entries}</TableCell>
             <TableCell>{p.runningSince ? <Chip size="small" color="success" label={`Clocked on since ${fmtDateTime(p.runningSince)}`} />
@@ -104,7 +105,7 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
         <Button size="small" data-testid="toggle-time-log" onClick={() => setShowLog(!showLog)}>{showLog ? 'Hide time log' : `Show time log (${d.log.length})`}</Button>
         {showLog && <Table size="small" data-testid="time-log">
           <TableHead><TableRow><TableCell>When</TableCell><TableCell>Person</TableCell><TableCell>Event</TableCell></TableRow></TableHead>
-          <TableBody>{d.log.map((l, i) => <TableRow key={i}><TableCell>{fmtDateTime(l.at)}</TableCell><TableCell>{l.userName}</TableCell><TableCell>{l.added ? <i>{l.label}</i> : (l.label ?? l.kind)}</TableCell></TableRow>)}</TableBody>
+          <TableBody>{d.log.map((l, i) => <TableRow key={i}><TableCell>{fmtDateTime(l.at)}</TableCell><TableCell><PersonLabel id={l.userId} name={l.userName} /></TableCell><TableCell>{l.added ? <i>{l.label}</i> : (l.label ?? l.kind)}</TableCell></TableRow>)}</TableBody>
         </Table>}
         <Typography variant="caption" color="text.secondary" component="div">Paused time (break or lunch) is shown for the record but is not counted in man hours. Job time only, not payroll.</Typography>
       </Box>}

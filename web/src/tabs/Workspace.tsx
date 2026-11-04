@@ -319,7 +319,7 @@ function TabStrip({ tabs, activeId, dirty, onActivate, onClose, onReorder }: {
       <Button data-testid="tabs-switcher" onClick={(e) => setListEl(e.currentTarget)} endIcon={<ExpandMore />} startIcon={iconFor(active)}
         sx={{ textTransform: 'none', flex: 1, justifyContent: 'flex-start', minWidth: 0, color: 'text.primary', borderRadius: 999, bgcolor: tk.glass.field, border: 1, borderColor: 'divider', px: 1.5 }}>
         <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>{labelFor(active)}</Box>
-        <Box component="span" sx={{ ml: 1, px: 0.75, borderRadius: 999, fontSize: 11, fontWeight: 700, color: '#fff', background: 'linear-gradient(90deg, #1257C4, #0E8550)' }}>{tabs.length}</Box>
+        <Box component="span" sx={{ ml: 1, px: 0.75, borderRadius: 999, fontSize: 11, fontWeight: 700, color: '#fff', bgcolor: 'primary.main' }}>{tabs.length}</Box>
       </Button>
       {active.id !== HOME_ID && <IconButton aria-label="Remove tab" onClick={() => onClose(active)}><Close fontSize="small" /></IconButton>}
       {list}
@@ -343,14 +343,14 @@ function TabStrip({ tabs, activeId, dirty, onActivate, onClose, onReorder }: {
                 borderRadius: '10px 10px 0 0', border: 1, borderBottom: 0, borderColor: on ? 'divider' : 'transparent',
                 bgcolor: on ? 'background.paper' : 'transparent', color: on ? 'text.primary' : 'text.secondary', opacity: drag === i ? 0.4 : 1, mb: '-1px',
                 '&:hover': { bgcolor: on ? 'background.paper' : tk.glass.field, color: 'text.primary' },
-                '&:focus-visible': { outline: '2px solid #1257C4', outlineOffset: -2 },
-                '&::before': on ? { content: '""', position: 'absolute', left: 8, right: 8, top: 0, height: 3, borderRadius: '0 0 3px 3px', background: 'linear-gradient(90deg, #1257C4, #0E8550)' } : {} }}>
+                '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 },
+                '&::before': on ? { content: '""', position: 'absolute', left: 8, right: 8, top: 0, height: 3, borderRadius: '0 0 3px 3px', bgcolor: 'primary.main' } : {} }}>
               <Box sx={{ display: 'flex', color: on ? 'primary.main' : 'inherit' }}>{iconFor(t)}</Box>
               {!pinned && <Box component="span" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelFor(t)}</Box>}
               {pinned && <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>Home</Box>}
               {!pinned && (dirty.has(t.id)
                 ? <Tooltip title="Unsaved changes — click to close"><Box component="span" aria-hidden data-testid="tab-close" onClick={(e) => { e.stopPropagation(); onClose(t); }}
-                    sx={{ width: 20, height: 20, border: 0, borderRadius: 999, bgcolor: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', '& .dot': { width: 8, height: 8, borderRadius: 999, bgcolor: '#0E8550' }, '& svg': { display: 'none' }, '&:hover .dot': { display: 'none' }, '&:hover svg': { display: 'block' } }}>
+                    sx={{ width: 20, height: 20, border: 0, borderRadius: 999, bgcolor: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', '& .dot': { width: 8, height: 8, borderRadius: 999, bgcolor: 'secondary.main' }, '& svg': { display: 'none' }, '&:hover .dot': { display: 'none' }, '&:hover svg': { display: 'block' } }}>
                     <span className="dot" /><Close sx={{ fontSize: 14 }} /></Box></Tooltip>
                 : <Box component="span" aria-hidden data-testid="tab-close" onClick={(e) => { e.stopPropagation(); onClose(t); }}
                     sx={{ width: 20, height: 20, border: 0, borderRadius: 999, bgcolor: 'transparent', color: 'inherit', cursor: 'pointer', display: 'grid', placeItems: 'center', opacity: on ? 0.8 : 0.5, '&:hover': { opacity: 1, bgcolor: tk.glass.field } }}>

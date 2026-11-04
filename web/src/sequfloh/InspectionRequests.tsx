@@ -13,7 +13,8 @@ import { usePartFieldScan } from '../scan/ScanProvider';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
 import { FilesPanel } from '../components/Files';
-import { fmtDateTime } from '../components/Status';
+import { PriorityTag, fmtDateTime } from '../components/Status';
+import { PersonLabel } from '../components/UserAvatar';
 import { RecordActions } from '../components/RecordActions';
 import { NumberField } from '../components/RecordNumber';
 import { ViewDrawingButton } from './Drawings';
@@ -30,8 +31,7 @@ export interface InspectionRequest {
 interface PartOpt { id: string; partNumber: string; name?: string | null; description?: string | null ; attributes?: string | null }
 interface WiOpt { id: string; number: string; revision: string; title: string; type?: string }
 
-const prColor: Record<string, 'error' | 'warning' | 'primary' | 'default'> = { Critical: 'error', High: 'warning', Normal: 'primary', Low: 'default' };
-export const PriorityChip = ({ p }: { p: string }) => <Chip size="small" label={p} color={prColor[p] ?? 'default'} variant={p === 'Normal' || p === 'Low' ? 'outlined' : 'filled'} />;
+export const PriorityChip = ({ p }: { p: string }) => <PriorityTag value={p} />;
 const stColor: Record<string, 'default' | 'primary' | 'success'> = { Open: 'primary', InProgress: 'primary', Done: 'success', Cancelled: 'default' };
 const StatusChip = ({ s }: { s: string }) => <Chip size="small" label={words(s)} color={stColor[s] ?? 'default'} variant={s === 'Open' ? 'outlined' : 'filled'} />;
 const fmtDate = (d?: string | null) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString() : '—');
@@ -154,7 +154,7 @@ function RequestTable({ rows, compact, actions }: { rows: InspectionRequest[]; c
           <TableCell><Mono>{r.number}</Mono></TableCell><TableCell><PriorityChip p={r.priority} /></TableCell>
           <TableCell>{fmtDate(r.requestedDate)}{r.overdue && <Chip size="small" color="error" label="Overdue" sx={{ ml: 1 }} />}</TableCell>
           <TableCell><Mono>{r.partNumber}</Mono><Typography variant="caption" display="block" color="text.secondary">{r.partDescription}</Typography></TableCell>
-          {!compact && <TableCell>{r.quantity ?? '—'}</TableCell>}<TableCell>{r.reason ?? '—'}</TableCell>{actions && <TableCell>{r.assignedUserName ?? '—'}</TableCell>}<TableCell><StatusChip s={r.status} /></TableCell>
+          {!compact && <TableCell>{r.quantity ?? '—'}</TableCell>}<TableCell>{r.reason ?? '—'}</TableCell>{actions && <TableCell>{r.assignedUserName ? <PersonLabel id={r.assignedUserId} name={r.assignedUserName} /> : '—'}</TableCell>}<TableCell><StatusChip s={r.status} /></TableCell>
           {!compact && <TableCell>{r.workOrderNumber ? <Mono>{r.workOrderNumber}</Mono> : '—'}</TableCell>}{!compact && <TableCell>{r.requestedByName ?? '—'}</TableCell>}
           {actions && <TableCell><Stack direction="row" gap={0.5} onClick={(e) => e.stopPropagation()}>
             {!r.assignedUserId && can('sequfloh.dispatch_task') && <Button size="small" variant="outlined" onClick={() => setAssign(r)} aria-label={`Assign ${r.number}`}>Assign</Button>}

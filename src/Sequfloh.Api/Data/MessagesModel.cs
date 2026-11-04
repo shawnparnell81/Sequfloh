@@ -9,6 +9,8 @@ public partial class AppDbContext
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
     public DbSet<Message> Messages => Set<Message>();
+    public DbSet<MessageAttachment> MessageAttachments => Set<MessageAttachment>();
+    public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
 
     private static void ConfigureMessages(ModelBuilder b)
     {
@@ -36,6 +38,23 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.ConversationId, x.CreatedAt });
             e.HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.SenderId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<MessageAttachment>(e =>
+        {
+            e.ToTable("message_attachments");
+            e.Property(x => x.FileName).HasMaxLength(200);
+            e.Property(x => x.ContentType).HasMaxLength(120);
+            e.Property(x => x.StorageKey).HasMaxLength(300);
+            e.HasIndex(x => x.MessageId);
+            e.HasOne<Message>().WithMany().HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<MessageReaction>(e =>
+        {
+            e.ToTable("message_reactions");
+            e.Property(x => x.Emoji).HasMaxLength(16);
+            e.HasIndex(x => new { x.MessageId, x.UserId, x.Emoji }).IsUnique();
+            e.HasOne<Message>().WithMany().HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

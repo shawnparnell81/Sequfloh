@@ -23,6 +23,15 @@ public sealed class LeanJobReportTests(TestApp app)
 
     static int Pages(string pdf) => System.Text.RegularExpressions.Regex.Matches(pdf, @"/Type /Page\b").Count;
 
+    /// <summary>Keeps a copy of the PDF. SEQUFLOH_SHOTS picks the folder; otherwise a temp directory is used so the test runs on any machine.</summary>
+    static async Task Keep(string name, byte[] bytes)
+    {
+        var root = Environment.GetEnvironmentVariable("SEQUFLOH_SHOTS");
+        var dir = Path.Combine(string.IsNullOrWhiteSpace(root) ? Path.Combine(Path.GetTempPath(), "sequfloh-shots") : root, "lean-report");
+        Directory.CreateDirectory(dir);
+        await File.WriteAllBytesAsync(Path.Combine(dir, name), bytes);
+    }
+
     async Task<(Guid Id, Guid Site, Guid UserId, ApiClient C)> TestOrderAsync()
     {
         var site = await app.CreateSiteAsync();
@@ -75,7 +84,7 @@ public sealed class LeanJobReportTests(TestApp app)
         Assert.Equal(3, rec.GetProperty("record").GetProperty("quantityCompleted").GetInt32());
 
         var bytes = await (await c.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync();
-        await File.WriteAllBytesAsync("/workspace/shots/lean-report/test-work-order-job-report.pdf", bytes);
+        await Keep("test-work-order-job-report.pdf", bytes);
         var pdf = Encoding.Latin1.GetString(bytes);
         Assert.Equal(1, Pages(pdf));
         foreach (var s in new[] { "Job report", "Test results", "Part 1", "Part 2", "Part 3", "320-360 psi", "PASS", "FAIL", "Overall test result: FAIL", "Total time", "1h 30m", "Personnel", "3 of 3" })
@@ -117,7 +126,7 @@ public sealed class LeanJobReportTests(TestApp app)
         Assert.DoesNotContain("Task events", Encoding.Latin1.GetString(await (await auditor.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync()));
         Assert.DoesNotContain(await AuditsAsync(id), a => a.Action == "TaskEventsIncluded");
         var bytes = await (await auditor.GetAsync($"{T}/{id}/print?events=true")).Content.ReadAsByteArrayAsync();
-        await File.WriteAllBytesAsync("/workspace/shots/lean-report/test-work-order-with-task-events.pdf", bytes);
+        await Keep("test-work-order-with-task-events.pdf", bytes);
         Assert.Contains("Task events", Encoding.Latin1.GetString(bytes));
         Assert.Contains(await AuditsAsync(id), a => a.Action == "TaskEventsIncluded" && a.Description.Contains("included task events") && a.Description.Contains("job report"));
 
@@ -207,7 +216,7 @@ public sealed class LeanJobReportTests(TestApp app)
         await SetAsync("Pending");
         var no = (await c.GetElAsync($"{T}/{id}")).GetProperty("record").GetProperty("number").GetString();
         var bytes = await (await c.GetAsync($"{T}/{id}/print")).Content.ReadAsByteArrayAsync();
-        await File.WriteAllBytesAsync("/workspace/shots/lean-report/title-fix.pdf", bytes);
+        await Keep("title-fix.pdf", bytes);
         var pdf = Encoding.Latin1.GetString(bytes);
         Assert.Contains($"Job report: {no}", pdf);
         Assert.Contains("Test work order", pdf);

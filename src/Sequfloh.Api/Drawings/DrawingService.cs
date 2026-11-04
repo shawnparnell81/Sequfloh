@@ -232,7 +232,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var folder = await db.DrawingFolders.AsNoTracking().Where(f => f.Id == d.FolderId).Select(f => new { f.Id, f.Name, f.IsArchived,
             Part = db.Parts.Where(p => p.Id == f.PartId).Select(p => new { p.Id, p.PartNumber, p.Name }).FirstOrDefault() }).FirstAsync(ct);
         var revisions = await db.DrawingRevisions.AsNoTracking().Where(v => v.DrawingId == id).OrderByDescending(v => v.CreatedAt)
-            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.Reason, v.ChangeReference, v.Status, v.CreatedAt, v.CreatedByName, v.ReleasedAt, v.ReleasedByName, v.StorageKey }).ToListAsync(ct);
+            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.Reason, v.ChangeReference, v.Status, v.CreatedAt, v.CreatedById, v.CreatedByName, v.ReleasedAt, v.ReleasedByName, v.StorageKey }).ToListAsync(ct);
         var canManage = await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, d.SiteId, d.DepartmentId, ct);
         var canRevise = await access.CanAccessAsync(UserId, Permissions.SequflohReviseDrawings, d.SiteId, d.DepartmentId, ct);
         var canRelease = await access.CanAccessAsync(UserId, Permissions.SequflohReleaseDrawings, d.SiteId, d.DepartmentId, ct);
@@ -244,7 +244,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
             d.Id, d.Title, d.DrawingNumber, d.Notes, d.CurrentRevision, d.IsArchived, d.CreatedAt, d.UpdatedAt, Folder = folder, CanManage = canManage, CanRevise = canRevise, CanRelease = canRelease,
             ApprovalRequired = approvalRequired, Parts = parts,
             Revisions = revisions.Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, Reason = v.Reason ?? v.Notes, v.ChangeReference, v.CreatedAt,
-                UploadedBy = v.CreatedByName, Status = v.Status.ToString(), v.ReleasedAt, v.ReleasedByName,
+                UploadedBy = v.CreatedByName, UploadedById = v.CreatedById, Status = v.Status.ToString(), v.ReleasedAt, v.ReleasedByName,
                 Viewable = Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()), Current = v.Status == DrawingRevisionStatus.Current,
                 // with bucket storage the viewer loads the file from this address directly instead of going through the file link first
                 ViewUrl = v.SizeBytes <= MaxBytes && Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()) ? storage.ViewUrl(v.StorageKey, v.FileName, v.ContentType, true, TimeSpan.FromMinutes(15)) : null }),
