@@ -1,5 +1,15 @@
 # Changes
 
+## Messages between people
+
+- Messages is in the left menu, with a count of conversations that still have something you have not opened. The list is newest first, unread rows are highlighted, and each row shows the last message.
+- Write to one person, or name a group and include several people. People are chosen from the people you can already see: a role at your site stays at that site, and a role for the whole of the main site (MAIN) can message anyone.
+- Opening a conversation marks it read for you. New messages show up on their own.
+- A message can point at a work order, a part or a drawing you can open, and the other person can follow that link.
+- You can edit or delete your own message. The audit trail keeps who did it, when, and what the message said.
+- Send and read messages is `messages.use`. The Administrator role already has it. Other roles do not, until an administrator ticks it under Administration → Roles and Permissions.
+- Read all conversations is `messages.admin`. No role receives it on its own; an administrator assigns it when someone needs to review conversations for compliance. It follows the same site rules, so a main-site role reviews every site and a single-site role reviews that site.
+
 ## Project chargeback links every work order in the project
 
 - The project page has a "Chargeback report" action next to Edit and Close, for people whose role gives them "Manage chargebacks". The button at the bottom of the first card stays.

@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
-import { Box, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Typography, useMediaQuery } from '@mui/material';
+import { Badge, Box, Chip, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ChevronRight from '@mui/icons-material/ChevronRight';
 import { useTheme } from '@mui/material/styles';
 import { useAuth } from '../auth';
 import { landingOf, modules, sectionOf, type ModuleDef, type NavItem } from '../modules/registry';
+import { useMessageUnreadCount } from '../components/MessageBadge';
 import { useTabTitle } from '../tabs/Workspace';
 
 import { PageHeader, type Crumb, type WorkspaceTab } from './PageHeader';
@@ -56,6 +57,7 @@ export function ModuleWorkspace({ module, crumbs, title, subtitle, meta, actions
 /** The sections down the left. Choosing one opens its first page; the section of the page being viewed is highlighted. */
 function SideNav({ items, compact }: { items: NavItem[]; compact: boolean }) {
   const { can } = useAuth();
+  const unread = useMessageUnreadCount();
   const loc = useLocation();
   const tk = useTheme().tk;
   const current = sectionOf(loc.pathname);
@@ -64,11 +66,14 @@ function SideNav({ items, compact }: { items: NavItem[]; compact: boolean }) {
     <List dense disablePadding aria-label="Sections" component="nav">
       {visible.map((i) => {
         const selected = current?.label === i.label;
+        const messages = i.label === 'Messages';
+        const label = messages && unread > 0 ? `${i.label}, ${unread} unread` : i.label;
         return (
-          <Tooltip key={i.label} title={compact ? i.label : ''} placement="right"><ListItemButton component={RouterLink} to={landingOf(i, can)} selected={selected} aria-current={selected ? 'page' : undefined} aria-label={compact ? i.label : undefined} data-testid={`section-${i.label}`}
+          <Tooltip key={i.label} title={compact ? label : ''} placement="right"><ListItemButton component={RouterLink} to={landingOf(i, can)} selected={selected} aria-current={selected ? 'page' : undefined} aria-label={compact ? label : undefined} data-testid={`section-${i.label}`} {...(messages ? { 'data-unread-count': unread } : {})}
             sx={{ mx: compact ? 0.5 : 1, my: 0.25, pl: compact ? 1 : 1.25, justifyContent: compact ? 'center' : undefined, borderRadius: '10px', '&.Mui-selected': { background: tk.gradient, color: '#FFFFFF', boxShadow: `0 6px 14px ${tk.glow}`, '& .MuiListItemIcon-root': { color: '#FFFFFF' }, '&:hover': { background: tk.gradient, filter: 'brightness(1.08)' } } }}>
-            {i.icon && <ListItemIcon sx={{ minWidth: compact ? 0 : 32, color: 'primary.main' }}>{i.icon}</ListItemIcon>}
+            {i.icon && <ListItemIcon sx={{ minWidth: compact ? 0 : 32, color: 'primary.main' }}>{messages && compact ? <Badge color="error" badgeContent={unread} invisible={unread === 0} max={99}>{i.icon}</Badge> : i.icon}</ListItemIcon>}
             {!compact && <ListItemText primary={i.label} slotProps={{ primary: { fontSize: 13.5, fontWeight: selected ? 700 : 500 } }} />}
+            {!compact && messages && unread > 0 && <Chip size="small" color="error" label={unread > 99 ? '99+' : unread} data-testid="messages-unread" sx={{ height: 20, ml: 0.5, '& .MuiChip-label': { px: 0.75, fontSize: 11, fontWeight: 700 } }} />}
           </ListItemButton></Tooltip>
         );
       })}

@@ -269,7 +269,7 @@ public static class PermissionText
 {
     static readonly Dictionary<string, string> Groups = new()
     {
-        ["admin"] = "Administration", ["audittrail"] = "Audit trail", ["parts"] = "Part master", ["sequfloh"] = "Job tracking",
+        ["admin"] = "Administration", ["audittrail"] = "Audit trail", ["parts"] = "Part master", ["sequfloh"] = "Job tracking", ["messages"] = "Messages",
     };
 
     public static string Group(string code) => Groups.GetValueOrDefault(code.Split('.')[0], code.Split('.')[0]);
@@ -293,6 +293,8 @@ public static class PermissionText
             "sequfloh.manage_drawings" => "Add drawings and drawing folders",
             "sequfloh.revise_drawings" => "Upload a new drawing revision (the earlier file is kept)",
             "sequfloh.release_drawings" => "Release a pending drawing revision so it becomes current",
+            "messages.use" => "Send and read messages",
+            "messages.admin" => "Read all conversations for compliance; assigned by an administrator only",
             "sequfloh.view_task_events" => "View work order task events (tab, history, task log report, job report option); assigned by an administrator only",
             "sequfloh.manage_time_variance" => "Turn Track time variance on or off on a work order",
             "sequfloh.delete_permanently" => "Delete permanently: work orders cancelled as Created in error, and removed files",

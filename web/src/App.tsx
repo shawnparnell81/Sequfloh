@@ -68,6 +68,8 @@ const AdminUsers = lazy(() => import('./pages/Admin').then((m) => ({ default: m.
 const AdminRoles = lazy(() => import('./pages/Admin').then((m) => ({ default: m.RolesPage })));
 const AdminSites = lazy(() => import('./pages/Admin').then((m) => ({ default: m.SitesPage })));
 const AdminAudit = lazy(() => import('./pages/Admin').then((m) => ({ default: m.AuditTrailPage })));
+const MessagesPage = lazy(() => import('./pages/Messages').then((m) => ({ default: m.MessagesPage })));
+const AllMessagesPage = lazy(() => import('./pages/Messages').then((m) => ({ default: m.AllMessagesPage })));
 
 const Spinner = () => <Stack alignItems="center" sx={{ py: 10 }}><CircularProgress aria-label="Loading" /></Stack>;
 
@@ -147,6 +149,8 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/admin/roles" element={<AdminRoles />} />
         <Route path="/admin/sites" element={<AdminSites />} />
         <Route path="/admin/audit-trail" element={<AdminAudit />} />
+        <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/messages/all" element={<AllMessagesPage />} />
         <Route path="/sequfloh" element={<SqfHome />} />
         {/* the separate Validation and FAI pages are now Validation / FAI */}
         <Route path="/sequfloh/settings/fai" element={<Navigate to="/sequfloh/settings/validation" replace />} />
