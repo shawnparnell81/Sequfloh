@@ -14,7 +14,7 @@ namespace Sequfloh.Tests;
 public sealed class DeleteAndTimeTests(TestApp app)
 {
     const string U = "/api/sequfloh/tracking";
-    static readonly string[] Deleter = [Permissions.SequflohAccess, Permissions.SequflohDeleteRecords, Permissions.SequflohViewDrawings, Permissions.SequflohManageDrawings,
+    static readonly string[] Deleter = [Permissions.SequflohAccess, Permissions.SequflohDeleteRecords, Permissions.SequflohViewDrawings, Permissions.SequflohManageDrawings, Permissions.SequflohReviseDrawings,
         Permissions.SequflohViewImportedFiles, Permissions.SequflohImportFiles, Permissions.SequflohCreateProductionTask, Permissions.SequflohDispatchTask, Permissions.SequflohStartTask];
     static readonly string[] NoDelete = [Permissions.SequflohAccess, Permissions.SequflohViewDrawings, Permissions.SequflohManageDrawings, Permissions.SequflohViewImportedFiles, Permissions.SequflohImportFiles];
 
@@ -115,7 +115,7 @@ public sealed class DeleteAndTimeTests(TestApp app)
         // a folder that still holds a drawing is kept; the last revision can't go on its own
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/drawings/folders/{folder}")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await c.DeleteAsync($"/api/drawings/{drawing}/revisions/A")).StatusCode);
-        var rev = new MultipartFormDataContent { { new ByteArrayContent(Pdf("b")), "file", "spacer-b.pdf" }, { new StringContent("B"), "revision" } };
+        var rev = new MultipartFormDataContent { { new ByteArrayContent(Pdf("b")), "file", "spacer-b.pdf" }, { new StringContent("B"), "revision" }, { new StringContent("Spacer change"), "reason" } };
         Assert.True((await c.Http.PostAsync($"/api/drawings/{drawing}/revisions", rev)).IsSuccessStatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await c.DeleteAsync($"/api/drawings/{drawing}/revisions/B")).StatusCode);
         Assert.Equal("A", (await c.GetElAsync($"/api/drawings/{drawing}")).Str("currentRevision"));

@@ -270,6 +270,10 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ChangeReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -298,6 +302,17 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReleasedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("Revision")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -317,6 +332,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
 
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
                     b.Property<string>("StorageKey")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -332,6 +350,8 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("DrawingId", "Revision")
                         .IsUnique();
+
+                    b.HasIndex("DrawingId", "Status");
 
                     b.ToTable("drawing_revisions", "sqf");
                 });

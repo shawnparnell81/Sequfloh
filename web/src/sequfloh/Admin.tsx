@@ -173,15 +173,25 @@ function NumberingPage() {
   const st = useSettings();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const fmt = ((st.data?.numbering as Obj | undefined)?.revisionFormat as string) ?? 'Letters';
-  const saveFormat = async (v: string) => { setError(null); try { await put(`${S}/settings/numbering`, { value: { revisionFormat: v }, rowVersion: st.data?.rowVersion ?? 0 }); qc.invalidateQueries({ queryKey: ['sqf-settings'] }); } catch (e) { setError((e as Error).message); } };
+  const numbering = (st.data?.numbering as Obj | undefined) ?? {};
+  const fmt = (numbering.revisionFormat as string) ?? 'Letters';
+  const approval = !!numbering.drawingApprovalRequired;
+  const save = async (next: { revisionFormat: string; drawingApprovalRequired: boolean }) => {
+    setError(null);
+    try { await put(`${S}/settings/numbering`, { value: next, rowVersion: st.data?.rowVersion ?? 0 }); qc.invalidateQueries({ queryKey: ['sqf-settings'] }); }
+    catch (e) { setError((e as Error).message); }
+  };
   return (
-    <SqfPage title="Revision Settings" description="How revision letters or digits step up on work instructions and parts lists. Record numbers and file names are always your own: you type them on every form and can edit them later."
+    <SqfPage title="Revision Settings" description="How revision letters or digits step up on work instructions and parts lists, and whether a new drawing revision waits to be released. Record numbers and file names are always your own: you type them on every form and can edit them later."
       crumbs={[{ label: 'SEQUFLOH Settings' }, { label: 'Revision Settings' }]} permission="sequfloh.manage_settings">
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <Paper variant="outlined" sx={{ p: 2.5, mb: 2 }}>
-        <TextField select label="Revision format" value={fmt} onChange={(e) => saveFormat(e.target.value)} sx={{ minWidth: 260 }} helperText="Applies to new work instructions and parts lists. Released revisions are never overwritten.">
-          <MenuItem value="Letters">A, B, C</MenuItem><MenuItem value="TwoDigits">00, 01, 02</MenuItem></TextField>
+        <Stack gap={2}>
+          <TextField select label="Revision format" value={fmt} onChange={(e) => save({ revisionFormat: e.target.value, drawingApprovalRequired: approval })} sx={{ minWidth: 260 }} helperText="Applies to new work instructions and parts lists. Released revisions are never overwritten.">
+            <MenuItem value="Letters">A, B, C</MenuItem><MenuItem value="TwoDigits">00, 01, 02</MenuItem></TextField>
+          <FormControlLabel control={<Switch checked={approval} onChange={(_, c) => save({ revisionFormat: fmt, drawingApprovalRequired: c })} />}
+            label={<Box>A new drawing revision stays pending until it is released<Typography variant="caption" display="block" color="text.secondary">Someone with Release a pending drawing revision must release it before it becomes current. Earlier files are kept either way. Who may upload or release a revision is set under Roles.</Typography></Box>} />
+        </Stack>
       </Paper>
     </SqfPage>
   );

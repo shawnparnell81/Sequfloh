@@ -50,12 +50,18 @@ test('drawings: folders, revisions, two-way part links, Open drawing from a fill
   await expect(view(page).getByTestId('current-rev')).toHaveText('A');
   await view(page).getByRole('button', { name: 'New revision' }).click();
   await page.getByTestId('revision-file').setInputFiles({ name: 'test-bracket-b.png', mimeType: 'image/png', buffer: await png(browser, 'TEST BRACKET', 'B') });
-  await page.getByLabel('What changed').fill('Hole spacing changed (made-up change)');
+  await page.getByLabel('Reason for change').fill('Hole spacing changed (made-up change)');
   await shot('new-revision');
   await page.getByRole('button', { name: 'Upload revision' }).click();
   await expect(view(page).getByTestId('current-rev')).toHaveText('B');
+  await expect(view(page).getByTestId('revision-history')).toContainText('Hole spacing changed');
   await expect(view(page).getByText('Current', { exact: true })).toBeVisible();
+  await expect(view(page).getByText('Superseded', { exact: true })).toBeVisible();
   await shot('drawing-revision-history');
+  const [oldRev] = await Promise.all([context.waitForEvent('page'), view(page).getByRole('row', { name: /Superseded/ }).getByRole('link', { name: 'View' }).click()]);
+  await expect(oldRev.getByTestId('superseded-banner')).toContainText('superseded revision A');
+  await expect(oldRev.getByTestId('viewer-title')).toContainText('rev A');
+  await oldRev.close();
   const drawingUrl = page.url();
 
   // new part: link the drawing while creating it

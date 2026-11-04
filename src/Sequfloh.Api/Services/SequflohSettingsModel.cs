@@ -23,6 +23,11 @@ public sealed class NumberingSettings
 {
     /// <summary>"Letters" (A, B, C) or "TwoDigits" (00, 01, 02).</summary>
     public string RevisionFormat { get; set; } = "Letters";
+    /// <summary>
+    /// When set, a new drawing revision stays Pending until someone with release permission releases it.
+    /// When off, the upload becomes the current revision at once and the previous one is superseded. The earlier file is kept either way.
+    /// </summary>
+    public bool DrawingApprovalRequired { get; set; }
 }
 
 public sealed class WorkInstructionSettings
