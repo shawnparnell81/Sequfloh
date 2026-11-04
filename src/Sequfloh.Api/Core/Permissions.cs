@@ -68,8 +68,12 @@ public static class Permissions
     public const string SequflohReopenCompleted = "sequfloh.reopen_completed";
     public const string SequflohViewTaskEvents = "sequfloh.view_task_events";
 
+    public const string MessagesUse = "messages.use";
+    /// <summary>Read every conversation in scope, for a compliance review. Assigned on purpose; no role receives it automatically.</summary>
+    public const string MessagesAdmin = "messages.admin";
+
     /// <summary>Permissions no role receives automatically (not the seeded Administrator role, not suggested roles); an administrator assigns them on purpose.</summary>
-    public static readonly IReadOnlySet<string> AssignOnly = new HashSet<string> { SequflohViewTaskEvents };
+    public static readonly IReadOnlySet<string> AssignOnly = new HashSet<string> { SequflohViewTaskEvents, MessagesAdmin };
 
     /// <summary>The delete permission that goes with a module's edit permission, or null when there is none.</summary>
     public static string? DeleteFor(string editPermission) =>

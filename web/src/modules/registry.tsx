@@ -15,6 +15,7 @@ import AdminPanelSettingsOutlined from '@mui/icons-material/AdminPanelSettingsOu
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import GroupOutlined from '@mui/icons-material/GroupOutlined';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
+import ForumOutlined from '@mui/icons-material/ForumOutlined';
 
 /**
  * A menu entry. Top-level entries are the sections shown down the left; a section's children are its pages,
@@ -34,6 +35,10 @@ export const sequfloh: ModuleDef = {
     permissions: ['sequfloh.access'],
     sidebar: [
       { label: 'SEQUFLOH Home', path: '/sequfloh', permission: 'sequfloh.view_dashboard', icon: <HomeOutlined fontSize="small" /> },
+      { label: 'Messages', path: '/messages', icon: <ForumOutlined fontSize="small" />, match: ['/messages'], children: [
+        { label: 'Inbox', path: '/messages', permission: 'messages.use' },
+        { label: 'All conversations', path: '/messages/all', permission: 'messages.admin' },
+      ] },
       { label: 'Live Execution', path: '/sequfloh/execution/dispatch', permission: 'sequfloh.view_live_execution', icon: <PlayCircleOutline fontSize="small" />, match: ['/sequfloh/execution'], children: [
         { label: 'Dispatch Queue', path: '/sequfloh/execution/dispatch' },
         { label: 'Active Station', path: '/sequfloh/execution/active' },
