@@ -91,7 +91,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     [HttpGet("parts/attributes")]
     public object Attributes() => PartAttributes.All.Select(a => new { a.Key, a.Label, a.MaxLength, a.Types, a.NotTypes });
 
-    /// <summary>Every part that matches the filters as CSV, with the part type and all attribute columns.</summary>
+    /// <summary>Every part that matches the filters as CSV, with the part type, attribute columns, and the fields shown on the part detail card. At most 50,000 rows.</summary>
     [HttpGet("parts/export")]
     public async Task<IActionResult> Export([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
         [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, CancellationToken ct = default)
@@ -99,9 +99,17 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
         var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
         var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
         var rows = await query.Take(50_000).ToListAsync(ct);
+        var ids = rows.Select(p => p.Id).ToList();
+        var userIds = rows.SelectMany(p => new Guid?[] { p.CreatedById, p.UpdatedById }).OfType<Guid>().Distinct().ToList();
+        var names = userIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+        var linked = await LinkedDrawingsAsync(ids, ct);
         var head = new List<string> { "Part number", "Name", "Description", "Product family" };
         head.AddRange(PartAttributes.All.Select(a => a.Label));
-        head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "DWG #", "UPC / Barcode", "Specification", "Status"]);
+        head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "DWG #",
+            "Drawing revision", "Linked drawings", "Serialized", "Material", "Notes", "Created", "Last updated",
+            "UPC / Barcode", "Specification", "Status"]);
         var sb = new System.Text.StringBuilder();
         sb.Append(string.Join(",", head.Select(Csv))).Append("\r\n");
         foreach (var p in rows)
@@ -110,10 +118,57 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             var cells = new List<string?> { p.PartNumber, p.Name, p.Description, p.TypeId is { } t && types.TryGetValue(t, out var tn) ? tn : p.ProductFamily };
             cells.AddRange(PartAttributes.All.Select(a => attrs.GetValueOrDefault(a.Key)));
             cells.AddRange([p.PartClass, p.IsAssembly ? "Yes" : "No", p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.LotControl ?? (p.IsLotControlled ? "Yes" : "No"),
-                p.DrawingNumber, p.Upc, p.Specification, p.Status.ToString()]);
+                p.DrawingNumber, p.DrawingRevision, LinkedDrawings(linked.GetValueOrDefault(p.Id), p.DrawingRevision), p.IsSerialized ? "Yes" : "No", p.Material, p.Notes,
+                When(p.CreatedAt, p.CreatedById, names), When(p.UpdatedAt, p.UpdatedById, names),
+                p.Upc, p.Specification, p.Status.ToString()]);
             sb.Append(string.Join(",", cells.Select(Csv))).Append("\r\n");
         }
         return File(System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray(), "text/csv", "parts.csv");
+    }
+
+    sealed record LinkedDrawingRow(Guid PartId, Guid Id, string? DrawingNumber, string Title, string CurrentRevision, string? FileName);
+
+    /// <summary>Drawings linked through DrawingPartLink, for the parts on this export. One query. A person who cannot view drawings gets none, the same as the part card.</summary>
+    async Task<Dictionary<Guid, List<LinkedDrawingRow>>> LinkedDrawingsAsync(List<Guid> partIds, CancellationToken ct)
+    {
+        if (partIds.Count == 0) return [];
+        var visible = await m.TryScopeAsync(db.Drawings.AsNoTracking().Where(d => !d.IsArchived), Permissions.SequflohViewDrawings, ct);
+        if (visible is null) return [];
+        var rows = await (
+            from l in db.DrawingPartLinks.AsNoTracking()
+            where partIds.Contains(l.PartId)
+            join d in visible on l.DrawingId equals d.Id
+            join f in db.DrawingFolders.AsNoTracking() on d.FolderId equals f.Id
+            where !f.IsArchived
+            join v in db.DrawingRevisions.AsNoTracking() on d.Id equals v.DrawingId into revs
+            from v in revs.Where(x => x.Revision == d.CurrentRevision).DefaultIfEmpty()
+            select new LinkedDrawingRow(l.PartId, d.Id, d.DrawingNumber, d.Title, d.CurrentRevision, v.FileName)
+        ).ToListAsync(ct);
+        return rows.GroupBy(x => x.PartId).ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    /// <summary>Drawing number, title and file name. The current revision is added only when it is not the Part Master drawing revision.</summary>
+    static string? LinkedDrawings(List<LinkedDrawingRow>? rows, string? partRevision)
+    {
+        if (rows is not { Count: > 0 }) return null;
+        var master = (partRevision ?? "").Trim();
+        return string.Join("; ", rows
+            .OrderBy(x => x.DrawingNumber, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Title, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Id)
+            .Select(x =>
+            {
+                var bits = new[] { x.DrawingNumber, x.Title, x.FileName }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!.Trim());
+                var text = string.Join(" · ", bits);
+                var rev = (x.CurrentRevision ?? "").Trim();
+                if (rev.Length > 0 && !string.Equals(rev, master, StringComparison.OrdinalIgnoreCase))
+                    text = text.Length == 0 ? $"rev {rev}" : $"{text} rev {rev}";
+                return text;
+            }));
+    }
+
+    static string When(DateTimeOffset at, Guid? userId, Dictionary<Guid, string> names)
+    {
+        var when = at.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+        return userId is { } id && names.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name) ? $"{when} · {name}" : when;
     }
 
     /// <summary>A CSV cell; values that a spreadsheet would run as a formula are prefixed with an apostrophe.</summary>
