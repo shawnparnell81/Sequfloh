@@ -51,6 +51,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         ("unitOfMeasure", "Unit of measure", ["unit of measure", "uom", "unit", "units"]),
         ("isAssembly", "Assembly", ["assembly", "is assembly", "assembly type"]),
         ("material", "Material", ["material"]),
+        ("drawingRevision", "Drawing revision", ["drawing revision", "drawing rev", "dwg rev", "dwg revision"]),
         ("drawingNumber", "DWG #", ["sensen", "sensen #", "sensen#", "sensen no", "sensen number", "dwg #", "dwg#", "drawing number", "drawing", "drawing no", "dwg"]),
         ("upc", "UPC / Barcode", ["upc", "upc / barcode", "upc code", "barcode", "bar code", "ean", "gtin", "upc-a", "ean-13"]),
         ("specification", "Specification", ["specification", "spec"]),
@@ -249,7 +250,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     }
 
     /// <summary>Key is the row's mapped values, used to find exact duplicates; Position tells parts with the same OR # apart.</summary>
-    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null, string? Drawing = null, Dictionary<string, string>? Attrs = null, string? Upc = null, Guid? TypeId = null, string? Family = null);
+    sealed record Parsed(int Row, string? PartNumber, string? Name, string? Revision, List<string> Errors, Action<Part> Apply, string Key = "", string? Position = null, List<string>? Numbers = null, string? Drawing = null, Dictionary<string, string>? Attrs = null, string? Upc = null, Guid? TypeId = null, string? Family = null, string? DrawingRevision = null);
 
     /// <summary>True when the part already has a product family, linked or only typed as text.</summary>
     static bool HasFamily(Part p) => p.TypeId is not null || !string.IsNullOrWhiteSpace(p.ProductFamily);
@@ -305,7 +306,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var row = r.Rows[i];
             string Raw(string key) => r.Fixed?.GetValueOrDefault(key) is { Length: > 0 } fx ? fx.Trim() : r.Mapping.TryGetValue(key, out var c) && c >= 0 && c < row.Count ? (row[c] ?? "").Trim() : "";
             // in a number column a placeholder such as "/", "-" or "N/A" reads as an empty cell, so it is never a part number or a match key
-            string Get(string key) => Raw(key) is var v && IsPlaceholderKey(key) && PartFields.IsBlank(v) ? "" : v;
+            string Get(string key) => Raw(key) is var v && (IsPlaceholderKey(key) || key == "drawingRevision") && PartFields.IsBlank(v) ? "" : v;
             var errors = new List<string>();
             string? Text(string key, string label, int max) { var v = Get(key); if (v.Length == 0) return null; if (v.Length > max) { errors.Add($"{label} is longer than {max} characters."); return null; } return v; }
             string? Verbatim(string key, string label, int max) { var v = Raw(key); if (v.Length == 0) return null; if (v.Length > max) { errors.Add($"{label} is longer than {max} characters."); return null; } return v; }
@@ -336,6 +337,13 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             if (Get("unitOfMeasure") is { Length: > 0 } u && (uom = PartChoices.Unit(u)) is null) errors.Add($"Unit of measure \"{u}\" must be Each, Lot, Batch or Skid.");
             var asm = FlagOf("isAssembly", "Assembly");
             var mat = Text("material", "Material", 200); var dwg = Text("drawingNumber", "Drawing number", 100); var spec = Text("specification", "Specification", 200);
+            // the drawing revision is its own column. A trailing letter on the drawing number is left on the number (some drawings have no revision suffix).
+            string? dwgRev = null;
+            if (Get("drawingRevision") is { Length: > 0 } rawRev)
+            {
+                try { dwgRev = Sequfloh.Drawings.DrawingService.Revision(rawRev); }
+                catch (AppException ex) { errors.Add(ex.Message); }
+            }
             // UPC / Barcode: digits only, a UPC-E, UPC-A, EAN-13 or GTIN-14 length, with a right check digit
             var upc = Raw("upc") is { Length: > 0 } uv && !PartFields.IsBlank(uv) ? uv : null;
             if (upc is not null && (!Gtin.IsBarcode(upc) || !Gtin.CheckDigitOk(upc))) { errors.Add($"UPC / Barcode \"{upc}\" must be 8, 12, 13 or 14 digits with a right check digit."); upc = null; }
@@ -364,7 +372,8 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (asm is not null) p.IsAssembly = asm.Value;
                 if (mat is not null) p.Material = mat;
                 // an existing real number is never replaced by a different one; blanks and placeholders are filled
-                if (dwg is not null && PartFields.IsBlank(p.DrawingNumber)) p.DrawingNumber = dwg;
+                if (dwg is not null && PartFields.IsBlank(p.DrawingNumber)) p.DrawingNumber = Sequfloh.Drawings.DrawingRevisionRules.WholeNumber(dwg);
+                if (dwgRev is not null && PartFields.IsBlank(p.DrawingRevision)) p.DrawingRevision = dwgRev;
                 if (spec is not null) p.Specification = spec;
                 // a UPC is only filled in where the part has none; an existing one is never replaced
                 if (upc is not null && string.IsNullOrEmpty(p.Upc)) { p.Upc = upc; p.UpcKey = Gtin.Key(upc); }
@@ -379,7 +388,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 var hidden = PartFields.Read(p.HiddenFields);
                 if (p.HiddenFields is null && p.TypeId is { } ft) hidden.AddRange(PartFields.Read(familyHidden.GetValueOrDefault(ft)));
                 p.HiddenFields = PartFields.Write(hidden.Concat(blanks));
-            }, key, attrs.GetValueOrDefault("position"), numbers, dwg, attrs, Upc: upc, TypeId: typeId, Family: typeId is { } fid ? partTypes.First(x => x.Id == fid).Label : null));
+            }, key, attrs.GetValueOrDefault("position"), numbers, dwg, attrs, Upc: upc, TypeId: typeId, Family: typeId is { } fid ? partTypes.First(x => x.Id == fid).Label : null, DrawingRevision: dwgRev));
         }
         return list;
     }
@@ -455,8 +464,14 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 {
                     var msgs = PartFields.IsBlank(match.PartNumber) ? new List<string> { $"Part number \"{match.PartNumber}\" becomes {p.PartNumber}." }
                         : !string.Equals(match.PartNumber, p.PartNumber, StringComparison.OrdinalIgnoreCase) ? [$"Part number stays {match.PartNumber} (the file has {p.PartNumber})."] : [];
+                    if (Sequfloh.Drawings.DrawingRevisionRules.Conflict(match.DrawingRevision, p.DrawingRevision) is { } revConflict)
+                    {
+                        rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, [revConflict]));
+                        continue;
+                    }
                     msgs.AddRange(KeptNumbers(match, p.Drawing, p.Attrs));
                     if (p.TypeId is { } ft && HasFamily(match) && match.TypeId != ft) msgs.Add($"Family kept: {match.ProductFamily} (file says {p.Family}).");
+                    if (!PartFields.IsBlank(p.DrawingRevision) && PartFields.IsBlank(match.DrawingRevision)) msgs.Add($"Drawing revision set to {p.DrawingRevision} from the Part Master file.");
                     rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, msgs)); targets[p.Row] = match;
                 }
                 continue;
@@ -597,7 +612,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     static void FillBlanks(Action<Part> apply, Part t)
     {
         static bool Blank(string? v) => string.IsNullOrWhiteSpace(v);
-        var (name, desc, uom, pclass, mat, dwg, spec, lot, fam, typeId, hidden) = (t.Name, t.Description, t.UnitOfMeasure, t.PartClass, t.Material, t.DrawingNumber, t.Specification, t.LotControl, t.ProductFamily, t.TypeId, t.HiddenFields);
+        var (name, desc, uom, pclass, mat, dwg, dwgRev, spec, lot, fam, typeId, hidden) = (t.Name, t.Description, t.UnitOfMeasure, t.PartClass, t.Material, t.DrawingNumber, t.DrawingRevision, t.Specification, t.LotControl, t.ProductFamily, t.TypeId, t.HiddenFields);
         var (asm, rep, rp, lotOn, upc, upcKey) = (t.IsAssembly, t.IsRepairable, t.IsRepairPart, t.IsLotControlled, t.Upc, t.UpcKey);
         var attrs = PartAttributes.Read(t.Attributes).Where(kv => !PartFields.IsBlank(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value);
         apply(t);
@@ -607,6 +622,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         if (!Blank(pclass)) t.PartClass = pclass;
         if (!Blank(mat)) t.Material = mat;
         if (!PartFields.IsBlank(dwg)) t.DrawingNumber = dwg;
+        if (!PartFields.IsBlank(dwgRev)) t.DrawingRevision = dwgRev;
         if (!Blank(spec)) t.Specification = spec;
         if (!Blank(lot)) { t.LotControl = lot; t.IsLotControlled = lotOn; }
         if (typeId is not null) { t.TypeId = typeId; t.ProductFamily = fam; }

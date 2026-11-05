@@ -41,6 +41,8 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public bool IsSerialized { get; set; }
     public bool IsLotControlled { get; set; }
     public string? DrawingNumber { get; set; }
+    /// <summary>The drawing revision recorded in the Part Master. Separate from <see cref="Revision"/>, which is the part's own revision. Never read from a file name.</summary>
+    public string? DrawingRevision { get; set; }
     /// <summary>UPC / barcode from the box label, exactly the digits entered (UPC-E, UPC-A, EAN-13 or GTIN-14).</summary>
     public string? Upc { get; set; }
     /// <summary>The same code as a 14-digit GTIN, so UPC-A, EAN-13 and GTIN-14 forms of one code match and stay unique.</summary>

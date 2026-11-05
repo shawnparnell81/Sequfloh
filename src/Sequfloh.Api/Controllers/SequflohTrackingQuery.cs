@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Sequfloh.Domain.Drawings;
 using Sequfloh.Domain.Execution;
 using Sequfloh.Infrastructure.Modules.Quality;
 using Sequfloh.Infrastructure.Modules.Execution;
@@ -107,6 +108,13 @@ internal static class SequflohTrackingQuery
         var siteIds = paged.Items.Select(x => x.SiteId).Distinct().ToList();
         var sites = await db.Sites.AsNoTracking().Where(s => siteIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Code, ct);
         string? U(Guid? id) => id is { } g && users.TryGetValue(g, out var n) ? n : null;
+        var openIds = paged.Items.Where(x => SequflohTrackingService.Open.Contains(x.Status)).Select(x => x.Id).ToList();
+        var newerDrawings = openIds.Count == 0 ? [] : await (
+            from a in db.TrackingRecordDrawings.AsNoTracking()
+            join d in db.Drawings.AsNoTracking() on a.DrawingId equals d.Id
+            where openIds.Contains(a.TrackingRecordId) && a.AttachedRevision != d.CurrentRevision
+            select a.TrackingRecordId).Distinct().ToListAsync(ct);
+        var newer = newerDrawings.ToHashSet();
         var items = new List<object>();
         foreach (var x in paged.Items)
         {
@@ -123,6 +131,7 @@ internal static class SequflohTrackingQuery
                 ElapsedSeconds = active, PausedSeconds = paused, HoldSeconds = hold,
                 DurationSeconds = active + paused + hold,
                 OverdueSeconds = x.DueAt is { } due && due < now && SequflohTrackingService.Open.Contains(x.Status) ? (long)(now - due).TotalSeconds : 0,
+                DrawingNewer = newer.Contains(x.Id),
                 Actions = withActions ? await tracking.AvailableActionsAsync(x, ct) : null
             });
         }

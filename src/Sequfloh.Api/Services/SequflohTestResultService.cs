@@ -363,9 +363,10 @@ public sealed class SequflohTestResultService(AppDbContext db, ModuleSupport m, 
         var d = await db.Drawings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == drawingId && !x.IsArchived, ct) ?? throw new NotFoundException("Drawing");
         await m.RequireAsync(Permissions.SequflohViewDrawings, d.SiteId, d.DepartmentId, ct);
         if (await db.TrackingRecordDrawings.AnyAsync(a => a.TrackingRecordId == id && a.DrawingId == drawingId, ct)) return;
-        db.TrackingRecordDrawings.Add(new Sequfloh.Domain.Drawings.TrackingRecordDrawing { TrackingRecordId = id, DrawingId = d.Id, AttachedRevision = d.CurrentRevision, AttachedAt = DateTimeOffset.UtcNow });
+        var row = await Sequfloh.Drawings.DrawingService.SnapshotAsync(db, id, d.Id, d.DrawingNumber, d.CurrentRevision, ct);
+        var file = await db.DrawingRevisions.AsNoTracking().Where(v => v.Id == row.AttachedRevisionId).Select(v => v.FileName).FirstOrDefaultAsync(ct);
         var who = await WhoAsync(ct);
-        f.Audit("DrawingAttached", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: drawing {(string.IsNullOrEmpty(d.DrawingNumber) ? d.Title : d.DrawingNumber)} rev {d.CurrentRevision} attached by hand by {who}", r.SiteId);
+        f.Audit("DrawingAttached", SequflohTrackingService.EntityType, r.Id, $"{r.Number}: drawing {Sequfloh.Drawings.DrawingService.SnapshotLine(row.AttachedDrawingNumber, d.Title, row.AttachedRevision, file)} attached by hand by {who}. The revision in effect is recorded on this work order and does not change when a newer revision is released.", r.SiteId);
         await db.SaveChangesAsync(ct);
     }
 

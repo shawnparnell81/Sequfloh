@@ -9,7 +9,7 @@ public static class PartFields
     public static readonly (string Key, string Label)[] Fixed =
     [
         ("partClass", "Part class"), ("isAssembly", "Assembly"), ("unitOfMeasure", "Unit of measure"), ("isRepairable", "Repairable"), ("isRepairPart", "Repair part"),
-        ("isSerialized", "Serialized"), ("isLotControlled", "Lot controlled"), ("material", "Material"), ("drawingNumber", "DWG #"), ("specification", "Specification"), ("description", "Description"),
+        ("isSerialized", "Serialized"), ("isLotControlled", "Lot controlled"), ("material", "Material"), ("drawingNumber", "DWG #"), ("drawingRevision", "Drawing revision"), ("specification", "Specification"), ("description", "Description"),
     ];
 
     public static IEnumerable<(string Key, string Label)> All => Fixed.Concat(PartAttributes.All.Select(a => (a.Key, a.Label)));

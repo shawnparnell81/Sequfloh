@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Sequfloh.Application.Abstractions;
 using Sequfloh.Domain.Audit;
 using Sequfloh.Domain.Common;
+using Sequfloh.Domain.Drawings;
 
 namespace Sequfloh.Infrastructure.Persistence;
 
@@ -20,6 +21,8 @@ public sealed class AuditInterceptor(ICurrentUser user, IClock clock) : SaveChan
     public static void Note(Entity record, string text) => Notes.AddOrUpdate(record, text);
 
     private static readonly HashSet<string> Ignored = [nameof(Entity.RowVersion), nameof(Entity.UpdatedAt), nameof(Entity.UpdatedById), nameof(Entity.CreatedAt), nameof(Entity.CreatedById)];
+    /// <summary>The only columns a stored drawing revision may change. The file, number, revision letter and reason stay as stored.</summary>
+    static readonly HashSet<string> RevisionStatusFields = [nameof(DrawingRevision.Status), nameof(DrawingRevision.ReleasedAt), nameof(DrawingRevision.ReleasedByName), nameof(Entity.UpdatedAt), nameof(Entity.UpdatedById), nameof(Entity.RowVersion)];
 
     public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData e, InterceptionResult<int> result, CancellationToken ct = default)
     {
@@ -45,6 +48,12 @@ public sealed class AuditInterceptor(ICurrentUser user, IClock clock) : SaveChan
         var pending = new List<Pending>();
         foreach (var entry in entries.Where(x => x.Entity is IAppendOnly && x.State is EntityState.Modified or EntityState.Deleted))
             throw new AppException($"{entry.Metadata.ClrType.Name} entries are append-only; post a correcting entry instead.", 409);
+        // a released drawing file is never rewritten in place; only its status (pending, current, superseded) may change
+        foreach (var entry in entries.Where(x => x.Entity is DrawingRevision && x.State == EntityState.Modified))
+        {
+            var dirty = entry.Properties.Where(p => p.IsModified && !RevisionStatusFields.Contains(p.Metadata.Name) && !Equals(p.OriginalValue, p.CurrentValue)).Select(p => p.Metadata.Name).ToList();
+            if (dirty.Count > 0) throw new AppException("A stored drawing revision cannot be changed. Upload a new revision. The released file stays as it is.");
+        }
         foreach (var entry in entries)
         {
             if (entry.State == EntityState.Added)

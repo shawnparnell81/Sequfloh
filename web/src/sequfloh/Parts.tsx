@@ -56,7 +56,7 @@ const withCurrent = (list: string[], current?: string) => (current && !list.some
 
 // ------------------------------------------------------------------ Part Master
 interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; partClass?: string | null; isAssembly?: boolean; lotControl?: string | null; unitOfMeasure: string;
-  status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; upc?: string; specification?: string; updatedAt: string;
+  status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; drawingRevision?: string | null; upc?: string; specification?: string; updatedAt: string;
   typeId?: string | null; typeName?: string | null; attributes?: string | null; notes?: string | null }
 const viewHelp: Record<string, string> = {
   repairable: 'Parts marked Repairable: the part itself can be repaired and can be the subject of a repair work order.',
@@ -223,7 +223,7 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
   const typeFam = types.data?.find((t) => t.id === typeId); const typeCode = typeFam?.code;
   const shownAttrs = (attrDefs.data ?? []).filter((d) => attrFor(d, typeCode, typeFam?.shownFields));
   const blank = { partNumber: '', name: '', description: '', partType: 'Component', revision: 'A', unitOfMeasure: 'Each', material: '', siteId: '', status: 'Active',
-    productFamily: '', assemblyType: '', partClass: '', isAssembly: false, lotControl: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, notes: '', drawingNumber: '', upc: '', specification: '' };
+    productFamily: '', assemblyType: '', partClass: '', isAssembly: false, lotControl: '', isRepairable: false, isRepairPart: false, isSerialized: false, isLotControlled: false, notes: '', drawingNumber: '', drawingRevision: '', upc: '', specification: '' };
   const [f, setF] = useState(blank);
   const [err, setErr] = useState<string | null>(null);
   const init = () => {
@@ -241,7 +241,7 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
       material: nul(f.material), hasSpecialCharacteristics: edit?.hasSpecialCharacteristics ?? false, siteId: f.siteId, departmentId: edit?.departmentId ?? null, status: Math.max(0, masterStatuses.indexOf(f.status)), rowVersion: edit?.rowVersion ?? 0 },
       execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isRepairPart: f.isRepairPart, isSerialized: f.isSerialized, isLotControlled: f.lotControl === 'Yes',
         partClass: nul(f.partClass), isAssembly: f.isAssembly, lotControl: nul(f.lotControl),
-        drawingNumber: nul(f.drawingNumber), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 },
+        drawingNumber: nul(f.drawingNumber), drawingRevision: nul(f.drawingRevision), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 },
       typeId: typeId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])), notes: f.notes, hiddenFields: edit || hidden.length ? hidden : null, upc: f.upc.trim() };
     try {
       let id = edit?.id;
@@ -278,7 +278,9 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
             <MenuItem value=""><em>Not set</em></MenuItem>{LOT_CHOICES.map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
           <TextField select label="Repairable" {...yn('isRepairable')} inputProps={{ 'data-testid': 'part-repairable' }} helperText="Yes: the part can be repaired if required.">{['Yes', 'No'].map((x) => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
           <TextField select label="Status" value={f.status} onChange={s('status')}>{masterStatuses.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
-          {typeCode !== FUEL_PUMP && <TextField label={DWG_LABEL} value={f.drawingNumber} onChange={s('drawingNumber')} />}
+          {typeCode !== FUEL_PUMP && <TextField label={DWG_LABEL} value={f.drawingNumber} onChange={s('drawingNumber')} helperText="Kept whole. A trailing letter stays part of the number." />}
+          <TextField label="Drawing revision" value={f.drawingRevision} onChange={(e) => setF({ ...f, drawingRevision: e.target.value.toUpperCase() })} inputProps={{ 'data-testid': 'part-drawing-revision' }}
+            helperText="The revision recorded in the Part Master. Not read from a file name. The part's own revision is separate." />
           <TextField label="UPC / Barcode" value={f.upc} onChange={(e) => setF({ ...f, upc: e.target.value.replace(/\s/g, '') })} inputProps={{ inputMode: 'numeric', 'data-testid': 'part-upc' }}
             helperText="The digits under the box-label barcode (8, 12, 13 or 14 digits). Optional." />
           <TextField label="Specification" value={f.specification} onChange={s('specification')} />
@@ -359,7 +361,7 @@ export function PartDetailPage() {
             <Field label="Repairable" hide={hid('isRepairable')}>{yes(p.isRepairable)}</Field><Field label="Repair part" hide={hid('isRepairPart')}>{yes(!!p.isRepairPart)}</Field><Field label="Serialized" hide={hid('isSerialized')}>{yes(p.isSerialized)}</Field><Field label="Lot controlled" hide={hid('isLotControlled')}>{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material" hide={hid('material')}>{p.material}</Field>
             {(attrDefs.data ?? []).filter((d) => attrFor(d, code, pFam?.shownFields)).map((d) => <Field key={d.key} label={d.label} hide={hid(d.key)}>{p.attributes?.[d.key]}</Field>)}
             {(attrDefs.data ?? []).filter((d) => !attrFor(d, code, pFam?.shownFields) && p.attributes?.[d.key]).map((d) => <Field key={d.key} label={`${d.label} (kept from another family)`}>{p.attributes?.[d.key]}</Field>)}
-            {code !== FUEL_PUMP && <Field label={DWG_LABEL} hide={hid('drawingNumber')}>{p.drawingNumber}</Field>}<Field label="UPC / Barcode"><span data-testid="part-upc-value">{p.upc}</span>{q.data?.canEdit && <BarcodeButton partId={p.id} upc={p.upc} onSaved={refresh} />}</Field><Field label="Specification" hide={hid('specification')}>{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
+            {code !== FUEL_PUMP && <Field label={DWG_LABEL} hide={hid('drawingNumber')}>{p.drawingNumber}</Field>}<Field label="Drawing revision" hide={hid('drawingRevision')}><span data-testid="part-drawing-revision-value">{p.drawingRevision || '—'}</span></Field><Field label="UPC / Barcode"><span data-testid="part-upc-value">{p.upc}</span>{q.data?.canEdit && <BarcodeButton partId={p.id} upc={p.upc} onSaved={refresh} />}</Field><Field label="Specification" hide={hid('specification')}>{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && !hid('description') && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}
           <Typography variant="subtitle2" sx={{ mt: 2 }}>Related SEQUFLOH records</Typography>

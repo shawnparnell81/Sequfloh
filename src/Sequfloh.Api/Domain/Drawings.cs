@@ -58,6 +58,10 @@ public class TrackingRecordDrawing
     public Guid TrackingRecordId { get; set; }
     public Guid DrawingId { get; set; }
     public string AttachedRevision { get; set; } = "";
+    /// <summary>The drawing number in effect when the work order was created. A later rename does not change it.</summary>
+    public string? AttachedDrawingNumber { get; set; }
+    /// <summary>The revision file that was current when the work order was created.</summary>
+    public Guid? AttachedRevisionId { get; set; }
     public DateTimeOffset AttachedAt { get; set; }
 }
 
@@ -66,6 +70,8 @@ public class DrawingRevision : Entity
 {
     public Guid DrawingId { get; set; }
     public string Revision { get; set; } = "";
+    /// <summary>The drawing number in effect when this file was stored. Later edits to the drawing do not change it.</summary>
+    public string? DrawingNumber { get; set; }
     public string FileName { get; set; } = "";
     public string ContentType { get; set; } = "";
     public string StorageKey { get; set; } = "";

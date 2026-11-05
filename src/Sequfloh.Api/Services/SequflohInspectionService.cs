@@ -220,7 +220,11 @@ public sealed class SequflohInspectionService(AppDbContext db, ModuleSupport m, 
         var tracked = await db.SequflohTrackingRecords.FirstAsync(e => e.Id == rec.Id, ct);
         if (r.Quantity is { } q) tracked.QuantityTarget = (int)Math.Round(q);
         if (x.Type != TrackingType.Validation && rec.PartId is { } part && !await db.TrackingRecordDrawings.AnyAsync(e => e.TrackingRecordId == rec.Id, ct))
-            await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, part, ct);
+        {
+            var recorded = await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, part, ct);
+            if (recorded.Count > 0)
+                f.Audit("DrawingRevisionRecorded", SequflohTrackingService.EntityType, rec.Id, $"{rec.Number} recorded the drawing revision in effect when the work order was created: {string.Join("; ", recorded)}. A later release does not change this work order.", rec.SiteId);
+        }
         r.WorkOrderId = rec.Id; r.WorkOrderNumber = rec.Number;
         if (r.Status == InspectionRequestStatus.Open) r.Status = InspectionRequestStatus.InProgress;
         f.Audit("InspectionRequestConverted", EntityType, r.Id, $"{r.Number} turned into work order {rec.Number}", r.SiteId);

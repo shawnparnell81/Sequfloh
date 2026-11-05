@@ -37,7 +37,7 @@ function FileName({ name, sizeBytes }: { name: string; sizeBytes?: number }) {
     <span>{name} · {size(sizeBytes)}</span></Stack>;
 }
 
-export interface PartDrawing { id: string; title: string; drawingNumber?: string; currentRevision: string; fileName?: string; viewable: boolean; attachedRevision?: string }
+export interface PartDrawing { id: string; title: string; drawingNumber?: string; currentRevision: string; fileName?: string; viewable: boolean; attachedRevision?: string; attachedDrawingNumber?: string | null; recordOpen?: boolean; newerRevision?: boolean }
 const label = (d: { title: string; drawingNumber?: string | null }) => (d.drawingNumber ? `${d.drawingNumber} · ${d.title}` : d.title);
 
 /** Opens the current revision in a new tab: the viewer for PDF and images, the download for everything else. */
@@ -82,18 +82,22 @@ export function ViewDrawingButton({ partId, partNumber }: { partId?: string | nu
       data-testid="view-drawing" sx={{ py: 0 }}>{list.length === 1 ? 'View drawing' : `View ${d.drawingNumber || d.title}`}</Button>)}</Stack>;
 }
 
-/** Drawings attached to a validation work order: the revision attached when the order was made and the current one. */
+/** Drawings attached to a work order: the number and revision recorded when the order was made, and a warning when an open order has a newer revision. */
 export function RecordDrawings({ recordId }: { recordId: string }) {
   const q = useQuery({ queryKey: ['drawings-for-record', recordId], queryFn: () => get<PartDrawing[]>(`${D}/for-record/${recordId}`) });
   if (!q.data?.length) return null;
+  const newer = q.data.filter((d) => d.newerRevision);
   return <Paper variant="outlined" sx={{ p: 2 }} data-testid="record-drawings">
     <Typography variant="subtitle2" sx={{ mb: 1 }}>Drawings</Typography>
+    {newer.length > 0 && <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="newer-drawing-rev">
+      {newer.map((d) => <div key={d.id}>A newer revision of {d.attachedDrawingNumber || d.drawingNumber || d.title} has been released (revision {d.currentRevision}). This open work order still uses revision {d.attachedRevision}, recorded when the order was created.</div>)}
+    </Alert>}
     <Stack gap={1}>{q.data.map((d) => <Stack key={d.id} direction="row" alignItems="center" gap={1} flexWrap="wrap">
       <Typography variant="body2">{label(d)}</Typography>
-      <Chip size="small" label={d.attachedRevision === d.currentRevision ? `Rev ${d.currentRevision} (attached)` : `Attached rev ${d.attachedRevision} · now rev ${d.currentRevision}`}
-        color={d.attachedRevision === d.currentRevision ? 'default' : 'warning'} variant="outlined" />
+      <Chip size="small" label={d.attachedRevision === d.currentRevision ? `Rev ${d.attachedRevision} (recorded)` : `Recorded rev ${d.attachedRevision} · current rev ${d.currentRevision}`}
+        color={d.newerRevision ? 'warning' : 'default'} variant="outlined" />
       <OpenDrawingButton d={d} />
-      {d.attachedRevision && d.attachedRevision !== d.currentRevision && <Button size="small" component="a" href={viewerUrl(d.id, d.attachedRevision)} target="_blank" rel="noopener">View attached rev {d.attachedRevision}</Button>}
+      {d.attachedRevision && d.attachedRevision !== d.currentRevision && <Button size="small" component="a" href={viewerUrl(d.id, d.attachedRevision)} target="_blank" rel="noopener">View recorded rev {d.attachedRevision}</Button>}
     </Stack>)}</Stack>
   </Paper>;
 }
@@ -131,8 +135,8 @@ export function DrawingFileFields({ f, set }: { f: NewDrawing; set: (f: NewDrawi
       <input hidden type="file" accept={ACCEPT} data-testid="drawing-file" onChange={(e) => { const file = e.target.files?.[0] ?? null; set({ ...f, file, title: f.title || (file ? file.name.replace(/\.[^.]+$/, '') : '') }); }} /></Button>
     <Typography variant="caption" color="text.secondary">PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES, SolidWorks or Word (DOCX, DOC) files up to 50 MB. PDF and images open in the browser; other files download.</Typography>
     <TextField label="Title" required value={f.title} onChange={(e) => set({ ...f, title: e.target.value })} />
-    <Stack direction="row" gap={2}><TextField label="Drawing number" value={f.drawingNumber} onChange={(e) => set({ ...f, drawingNumber: e.target.value })} sx={{ flex: 2 }} />
-      <TextField label="Revision" required value={f.revision} onChange={(e) => set({ ...f, revision: e.target.value.toUpperCase() })} sx={{ flex: 1 }} /></Stack>
+    <Stack direction="row" gap={2}><TextField label="Drawing number" value={f.drawingNumber} onChange={(e) => set({ ...f, drawingNumber: e.target.value })} sx={{ flex: 2 }} helperText="Kept whole. A trailing letter stays part of the number." />
+      <TextField label="Revision" required value={f.revision} onChange={(e) => set({ ...f, revision: e.target.value.toUpperCase() })} sx={{ flex: 1 }} helperText="From the Part Master when that number already has one. Not read from the file name." /></Stack>
     <TextField label="Notes" multiline minRows={2} value={f.notes} onChange={(e) => set({ ...f, notes: e.target.value })} />
   </Stack>;
 }
@@ -288,7 +292,7 @@ function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open
 }
 
 
-interface RevRow { id: string; revision: string; fileName: string; sizeBytes: number; notes?: string; reason?: string; changeReference?: string; createdAt: string; uploadedBy?: string; uploadedById?: string | null;
+interface RevRow { id: string; revision: string; drawingNumber?: string | null; fileName: string; sizeBytes: number; notes?: string; reason?: string; changeReference?: string; createdAt: string; uploadedBy?: string; uploadedById?: string | null;
   status: string; releasedAt?: string; releasedByName?: string; viewable: boolean; current: boolean; viewUrl?: string | null }
 interface DrawingDetail { id: string; title: string; drawingNumber?: string; notes?: string; currentRevision: string; isArchived: boolean; createdAt: string; updatedAt: string; canManage: boolean;
   canRevise: boolean; canRelease: boolean; approvalRequired: boolean;
@@ -333,15 +337,16 @@ export function DrawingPage() {
         </Paper>
         {d.revisions.some((r) => r.status === 'Pending') && <Alert severity="info" sx={{ mb: 2 }} data-testid="pending-revision">
           Revision {d.revisions.find((r) => r.status === 'Pending')?.revision} is pending release. The current revision stays {d.currentRevision} until it is released.</Alert>}
-        {tab === 'revisions' && <Box data-testid="revision-history"><SimpleTable head={['Revision', 'Date', 'Uploaded by', 'Reason', 'Status', 'File', '']} rows={d.revisions.map((r) => [
-          <b key="r">{r.revision}</b>, fmtDateTime(r.createdAt), r.uploadedBy ? <PersonLabel id={r.uploadedById} name={r.uploadedBy} /> : '—',
+        {tab === 'revisions' && <Box data-testid="revision-history"><SimpleTable head={['Revision', 'Drawing number', 'Date', 'Uploaded by', 'Reason', 'Released', 'Status', 'File', '']} rows={d.revisions.map((r) => [
+          <b key="r">{r.revision}</b>, <Mono key="n">{r.drawingNumber || d.drawingNumber || '—'}</Mono>, fmtDateTime(r.createdAt), r.uploadedBy ? <PersonLabel id={r.uploadedById} name={r.uploadedBy} /> : '—',
           <Box key="why"><span>{r.reason || '—'}</span>{r.changeReference && <Typography variant="caption" display="block" color="text.secondary">{r.changeReference}</Typography>}</Box>,
-          <Chip key="s" size="small" color={r.status === 'Current' ? 'primary' : r.status === 'Pending' ? 'warning' : 'default'} label={r.status} />,
+          r.releasedAt ? `${fmtDateTime(r.releasedAt)}${r.releasedByName ? ` · ${r.releasedByName}` : ''}` : '—',
+          <Chip key="s" size="small" color={r.status === 'Current' ? 'primary' : r.status === 'Pending' ? 'warning' : 'default'} label={r.status === 'Superseded' ? 'Superseded · read only' : r.status} />,
           <FileName key="f" name={r.fileName} sizeBytes={r.sizeBytes} />,
           <Stack key="a" direction="row" gap={1}>{r.viewable && <Button size="small" component="a" href={viewerUrl(d.id, r.current ? undefined : r.revision)} target="_blank" rel="noopener">View</Button>}
             <Button size="small" component="a" href={fileUrl(d.id, r.revision)}>Download</Button>
             {d.canRelease && r.status === 'Pending' && <Button size="small" variant="contained" data-testid="release-revision" onClick={() => setReleaseRev(r.revision)}>Release</Button>}
-            <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file for this revision is removed." /></Stack>])} /></Box>}
+            <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file is removed and the removal is recorded. A released file cannot be replaced in place." /></Stack>])} /></Box>}
         <RevisionDialog open={dlg === 'rev'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <EditDialog open={dlg === 'edit'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <LinkPartsDialog open={dlg === 'parts'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
@@ -371,7 +376,7 @@ function RevisionDialog({ open, d, onClose, onSaved }: { open: boolean; d: Drawi
         ? `Revision ${d.currentRevision} stays current until this one is released. The earlier file is kept.`
         : `Revision ${d.currentRevision} is marked superseded and stays in the history. The earlier file is kept.`}</Typography>
       <Button variant="outlined" component="label">{file ? file.name : 'Choose file'}<input hidden type="file" accept={ACCEPT} data-testid="revision-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button>
-      <TextField label="Revision" required value={rev} onChange={(e) => setRev(e.target.value.toUpperCase())} />
+      <TextField label="Revision" required value={rev} onChange={(e) => setRev(e.target.value.toUpperCase())} helperText="Entered here. It is not read from the file name. The earlier file is kept." />
       <TextField label="Reason for change" required multiline minRows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
       <TextField label="Change reference" value={ecn} onChange={(e) => setEcn(e.target.value)} helperText="Optional. An ECN or other change number." />
     </Stack></DialogContent>
@@ -423,7 +428,7 @@ export function DrawingViewer() {
       <Box sx={{ flex: 1 }} />{r && <Button size="small" component="a" href={fileUrl(id, r.revision)}>Download</Button>}
     </Stack>
     {r && r.status === 'Superseded' && <Alert severity="warning" data-testid="superseded-banner" sx={{ borderRadius: 0 }}>
-      You are looking at superseded revision {r.revision}. The current revision is {d!.currentRevision}. This file is unchanged.</Alert>}
+      You are looking at superseded revision {r.revision}. It is read only. The current revision is {d!.currentRevision}. This file cannot be replaced.</Alert>}
     {r && r.status === 'Pending' && <Alert severity="info" data-testid="pending-banner" sx={{ borderRadius: 0 }}>
       Revision {r.revision} is pending release and is not the current revision. The current revision is {d!.currentRevision}.</Alert>}
     {q.isLoading ? <Loading /> : q.error ? <Box sx={{ p: 3 }}><ErrorState error={q.error} /></Box> : !r ? <Box sx={{ p: 3 }}><Empty text="That revision was not found." /></Box> :

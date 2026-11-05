@@ -293,6 +293,10 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid>("DrawingId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DrawingNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -353,6 +357,14 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("DrawingId", "Status");
 
+                    b.HasIndex(new[] { "DrawingId" }, "IX_drawing_revisions_one_current")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 1");
+
+                    b.HasIndex(new[] { "DrawingId" }, "IX_drawing_revisions_one_pending")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 0");
+
                     b.ToTable("drawing_revisions", "sqf");
                 });
 
@@ -367,12 +379,21 @@ namespace Sequfloh.Data.Migrations
                     b.Property<DateTimeOffset>("AttachedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("AttachedDrawingNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("AttachedRevision")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<Guid?>("AttachedRevisionId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("TrackingRecordId", "DrawingId");
+
+                    b.HasIndex("AttachedRevisionId");
 
                     b.HasIndex("DrawingId");
 
@@ -3070,6 +3091,10 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("DrawingRevision")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<bool>("HasSpecialCharacteristics")
                         .HasColumnType("boolean");
 
@@ -4011,6 +4036,11 @@ namespace Sequfloh.Data.Migrations
 
             modelBuilder.Entity("Sequfloh.Domain.Drawings.TrackingRecordDrawing", b =>
                 {
+                    b.HasOne("Sequfloh.Domain.Drawings.DrawingRevision", null)
+                        .WithMany()
+                        .HasForeignKey("AttachedRevisionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Sequfloh.Domain.Drawings.Drawing", null)
                         .WithMany()
                         .HasForeignKey("DrawingId")

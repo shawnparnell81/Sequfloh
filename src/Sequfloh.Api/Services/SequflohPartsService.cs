@@ -13,7 +13,7 @@ using Sequfloh.Infrastructure.Services;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyType, bool IsRepairable, bool IsSerialized, bool IsLotControlled, string? DrawingNumber, string? Specification, uint RowVersion = 0, bool IsRepairPart = false,
-    string? PartClass = null, bool? IsAssembly = null, string? LotControl = null);
+    string? PartClass = null, bool? IsAssembly = null, string? LotControl = null, string? DrawingRevision = null);
 /// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
 /// <summary>Upc: null keeps the part's UPC / Barcode, an empty value clears it.</summary>
 public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null, List<string>? HiddenFields = null, string? Upc = null);
@@ -158,6 +158,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         if (r.RowVersion != 0) db.Entry(p).Property(x => x.RowVersion).OriginalValue = r.RowVersion;
         p.ProductFamily = T(r.ProductFamily, 100); p.AssemblyType = T(r.AssemblyType, 100); p.IsRepairable = r.IsRepairable; p.IsRepairPart = r.IsRepairPart; p.IsSerialized = r.IsSerialized;
         p.IsLotControlled = r.IsLotControlled; p.DrawingNumber = T(r.DrawingNumber, 100); p.Specification = T(r.Specification, 200);
+        p.DrawingRevision = string.IsNullOrWhiteSpace(r.DrawingRevision) ? null : Sequfloh.Drawings.DrawingService.Revision(r.DrawingRevision);
         // older clients send only the lot flag; the form sends Yes, No or Not applicable
         if (r.LotControl is not null)
         {

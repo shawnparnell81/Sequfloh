@@ -431,6 +431,7 @@ public partial class AppDbContext
             e.Property(x => x.LotControl).HasMaxLength(20);
             e.Property(x => x.Notes).HasMaxLength(4000);
             e.Property(x => x.DrawingNumber).HasMaxLength(100);
+            e.Property(x => x.DrawingRevision).HasMaxLength(20);
             e.Property(x => x.Upc).HasMaxLength(14);
             e.Property(x => x.UpcKey).HasMaxLength(14);
             e.HasIndex(x => x.UpcKey).IsUnique().HasFilter("\"UpcKey\" IS NOT NULL");

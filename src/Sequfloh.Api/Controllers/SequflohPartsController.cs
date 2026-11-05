@@ -154,7 +154,7 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             Part = new
             {
                 p.Id, p.PartNumber, p.Name, p.Description, PartType = p.PartType.ToString(), PartTypeValue = (int)p.PartType, p.Revision, p.UnitOfMeasure, p.ProductId, p.Material, p.HasSpecialCharacteristics, p.SiteId, p.DepartmentId, Status = p.Status.ToString(), StatusValue = (int)p.Status,
-                p.ProductFamily, p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.Upc, p.Specification, p.Notes, p.RowVersion, p.CreatedAt, p.UpdatedAt,
+                p.ProductFamily, p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled, p.DrawingNumber, p.DrawingRevision, p.Upc, p.Specification, p.Notes, p.RowVersion, p.CreatedAt, p.UpdatedAt,
                 p.TypeId, TypeName = await db.SequflohReferenceValues.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefaultAsync(ct), Attributes = PartAttributes.Read(p.Attributes), HiddenFields = PartFields.Read(p.HiddenFields),
                 CreatedBy = Name(p.CreatedById), UpdatedBy = Name(p.UpdatedById)
             },

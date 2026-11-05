@@ -47,13 +47,16 @@ public partial class AppDbContext
             e.ToTable("tracking_record_drawings");
             e.HasKey(x => new { x.TrackingRecordId, x.DrawingId });
             e.Property(x => x.AttachedRevision).HasMaxLength(20);
+            e.Property(x => x.AttachedDrawingNumber).HasMaxLength(100);
             e.HasOne<Drawing>().WithMany().HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<DrawingRevision>().WithMany().HasForeignKey(x => x.AttachedRevisionId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne<Sequfloh.Domain.Execution.SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<DrawingRevision>(e =>
         {
             e.ToTable("drawing_revisions");
             e.Property(x => x.Revision).HasMaxLength(20);
+            e.Property(x => x.DrawingNumber).HasMaxLength(100);
             e.Property(x => x.FileName).HasMaxLength(255);
             e.Property(x => x.ContentType).HasMaxLength(150);
             e.Property(x => x.StorageKey).HasMaxLength(300);
@@ -65,6 +68,9 @@ public partial class AppDbContext
             e.Property(x => x.CreatedByName).HasMaxLength(200);
             e.HasIndex(x => new { x.DrawingId, x.Revision }).IsUnique();
             e.HasIndex(x => new { x.DrawingId, x.Status });
+            // one released file in use, and at most one file waiting for release
+            e.HasIndex(x => x.DrawingId, "IX_drawing_revisions_one_current").IsUnique().HasFilter("\"Status\" = 1");
+            e.HasIndex(x => x.DrawingId, "IX_drawing_revisions_one_pending").IsUnique().HasFilter("\"Status\" = 0");
             e.HasOne<Drawing>().WithMany().HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Cascade);
         });
     }
