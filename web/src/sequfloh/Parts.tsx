@@ -1,9 +1,9 @@
 import { setupOptions } from '../components/SetupLink';
 import { ListToolbar } from '../layout/PageHeader';
 import { FormDialogTitle } from '../components/FullScreen';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, Menu, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogTitle, Menu, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
@@ -103,6 +103,7 @@ export function PartMasterPage() {
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [wipe, setWipe] = useState(false);
   const [ticked, setTicked] = useState<string[]>([]);
   const canChange = can('sequfloh.edit_parts') && can('parts.edit');
   const family = !view && v('partType') ? (v('partType') === 'none' ? 'No product family' : types.data?.find((t) => t.id === v('partType'))?.label) : undefined;
@@ -128,6 +129,7 @@ export function PartMasterPage() {
     <ImportPartsDialog open={importing} onClose={() => setImporting(false)} preset={preset} />
     {canChange && <ChangeFamilyDialog open={changing} onClose={() => setChanging(false)} families={types.data ?? []} defs={attrDefs.data ?? []} ticked={ticked}
       filters={{ q: v('q'), partType: v('partType'), status: v('status'), tag: v('tag') }} currentFamily={v('partType') && v('partType') !== 'none' ? v('partType') : undefined} onDone={() => setTicked([])} />}
+    {wipe && family && <FamilyDeleteDialog familyId={v('partType')} label={family} onClose={() => setWipe(false)} />}
   </>;
   if (home) return (
     <SqfPage title="Part Master" crumbs={crumbs('Part Master')} description="Search for a part, or open a product family to see its parts." actions={buttons(false)}>
@@ -140,7 +142,7 @@ export function PartMasterPage() {
   );
   return (
     <SqfPage title={title} crumbs={crumbs(title)} description={viewHelp[view] ?? (family ? `Parts in the ${family} product family.` : 'The part master with execution attributes for each part and revision.')}
-      actions={buttons(true)}>
+      actions={<Stack direction="row" gap={1} flexWrap="wrap" useFlexGap alignItems="center">{buttons(true)}{family && <FamilyDeleteButton label={family} onClick={() => setWipe(true)} />}</Stack>}>
       {!view && <Link component={RouterLink} to="/sequfloh/parts" sx={{ display: 'inline-block', mb: 1 }} data-testid="parts-home-link">Back to Part Master home</Link>}
       {(untyped.data?.total ?? 0) > 0 && v('partType') !== 'none' && <Alert severity="info" sx={{ mb: 2 }} data-testid="untyped-parts"
         action={<Button color="inherit" size="small" onClick={() => set('partType', 'none')}>Show them</Button>}>
@@ -167,6 +169,7 @@ function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number
   const nav = useNavigate();
   const [text, setText] = useState('');
   const [q, setQ] = useState('');
+  const [target, setTarget] = useState<{ id: string; label: string } | null>(null);
   const counts = useQuery({ queryKey: ['sqf-parts', 'family-counts'], queryFn: () => get<{ typeId: string | null; count: number }[]>(`${S}/parts/family-counts`) });
   const found = useQuery({ queryKey: ['sqf-parts', 'home-search', q], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${qs({ q, page: 1, pageSize: 10 })}`), enabled: !!q });
   const countOf = (id: string | null) => counts.data?.find((c) => c.typeId === id)?.count ?? 0;
@@ -191,15 +194,104 @@ function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Product families</Typography>
         <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {cards.map((c) => (
-            <Paper key={c.id} variant="outlined" component={RouterLink} to={`/sequfloh/parts?${qs({ partType: c.id })}`} data-testid={`family-card-${c.label}`}
-              sx={{ p: 2, textDecoration: 'none', color: 'inherit', '&:hover': { borderColor: 'primary.main' } }}>
-              <Typography fontWeight={600}>{c.label}</Typography>
-              <Typography variant="h5" data-testid="family-count">{counts.isLoading ? '…' : c.n.toLocaleString('en-US')}</Typography>
-              <Typography variant="body2" color="text.secondary">{c.n === 1 ? 'part number' : 'part numbers'}</Typography>
+            <Paper key={c.id} variant="outlined" data-testid={`family-card-${c.label}`}
+              sx={{ p: 2, minHeight: 148, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 1, '&:hover': { borderColor: 'primary.main' } }}>
+              <Box component={RouterLink} to={`/sequfloh/parts?${qs({ partType: c.id })}`} sx={{ textDecoration: 'none', color: 'inherit', flex: 1 }}>
+                <Typography fontWeight={600}>{c.label}</Typography>
+                <Typography variant="h5" data-testid="family-count">{counts.isLoading ? '…' : c.n.toLocaleString('en-US')}</Typography>
+                <Typography variant="body2" color="text.secondary">{c.n === 1 ? 'part number' : 'part numbers'}</Typography>
+              </Box>
+              {c.n > 0 && <FamilyDeleteButton size="small" label={c.label} onClick={() => setTarget({ id: c.id, label: c.label })} />}
             </Paper>))}
         </Box>
       </Box>
+      {target && <FamilyDeleteDialog familyId={target.id} label={target.label} onClose={() => setTarget(null)} />}
     </Stack>
+  );
+}
+
+const nParts = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'part' : 'parts'}`;
+interface FamilyPartSkip { partNumber: string; workOrders: number; instructions: number; partsLists: number; reason: string }
+interface FamilyPlan { family: string; total: number; deletable: number; skipped: number; skips: FamilyPartSkip[] }
+interface FamilyDeleteResult { family: string; deleted: number; skipped: number; more: boolean; skips: FamilyPartSkip[] }
+
+function SkipList({ skips }: { skips: FamilyPartSkip[] }) {
+  if (!skips.length) return null;
+  const shown = skips.slice(0, 12);
+  return (
+    <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.5, maxHeight: 220, overflow: 'auto' }} data-testid="delete-family-skips">
+      {shown.map((s, i) => <Typography key={`${s.partNumber}-${i}`} component="li" variant="body2" sx={{ mb: 0.25 }}><Mono>{s.partNumber}</Mono> — {s.reason}</Typography>)}
+      {skips.length > shown.length && <Typography component="li" variant="body2" color="text.secondary">and {(skips.length - shown.length).toLocaleString('en-US')} more</Typography>}
+    </Box>
+  );
+}
+
+/** Opens the confirm dialog that wipes one product family's unused parts. Hidden without Delete records. */
+function FamilyDeleteButton({ label, onClick, size = 'medium' }: { label: string; onClick: () => void; size?: 'small' | 'medium' }) {
+  const { can } = useAuth();
+  if (!can('sequfloh.delete_records')) return null;
+  return <Button size={size} color="error" variant="outlined" data-testid="delete-family" aria-label={`Delete all parts in ${label}`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}>Delete all</Button>;
+}
+
+/** Confirms, then deletes the unused parts of one family and reports what was kept. */
+function FamilyDeleteDialog({ familyId, label, onClose }: { familyId: string; label: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [plan, setPlan] = useState<FamilyPlan | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [soFar, setSoFar] = useState(0);
+  const [done, setDone] = useState<{ deleted: number; skipped: number; skips: FamilyPartSkip[]; family: string } | null>(null);
+  const url = `${S}/parts/families/${encodeURIComponent(familyId)}`;
+  useEffect(() => {
+    let live = true;
+    setLoading(true); setError(null); setPlan(null);
+    get<FamilyPlan>(`${url}/delete-preview`).then((p) => { if (live) setPlan(p); }, (e: unknown) => { if (live) setError((e as Error).message); }).finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [url]);
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['sqf-parts'] }); void qc.invalidateQueries({ queryKey: ['sqf-parts-untyped'] }); };
+  const run = async () => {
+    setBusy(true); setError(null);
+    let deleted = 0;
+    try {
+      let last: FamilyDeleteResult;
+      do {
+        last = await post<FamilyDeleteResult>(`${url}/delete`);
+        deleted += last.deleted;
+        setSoFar(deleted);
+      } while (last.more);
+      setDone({ deleted, skipped: last.skipped, skips: last.skips, family: last.family });
+      refresh();
+    } catch (e) {
+      setError(`${(e as Error).message}${deleted ? ` ${nParts(deleted)} were already deleted.` : ''}`);
+      refresh();
+    } finally { setBusy(false); }
+  };
+  const name = done?.family ?? plan?.family ?? label;
+  const close = () => { if (!busy) onClose(); };
+  return (
+    <Dialog open onClose={close} fullWidth maxWidth="sm" data-testid={done ? 'delete-family-result' : 'delete-family-confirm'}>
+      <DialogTitle>{done ? 'Parts deleted' : `Delete all parts in ${name}?`}</DialogTitle>
+      <DialogContent>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {done ? <>
+          <Typography variant="body2" data-testid="delete-family-deleted">Deleted {nParts(done.deleted)} in {done.family}.</Typography>
+          <Typography variant="body2" sx={{ mt: 1 }} data-testid="delete-family-skipped">Skipped {nParts(done.skipped)}.</Typography>
+          {done.skipped > 0 && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>These stay because a work order, a work instruction, or a parts list uses them.</Typography>}
+          <SkipList skips={done.skips} />
+        </> : loading ? <Loading /> : plan && plan.deletable === 0 && plan.skipped === 0 ? <Typography variant="body2">{name} has no parts to delete.</Typography> : plan && <>
+          <Typography variant="body2">This deletes {nParts(plan.deletable)} in {name}. Other product families are not changed.</Typography>
+          {plan.skipped > 0 && <Typography variant="body2" sx={{ mt: 1 }}>{nParts(plan.skipped)} will be skipped because a work order, a work instruction, or a parts list uses them.</Typography>}
+          <SkipList skips={plan.skips} />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>Drawing links on the deleted parts are removed. The drawings stay. This can't be undone.</Typography>
+          {busy && soFar > 0 && <Alert severity="info" sx={{ mt: 2 }}>Deleted {nParts(soFar)} so far. Still working through this family.</Alert>}
+        </>}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={close} disabled={busy}>{done || (plan && plan.deletable === 0) ? 'Close' : 'Cancel'}</Button>
+        {!done && plan && plan.deletable > 0 && <Button variant="contained" color="error" disabled={busy || loading} data-testid="delete-family-go" onClick={run}>{busy ? 'Deleting…' : `Delete ${nParts(plan.deletable)}`}</Button>}
+      </DialogActions>
+    </Dialog>
   );
 }
 

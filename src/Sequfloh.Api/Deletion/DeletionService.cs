@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sequfloh.Application.Abstractions;
@@ -7,6 +8,7 @@ using Sequfloh.Domain.Common;
 using Sequfloh.Domain.Drawings;
 using Sequfloh.Domain.Execution;
 using Sequfloh.Domain.Security;
+using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
 using Sequfloh.Platform;
 
@@ -16,8 +18,9 @@ namespace Sequfloh.Deletion;
 /// Deletes records people added by mistake or no longer need. Every delete needs the "Delete records" permission for the record's site and department,
 /// writes one audit entry, and removes the stored files that went with the record. Records that other work depends on are not deleted; the message says why
 /// and what to do instead (time logged on a work order is kept for chargebacks).
+/// Deleting the parts of one product family uses the same part checks, one part at a time.
 /// </summary>
-public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me, ILogger<DeletionService> log)
+public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me, ILogger<DeletionService> log, SequflohPartsService parts)
 {
     Guid UserId => me.UserId ?? throw new ForbiddenException();
 
@@ -185,20 +188,144 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
 
     // ---- parts ----------------------------------------------------------------------------------------------------------------------
 
+    /// <summary>Work orders, work instructions and parts lists that keep a part from being deleted. The same counts single-part delete reports.</summary>
+    sealed record PartUses(int Instructions, int Orders, int Lists)
+    {
+        public bool Any => Instructions + Orders + Lists > 0;
+    }
+
+    sealed record FamilyPartRow(Guid Id, string PartNumber, Guid SiteId, Guid? DepartmentId);
+
+    /// <summary>Stop a long family after this and let the caller repeat the same call, so one request does not run until a proxy times it out. Each part is saved on its own.</summary>
+    static readonly TimeSpan FamilyDeleteBudget = TimeSpan.FromSeconds(20);
+
+    string UseText(PartUses u)
+    {
+        var uses = new List<string>();
+        if (u.Instructions > 0) uses.Add(Count(u.Instructions, "work instruction", "work instructions"));
+        if (u.Orders > 0) uses.Add(Count(u.Orders, "work order", "work orders"));
+        if (u.Lists > 0) uses.Add(Count(u.Lists, "parts list entry", "parts list entries"));
+        return string.Join(", ", uses);
+    }
+
+    static FamilyPartSkip Skip(FamilyPartRow row, PartUses u, string reason) => new(row.PartNumber, u.Orders, u.Instructions, u.Lists, reason);
+
+    /// <summary>Counts the same links <see cref="PartAsync"/> refuses on, for many parts at once.</summary>
+    async Task<Dictionary<Guid, PartUses>> UsesForAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        var instructions = new Dictionary<Guid, int>();
+        var orders = new Dictionary<Guid, int>();
+        var lists = new Dictionary<Guid, int>();
+        foreach (var chunk in ids.Distinct().Chunk(400))
+        {
+            var idChunk = chunk.ToArray();
+            foreach (var row in await db.SequflohWorkInstructions.Where(w => w.PartId != null && idChunk.Contains(w.PartId.Value)).GroupBy(w => w.PartId!.Value).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct))
+                instructions[row.Key] = row.N;
+            foreach (var row in await db.SequflohTrackingRecords.Where(w => w.PartId != null && idChunk.Contains(w.PartId.Value)).GroupBy(w => w.PartId!.Value).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct))
+                orders[row.Key] = row.N;
+            foreach (var row in await db.SequflohPartsLists.Where(l => l.ParentPartId != null && idChunk.Contains(l.ParentPartId.Value)).GroupBy(l => l.ParentPartId!.Value).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct))
+                lists[row.Key] = row.N;
+            foreach (var row in await db.SequflohPartsListItems.Where(l => l.PartId != null && idChunk.Contains(l.PartId.Value)).GroupBy(l => l.PartId!.Value).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct))
+                lists[row.Key] = lists.GetValueOrDefault(row.Key) + row.N;
+        }
+        var map = new Dictionary<Guid, PartUses>();
+        foreach (var id in ids.Distinct())
+        {
+            var u = new PartUses(instructions.GetValueOrDefault(id), orders.GetValueOrDefault(id), lists.GetValueOrDefault(id));
+            if (u.Any) map[id] = u;
+        }
+        return map;
+    }
+
+    /// <summary>The parts the family card counts: the same product family (or parts with none), limited to the sites the person can open.</summary>
+    async Task<(string Label, List<FamilyPartRow> Rows)> FamilyPartsAsync(string family, CancellationToken ct)
+    {
+        string key;
+        string label;
+        if (string.Equals(family, "none", StringComparison.OrdinalIgnoreCase)) { key = "none"; label = "No product family"; }
+        else if (Guid.TryParse(family, out var id))
+        {
+            key = id.ToString();
+            label = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.Id == id && v.ListKey == SequflohCatalog.ProductFamilies).Select(v => v.Label).FirstOrDefaultAsync(ct)
+                ?? throw new NotFoundException("Product family");
+        }
+        else throw new AppException("Choose a product family.");
+        var query = await parts.PartsQueryAsync(null, null, null, null, null, ct, key);
+        var raw = await query.Select(p => new { p.Id, p.PartNumber, p.SiteId, p.DepartmentId }).ToListAsync(ct);
+        var rows = raw.Select(p => new FamilyPartRow(p.Id, p.PartNumber, p.SiteId, p.DepartmentId))
+            .OrderBy(p => p.PartNumber, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.Id).ToList();
+        return (label, rows);
+    }
+
+    async Task<(string Label, List<FamilyPartRow> Free, List<FamilyPartSkip> Skips, int Total)> ClassifyFamilyAsync(string family, CancellationToken ct)
+    {
+        var (label, rows) = await FamilyPartsAsync(family, ct);
+        var uses = await UsesForAsync(rows.Select(r => r.Id).ToList(), ct);
+        var free = new List<FamilyPartRow>();
+        var skips = new List<FamilyPartSkip>();
+        foreach (var row in rows)
+        {
+            if (!await access.CanAccessAsync(UserId, Permissions.SequflohDeleteRecords, row.SiteId, row.DepartmentId, ct))
+            {
+                skips.Add(new FamilyPartSkip(row.PartNumber, 0, 0, 0, "You do not have permission to delete this part."));
+                continue;
+            }
+            if (uses.TryGetValue(row.Id, out var u)) { skips.Add(Skip(row, u, UseText(u))); continue; }
+            free.Add(row);
+        }
+        return (label, free, skips, rows.Count);
+    }
+
+    /// <summary>What a family delete would do: how many parts would go, and which stay, with the reason.</summary>
+    public async Task<FamilyPartsDeletePlan> PreviewFamilyPartsAsync(string family, CancellationToken ct)
+    {
+        var (label, free, skips, total) = await ClassifyFamilyAsync(family, ct);
+        return new FamilyPartsDeletePlan(label, total, free.Count, skips.Count, skips);
+    }
+
+    /// <summary>
+    /// Deletes every part of one product family that <see cref="PartAsync"/> would delete. Parts used by a work order, a work instruction or a parts list
+    /// stay, with the same reason. Drawing links of deleted parts go; the drawings stay. One audit entry is written per deleted part.
+    /// A large family stops after <see cref="FamilyDeleteBudget"/> and reports More, so the caller repeats and the parts already deleted stay deleted.
+    /// </summary>
+    public async Task<FamilyPartsDeleteResult> DeleteFamilyPartsAsync(string family, CancellationToken ct)
+    {
+        var (label, free, skips, _) = await ClassifyFamilyAsync(family, ct);
+        var sw = Stopwatch.StartNew();
+        var deleted = 0;
+        var index = 0;
+        for (; index < free.Count; index++)
+        {
+            if (index > 0 && sw.Elapsed >= FamilyDeleteBudget) break;
+            var row = free[index];
+            try
+            {
+                await PartAsync(row.Id, ct);
+                deleted++;
+            }
+            catch (ConflictException ex)
+            {
+                var again = (await UsesForAsync([row.Id], ct)).GetValueOrDefault(row.Id);
+                skips.Add(again is { } u ? Skip(row, u, UseText(u)) : new FamilyPartSkip(row.PartNumber, 0, 0, 0, ex.Message));
+            }
+            catch (ForbiddenException)
+            {
+                skips.Add(new FamilyPartSkip(row.PartNumber, 0, 0, 0, "You do not have permission to delete this part."));
+            }
+            catch (NotFoundException) { }
+            finally { db.ChangeTracker.Clear(); }
+        }
+        return new FamilyPartsDeleteResult(label, deleted, skips.Count, index < free.Count, skips);
+    }
+
     /// <summary>Deletes a part. Drawing links go with it (the drawings stay). Not possible while instructions, work orders or parts lists use it.</summary>
     public async Task PartAsync(Guid id, CancellationToken ct)
     {
         var p = await db.Parts.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Part");
         await RequireAsync(p, ct);
-        var wis = await db.SequflohWorkInstructions.CountAsync(w => w.PartId == id, ct);
-        var orders = await db.SequflohTrackingRecords.CountAsync(w => w.PartId == id, ct);
-        var lists = await db.SequflohPartsLists.CountAsync(l => l.ParentPartId == id, ct) + await db.SequflohPartsListItems.CountAsync(l => l.PartId == id, ct);
-        var uses = new List<string>();
-        if (wis > 0) uses.Add(Count(wis, "work instruction", "work instructions"));
-        if (orders > 0) uses.Add(Count(orders, "work order", "work orders"));
-        if (lists > 0) uses.Add(Count(lists, "parts list entry", "parts list entries"));
-        if (uses.Count > 0)
-            throw new ConflictException($"{p.PartNumber} is used by {string.Join(", ", uses)}, so it can't be deleted. Deactivate it instead.");
+        var uses = (await UsesForAsync([id], ct)).GetValueOrDefault(id);
+        if (uses is { } u)
+            throw new ConflictException($"{p.PartNumber} is used by {UseText(u)}, so it can't be deleted. Deactivate it instead.");
         var links = await db.DrawingPartLinks.CountAsync(l => l.PartId == id, ct);
         if (links > 0) AuditInterceptor.Note(p, $"removed its links to {Count(links, "drawing", "drawings")} (the drawings stay)");
         await db.PartRevisions.Where(r => r.PartId == id).ExecuteDeleteAsync(ct);
@@ -400,3 +527,12 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         await SaveOrInUseAsync($"Department {d.Code}", ct);
     }
 }
+
+/// <summary>One part a family delete left in place, and why.</summary>
+public sealed record FamilyPartSkip(string PartNumber, int WorkOrders, int Instructions, int PartsLists, string Reason);
+
+/// <summary>What deleting the parts of one product family would do, before anything is removed.</summary>
+public sealed record FamilyPartsDeletePlan(string Family, int Total, int Deletable, int Skipped, IReadOnlyList<FamilyPartSkip> Skips);
+
+/// <summary>What one call of a family delete did. More is true when parts are still waiting and the caller should repeat the call.</summary>
+public sealed record FamilyPartsDeleteResult(string Family, int Deleted, int Skipped, bool More, IReadOnlyList<FamilyPartSkip> Skips);

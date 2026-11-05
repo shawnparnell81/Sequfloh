@@ -32,6 +32,14 @@ public sealed class DeleteController(DeletionService delete) : ControllerBase
     [HttpDelete("api/sequfloh/parts/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> Part(Guid id, CancellationToken ct) { await delete.PartAsync(id, ct); return NoContent(); }
 
+    /// <summary>How many parts in one product family can be deleted, and which stay because work orders, instructions or parts lists use them.</summary>
+    [HttpGet("api/sequfloh/parts/families/{family}/delete-preview"), RequirePermission(P)]
+    public Task<FamilyPartsDeletePlan> FamilyPartsPreview(string family, CancellationToken ct) => delete.PreviewFamilyPartsAsync(family, ct);
+
+    /// <summary>Deletes the unused parts of one product family. Parts tied to work orders, instructions or parts lists stay. Repeat the call while More is true.</summary>
+    [HttpPost("api/sequfloh/parts/families/{family}/delete"), RequirePermission(P)]
+    public Task<FamilyPartsDeleteResult> FamilyParts(string family, CancellationToken ct) => delete.DeleteFamilyPartsAsync(family, ct);
+
     [HttpDelete("api/sequfloh/parts-lists/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> PartsList(Guid id, CancellationToken ct) { await delete.PartsListAsync(id, ct); return NoContent(); }
 
