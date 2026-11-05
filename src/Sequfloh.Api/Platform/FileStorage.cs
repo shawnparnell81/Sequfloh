@@ -15,6 +15,11 @@ public interface IFileStorage
     Task EnsureReadyAsync(CancellationToken ct);
     /// <summary>Removes a stored file. A file that is already gone is not an error.</summary>
     Task DeleteAsync(string key, CancellationToken ct);
+    /// <summary>
+    /// Removes many stored files. A file that is already gone is not an error.
+    /// Returns the keys that could not be removed; every other key is removed.
+    /// </summary>
+    Task<IReadOnlyList<string>> DeleteManyAsync(IReadOnlyCollection<string> keys, CancellationToken ct);
     /// <summary>The stored size and first bytes of a file, or null when it is not there.</summary>
     Task<(long Size, byte[] Start)?> PeekAsync(string key, CancellationToken ct);
     /// <summary>
@@ -80,6 +85,22 @@ public sealed class LocalFileStorage(StorageOptions o) : IFileStorage
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<string>> DeleteManyAsync(IReadOnlyCollection<string> keys, CancellationToken ct)
+    {
+        var failed = new List<string>();
+        foreach (var key in keys.Where(k => !string.IsNullOrEmpty(k)).Distinct())
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var path = PathOf(key);
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception) { failed.Add(key); }
+        }
+        return Task.FromResult<IReadOnlyList<string>>(failed);
+    }
+
     public async Task<(long Size, byte[] Start)?> PeekAsync(string key, CancellationToken ct)
     {
         var path = PathOf(key);
@@ -105,6 +126,8 @@ public sealed class S3FileStorage : IFileStorage
     readonly string _bucket;
     readonly bool _https;
     readonly ILogger _log;
+    // 1 after this provider rejects deleting many files in one call, so later deletes skip that call.
+    int _bulkDeleteUnsupported;
 
     public S3FileStorage(StorageOptions o, ILogger? log = null)
     {
@@ -170,6 +193,68 @@ public sealed class S3FileStorage : IFileStorage
         catch (AmazonS3Exception e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
         catch (Exception e) when (Unreachable(e)) { throw Fail("delete", key, e); }
     }
+
+    /// <summary>How many files one storage call may remove. S3 and R2 both stop at 1,000.</summary>
+    const int BulkDeleteLimit = 1000;
+    const int StorageDeleteParallelism = 16;
+
+    public async Task<IReadOnlyList<string>> DeleteManyAsync(IReadOnlyCollection<string> keys, CancellationToken ct)
+    {
+        var list = keys.Where(k => !string.IsNullOrEmpty(k)).Distinct().ToList();
+        if (list.Count == 0) return [];
+        if (list.Count == 1 || Volatile.Read(ref _bulkDeleteUnsupported) == 1) return await DeleteInParallelAsync(list, ct);
+        var failed = new List<string>();
+        foreach (var chunk in list.Chunk(BulkDeleteLimit))
+        {
+            var chunkList = chunk.ToArray();
+            if (Volatile.Read(ref _bulkDeleteUnsupported) == 1)
+            {
+                failed.AddRange(await DeleteInParallelAsync(chunkList, ct));
+                continue;
+            }
+            try
+            {
+                var resp = await _s3.DeleteObjectsAsync(new DeleteObjectsRequest
+                {
+                    BucketName = _bucket,
+                    Quiet = true,
+                    Objects = chunkList.Select(k => new KeyVersion { Key = k }).ToList(),
+                }, ct);
+                if (resp.DeleteErrors is { Count: > 0 })
+                {
+                    var again = new List<string>();
+                    foreach (var err in resp.DeleteErrors)
+                        if (!string.IsNullOrEmpty(err.Key)) again.Add(err.Key);
+                    failed.AddRange(await DeleteInParallelAsync(again, ct));
+                }
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                if (BulkRejected(e)) Volatile.Write(ref _bulkDeleteUnsupported, 1);
+                var code = e is AmazonServiceException s ? (s.ErrorCode ?? "no code") : e.GetType().Name;
+                _log.LogWarning("File storage could not delete a batch of files ({Code}); removing them a few at a time", code);
+                failed.AddRange(await DeleteInParallelAsync(chunkList, ct));
+            }
+        }
+        return failed;
+    }
+
+    async Task<List<string>> DeleteInParallelAsync(IReadOnlyList<string> keys, CancellationToken ct)
+    {
+        var failed = new List<string>();
+        await Parallel.ForEachAsync(keys, new ParallelOptions { MaxDegreeOfParallelism = StorageDeleteParallelism, CancellationToken = ct }, async (key, token) =>
+        {
+            try { await DeleteAsync(key, token); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lock (failed) failed.Add(key);
+            }
+        });
+        return failed;
+    }
+
+    static bool BulkRejected(Exception e) =>
+        e is AmazonS3Exception { StatusCode: System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotImplemented or System.Net.HttpStatusCode.MethodNotAllowed };
 
     /// <summary>Files up to this size go up in one PUT; larger ones in parts of this size (S3 allows up to 10,000 parts).</summary>
     public const long PartSize = 64L * 1024 * 1024;
