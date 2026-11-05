@@ -49,6 +49,14 @@ public sealed class DeleteController(DeletionService delete) : ControllerBase
     [HttpDelete("api/sequfloh/instruction-templates/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> Template(Guid id, CancellationToken ct) { await delete.TemplateAsync(id, ct); return NoContent(); }
 
+    /// <summary>How many drawings in one family can be deleted, and which stay because deleting that drawing would be refused.</summary>
+    [HttpGet("api/drawings/families/{family}/delete-preview"), RequirePermission(P)]
+    public Task<FamilyDrawingsDeletePlan> FamilyDrawingsPreview(string family, CancellationToken ct) => delete.PreviewFamilyDrawingsAsync(family, ct);
+
+    /// <summary>Deletes the drawings of one family. A drawing that cannot be deleted stays, with the reason. Repeat the call while More is true.</summary>
+    [HttpPost("api/drawings/families/{family}/delete"), RequirePermission(P)]
+    public Task<FamilyDrawingsDeleteResult> FamilyDrawings(string family, CancellationToken ct) => delete.DeleteFamilyDrawingsAsync(family, ct);
+
     [HttpDelete("api/drawings/{id:guid}"), RequirePermission(P)]
     public async Task<IActionResult> Drawing(Guid id, CancellationToken ct) { await delete.DrawingAsync(id, ct); return NoContent(); }
 

@@ -59,6 +59,34 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
 
     // ---- folders ------------------------------------------------------------------------------------------------------------------
 
+    /// <summary>How many drawings sit in a folder and the folders under it, archived ones included. Used to show a family total and to hide Delete all when that total is zero.</summary>
+    async Task<Dictionary<Guid, int>> TreeDrawingCountsAsync(CancellationToken ct)
+    {
+        var folders = await db.DrawingFolders.AsNoTracking().Select(f => new { f.Id, f.ParentId }).ToListAsync(ct);
+        var direct = await db.Drawings.AsNoTracking().GroupBy(d => d.FolderId).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct);
+        var directMap = direct.ToDictionary(x => x.Key, x => x.N);
+        var children = new Dictionary<Guid, List<Guid>>();
+        foreach (var f in folders)
+            if (f.ParentId is Guid parent)
+            {
+                if (!children.TryGetValue(parent, out var list)) children[parent] = list = [];
+                list.Add(f.Id);
+            }
+        var memo = new Dictionary<Guid, int>();
+        var stack = new HashSet<Guid>();
+        int Sum(Guid id)
+        {
+            if (memo.TryGetValue(id, out var known)) return known;
+            if (!stack.Add(id)) return directMap.GetValueOrDefault(id);
+            var n = directMap.GetValueOrDefault(id);
+            if (children.TryGetValue(id, out var kids)) foreach (var kid in kids) n += Sum(kid);
+            stack.Remove(id);
+            return memo[id] = n;
+        }
+        foreach (var f in folders) Sum(f.Id);
+        return memo;
+    }
+
     /// <summary>The folders directly inside a folder (or at the top), with what they hold.</summary>
     public async Task<object> FoldersAsync(Guid? parentId, bool archived, CancellationToken ct, string? revisionStatus = null)
     {
@@ -77,6 +105,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
             }
         }
         var scope = await ScopeAsync(ct);
+        var tree = scope.IsEmpty ? new Dictionary<Guid, int>() : await TreeDrawingCountsAsync(ct);
         var rows = scope.IsEmpty ? [] : await db.DrawingFolders.AsNoTracking().Where(f => f.ParentId == parentId && f.IsArchived == archived).OrderBy(f => f.Name)
             .Select(f => new
             {
@@ -85,7 +114,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
                 Folders = db.DrawingFolders.Count(c => c.ParentId == f.Id && !c.IsArchived),
                 Drawings = db.Drawings.Count(d => d.FolderId == f.Id && !d.IsArchived),
             }).ToListAsync(ct);
-        var folders = rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => new { r.Id, r.Name, r.IsArchived, r.UpdatedAt, r.Part, r.Folders, r.Drawings }).ToList();
+        var folders = rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => new { r.Id, r.Name, r.IsArchived, r.UpdatedAt, r.Part, r.Folders, r.Drawings, TreeDrawings = tree.GetValueOrDefault(r.Id) }).ToList();
         var drawings = parentId is null ? [] : await DrawingRowsAsync(ByStatus(db.Drawings.Where(d => d.FolderId == parentId && d.IsArchived == archived), revisionStatus), scope, ct);
         var canCreate = parentId is null ? await access.HasPermissionAsync(UserId, Permissions.SequflohManageDrawings, ct) : false;
         return new { Parent = parent, Path = path, Folders = folders, Drawings = drawings, CanCreate = canCreate };
