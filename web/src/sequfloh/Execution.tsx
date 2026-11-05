@@ -86,7 +86,7 @@ export function ExecutionQueuePage() {
     { key: 'assignedUser', label: 'Assigned', render: (r) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
     { key: 'pauseReason', label: 'Pause reason', render: (r) => r.pauseReason ?? '—' },
     { key: 'pausedAt', label: 'Paused at', sort: true, render: (r) => fmtDateTime(r.pausedAt) },
-    { key: 'paused', label: 'Paused time', render: (r) => <LiveClock seconds={r.pausedSeconds} running label="Paused time" /> },
+    { key: 'paused', label: 'Paused time', render: (r) => <span>{r.pausedAt ? `${fmtDateTime(r.pausedAt)} · ` : ''}<LiveClock seconds={r.pausedSeconds} label="Paused time" /></span> },
     { key: 'elapsed', label: 'Active time', render: (r) => <Mono>{fmtSeconds(r.elapsedSeconds)}</Mono> }, ...tail]
     : view === 'completed' ? [...base,
     { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
@@ -105,7 +105,7 @@ export function ExecutionQueuePage() {
     { key: 'status', label: 'Status', sort: true, render: (r) => <SqfStatus status={r.status} /> },
     { key: 'priority', label: 'Priority', sort: true, render: (r) => <PriorityTag value={r.priority} /> },
     { key: 'dueAt', label: 'Due', sort: true, render: (r) => <>{fmtDateTime(r.dueAt)}{r.overdueSeconds > 0 && <Chip size="small" color="error" variant="outlined" label="Overdue" sx={{ ml: 0.5 }} />}</> },
-    ...(view === 'mine' ? [{ key: 'elapsed', label: 'Elapsed', render: (r: ExRow) => <LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} /> }] : []), ...tail];
+    ...(view === 'mine' ? [{ key: 'elapsed', label: 'Elapsed', render: (r: ExRow) => <span>{r.actualStart ? `${fmtDateTime(r.actualStart)} · ` : ''}<LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} /></span> }] : []), ...tail];
   return (
     <SqfPage title={cfg.title} crumbs={exCrumbs(cfg.title)} description={cfg.description} permission="sequfloh.view_live_execution"
       actions={view === 'mine' && <Button variant="contained" component={RouterLink} to="/sequfloh/execution/active">Open Active Station</Button>}>
@@ -125,7 +125,7 @@ export function ExecutionQueuePage() {
 }
 
 // ------------------------------------------------------------------ active station
-interface StationResponse { record: J & { id: string; number: string; type: string; status: string; stateVersion: number; elapsedSeconds: number; pausedSeconds: number; holdSeconds: number;
+interface StationResponse { record: J & { id: string; number: string; type: string; status: string; stateVersion: number; elapsedSeconds: number; pausedSeconds: number; holdSeconds: number; actualStart?: string; currentStateStartedAt?: string;
   steps: J[]; characteristics: J[]; details: Record<string, string>; assignedUserId?: string; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number };
   actions: TrAction[]; completionProblems: string[]; nextAction: string; canEnter: boolean; canPlan: boolean }
 const planKeys = ['serialNumber', 'lotNumber', 'workOrder', 'repairOrder', 'customerReturnReference', 'project', 'priority', 'plannedStart', 'dueAt'];
@@ -176,7 +176,7 @@ export function ActiveStationPage() {
   const Fact = ({ k, children }: { k: string; children: ReactNode }) => <Box sx={{ minWidth: 0 }}><Typography variant="caption" color="text.secondary" component="div">{k}</Typography><Typography variant="body2" component="div" sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word', '& *': { overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' } }}>{children}</Typography></Box>;
   return (
     <SqfPage title="Active Station" crumbs={exCrumbs('Active Station')} permission="sequfloh.view_live_execution"
-      description="Your tasks at this station. The clock is calculated from the stored start time and accumulated durations, so refresh, sign-out or closing the browser never resets it.">
+      description="Your tasks at this station. Elapsed time is the stored total as of when this page was opened, and it updates after you start, pause or finish.">
       {list.isLoading ? <Loading /> : list.error ? <ErrorState error={list.error} retry={list.refetch} /> : (list.data?.items.length ?? 0) === 0
         ? <Empty text="You have no assigned or active tasks." action={<Button component={RouterLink} to="/sequfloh/execution/dispatch">Open the Dispatch Queue</Button>} />
         : <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '300px minmax(0, 1fr)' } }}>
@@ -194,9 +194,11 @@ export function ActiveStationPage() {
                     <Typography variant="h3"><Mono>{r.number}</Mono> · {trackingTypes[r.type]}</Typography>
                     <Typography variant="body2" color="text.secondary">{s(r.workInstructionTitle)}</Typography>
                   </Box>
-                  <Box sx={{ textAlign: { sm: 'right' } }}>
+                  <Box sx={{ textAlign: { sm: 'right' } }} data-testid="station-time">
+                    <Typography variant="caption" color="text.secondary" component="div">Started</Typography>
+                    <Typography variant="h3" component="div" data-testid="station-started">{fmtDateTime(s(r.actualStart))}</Typography>
                     <Typography variant="caption" color="text.secondary" component="div">Elapsed (active)</Typography>
-                    <Typography variant="h2" component="div"><LiveClock key={r.stateVersion} seconds={r.elapsedSeconds} running={r.status === 'InProgress'} /></Typography>
+                    <Typography variant="h2" component="div" data-testid="station-elapsed">{fmtSeconds(r.elapsedSeconds)}</Typography>
                   </Box>
                 </Stack>
                 <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, minmax(0, 1fr))' } }}>
@@ -209,7 +211,7 @@ export function ActiveStationPage() {
                   <Fact k="Assigned user">{s(r.assignedUser) || '—'}</Fact>
                   <Fact k="Priority">{s(r.priority)}</Fact>
                   <Fact k="Target range">{r.minBenchmarkMinutes != null || r.maxBenchmarkMinutes != null ? `${s(r.minBenchmarkMinutes) || '—'} – ${s(r.maxBenchmarkMinutes) || '—'} min` : '—'}</Fact>
-                  <Fact k="Paused time"><LiveClock key={'p' + r.stateVersion} seconds={r.pausedSeconds} running={r.status === 'Paused'} label="Paused time" /></Fact>
+                  <Fact k="Paused time"><span data-testid="station-paused">{r.status === 'Paused' && r.currentStateStartedAt ? `${fmtDateTime(r.currentStateStartedAt)} · ` : ''}{fmtSeconds(r.pausedSeconds)}</span></Fact>
                   <Fact k="Due">{fmtDateTime(s(r.dueAt))}</Fact>
                 </Box>
                 <Box sx={{ mt: 2 }}><RecordDrawings recordId={r.id} /></Box>

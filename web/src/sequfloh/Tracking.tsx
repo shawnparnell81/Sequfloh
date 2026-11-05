@@ -54,13 +54,9 @@ export function NewWorkOrderButton({ type, variant = 'contained' }: { type?: str
 export const newOpId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16); }));
 
-/** Elapsed time shown from persisted totals: the server value plus the time since it was read, only while the task is running. */
-export function LiveClock({ seconds, running, label }: { seconds: number; running: boolean; label?: string }) {
-  const [base] = useState(() => Date.now());
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => { if (!running) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [running]);
-  const v = seconds + (running ? Math.max(0, (now - base) / 1000) : 0);
-  return <Mono><span aria-label={label ?? 'Elapsed time'}>{fmtSeconds(v)}</span></Mono>;
+/** Elapsed time from the last load. It does not tick; clock on, pause, resume and clock off still update it when the page reloads. */
+export function LiveClock({ seconds, running, label }: { seconds: number; running?: boolean; label?: string }) {
+  return <Mono><span aria-label={label ?? 'Elapsed time'} data-running={running ? 'true' : undefined}>{fmtSeconds(seconds)}</span></Mono>;
 }
 
 // ------------------------------------------------------------------ folders
@@ -83,7 +79,7 @@ const folders: Record<string, { title: string; description: string; type?: strin
   open: { title: 'Open Work Orders', description: 'Every work order that is not completed, failed or canceled.' },
   completed: { title: 'Completed Work Orders', description: 'Completed work orders.' },
 };
-const Elapsed = ({ r }: { r: TrRow }) => <LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} />;
+const Elapsed = ({ r }: { r: TrRow }) => <span data-testid="elapsed-static">{r.actualStart ? <>{fmtDateTime(r.actualStart)} · </> : null}<LiveClock seconds={r.elapsedSeconds} running={r.status === 'InProgress'} /></span>;
 export const trackingCols = (extra: { key: string; label: string; render?: (r: TrRow) => ReactNode; sort?: boolean }[] = []) => [
   { key: 'number', label: 'Work order', sort: true, render: (r: TrRow) => <Mono>{r.number}</Mono> },
   { key: 'type', label: 'Type', render: (r: TrRow) => trackingTypes[r.type] ?? r.type },
@@ -494,7 +490,7 @@ export function TrackingRecordPage() {
             <TrackVarianceSetting id={rec.id} on={rec.trackTimeVariance === true} canChange={!closed && can('sequfloh.manage_time_variance')} onChanged={refresh} />
           </Stack>
           <Facts items={[['Clocked time', <span key="ct" data-testid="clocked-time">{fmtSeconds(q.data.clockedSeconds ?? 0)}</span>], ['Started (first clock-on)', fmtDateTime(s(q.data.firstClockOn))],
-            ['Paused time', <LiveClock key={'p' + rec.stateVersion} seconds={rec.pausedSeconds} running={rec.status === 'Paused'} label="Paused time" />],
+            ['Paused time', <span key="p" data-testid="paused-time">{rec.status === 'Paused' && s(rec.currentStateStartedAt) ? `${fmtDateTime(s(rec.currentStateStartedAt))} · ` : ''}{fmtSeconds(rec.pausedSeconds)}</span>],
             ['Benchmark range', rec.minBenchmarkMinutes != null || rec.maxBenchmarkMinutes != null ? `${s(rec.minBenchmarkMinutes) || '—'} – ${s(rec.maxBenchmarkMinutes) || '—'} min` : '—'],
             ['Variance', rec.trackTimeVariance ? (rec.varianceMinutes != null ? `${s(rec.varianceMinutes)} min` : '—')
               : <Typography key="v" variant="body2" component="span" color="text.disabled" data-testid="variance-off">Not tracked</Typography>], ['Planned start', fmtDateTime(s(rec.plannedStart))], ['Actual start', fmtDateTime(s(rec.actualStart))],
@@ -710,7 +706,7 @@ export function TaskEvents({ events }: { events: TrEvent[] }) {
 }
 
 const actionText: Record<string, string> = {
-  dispatch: 'Dispatches the task to the assigned user.', assign: 'Assigns the task.', start: 'Starts the task. Timing runs from the database clock and survives refresh, sign-out and closing the browser.',
+  dispatch: 'Dispatches the task to the assigned user.', assign: 'Assigns the task.', start: 'Starts the task. Timing is stored from the database clock and survives refresh, sign-out and closing the browser. The screen shows that total as of when the page was opened.',
   pause: 'Pauses the task. Paused time is kept separately from active time.', resume: 'Resumes the task.', 
   restart: 'Restarts the record for rework. Earlier results and events stay in the history.', complete: 'Completes the record.',
   fail: 'Records the failure.', reassign: 'Moves the task to another user.', cancel: 'Cancels the task. A canceled task cannot be completed or resumed.',

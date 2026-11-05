@@ -14,6 +14,8 @@ public sealed record TimeTransferInput(Guid TargetId, List<Guid>? CrewSessionIds
 public sealed record TimeRemoveInput(List<Guid>? CrewSessionIds, List<Guid>? TimeEntryIds, string? Reason);
 public sealed record PastTimePause(DateTimeOffset From, DateTimeOffset To, string? Reason = null);
 public sealed record PastTimeInput(Guid? UserId, DateTimeOffset Start, DateTimeOffset Stop, List<PastTimePause>? Pauses, string? Reason);
+/// <summary>Correct one person's time. An open entry takes a clock-off and/or a pause. A finished entry takes a new start and/or end.</summary>
+public sealed record TimeAdjustInput(Guid TimeEntryId, string? Reason, DateTimeOffset? StartedAt, DateTimeOffset? StoppedAt, DateTimeOffset? PausedAt);
 
 /// <summary>
 /// Corrections to recorded time: move entries intact to another work order, or remove them with a reason. Removed time is voided, not deleted:
@@ -139,24 +141,238 @@ public sealed class SequflohTimeCorrectionService(AppDbContext db, ModuleSupport
     {
         var r = await tracking.LoadAsync(id, false, ct);
         var now = m.Now;
+        var zone = await m.ZoneAsync(r.SiteId, ct);
         var crew = await db.SequflohCrewSessions.AsNoTracking().IgnoreQueryFilters().Where(s => s.TrackingRecordId == id && (s.WorkerId != null || r.UseCrewTime)).OrderBy(s => s.StartedAt).ToListAsync(ct);
         var time = await db.SequflohTimeEntries.AsNoTracking().IgnoreQueryFilters().Where(e => e.TrackingRecordId == id).OrderBy(e => e.StartedAt).ToListAsync(ct);
         var entries = crew.Select(s => new
         {
             Kind = s.WorkerId is null ? "crew" : "dayWorker", s.Id, Who = s.WorkerName ?? $"Crew of {s.CrewSize}", s.StartedAt, s.StoppedAt, Seconds = SequflohCrewService.Labor(s, now), s.Note,
-            s.VoidedAt, s.VoidedBy, s.VoidReason,
+            s.VoidedAt, s.VoidedBy, s.VoidReason, OriginalStartedAt = (DateTimeOffset?)null, OriginalStoppedAt = (DateTimeOffset?)null, OriginalPausedAt = (DateTimeOffset?)null,
+            AdjustedAt = (DateTimeOffset?)null, AdjustedBy = (string?)null, AdjustReason = (string?)null, StaleNote = (string?)null,
         }).Concat(time.Select(e => new
         {
-            Kind = "user", e.Id, Who = e.UserName, e.StartedAt, e.StoppedAt, Seconds = SequflohTimeService.Worked(e, now), Note = e.AddedBy is null ? null : $"Added after the fact by {e.AddedBy}: {e.AddedReason}", e.VoidedAt, e.VoidedBy, e.VoidReason,
+            Kind = "user", e.Id, Who = e.UserName, e.StartedAt, e.StoppedAt, Seconds = SequflohTimeService.Worked(e, now),
+            Note = e.AddedBy is not null ? $"Added after the fact by {e.AddedBy}: {e.AddedReason}" : e.AdjustedAt is not null ? $"Corrected by {e.AdjustedBy}: {e.AdjustReason}" : null,
+            e.VoidedAt, e.VoidedBy, e.VoidReason, e.OriginalStartedAt, e.OriginalStoppedAt, e.OriginalPausedAt, e.AdjustedAt, e.AdjustedBy, e.AdjustReason,
+            StaleNote = e.StoppedAt is null ? SequflohTimeService.OpenNote(e.StartedAt, now, zone) : null,
         })).OrderBy(e => e.StartedAt).ToList();
         return new
         {
             CanTransfer = await m.CanAsync(Permissions.SequflohTransferTime, r.SiteId, r.DepartmentId, ct),
             CanRemove = await m.CanAsync(Permissions.SequflohRemoveTime, r.SiteId, r.DepartmentId, ct),
             CanAddPast = await m.CanAsync(Permissions.SequflohAddPastTime, r.SiteId, r.DepartmentId, ct),
+            CanAdjust = await m.CanAsync(Permissions.SequflohAdjustTime, r.SiteId, r.DepartmentId, ct),
             r.UseCrewTime,
             Entries = entries,
         };
+    }
+
+    /// <summary>
+    /// Sets the real clock-off or pause on an entry that was left open, or the start or end of a finished entry.
+    /// The times before the first correction stay on the entry. Duration, variance and chargeback hours are worked out again from the corrected times.
+    /// </summary>
+    public async Task<object> AdjustAsync(Guid recordId, TimeAdjustInput x, CancellationToken ct)
+    {
+        var reason = Clean(x.Reason) ?? throw new AppException("Type the reason for this correction.");
+        var r = await tracking.LoadAsync(recordId, true, ct);
+        await m.RequireAsync(Permissions.SequflohAdjustTime, r.SiteId, r.DepartmentId, ct);
+        var e = await db.SequflohTimeEntries.FirstOrDefaultAsync(t => t.Id == x.TimeEntryId && t.TrackingRecordId == recordId, ct) ?? throw new NotFoundException("Time entry");
+        var open = e.StoppedAt is null;
+        if (open)
+        {
+            if (x.StartedAt is not null) throw new AppException("Set the clock-off or the pause time. The start can be edited once the entry is clocked off.");
+            if (x.StoppedAt is null && x.PausedAt is null) throw new AppException("Enter the clock-off time or the pause time.");
+        }
+        else
+        {
+            if (x.PausedAt is not null) throw new AppException("Edit the start or the end time of a finished entry.");
+            if (x.StartedAt is null && x.StoppedAt is null) throw new AppException("Enter the start time or the end time.");
+        }
+
+        var beforeStart = e.StartedAt;
+        var beforeStop = e.StoppedAt;
+        var beforePause = e.PausedAt;
+        var z = await m.ZoneAsync(r.SiteId, ct);
+        var now = m.Now;
+        static DateTimeOffset U(DateTimeOffset d) => d.ToUniversalTime();
+        var nextStart = x.StartedAt is { } ns0 ? U(ns0) : e.StartedAt;
+        var nextStop = x.StoppedAt is { } nt0 ? U(nt0) : e.StoppedAt;
+        if (nextStop is { } end && end <= nextStart) throw new AppException("The end time must be after the start time.");
+        if (nextStart > now.AddMinutes(1) || nextStop is { } fut && fut > now.AddMinutes(1) || x.PausedAt is { } pauseAt && U(pauseAt) > now.AddMinutes(1))
+            throw new AppException("The time can't be in the future.");
+        if (x.PausedAt is { } pause && U(pause) <= nextStart) throw new AppException("The pause time must be after the start time.");
+        if (x.PausedAt is { } pause2 && nextStop is { } end2 && U(pause2) >= end2) throw new AppException("The pause time must be before the clock-off.");
+        var ev = Events(e);
+        if (open)
+        {
+            if (x.PausedAt is { } p)
+            {
+                var at = p.ToUniversalTime();
+                var idx = e.PausedAt is null ? -1 : ev.FindLastIndex(v => v.Kind == "Pause");
+                var stillOpen = idx >= 0 && ev.Skip(idx + 1).All(v => v.Kind != "Resume" && v.Kind != "Stop");
+                if (stillOpen) ev[idx] = ev[idx] with { At = at };
+                else ev.Add(new SequflohTimeService.TimeEvent("Pause", at, "Break"));
+            }
+            if (x.StoppedAt is { } s) ev.Add(new SequflohTimeService.TimeEvent("Stop", s.ToUniversalTime()));
+        }
+        else
+        {
+            if (x.StartedAt is { } ns)
+            {
+                var at = ns.ToUniversalTime();
+                var i = ev.FindIndex(v => v.Kind == "Start");
+                if (i < 0) ev.Insert(0, new SequflohTimeService.TimeEvent("Start", at));
+                else ev[i] = ev[i] with { At = at };
+            }
+            if (x.StoppedAt is { } nt)
+            {
+                var at = nt.ToUniversalTime();
+                var i = ev.FindLastIndex(v => v.Kind == "Stop");
+                if (i < 0) ev.Add(new SequflohTimeService.TimeEvent("Stop", at));
+                else ev[i] = ev[i] with { At = at };
+            }
+        }
+        if (x.StartedAt is null)
+        {
+            var i = ev.FindIndex(v => v.Kind == "Start");
+            if (i >= 0) ev[i] = ev[i] with { At = e.StartedAt };
+        }
+        ev = [.. ev.OrderBy(v => v.At).ThenBy(v => Rank(v.Kind))];
+        CheckTimeline(ev, now);
+        var start = ev[0].At;
+        var stopEv = ev.LastOrDefault(v => v.Kind == "Stop");
+        DateTimeOffset? stop = stopEv?.At;
+        if (stop is { } stopAt && stopAt <= start) throw new AppException("The end time must be after the start time.");
+        var clash = await db.SequflohTimeEntries.AsNoTracking().Where(o => o.Id != e.Id && o.UserId == e.UserId && o.StartedAt < (stop ?? DateTimeOffset.MaxValue) && (o.StoppedAt == null || o.StoppedAt > start))
+            .OrderBy(o => o.StartedAt).FirstOrDefaultAsync(ct);
+        if (clash is not null)
+            throw new ConflictException($"{e.UserName} already has time on {clash.TrackingNumber} from {L(clash.StartedAt, z)} to {(clash.StoppedAt is { } cs ? L(cs, z) : "(open)")}, which overlaps {L(start, z)} to {(stop is { } st ? L(st, z) : "(open)")}. Nothing was changed.");
+
+        e.StartedAt = start;
+        e.StoppedAt = stop;
+        Recompute(e, ev);
+        if (e.StartedAt == beforeStart && e.StoppedAt == beforeStop && e.PausedAt == beforePause)
+            throw new AppException("Change the start, the clock-off or the pause time.");
+        if (e.AdjustedAt is null)
+        {
+            e.OriginalStartedAt = beforeStart;
+            e.OriginalStoppedAt = beforeStop;
+            e.OriginalPausedAt = beforePause;
+        }
+        e.AdjustedAt = now;
+        e.AdjustedBy = me.UserName;
+        e.AdjustReason = reason;
+
+        var bits = new List<string>();
+        if (x.StartedAt is not null && e.StartedAt != beforeStart) bits.Add($"clock-on on {r.Number} from {When(beforeStart, z)} to {When(e.StartedAt, z)}");
+        if (x.PausedAt is not null && e.PausedAt != beforePause) bits.Add($"pause on {r.Number} from {When(beforePause, z, "(not paused)")} to {When(e.PausedAt, z, "(not paused)")}");
+        if (x.StoppedAt is not null && e.StoppedAt != beforeStop) bits.Add($"clock-off on {r.Number} from {When(beforeStop, z)} to {When(e.StoppedAt, z)}");
+        if (bits.Count == 0) bits.Add($"time on {r.Number}");
+        f.Audit("TimeAdjusted", SequflohTrackingService.EntityType, r.Id, $"{me.UserName} changed {e.UserName}'s {string.Join(" and ", bits)}. Reason: {reason}", r.SiteId, reason,
+            new { person = e.UserName, beforeStart, beforeStop, beforePause, e.StartedAt, e.StoppedAt, e.PausedAt, e.Seconds });
+
+        var entries = await db.SequflohTimeEntries.Where(t => t.TrackingRecordId == r.Id).ToListAsync(ct);
+        var crew = await SequflohCrewService.Counted(db, db.SequflohCrewSessions.AsNoTracking().Where(s => s.TrackingRecordId == r.Id)).ToListAsync(ct);
+        var userSeconds = entries.Sum(t => SequflohTimeService.Worked(t, now));
+        var crewLabor = crew.Sum(s => SequflohCrewService.Labor(s, now));
+        if (r.MinBenchmarkMinutes is not null || r.MaxBenchmarkMinutes is not null)
+            r.VarianceMinutes = SequflohTrackingService.Variance(new SequflohTrackingRecord { ActiveSeconds = userSeconds + crewLabor, MinBenchmarkMinutes = r.MinBenchmarkMinutes, MaxBenchmarkMinutes = r.MaxBenchmarkMinutes });
+        var userHours = Math.Round(userSeconds / 3600m, 2);
+        await FlagChargebacksAsync([r.Id], $"{H(userSeconds + crewLabor)} h after a time correction on {r.Number} by {me.UserName}", ct);
+        foreach (var c in await db.SequflohChargebackReports.Where(c => c.TrackingRecordId == r.Id || (c.LinkedWorkOrders != null && c.LinkedWorkOrders.Contains(r.Id.ToString()))).ToListAsync(ct))
+            ApplyChargebackHours(c, r.Id, userHours);
+        await db.SaveChangesAsync(ct);
+        return new { e.Id, e.StartedAt, e.StoppedAt, e.PausedAt, e.Seconds, Hours = H(e.StoppedAt is null ? SequflohTimeService.Worked(e, now) : e.Seconds), r.VarianceMinutes };
+    }
+
+    static List<SequflohTimeService.TimeEvent> Events(SequflohTimeEntry e)
+    {
+        var list = System.Text.Json.JsonSerializer.Deserialize<List<SequflohTimeService.TimeEvent>>(e.Events, SequflohJson.Options) ?? [];
+        if (list.Count > 0) return list;
+        list.Add(new("Start", e.StartedAt));
+        if (e.StoppedAt is { } s) list.Add(new("Stop", s));
+        return list;
+    }
+
+    static int Rank(string kind) => kind switch { "Start" => 0, "Pause" => 1, "Resume" => 2, "Stop" => 3, _ => 4 };
+
+    static void CheckTimeline(List<SequflohTimeService.TimeEvent> ev, DateTimeOffset now)
+    {
+        if (ev.Count == 0 || ev[0].Kind != "Start") throw new AppException("The entry has to start with the clock-on.");
+        for (var i = 1; i < ev.Count; i++)
+            if (ev[i].At <= ev[i - 1].At) throw new AppException(ev[i].At <= ev[0].At && ev[^1].Kind == "Stop" ? "The end time must be after the start time." : "Each time has to be after the one before it.");
+        if (ev.Any(v => v.At > now.AddMinutes(1))) throw new AppException("The time can't be in the future.");
+        var paused = false;
+        for (var i = 1; i < ev.Count; i++)
+        {
+            switch (ev[i].Kind)
+            {
+                case "Pause":
+                    if (paused) throw new AppException("A pause can't start while the job is already paused.");
+                    paused = true;
+                    break;
+                case "Resume":
+                    if (!paused) throw new AppException("Clock back on only follows a pause.");
+                    paused = false;
+                    break;
+                case "Stop" when i != ev.Count - 1:
+                    throw new AppException("The clock-off has to be the last time.");
+                case "Stop":
+                    break;
+                default:
+                    throw new AppException("The time line has a step that doesn't fit.");
+            }
+        }
+    }
+
+    static void Recompute(SequflohTimeEntry e, List<SequflohTimeService.TimeEvent> ev)
+    {
+        long paused = 0;
+        DateTimeOffset? pauseFrom = null;
+        foreach (var v in ev)
+        {
+            if (v.Kind is "Resume" or "Stop")
+            {
+                if (pauseFrom is { } pf) paused += Math.Max(0, (long)(v.At - pf).TotalSeconds);
+                pauseFrom = null;
+            }
+            else if (v.Kind == "Pause") pauseFrom = v.At;
+        }
+        e.PausedSeconds = paused;
+        e.PausedAt = e.StoppedAt is null ? pauseFrom : null;
+        if (e.StoppedAt is { } stop)
+        {
+            var worked = (long)(stop - e.StartedAt).TotalSeconds - paused;
+            if (worked <= 0) throw new AppException("The end time must be after the start time, with some worked time left after pauses.");
+            e.Seconds = worked;
+        }
+        e.Events = System.Text.Json.JsonSerializer.Serialize(ev, SequflohJson.Options);
+    }
+
+    static string When(DateTimeOffset? d, TimeZoneInfo z, string open = "(open)") => d is null ? open : L(d.Value, z);
+
+    static void ApplyChargebackHours(SequflohChargebackReport c, Guid recordId, decimal userHours)
+    {
+        if (c.TrackingRecordId == recordId)
+        {
+            c.UserHours = userHours;
+            c.TotalHours = Math.Round((c.CrewHours ?? 0) + userHours, 2);
+            return;
+        }
+        var rows = SequflohChargebackService.LinkedOf(c.LinkedWorkOrders);
+        var hit = false;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (rows[i].Id != recordId) continue;
+            var total = Math.Round(rows[i].CrewHours + userHours, 2);
+            rows[i] = rows[i] with { UserHours = userHours, TotalHours = total };
+            hit = true;
+        }
+        if (!hit) return;
+        c.LinkedWorkOrders = System.Text.Json.JsonSerializer.Serialize(rows, SequflohJson.Options);
+        c.UserHours = rows.Sum(w => w.UserHours);
+        c.CrewHours = rows.Sum(w => w.CrewHours);
+        c.TotalHours = rows.Sum(w => w.TotalHours);
     }
 
     // ---- add past time for a registered person ----

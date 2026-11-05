@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,7 +10,7 @@ import { S, fmtSeconds } from './common';
 import { AddPastTimeButton } from './AddPastTime';
 
 export interface Person { id: string; displayName: string }
-interface TimePerson { userId: string; name: string; seconds: number; pausedSeconds: number; entries: number; runningSince?: string | null; pausedSince?: string | null; pauseReason?: string | null }
+interface TimePerson { userId: string; name: string; seconds: number; pausedSeconds: number; entries: number; runningSince?: string | null; pausedSince?: string | null; pauseReason?: string | null; staleNote?: string | null }
 interface TimeEvent { userId: string; userName: string; kind: string; reason?: string | null; label: string; at: string; added?: boolean }
 interface TimeSummary { totalSeconds: number; pausedSeconds: number; people: TimePerson[]; serverTime: string; mineRunning: boolean; minePaused: boolean; minePauseReason?: string | null; log: TimeEvent[] }
 
@@ -54,18 +54,12 @@ export function AssigneesPanel({ recordId, people, canAssign }: { recordId: stri
 export function TimePanel({ recordId, closed = false, notStarted }: { recordId: string; closed?: boolean; notStarted?: string }) {
   const qc = useQueryClient();
   const key = ['sqf-time', recordId];
-  const q = useQuery({ queryKey: key, queryFn: () => get<TimeSummary>(`${S}/tracking/${recordId}/time`), refetchInterval: 30000 });
-  const [now, setNow] = useState(Date.now());
+  const q = useQuery({ queryKey: key, queryFn: () => get<TimeSummary>(`${S}/tracking/${recordId}/time`) });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLog, setShowLog] = useState(false);
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const d = q.data;
-  // the server's seconds already count a running entry up to its answer, so only the time since that answer is added here
-  const since = Math.max(0, (now - q.dataUpdatedAt) / 1000);
-  const live = (p: TimePerson) => p.seconds + (p.runningSince ? since : 0);
-  const livePaused = (p: TimePerson) => p.pausedSeconds + (p.pausedSince ? since : 0);
-  const total = d ? d.people.reduce((a, p) => a + live(p), 0) : 0;
+  const total = d ? d.people.reduce((a, p) => a + p.seconds, 0) : 0;
   const go = async (what: 'start' | 'stop' | 'pause' | 'resume', reason?: 'Break' | 'Lunch') => {
     setBusy(true); setErr(null);
     try { await post(`${S}/tracking/${recordId}/time/${what}`, reason ? { reason } : undefined); await qc.invalidateQueries(); }
@@ -76,6 +70,7 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
       <Stack direction="row" alignItems="center" gap={2} sx={{ mb: 1.5 }} flexWrap="wrap">
         <Typography variant="h3">Time on this job</Typography>
         <Typography variant="h3" data-testid="time-total" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(total)}</Typography>
+        {d && <Typography variant="body2" color="text.secondary" data-testid="time-as-of">as of {fmtDateTime(d.serverTime)}</Typography>}
         <Box sx={{ flex: 1 }} />
         {d && d.mineRunning && (d.minePaused
           ? !closed && <Tooltip describeChild title={`Paused for ${(d.minePauseReason ?? 'a break').toLowerCase()}. Clock back on to keep logging time on this job.`}>
@@ -91,12 +86,13 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
         {!closed && notStarted && <Typography variant="body2" color="text.secondary" data-testid="clock-on-hint">{notStarted}</Typography>}
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
+      {d && d.people.some((p) => p.staleNote) && <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="time-stale">{d.people.filter((p) => p.staleNote).map((p) => `${p.name}: ${p.staleNote}.`).join(' ')} Nothing is clocked off automatically.</Alert>}
       {d && (d.people.length === 0 ? <Typography variant="body2" color="text.secondary">No time logged yet. Anyone can clock on this job.</Typography> :
         <Table size="small" data-testid="time-people">
           <TableHead><TableRow><TableCell>Person</TableCell><TableCell align="right">Worked</TableCell><TableCell align="right">Paused (not counted)</TableCell><TableCell align="right">Sessions</TableCell><TableCell>Now</TableCell></TableRow></TableHead>
           <TableBody>{d.people.map((p) => <TableRow key={p.userId}>
-            <TableCell><PersonLabel id={p.userId} name={p.name} /></TableCell><TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(live(p))}</TableCell>
-            <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', color: 'text.secondary' }}>{fmtSeconds(livePaused(p))}</TableCell>
+            <TableCell><PersonLabel id={p.userId} name={p.name} /></TableCell><TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtSeconds(p.seconds)}</TableCell>
+            <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', color: 'text.secondary' }}>{fmtSeconds(p.pausedSeconds)}</TableCell>
             <TableCell align="right">{p.entries}</TableCell>
             <TableCell>{p.runningSince ? <Chip size="small" color="success" label={`Clocked on since ${fmtDateTime(p.runningSince)}`} />
               : p.pausedSince ? <Chip size="small" color="warning" label={`Paused for ${(p.pauseReason ?? 'break').toLowerCase()} since ${fmtDateTime(p.pausedSince)}`} /> : '—'}</TableCell></TableRow>)}</TableBody>

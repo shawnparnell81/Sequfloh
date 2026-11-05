@@ -4,6 +4,7 @@ using Sequfloh.Application.Abstractions;
 using Sequfloh.Domain.Execution;
 using Sequfloh.Infrastructure.Persistence;
 using Sequfloh.Infrastructure.Modules.Execution;
+using Sequfloh.Infrastructure.Modules.Quality;
 
 namespace Sequfloh.Tracking;
 
@@ -12,7 +13,7 @@ namespace Sequfloh.Tracking;
 /// people can be clocked on the same work order at once. A pause records why (break or lunch) and is not counted in man hours.
 /// This is time on the job only; it is not a payroll clock.
 /// </summary>
-public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
+public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me, ModuleSupport m)
 {
     Guid UserId => me.UserId ?? throw new ForbiddenException();
 
@@ -72,6 +73,18 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
         e.Events = JsonSerializer.Serialize(list, SequflohJson.Options);
     }
 
+    public const int OpenHourLimit = 12;
+
+    /// <summary>Why an open entry should be looked at, or null when it has not been open past the threshold. Nothing is clocked off automatically.</summary>
+    public static string? OpenNote(DateTimeOffset started, DateTimeOffset now, TimeZoneInfo zone)
+    {
+        var over = now - started >= TimeSpan.FromHours(OpenHourLimit);
+        var earlierDay = TimeZoneInfo.ConvertTime(started, zone).Date < TimeZoneInfo.ConvertTime(now, zone).Date;
+        if (!over && !earlierDay) return null;
+        if (over && earlierDay) return "Still clocked on from a previous day, over 12 hours";
+        return over ? "Still clocked on over 12 hours" : "Still clocked on from a previous day";
+    }
+
     /// <summary>Worked seconds for an entry at a moment: paused time is never counted.</summary>
     public static long Worked(SequflohTimeEntry e, DateTimeOffset now)
     {
@@ -117,16 +130,19 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me)
     /// <summary>Total time on a work order and the time per person, with who is running a timer right now.</summary>
     public async Task<object> SummaryAsync(Guid id, CancellationToken ct)
     {
-        await RecordAsync(id, ct);
+        var rec = await RecordAsync(id, ct);
         var now = await NowAsync(ct);
+        var zone = await m.ZoneAsync(rec.SiteId, ct);
         var entries = await db.SequflohTimeEntries.AsNoTracking().Where(e => e.TrackingRecordId == id).OrderBy(e => e.StartedAt).ToListAsync(ct);
         long Sec(SequflohTimeEntry e) => Worked(e, now);
+        string? Note(IEnumerable<SequflohTimeEntry> g) => g.Where(e => e.StoppedAt is null).Select(e => OpenNote(e.StartedAt, now, zone)).FirstOrDefault(n => n is not null);
         var people = entries.GroupBy(e => e.UserId).Select(g => new
         {
             UserId = g.Key, Name = g.Last().UserName, Seconds = g.Sum(Sec), PausedSeconds = g.Sum(e => Paused(e, now)), Entries = g.Count(),
             RunningSince = g.FirstOrDefault(e => e.StoppedAt is null && e.PausedAt is null)?.StartedAt,
             PausedSince = g.FirstOrDefault(e => e.StoppedAt is null)?.PausedAt,
             PauseReason = g.Where(e => e.StoppedAt is null).Select(LastPauseReason).FirstOrDefault(),
+            StaleNote = Note(g),
         }).OrderByDescending(p => p.Seconds).ToList();
         return new
         {

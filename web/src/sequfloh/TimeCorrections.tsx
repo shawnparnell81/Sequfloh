@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post } from '../api';
 import { FormDialogTitle } from '../components/FullScreen';
@@ -8,8 +8,9 @@ import { fmtDateTime } from '../components/Status';
 import { S, qs } from './common';
 import { hrs } from './CrewPanel';
 
-interface Entry { kind: 'crew' | 'dayWorker' | 'user'; id: string; who: string; startedAt: string; stoppedAt?: string | null; seconds: number; note?: string | null; voidedAt?: string | null; voidedBy?: string | null; voidReason?: string | null }
-interface Data { canTransfer: boolean; canRemove: boolean; entries: Entry[] }
+interface Entry { kind: 'crew' | 'dayWorker' | 'user'; id: string; who: string; startedAt: string; stoppedAt?: string | null; seconds: number; note?: string | null; voidedAt?: string | null; voidedBy?: string | null; voidReason?: string | null;
+  originalStartedAt?: string | null; originalStoppedAt?: string | null; staleNote?: string | null; adjustReason?: string | null }
+interface Data { canTransfer: boolean; canRemove: boolean; canAdjust?: boolean; entries: Entry[] }
 interface WoOpt { id: string; number: string; workOrder?: string | null }
 
 /** The selection a "transfer to a new work order" carries to the New work order screen. */
@@ -17,6 +18,9 @@ export const MOVE_KEY = 'sqf-move-time';
 export interface MoveSelection { from: string; fromNumber: string; crewSessionIds: string[]; timeEntryIds: string[]; reason: string | null }
 
 const KIND: Record<Entry['kind'], string> = { crew: 'Crew', dayWorker: 'Day worker', user: 'Clocked person' };
+const pad = (n: number) => String(n).padStart(2, '0');
+const toInput = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const toIso = (v: string) => new Date(v).toISOString();
 
 /** Correct recorded time: move entries to another work order (existing or new) or remove them with a reason. Shown only to people with those permissions. */
 export function TimeCorrections({ recordId, number }: { recordId: string; number: string }) {
@@ -31,10 +35,12 @@ export function TimeCorrections({ recordId, number }: { recordId: string; number
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fix, setFix] = useState<Entry | null>(null);
   const wos = useQuery({ queryKey: ['sqf-time-fix-wo', text], enabled: mode === 'move', queryFn: () => get<{ items: WoOpt[] }>(`${S}/tracking?${qs({ q: text || undefined, pageSize: 20, sort: 'createdAt:desc' })}`) });
   const d = q.data;
-  if (!d || (!d.canTransfer && !d.canRemove)) return null;
+  if (!d || (!d.canTransfer && !d.canRemove && !d.canAdjust && !d.entries.some((e) => e.staleNote))) return null;
   const live = d.entries.filter((e) => !e.voidedAt && e.stoppedAt);
+  const open = d.entries.filter((e) => !e.voidedAt && !e.stoppedAt && e.kind === 'user');
   const removed = d.entries.filter((e) => e.voidedAt);
   const picked = live.filter((e) => sel.includes(e.id));
   const ids = { crewSessionIds: picked.filter((e) => e.kind !== 'user').map((e) => e.id), timeEntryIds: picked.filter((e) => e.kind === 'user').map((e) => e.id) };
@@ -61,19 +67,31 @@ export function TimeCorrections({ recordId, number }: { recordId: string; number
   };
   return <Paper variant="outlined" sx={{ p: 2 }} data-testid="time-corrections">
     <Typography variant="subtitle1" fontWeight={600}>Correct recorded time</Typography>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Select time that was put on the wrong work order, then move it or remove it. Every change is in the audit trail, and chargeback reports of the order are flagged to be regenerated.</Typography>
+    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Select time that was put on the wrong work order, then move it or remove it. A forgotten clock-off or pause, and the start or end of a finished entry, can be corrected with a reason. Every change is in the audit trail, and chargeback hours are worked out again.</Typography>
     {msg && <Alert severity="success" onClose={() => setMsg(null)} sx={{ mb: 1 }}>{msg}</Alert>}
+    {open.length > 0 && <Box sx={{ mb: 2 }} data-testid="open-time-entries">
+      {open.some((e) => e.staleNote) && <Alert severity="warning" sx={{ mb: 1 }} data-testid="open-time-flag">{open.filter((e) => e.staleNote).map((e) => `${e.who}: ${e.staleNote}.`).join(' ')} Nothing is clocked off automatically.</Alert>}
+      <Table size="small">
+        <TableHead><TableRow><TableCell>Who</TableCell><TableCell>Start</TableCell><TableCell>Clock-off</TableCell><TableCell align="right">Worked</TableCell><TableCell /></TableRow></TableHead>
+        <TableBody>{open.map((e) => <TableRow key={e.id} data-testid="open-time-row">
+          <TableCell>{e.who}{e.staleNote && <Chip size="small" color="warning" label="Still open" sx={{ ml: 1 }} />}</TableCell>
+          <TableCell>{fmtDateTime(e.startedAt)}</TableCell><TableCell>(open)</TableCell><TableCell align="right">{hrs(e.seconds)}</TableCell>
+          <TableCell>{d.canAdjust && <Button size="small" variant="outlined" data-testid="time-adjust" onClick={() => setFix(e)}>Correct time</Button>}</TableCell>
+        </TableRow>)}</TableBody>
+      </Table>
+    </Box>}
     {live.length === 0 ? <Typography variant="body2" color="text.secondary">No finished time on this work order.</Typography> : <>
       <Table size="small" data-testid="time-fix-list">
         <TableHead><TableRow>
           <TableCell padding="checkbox"><Checkbox checked={sel.length > 0 && sel.length === live.length} indeterminate={sel.length > 0 && sel.length < live.length}
             onChange={(e) => setSel(e.target.checked ? live.map((x) => x.id) : [])} inputProps={{ 'aria-label': 'Select all', 'data-testid': 'time-fix-all' } as object} /></TableCell>
-          <TableCell>Type</TableCell><TableCell>Who</TableCell><TableCell>Start</TableCell><TableCell>Stop</TableCell><TableCell align="right">Hours</TableCell><TableCell>Note</TableCell>
+          <TableCell>Type</TableCell><TableCell>Who</TableCell><TableCell>Start</TableCell><TableCell>Stop</TableCell><TableCell align="right">Hours</TableCell><TableCell>Note</TableCell>{d.canAdjust && <TableCell />}
         </TableRow></TableHead>
         <TableBody>{live.map((e) => <TableRow key={e.id} data-testid="time-fix-row">
           <TableCell padding="checkbox"><Checkbox checked={sel.includes(e.id)} onChange={(x) => setSel(x.target.checked ? [...sel, e.id] : sel.filter((s) => s !== e.id))} /></TableCell>
           <TableCell>{KIND[e.kind]}</TableCell><TableCell>{e.who}</TableCell><TableCell>{fmtDateTime(e.startedAt)}</TableCell><TableCell>{fmtDateTime(e.stoppedAt!)}</TableCell>
           <TableCell align="right">{hrs(e.seconds)}</TableCell><TableCell>{e.note ?? ''}</TableCell>
+          {d.canAdjust && <TableCell>{e.kind === 'user' && <Button size="small" data-testid="time-adjust-closed" onClick={() => setFix(e)}>Correct time</Button>}</TableCell>}
         </TableRow>)}</TableBody>
       </Table>
       <Stack direction="row" gap={1} sx={{ mt: 1 }} flexWrap="wrap">
@@ -107,5 +125,56 @@ export function TimeCorrections({ recordId, number }: { recordId: string; number
         <Button variant="contained" color={mode === 'remove' ? 'error' : 'primary'} disabled={busy} onClick={() => void run()} data-testid="time-fix-confirm">{mode === 'remove' ? 'Remove time' : 'Move time'}</Button>
       </DialogActions>
     </Dialog>
+    {fix && <AdjustDialog recordId={recordId} number={number} entry={fix} onClose={() => setFix(null)} onSaved={async (text) => { setFix(null); await done(text); }} />}
   </Paper>;
+}
+
+function AdjustDialog({ recordId, number, entry, onClose, onSaved }: { recordId: string; number: string; entry: Entry; onClose: () => void; onSaved: (text: string) => Promise<void> }) {
+  const open = !entry.stoppedAt;
+  const [start, setStart] = useState(toInput(entry.startedAt));
+  const [stop, setStop] = useState(toInput(entry.stoppedAt));
+  const [pause, setPause] = useState('');
+  const [reason, setReason] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setErr(null);
+    if (!reason.trim()) { setErr('Type the reason for this correction.'); return; }
+    const body: Record<string, unknown> = { timeEntryId: entry.id, reason: reason.trim() };
+    if (open) {
+      if (!stop && !pause) { setErr('Enter the clock-off time or the pause time.'); return; }
+      if (stop) body.stoppedAt = toIso(stop);
+      if (pause) body.pausedAt = toIso(pause);
+    } else {
+      if (!start || !stop) { setErr('Enter the start time and the end time.'); return; }
+      body.startedAt = toIso(start);
+      body.stoppedAt = toIso(stop);
+    }
+    setBusy(true);
+    try { await post(`${S}/tracking/${recordId}/time-corrections/adjust`, body); await onSaved(open && !stop ? 'Pause time corrected.' : 'Times corrected. Hours were worked out again.'); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return <Dialog open onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
+    <FormDialogTitle>{open ? `Correct ${entry.who}'s open time on ${number}` : `Correct ${entry.who}'s time on ${number}`}</FormDialogTitle>
+    <DialogContent data-testid="time-adjust-dialog">
+      <Stack gap={2} sx={{ pt: 1 }}>
+        {entry.staleNote && <Alert severity="warning">{entry.staleNote}. This does not clock them off until you save a time.</Alert>}
+        {err && <Alert severity="error">{err}</Alert>}
+        <Typography variant="body2">Started {fmtDateTime(entry.startedAt)}. Clock-off {entry.stoppedAt ? fmtDateTime(entry.stoppedAt) : '(open)'}. Worked {hrs(entry.seconds)} h as of this page.</Typography>
+        {entry.originalStartedAt && <Typography variant="body2" color="text.secondary">Original times kept: started {fmtDateTime(entry.originalStartedAt)}, clock-off {entry.originalStoppedAt ? fmtDateTime(entry.originalStoppedAt) : '(open)'}.</Typography>}
+        {open ? <Stack direction="row" gap={2}>
+          <TextField type="datetime-local" label="Clock off at" value={stop} onChange={(e) => setStop(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth inputProps={{ 'data-testid': 'adjust-stop' }} />
+          <TextField type="datetime-local" label="Paused at" value={pause} onChange={(e) => setPause(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth inputProps={{ 'data-testid': 'adjust-pause' }} />
+        </Stack> : <Stack direction="row" gap={2}>
+          <TextField type="datetime-local" label="Start" value={start} onChange={(e) => setStart(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth inputProps={{ 'data-testid': 'adjust-start' }} />
+          <TextField type="datetime-local" label="End" value={stop} onChange={(e) => setStop(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth inputProps={{ 'data-testid': 'adjust-end' }} />
+        </Stack>}
+        <TextField label="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} multiline minRows={2} required inputProps={{ 'data-testid': 'adjust-reason', maxLength: 500 }} />
+      </Stack>
+    </DialogContent>
+    <DialogActions>
+      <Button onClick={onClose} disabled={busy}>Cancel</Button>
+      <Button variant="contained" disabled={busy} onClick={() => void save()} data-testid="adjust-save">Save correction</Button>
+    </DialogActions>
+  </Dialog>;
 }
