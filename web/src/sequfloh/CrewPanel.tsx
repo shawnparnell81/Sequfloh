@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Tooltip, Typography } from '@mui/material';
@@ -39,15 +39,13 @@ function Big({ label, value, testid, strong }: { label: string; value: string; t
  */
 export function CrewPanel({ recordId, notStarted }: { recordId: string; notStarted?: string }) {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['sqf-crew', recordId], queryFn: () => get<CrewSummary>(`${S}/tracking/${recordId}/crew`), refetchInterval: 30000 });
+  const q = useQuery({ queryKey: ['sqf-crew', recordId], queryFn: () => get<CrewSummary>(`${S}/tracking/${recordId}/crew`) });
   const [crew, setCrew] = useState('1');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<Session | 'new' | null>(null);
   const [editWorker, setEditWorker] = useState<string | null>(null);
   const [bulk, setBulk] = useState(false);
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const d = q.data;
   const refresh = () => qc.invalidateQueries();
   const go = async (what: 'start' | 'pause' | 'continue' | 'stop') => {
@@ -55,11 +53,8 @@ export function CrewPanel({ recordId, notStarted }: { recordId: string; notStart
     try { await post(`${S}/tracking/${recordId}/crew/${what}`, what === 'start' ? { crewSize: Number(crew) } : undefined); await refresh(); }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
-  const extra = d?.running && !d.running.pausedAt ? Math.max(0, (now - q.dataUpdatedAt) / 1000) : 0;
-  const runningWorkers = (d?.workers ?? []).filter((w) => w.running && !w.running.pausedAt).length;
-  const live = Math.max(0, (now - q.dataUpdatedAt) / 1000);
-  const dayLabor = (d?.dayWorkerSeconds ?? 0) + live * runningWorkers;
-  const crewLabor = (d?.crewLaborSeconds ?? 0) - (d?.dayWorkerSeconds ?? 0) + extra * (d?.running?.crewSize ?? 0);
+  const dayLabor = d?.dayWorkerSeconds ?? 0;
+  const crewLabor = (d?.crewLaborSeconds ?? 0) - dayLabor;
   const crewSessions = (d?.sessions ?? []).filter((s) => !s.workerId);
   const on = !!d?.useCrewTime;
   const offHint = on ? undefined : 'Crew time is off on this work order. Set Use crew time to Yes to use it.';
@@ -118,7 +113,7 @@ export function CrewPanel({ recordId, notStarted }: { recordId: string; notStart
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
         Labor hours = (elapsed − paused) × crew size. Total personnel = largest crew + each day worker with time + each registered person who clocked on. Every change is kept in History.
       </Typography>
-      {d && <DayWorkers recordId={recordId} notStarted={notStarted} d={d} now={live} onEdit={setEdit} onAddPast={setEditWorker} onError={setErr} refresh={refresh} />}
+      {d && <DayWorkers recordId={recordId} notStarted={notStarted} d={d} onEdit={setEdit} onAddPast={setEditWorker} onError={setErr} refresh={refresh} />}
       {editWorker && <SessionDialog recordId={recordId} session={null} workerId={editWorker} workerName={d?.workers?.find((w) => w.id === editWorker)?.name} onClose={() => setEditWorker(null)} onSaved={async () => { setEditWorker(null); await refresh(); }} />}
       {edit && <SessionDialog recordId={recordId} session={edit === 'new' ? null : edit} workerId={edit !== 'new' ? edit.workerId : null} workerName={edit !== 'new' ? edit.workerName : null} onClose={() => setEdit(null)} onSaved={async () => { setEdit(null); await refresh(); }} />}
       {bulk && <BulkDialog recordId={recordId} onClose={() => setBulk(false)} onSaved={async () => { setBulk(false); await refresh(); }} />}
@@ -215,10 +210,8 @@ function BulkDialog({ recordId, onClose, onSaved }: { recordId: string; onClose:
   </Dialog>;
 }
 
-const clock = (sec: number) => { const t = Math.floor(sec); return `${Math.floor(t / 3600)}:${pad(Math.floor((t % 3600) / 60))}:${pad(t % 60)}`; };
-
 /** Day workers: typed names on this work order only (no account or login), each with their own Start / Pause / Continue / Stop and their own times. */
-function DayWorkers({ recordId, notStarted, d, now, onEdit, onAddPast, onError, refresh }: { recordId: string; notStarted?: string; d: CrewSummary; now: number; onEdit: (s: Session) => void; onAddPast: (workerId: string) => void;
+function DayWorkers({ recordId, notStarted, d, onEdit, onAddPast, onError, refresh }: { recordId: string; notStarted?: string; d: CrewSummary; onEdit: (s: Session) => void; onAddPast: (workerId: string) => void;
   onError: (m: string) => void; refresh: () => Promise<unknown> }) {
   const [name, setName] = useState(''); const [busy, setBusy] = useState(false);
   const call = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); await refresh(); } catch (e) { onError((e as Error).message); } finally { setBusy(false); } };
@@ -241,11 +234,10 @@ function DayWorkers({ recordId, notStarted, d, now, onEdit, onAddPast, onError, 
         <TableHead><TableRow><TableCell>Name</TableCell><TableCell>Clock</TableCell><TableCell align="right">Worked h</TableCell><TableCell /></TableRow></TableHead>
         <TableBody>{workers.map((w) => {
           const mine = d.sessions.filter((s) => s.workerId === w.id);
-          const runSec = w.running ? w.running.seconds + (w.running.pausedAt ? 0 : now) : 0;
           return <Fragment key={w.id}><TableRow data-testid="day-worker-row" data-name={w.name}>
             <TableCell><Stack direction="row" gap={1} alignItems="center"><UserAvatar name={w.name} showPresence={false} size={28} /><b>{w.name}</b></Stack></TableCell>
             <TableCell sx={{ whiteSpace: 'nowrap' }}>
-              {w.running ? <Typography component="span" variant="body2" sx={{ mr: 1, fontVariantNumeric: 'tabular-nums' }} data-testid="day-worker-clock">{clock(runSec)}{w.running.pausedAt ? ' (paused)' : ''}</Typography> : null}
+              {w.running ? <Typography component="span" variant="body2" sx={{ mr: 1 }} data-testid="day-worker-clock">{w.running.pausedAt ? `Paused since ${fmtDateTime(w.running.pausedAt)}` : `Started ${fmtDateTime(w.running.startedAt)}`}</Typography> : null}
               {!d.canEdit && d.canClockOff && w.running && <Button size="small" color="error" variant="contained" disabled={busy} data-testid="day-worker-stop" onClick={() => go(w, 'stop')}>Stop</Button>}
               {d.canEdit && (w.running
                 ? <>{w.running.pausedAt
@@ -254,7 +246,7 @@ function DayWorkers({ recordId, notStarted, d, now, onEdit, onAddPast, onError, 
                   <Button size="small" color="error" variant="contained" sx={{ ml: 1 }} disabled={busy} data-testid="day-worker-stop" onClick={() => go(w, 'stop')}>Stop</Button></>
                 : <Button size="small" color="success" variant="contained" disabled={busy || !!notStarted} title={notStarted} data-testid="day-worker-start" onClick={() => go(w, 'start')}>Start</Button>)}
             </TableCell>
-            <TableCell align="right" data-testid="day-worker-hours">{hrs(w.seconds + (w.running && !w.running.pausedAt ? now : 0))}</TableCell>
+            <TableCell align="right" data-testid="day-worker-hours">{hrs(w.seconds)}</TableCell>
             <TableCell sx={{ whiteSpace: 'nowrap' }} align="right">{d.canEdit && <>
               <Button size="small" data-testid="day-worker-add-time" onClick={() => onAddPast(w.id)}>Add time</Button>
               <IconButton size="small" aria-label={`Rename ${w.name}`} data-testid="day-worker-rename" onClick={() => { const n = prompt('Day worker name', w.name); if (n && n.trim() && n.trim() !== w.name) call(() => put(`${S}/tracking/crew/workers/${w.id}`, { name: n })); }}><EditOutlined fontSize="small" /></IconButton>

@@ -395,6 +395,8 @@ public partial class AppDbContext
             e.Property(x => x.VoidReason).HasMaxLength(500);
             e.Property(x => x.AddedBy).HasMaxLength(200);
             e.Property(x => x.AddedReason).HasMaxLength(1000);
+            e.Property(x => x.AdjustedBy).HasMaxLength(200);
+            e.Property(x => x.AdjustReason).HasMaxLength(500);
             e.HasQueryFilter(x => x.VoidedAt == null);
             // one open clock-on per person per work order
             e.HasIndex(x => new { x.TrackingRecordId, x.UserId }, "IX_sequfloh_time_entries_running").HasFilter("\"StoppedAt\" IS NULL").IsUnique();

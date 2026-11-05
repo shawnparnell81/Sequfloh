@@ -190,6 +190,13 @@ public class SequflohTimeEntry : Entity, IAudited
     /// <summary>Set when the time was added after the fact (Add past time) instead of clocked: who added it and why.</summary>
     public string? AddedBy { get; set; }
     public string? AddedReason { get; set; }
+    /// <summary>The times before the first correction. Later corrections keep these and add their own audit entry.</summary>
+    public DateTimeOffset? OriginalStartedAt { get; set; }
+    public DateTimeOffset? OriginalStoppedAt { get; set; }
+    public DateTimeOffset? OriginalPausedAt { get; set; }
+    public DateTimeOffset? AdjustedAt { get; set; }
+    public string? AdjustedBy { get; set; }
+    public string? AdjustReason { get; set; }
     public string AuditLabel => $"time on {TrackingNumber} for {UserName}";
 }
 
