@@ -4,6 +4,7 @@ using Sequfloh.Application.Abstractions;
 using Sequfloh.Application.Security;
 using Sequfloh.Domain.Audit;
 using Sequfloh.Domain.Drawings;
+using Sequfloh.Domain.Execution;
 using Sequfloh.Domain.Security;
 using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
@@ -232,7 +233,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var folder = await db.DrawingFolders.AsNoTracking().Where(f => f.Id == d.FolderId).Select(f => new { f.Id, f.Name, f.IsArchived,
             Part = db.Parts.Where(p => p.Id == f.PartId).Select(p => new { p.Id, p.PartNumber, p.Name }).FirstOrDefault() }).FirstAsync(ct);
         var revisions = await db.DrawingRevisions.AsNoTracking().Where(v => v.DrawingId == id).OrderByDescending(v => v.CreatedAt)
-            .Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.Reason, v.ChangeReference, v.Status, v.CreatedAt, v.CreatedById, v.CreatedByName, v.ReleasedAt, v.ReleasedByName, v.StorageKey }).ToListAsync(ct);
+            .Select(v => new { v.Id, v.Revision, v.DrawingNumber, v.FileName, v.ContentType, v.SizeBytes, v.Notes, v.Reason, v.ChangeReference, v.Status, v.CreatedAt, v.CreatedById, v.CreatedByName, v.ReleasedAt, v.ReleasedByName, v.StorageKey }).ToListAsync(ct);
         var canManage = await access.CanAccessAsync(UserId, Permissions.SequflohManageDrawings, d.SiteId, d.DepartmentId, ct);
         var canRevise = await access.CanAccessAsync(UserId, Permissions.SequflohReviseDrawings, d.SiteId, d.DepartmentId, ct);
         var canRelease = await access.CanAccessAsync(UserId, Permissions.SequflohReleaseDrawings, d.SiteId, d.DepartmentId, ct);
@@ -243,7 +244,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         {
             d.Id, d.Title, d.DrawingNumber, d.Notes, d.CurrentRevision, d.IsArchived, d.CreatedAt, d.UpdatedAt, Folder = folder, CanManage = canManage, CanRevise = canRevise, CanRelease = canRelease,
             ApprovalRequired = approvalRequired, Parts = parts,
-            Revisions = revisions.Select(v => new { v.Id, v.Revision, v.FileName, v.ContentType, v.SizeBytes, v.Notes, Reason = v.Reason ?? v.Notes, v.ChangeReference, v.CreatedAt,
+            Revisions = revisions.Select(v => new { v.Id, v.Revision, v.DrawingNumber, v.FileName, v.ContentType, v.SizeBytes, v.Notes, Reason = v.Reason ?? v.Notes, v.ChangeReference, v.CreatedAt,
                 UploadedBy = v.CreatedByName, UploadedById = v.CreatedById, Status = v.Status.ToString(), v.ReleasedAt, v.ReleasedByName,
                 Viewable = Viewable.Contains(Path.GetExtension(v.FileName).ToLowerInvariant()), Current = v.Status == DrawingRevisionStatus.Current,
                 // with bucket storage the viewer loads the file from this address directly instead of going through the file link first
@@ -260,14 +261,16 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var (bytes, name, ext) = await ReadFileAsync(content, fileName, ct);
         var title = Clean(string.IsNullOrWhiteSpace(r.Title) ? Path.GetFileNameWithoutExtension(name) : r.Title, 300, "a title");
         var number = Clean(r.DrawingNumber, 100, "a drawing number", false);
-        var rev = Revision(r.Revision);
+        var chosen = DrawingRevisionRules.Resolve(r.Revision, await RevisionsForNumberAsync(number, ct), number.Length == 0 ? title : number, partMasterWins: false);
+        var rev = chosen.Revision;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var d = new Drawing { FolderId = folder.Id, Title = title, DrawingNumber = number.Length == 0 ? null : number, Notes = Clean(r.Notes, 4000, "notes", false) is { Length: > 0 } n ? n : null,
             CurrentRevision = rev, SiteId = folder.SiteId, DepartmentId = folder.DepartmentId };
         db.Drawings.Add(d);
         await db.SaveChangesAsync(ct);
         await StoreRevisionAsync(d, rev, bytes, name, ext, null, ct);
-        Audit(d.Id, d.SiteId, "Uploaded revision", $"Uploaded {d.AuditLabel} revision {rev} ({name}) to folder {folder.Name}");
+        var source = chosen.FromPartMaster ? " The revision is the one recorded in the Part Master. It was not taken from the file name." : " The revision was entered for this upload. It was not taken from the file name.";
+        Audit(d.Id, d.SiteId, "Uploaded revision", $"Uploaded {d.AuditLabel} revision {rev} ({name}) to folder {folder.Name}.{source}");
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return new { d.Id, d.Title };
@@ -408,7 +411,7 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
     {
         var now = DateTimeOffset.UtcNow;
         // a new key every time, so an earlier revision's file is never overwritten
-        var v = new DrawingRevision { DrawingId = d.Id, Revision = rev, FileName = name, ContentType = TypeOf(ext), SizeBytes = bytes.Length, Sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
+        var v = new DrawingRevision { DrawingId = d.Id, Revision = rev, DrawingNumber = string.IsNullOrWhiteSpace(d.DrawingNumber) ? null : d.DrawingNumber, FileName = name, ContentType = TypeOf(ext), SizeBytes = bytes.Length, Sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
             Notes = notes, Reason = reason, ChangeReference = changeReference, Status = status, CreatedByName = me.UserName,
             ReleasedAt = status == DrawingRevisionStatus.Current ? now : null, ReleasedByName = status == DrawingRevisionStatus.Current ? me.UserName : null };
         v.StorageKey = $"drawings/{d.Id:N}/{v.Id:N}{ext}";
@@ -421,9 +424,13 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         var d = await DrawingAsync(id, Permissions.SequflohManageDrawings, ct);
         d.Title = Clean(r.Title, 300, "a title");
         var number = Clean(r.DrawingNumber, 100, "a drawing number", false);
-        d.DrawingNumber = number.Length == 0 ? null : number;
+        var nextNumber = number.Length == 0 ? null : number;
+        var previousNumber = d.DrawingNumber;
+        d.DrawingNumber = nextNumber;
         var notes = Clean(r.Notes, 4000, "notes", false);
         d.Notes = notes.Length == 0 ? null : notes;
+        if (!string.Equals(previousNumber ?? "", nextNumber ?? "", StringComparison.Ordinal))
+            Audit(d.Id, d.SiteId, "Updated drawing number", $"Changed the drawing number of {d.AuditLabel} from \"{previousNumber ?? ""}\" to \"{nextNumber ?? ""}\". Revisions already stored, and work orders that recorded this drawing, keep the number that was in effect when they were recorded.");
         await db.SaveChangesAsync(ct);
     }
 
@@ -499,25 +506,75 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
             && (db.DrawingPartLinks.Any(l => l.DrawingId == d.Id && parts.Contains(l.PartId)) || folders.Contains(d.FolderId)));
     }
 
-    /// <summary>Attaches the part's current drawings to a new validation work order (called while the order is being created, before it is saved).</summary>
-    internal static async Task AttachToRecordAsync(AppDbContext db, Guid recordId, Guid partId, CancellationToken ct)
+    /// <summary>The drawing revisions recorded on parts whose number matches this drawing number. The file name is not consulted.</summary>
+    async Task<List<string?>> RevisionsForNumberAsync(string? drawingNumber, CancellationToken ct)
     {
-        var now = DateTimeOffset.UtcNow;
-        foreach (var d in await PartDrawings(db, [partId]).AsNoTracking().Select(d => new { d.Id, d.CurrentRevision }).ToListAsync(ct))
-            db.TrackingRecordDrawings.Add(new TrackingRecordDrawing { TrackingRecordId = recordId, DrawingId = d.Id, AttachedRevision = d.CurrentRevision, AttachedAt = now });
+        var key = DrawingPartMatcher.Normalize(drawingNumber);
+        if (key.Length == 0) return [];
+        var n = drawingNumber!.Trim().ToUpperInvariant();
+        var like = "%" + n.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+        var rows = await db.Parts.AsNoTracking().Where(p => EF.Functions.ILike(p.PartNumber, like) || EF.Functions.ILike(p.DrawingNumber ?? "", like) || EF.Functions.ILike(p.AttributeText ?? "", like))
+            .Select(p => new { p.PartNumber, p.DrawingNumber, p.Attributes, p.DrawingRevision }).ToListAsync(ct);
+        return rows.Where(p => new[] { p.PartNumber, p.DrawingNumber }.Concat(Infrastructure.Modules.Execution.PartAttributes.Read(p.Attributes).Values).Any(v => DrawingPartMatcher.Normalize(v) == key))
+            .Select(p => p.DrawingRevision).ToList();
     }
 
-    /// <summary>The drawings attached to a work order, with the revision attached and the revision current now.</summary>
+    /// <summary>Copies the drawing number and revision in effect onto a work order. Later releases do not change the copy.</summary>
+    internal static async Task<TrackingRecordDrawing> SnapshotAsync(AppDbContext db, Guid recordId, Guid drawingId, string? drawingNumber, string currentRevision, CancellationToken ct)
+    {
+        var rev = await db.DrawingRevisions.AsNoTracking().Where(v => v.DrawingId == drawingId && v.Revision == currentRevision)
+            .Select(v => new { v.Id, v.DrawingNumber, v.FileName }).FirstOrDefaultAsync(ct);
+        var number = Whole(rev?.DrawingNumber) ?? Whole(drawingNumber);
+        var row = new TrackingRecordDrawing
+        {
+            TrackingRecordId = recordId, DrawingId = drawingId, AttachedRevision = currentRevision ?? "",
+            AttachedDrawingNumber = number, AttachedRevisionId = rev?.Id, AttachedAt = DateTimeOffset.UtcNow,
+        };
+        db.TrackingRecordDrawings.Add(row);
+        return row;
+    }
+
+    static string? Whole(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>Plain-language line for the audit: which drawing and revision were recorded on the work order.</summary>
+    internal static string SnapshotLine(string? drawingNumber, string? title, string revision, string? fileName)
+    {
+        var name = !string.IsNullOrWhiteSpace(drawingNumber) ? drawingNumber.Trim() : string.IsNullOrWhiteSpace(title) ? "drawing" : title.Trim();
+        var file = string.IsNullOrWhiteSpace(fileName) ? "" : $" (file {fileName.Trim()})";
+        return $"{name} revision {revision}{file}";
+    }
+
+    /// <summary>Attaches the part's current drawings to a new work order and returns the lines to record in the audit. Called while the order is being created, before it is saved.</summary>
+    internal static async Task<List<string>> AttachToRecordAsync(AppDbContext db, Guid recordId, Guid partId, CancellationToken ct)
+    {
+        var lines = new List<string>();
+        var drawings = await PartDrawings(db, [partId]).AsNoTracking().Select(d => new { d.Id, d.DrawingNumber, d.Title, d.CurrentRevision }).ToListAsync(ct);
+        foreach (var d in drawings)
+        {
+            var row = await SnapshotAsync(db, recordId, d.Id, d.DrawingNumber, d.CurrentRevision, ct);
+            var file = await db.DrawingRevisions.AsNoTracking().Where(v => v.Id == row.AttachedRevisionId).Select(v => v.FileName).FirstOrDefaultAsync(ct);
+            lines.Add(SnapshotLine(row.AttachedDrawingNumber, d.Title, row.AttachedRevision, file));
+        }
+        return lines;
+    }
+
+    /// <summary>The drawings attached to a work order, with the number and revision recorded when the order was created and whether an open order now has a newer revision.</summary>
     public async Task<List<object>> ForRecordAsync(Guid recordId, CancellationToken ct)
     {
         var scope = await ScopeAsync(ct);
         if (scope.IsEmpty) return [];
+        var status = await db.SequflohTrackingRecords.AsNoTracking().Where(r => r.Id == recordId).Select(r => (TrackingStatus?)r.Status).FirstOrDefaultAsync(ct);
+        var open = status is { } s && SequflohTrackingService.Open.Contains(s);
         var rows = await db.TrackingRecordDrawings.AsNoTracking().Where(a => a.TrackingRecordId == recordId)
-            .Join(db.Drawings, a => a.DrawingId, d => d.Id, (a, d) => new { d.Id, d.Title, d.DrawingNumber, d.CurrentRevision, d.SiteId, d.DepartmentId, d.IsArchived, a.AttachedRevision, a.AttachedAt,
+            .Join(db.Drawings, a => a.DrawingId, d => d.Id, (a, d) => new { d.Id, d.Title, d.DrawingNumber, d.CurrentRevision, d.SiteId, d.DepartmentId, d.IsArchived, a.AttachedRevision, a.AttachedDrawingNumber, a.AttachedAt,
                 FileName = db.DrawingRevisions.Where(v => v.DrawingId == d.Id && v.Revision == d.CurrentRevision).Select(v => v.FileName).FirstOrDefault() })
             .OrderBy(x => x.DrawingNumber).ThenBy(x => x.Title).ToListAsync(ct);
-        return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new { r.Id, r.Title, r.DrawingNumber, r.CurrentRevision, r.AttachedRevision, r.AttachedAt, r.IsArchived,
-            r.FileName, Viewable = Viewable.Contains(Path.GetExtension(r.FileName ?? "").ToLowerInvariant()) }).ToList();
+        return rows.Where(r => scope.Allows(r.SiteId, r.DepartmentId)).Select(r => (object)new
+        {
+            r.Id, r.Title, DrawingNumber = r.AttachedDrawingNumber ?? r.DrawingNumber, CurrentDrawingNumber = r.DrawingNumber, r.CurrentRevision, r.AttachedRevision, r.AttachedDrawingNumber, r.AttachedAt, r.IsArchived,
+            r.FileName, Viewable = Viewable.Contains(Path.GetExtension(r.FileName ?? "").ToLowerInvariant()),
+            RecordOpen = open, NewerRevision = open && !string.Equals(r.AttachedRevision, r.CurrentRevision, StringComparison.OrdinalIgnoreCase),
+        }).ToList();
     }
 
     async Task<Sequfloh.Domain.MasterData.Part> PartAsync(Guid id, CancellationToken ct) =>

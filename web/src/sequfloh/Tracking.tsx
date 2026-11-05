@@ -62,7 +62,7 @@ export function LiveClock({ seconds, running, label }: { seconds: number; runnin
 // ------------------------------------------------------------------ folders
 export interface TrRow { id: string; number: string; type: string; status: string; result: string; priority: string; workInstructionNumber: string; workInstructionRevision: string;
   workInstructionTitle: string; partNumber?: string; partDescription?: string; serialNumber?: string; lotNumber?: string; workOrder?: string; repairOrder?: string; operation?: string; dueAt?: string;
-  actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; assignees?: string[]; owner?: string; department?: string; site?: string; elapsedSeconds: number; quantityCompleted?: number; quantityTarget?: number | null; statusTag?: string | null; statusNote?: string | null;
+  actualStart?: string; actualCompletion?: string; createdAt: string; assignedUser?: string; assignedUserId?: string; assignees?: string[]; owner?: string; department?: string; site?: string; elapsedSeconds: number; quantityCompleted?: number; quantityTarget?: number | null; statusTag?: string | null; statusNote?: string | null; drawingNewer?: boolean;
   pausedSeconds: number; holdSeconds: number; minBenchmarkMinutes?: number; maxBenchmarkMinutes?: number; varianceMinutes?: number; stateVersion: number }
 const folders: Record<string, { title: string; description: string; type?: string }> = {
   'validation-fai': { title: 'Validation / FAI', type: 'Validation', description: 'Validation / FAI work orders.' },
@@ -84,7 +84,7 @@ export const trackingCols = (extra: { key: string; label: string; render?: (r: T
   { key: 'number', label: 'Work order', sort: true, render: (r: TrRow) => <Mono>{r.number}</Mono> },
   { key: 'type', label: 'Type', render: (r: TrRow) => trackingTypes[r.type] ?? r.type },
   { key: 'wi', label: 'Work instruction', render: (r: TrRow) => (r.workInstructionNumber ? <><Mono>{r.workInstructionNumber}</Mono> rev {r.workInstructionRevision}</> : '—') },
-  { key: 'partNumber', label: 'Part', sort: true, render: (r: TrRow) => r.partNumber ?? '—' },
+  { key: 'partNumber', label: 'Part', sort: true, render: (r: TrRow) => <span>{r.partNumber ?? '—'}{r.drawingNewer && <Chip size="small" color="warning" label="Newer drawing rev" sx={{ ml: 1 }} data-testid="newer-drawing-chip" />}</span> },
   ...extra,
   { key: 'assignedUser', label: 'Assigned', render: (r: TrRow) => (r.assignees?.length ? r.assignees.join(', ') : r.assignedUser ?? '—') },
   { key: 'status', label: 'Status', sort: true, render: (r: TrRow) => <SqfStatus status={r.status} /> },

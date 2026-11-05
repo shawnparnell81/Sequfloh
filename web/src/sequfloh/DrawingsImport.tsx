@@ -15,10 +15,10 @@ export const gb = (b: number) => (b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(2)} 
 const dirOf = (p: string) => p.split('/').slice(0, -1).join('/');
 
 const main = (i: { kind: string }) => i.kind === 'pdf' || i.kind === 'word';
-interface Item { file: File; path: string; kind: 'pdf' | 'word' | 'other' | 'unsupported'; exists?: boolean; parts?: string[] }
-interface Plan { files: { path: string; exists: boolean; parts: string[] }[]; folders: { path: string; exists: boolean; parts: string[] }[] }
+interface Item { file: File; path: string; kind: 'pdf' | 'word' | 'other' | 'unsupported'; exists?: boolean; conflict?: boolean; rejected?: boolean; reason?: string | null; parts?: string[] }
+interface Plan { files: { path: string; exists: boolean; conflict?: boolean; rejected?: boolean; reason?: string | null; parts: string[] }[]; folders: { path: string; exists: boolean; conflict?: boolean; rejected?: boolean; reason?: string | null; parts: string[] }[] }
 interface Start { token: string; url?: string; uploadId?: string; partSize: number; partUrls: string[]; direct: boolean; contentType: string }
-interface Progress { done: number; total: number; bytes: number; totalBytes: number; skipped: number; failed: string[]; linked: number; folders: number; doneBytes: number; cancelled: boolean }
+interface Progress { done: number; total: number; bytes: number; totalBytes: number; skipped: number; failed: string[]; linked: number; folders: number; doneBytes: number; cancelled: boolean; conflicts: number }
 
 /** One PUT with upload progress; returns the ETag the storage answers with. */
 function putBlob(url: string, body: Blob, contentType: string | null, onBytes: (n: number) => void, signal: AbortSignal): Promise<string> {
@@ -82,15 +82,16 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       const r = await post<Plan>(`${D}/plan`, { folderId, linkParts: link, files: known.slice(n, n + BATCH).map((i) => ({ path: i.path, size: i.file.size })), folders: dirs.slice(n, n + BATCH) });
       r.files.forEach((f) => byPath.set(f.path, f)); fl.push(...r.folders);
     }
-    setItems(all.map((i) => ({ ...i, exists: byPath.get(i.path)?.exists, parts: byPath.get(i.path)?.parts })));
+    setItems(all.map((i) => { const hit = byPath.get(i.path); return { ...i, exists: hit?.exists, conflict: hit?.conflict, rejected: hit?.rejected, reason: hit?.reason, parts: hit?.parts }; }));
     setFolders(fl);
   };
 
-  const todo = items.filter((i) => (main(i) || (others && i.kind === 'other')) && !i.exists);
+  const todo = items.filter((i) => (main(i) || (others && i.kind === 'other')) && !i.exists && !i.conflict && !i.rejected);
   const run = async () => {
     setErr(null); setBusy('importing');
     const ac = new AbortController(); stop.current = ac;
-    const p: Progress = { done: 0, total: todo.length, bytes: 0, totalBytes: todo.reduce((s, i) => s + i.file.size, 0), skipped: 0, failed: [], linked: 0, doneBytes: 0, cancelled: false, folders: folders.filter((f) => !f.exists).length };
+    const conflicts = items.filter((i) => i.conflict).length;
+    const p: Progress = { done: 0, total: todo.length, bytes: 0, totalBytes: todo.reduce((s, i) => s + i.file.size, 0), skipped: 0, failed: [], linked: 0, doneBytes: 0, cancelled: false, conflicts, folders: folders.filter((f) => !f.exists && !f.rejected).length };
     const tick = () => setProg({ ...p, failed: [...p.failed] });
     tick();
     try {
@@ -126,7 +127,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       await Promise.all(Array.from({ length: PARALLEL }, async () => { while (queue.length && !ac.signal.aborted) await one(queue.shift()!); }));
     } catch (e) { setErr((e as Error).message); }
     await post(`${D}/summary`, { folderId, imported: p.done, folders: p.folders, bytes: p.doneBytes,
-      skipped: p.skipped + items.filter((i) => i.exists).length, failed: p.failed.length, linked: p.linked, cancelled: ac.signal.aborted }).catch(() => {});
+      skipped: p.skipped + items.filter((i) => i.exists).length, failed: p.failed.length, linked: p.linked, cancelled: ac.signal.aborted, conflicts: p.conflicts }).catch(() => {});
     p.cancelled = ac.signal.aborted; stop.current = null; setBusy(''); tick(); onDone();
   };
 
@@ -143,9 +144,9 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       {err && <Alert severity="error">{err}</Alert>}
       {!prog && <>
         {top ? <Typography variant="body2" color="text.secondary">Choose a folder. Its subfolders are made as drawing folders here, with the same names and nesting, and each PDF or Word file goes into its matching folder,
-          titled with its file name. Only PDF and Word (DOCX, DOC) files are imported; other files are skipped. Choosing the same folder again skips files already imported, so a stopped import can carry on.</Typography>
+          titled with its file name. Only PDF and Word (DOCX, DOC) files are imported; other files are skipped. Choosing the same folder again skips a file already imported with the same name and size. A file whose contents differ is left alone. A path that steps out of the folder is rejected.</Typography>
         : <Typography variant="body2" color="text.secondary">Choose a folder to bring in everything in it, with its subfolders, or choose several files. Each file becomes a drawing titled with its file name.
-          Files go straight to file storage. Choosing the same folder again skips files already here (same folder, name and size), so a stopped import can carry on.</Typography>}
+          Files go straight to file storage. Choosing the same folder again skips a file that is already here with the same name and size. A file whose contents differ is left alone; nothing is overwritten. A path that steps out of the folder is rejected.</Typography>}
         <Stack direction="row" gap={1}>
           <Button variant="outlined" component="label" disabled={!!busy}>Choose folder
             <input hidden type="file" ref={(el) => { dirInput.current = el; el?.setAttribute('webkitdirectory', ''); }} multiple data-testid="import-folder-input" onChange={(e) => { pick(e.target.files, true); e.target.value = ''; }} /></Button>
@@ -153,7 +154,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
             <input hidden type="file" multiple data-testid="import-files-input" onChange={(e) => { pick(e.target.files, false); e.target.value = ''; }} /></Button>}
         </Stack>
         <Stack direction="row" gap={2} alignItems="center" flexWrap="wrap">
-          <TextField size="small" label="Revision for all" required value={revision} onChange={(e) => setRevision(e.target.value.toUpperCase())} sx={{ width: 160 }} helperText="Given to every new drawing" />
+          <TextField size="small" label="Revision when the Part Master has none" required value={revision} onChange={(e) => setRevision(e.target.value.toUpperCase())} sx={{ width: 280 }} helperText="Used only if the Part Master has no drawing revision. Never read from the file name." />
           <FormControlLabel control={<Checkbox checked={linkParts} disabled={!!busy} onChange={(_, c) => { setLinkParts(c); if (items.length) { setBusy('reading'); plan(items, c).catch((e) => setErr(e.message)).finally(() => setBusy('')); } }} />}
             label="Link to parts by matching name" />
         </Stack>
@@ -167,8 +168,12 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
             <Fact label="Word files" value={words.length.toLocaleString('en-US')} />
             {top && <Fact label="Skipped (not PDF or Word)" value={bad.length.toLocaleString('en-US')} />}
             <Fact label="Already imported" value={already.toLocaleString('en-US')} />
+            <Fact label="Left in place" value={items.filter((i) => i.conflict).length.toLocaleString('en-US')} />
+            <Fact label="Rejected paths" value={items.filter((i) => i.rejected).length.toLocaleString('en-US')} />
             <Fact label="To import" value={`${todo.length.toLocaleString('en-US')} · ${gb(todo.reduce((s, i) => s + i.file.size, 0))}`} />
           </Stack>
+          {items.some((i) => i.conflict) && <Alert severity="warning" data-testid="import-conflicts">{items.filter((i) => i.conflict).slice(0, 8).map((i) => <div key={i.path}>{i.path}: {i.reason}</div>)}</Alert>}
+          {items.some((i) => i.rejected) && <Alert severity="error" data-testid="import-rejected">{items.filter((i) => i.rejected).slice(0, 8).map((i) => <div key={i.path}>{i.path}: {i.reason}</div>)}</Alert>}
           {other.length > 0 && <Alert severity="warning" data-testid="non-pdf">{other.length} file{other.length === 1 ? ' is' : 's are'} not PDF or Word ({[...new Set(other.map((i) => ext(i.file.name)))].join(', ')}), for example {other[0].path}.
             <FormControlLabel sx={{ display: 'block' }} control={<Checkbox checked={others} onChange={(_, c) => setOthers(c)} />} label="Import these too (they download instead of opening in the browser)" /></Alert>}
           {bad.length > 0 && !top && <Alert severity="info">{bad.length} file{bad.length === 1 ? ' is' : 's are'} not a drawing type and will be skipped, for example {bad[0].path}.</Alert>}
@@ -186,7 +191,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
         <Typography variant="body2" sx={{ mb: 1 }}>{finished ? (prog.cancelled ? 'Stopped. ' : 'Finished. ') : 'Importing… '}
           {prog.done.toLocaleString('en-US')} of {prog.total.toLocaleString('en-US')} files · {gb(prog.bytes)} of {gb(prog.totalBytes)}</Typography>
         <LinearProgress variant="determinate" value={pct} />
-        <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>{prog.folders} new folders · {prog.linked} part links · {prog.skipped} already here · {prog.failed.length} failed</Typography>
+        <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>{prog.folders} new folders · {prog.linked} part links · {prog.skipped} already here · {prog.conflicts} left in place · {prog.failed.length} failed</Typography>
         {prog.failed.length > 0 && <Alert severity="error" sx={{ mt: 1 }}>{prog.failed.slice(0, 10).map((f) => <div key={f}>{f}</div>)}{prog.failed.length > 10 && <div>…and {prog.failed.length - 10} more. Choose the folder again to retry them.</div>}</Alert>}
       </Box>}
     </Stack></DialogContent>

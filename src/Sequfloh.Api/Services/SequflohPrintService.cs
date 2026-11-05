@@ -307,7 +307,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
         string? Date(DateTimeOffset? t) => t is null ? null : local(t)[..10];
         static string Cut(string s, int n) => s.Length <= n ? s : s[..n].TrimEnd() + "...";
         var site = await db.Sites.AsNoTracking().Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefaultAsync(ct);
-        var drawings = await db.TrackingRecordDrawings.AsNoTracking().Where(a => a.TrackingRecordId == x.Id).Join(db.Drawings, a => a.DrawingId, d => d.Id, (a, d) => new { d.DrawingNumber, d.Title, a.AttachedRevision })
+        var drawings = await db.TrackingRecordDrawings.AsNoTracking().Where(a => a.TrackingRecordId == x.Id).Join(db.Drawings, a => a.DrawingId, d => d.Id, (a, d) => new { Number = a.AttachedDrawingNumber ?? d.DrawingNumber, d.Title, a.AttachedRevision })
             .ToListAsync(ct);
         var type = System.Text.RegularExpressions.Regex.Replace(x.Type switch { TrackingType.Fai => "Validation / FAI", TrackingType.SaltSpray => "Salt Spray", _ => x.Type.ToString() }, "([a-z])([A-Z])", "$1 $2");
         var findings = SequflohJobService.FindingsOf(x.Findings);
@@ -320,7 +320,7 @@ public sealed class SequflohPrintService(AppDbContext db, ModuleSupport m, ICurr
             new PrintFields([("Part number", x.PartNumber), ("Part description", x.PartDescription), ("Product family", x.FamilyName), ("Serial number", x.SerialNumber), ("Lot number", x.LotNumber),
                 ("Customer work order", x.WorkOrder), ("Repair order", x.RepairOrder), ("Quantity", x.QuantityTarget is null && x.QuantityCompleted == 0 ? null : $"{x.QuantityCompleted} completed{(x.QuantityTarget is { } q ? $" of {q}" : "")}"),
                 ("Work instruction", WiLine(x.WorkInstructionNumber, x.WorkInstructionRevision, x.WorkInstructionTitle) ?? "None"),
-                ("Drawings", drawings.Count == 0 ? "None" : string.Join("; ", drawings.Select(d => $"{d.DrawingNumber} {d.Title} rev {d.AttachedRevision}".Trim()))),
+                ("Drawings", drawings.Count == 0 ? "None" : string.Join("; ", drawings.Select(d => $"{d.Number} {d.Title} rev {d.AttachedRevision}".Trim()))),
                 ("Validation form", x.Type is TrackingType.Test or TrackingType.Validation or TrackingType.SaltSpray ? SequflohTrackingService.FormLine(x) : null),
                 ("Description", x.InspectionDescription is null ? null : Cut(x.InspectionDescription, 600))]),
             new PrintHeading("Dates"),

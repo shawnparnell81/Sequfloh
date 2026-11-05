@@ -326,10 +326,12 @@ public sealed class SequflohTrackingService(AppDbContext db, ModuleSupport m, Se
         db.SequflohTrackingRecords.Add(rec);
         foreach (var u in team) db.SequflohTaskAssignees.Add(new SequflohTaskAssignee { TrackingRecordId = rec.Id, UserId = u, AddedAt = now });
         // drawings already linked to this exact part are attached; nothing is matched loosely here
-        if (rec.PartId is { } attachFor) await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct);
+        var recordedDrawings = rec.PartId is { } attachFor ? await Sequfloh.Drawings.DrawingService.AttachToRecordAsync(db, rec.Id, attachFor, ct) : [];
         Event(rec, rec.AssignedUserId is null ? "Created" : "Dispatch", null, rec.Status, null, rec.AssignedUserId, null, wi is null ? "Created without a work instruction" : $"Created from {wi.Number} rev {wi.Revision}", Guid.NewGuid());
         f.Audit("TrackingRecordCreated", EntityType, rec.Id, (wi is null ? $"{rec.Number} ({Label(r.Type)}) created without a work instruction" : $"{rec.Number} ({Label(r.Type)}) created from {wi.Number} rev {wi.Revision}") + (familyName is null ? "" : $", product family {familyName}"), rec.SiteId,
             context: new { trackingType = r.Type.ToString(), workInstruction = wi?.Number, revision = wi?.Revision, part = rec.PartNumber, family = familyName });
+        if (recordedDrawings.Count > 0)
+            f.Audit("DrawingRevisionRecorded", EntityType, rec.Id, $"{rec.Number} recorded the drawing revision in effect when the work order was created: {string.Join("; ", recordedDrawings)}. A later release does not change this work order.", rec.SiteId);
         if (project is not null) f.Audit("ProjectLinked", EntityType, rec.Id, $"Work order {rec.Number} linked to project {project.Number}", rec.SiteId);
         if (r.CreateClockStartedAt is { } clockFrom)
         {
