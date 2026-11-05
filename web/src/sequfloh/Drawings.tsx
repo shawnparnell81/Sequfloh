@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, MenuItem, Tab, Tabs, DialogActions, DialogContent, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Breadcrumbs, Button, Checkbox, Chip, Dialog, DialogTitle, MenuItem, Tab, Tabs, DialogActions, DialogContent, FormControlLabel, LinearProgress, Link, Paper, Stack, TextField, Typography } from '@mui/material';
 import OpenInNew from '@mui/icons-material/OpenInNew';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import Article from '@mui/icons-material/Article';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, put } from '../api';
+import { useAuth } from '../auth';
 import { otherNumbers, usePartSearch } from './partSearch';
 import { fmtDateTime } from '../components/Status';
 import { PersonLabel } from '../components/UserAvatar';
@@ -150,7 +151,7 @@ export function drawingForm(f: NewDrawing, extra: Record<string, string> = {}) {
 }
 
 // ------------------------------------------------------------------ pages
-interface FolderRow { id: string; name: string; isArchived: boolean; updatedAt: string; part?: { id: string; partNumber: string; name: string } | null; folders: number; drawings: number }
+interface FolderRow { id: string; name: string; isArchived: boolean; updatedAt: string; part?: { id: string; partNumber: string; name: string } | null; folders: number; drawings: number; treeDrawings: number }
 interface FolderView { parent?: { id: string; name: string; parentId?: string; isArchived: boolean; part?: FolderRow['part']; canManage: boolean } | null; path: { id: string; name: string }[];
   folders: FolderRow[]; drawings: SearchRow[]; canCreate: boolean }
 
@@ -169,11 +170,15 @@ export function DrawingsPage() {
   const everywhere = sp.get('all') === '1';
   const scope = family && !everywhere ? family : undefined;
   const found = useQuery({ queryKey: ['drawing-search', search, scope, revisionStatus], enabled: !!search || !!revisionStatus, queryFn: () => get<SearchRow[]>(`${D}/search?${qs({ q: search || undefined, family: scope, revisionStatus: revisionStatus || undefined })}`) });
-  const familyName = roots.data?.folders.find((f) => f.id === family)?.name;
+  const familyRow = roots.data?.folders.find((f) => f.id === family);
+  const familyName = familyRow?.name;
+  const familyDrawings = familyRow?.treeDrawings ?? 0;
+  const familyTitle = familyLabel(familyName ?? '');
   const [text, setText] = useState(search);
   const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'import' | 'relink'>(null);
   const [confirm, setConfirm] = useState(false);
   const [picked, setPicked] = useState<{ files: File[]; folder: boolean } | null>(null);
+  const [wipe, setWipe] = useState<{ id: string; label: string } | null>(null);
   const v = q.data; const here = v?.parent;
   const canManage = here ? here.canManage : !!v?.canCreate;
   const refresh = () => qc.invalidateQueries({ queryKey: ['drawing-folders'] });
@@ -192,7 +197,10 @@ export function DrawingsPage() {
         {(roots.data?.folders ?? []).map((f) => <Tab key={f.id} value={f.id} label={familyLabel(f.name)} data-testid="family-tab" data-family={f.name} />)}
       </Tabs>
       <ListToolbar onSubmit={() => set('q', text.trim())}
-        end={<FormControlLabel control={<Checkbox checked={archived} onChange={(_, c) => set('archived', c ? '1' : '')} />} label="Show archived" />}>
+        end={<>
+          {family && familyDrawings > 0 && <FamilyDrawingsDeleteButton label={familyTitle} onClick={() => setWipe({ id: family, label: familyTitle })} />}
+          <FormControlLabel control={<Checkbox checked={archived} onChange={(_, c) => set('archived', c ? '1' : '')} />} label="Show archived" />
+        </>}>
         <TextField size="small" label={family && !everywhere ? `Search ${familyLabel(familyName ?? '')} drawings` : 'Search drawings'} placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} />
         <TextField select size="small" label="Revision status" value={revisionStatus} onChange={(e) => set('status', e.target.value)} sx={{ minWidth: 160 }} slotProps={{ select: { displayEmpty: true } }} data-testid="revision-status-filter">
           <MenuItem value="">All statuses</MenuItem>
@@ -218,6 +226,25 @@ export function DrawingsPage() {
             del={{ what: `folder ${here.name}`, url: `${D}/folders/${here.id}`, label: 'Delete folder', extra: 'Only empty folders can be deleted.', onDone: () => setSp(here.parentId ? { folder: here.parentId } : {}) }}
             more={[here.canManage && { label: here.isArchived ? 'Restore folder' : 'Archive folder', danger: !here.isArchived, onClick: () => setConfirm(true) }]} />} />}
         {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : <>
+          {!here && (roots.data?.folders.length ?? 0) > 0 && <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" sx={{ mb: 1 }}>Families</Typography>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+              {roots.data!.folders.map((f) => {
+                const label = familyLabel(f.name);
+                const n = f.treeDrawings ?? 0;
+                return (
+                  <Paper key={f.id} variant="outlined" data-testid={`family-card-${label}`}
+                    sx={{ p: 2, minHeight: 148, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 1, '&:hover': { borderColor: 'primary.main' } }}>
+                    <Box component={RouterLink} to={`/sequfloh/drawings?${qs({ folder: f.id })}`} sx={{ textDecoration: 'none', color: 'inherit', flex: 1 }}>
+                      <Typography fontWeight={600}>{label}</Typography>
+                      <Typography variant="h5" data-testid="family-count">{n.toLocaleString('en-US')}</Typography>
+                      <Typography variant="body2" color="text.secondary">{n === 1 ? 'drawing' : 'drawings'}</Typography>
+                    </Box>
+                    {n > 0 && <FamilyDrawingsDeleteButton size="small" label={label} onClick={() => setWipe({ id: f.id, label })} />}
+                  </Paper>);
+              })}
+            </Box>
+          </Box>}
           {v!.folders.length > 0 && <SimpleTable head={['Folder', 'Part', 'Contents', 'Updated']} rows={v!.folders.map((f) => [
             <Link key="n" component="button" onClick={() => open(f.id)} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><FolderOutlined fontSize="small" />{f.name}</Link>,
             f.part ? <Mono key="p">{f.part.partNumber}</Mono> : '—', `${f.folders} folder${f.folders === 1 ? '' : 's'} · ${f.drawings} drawing${f.drawings === 1 ? '' : 's'}`, fmtDateTime(f.updatedAt)])} />}
@@ -238,7 +265,98 @@ export function DrawingsPage() {
       {here && <Confirm open={confirm} title={here.isArchived ? 'Restore folder' : 'Archive folder'} confirm={here.isArchived ? 'Restore' : 'Archive'} danger={!here.isArchived}
         text={here.isArchived ? 'The folder and what is in it show again.' : 'The folder and what is in it are hidden from the list and from search. Nothing is deleted; you can restore it.'}
         onClose={() => setConfirm(false)} onConfirm={async () => { await post(`${D}/folders/${here.id}/archive`, { archived: !here.isArchived }); refresh(); }} />}
+      {wipe && <FamilyDrawingsDeleteDialog familyId={wipe.id} label={wipe.label} onClose={() => setWipe(null)} />}
     </SqfPage>
+  );
+}
+
+const nDrawings = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'drawing' : 'drawings'}`;
+interface DrawingSkip { drawingNumber: string; reason: string }
+interface DrawingPlan { family: string; total: number; deletable: number; skipped: number; skips: DrawingSkip[] }
+interface DrawingDeleteResult { family: string; deleted: number; skipped: number; more: boolean; skips: DrawingSkip[] }
+
+function DrawingSkipList({ skips }: { skips: DrawingSkip[] }) {
+  if (!skips.length) return null;
+  const shown = skips.slice(0, 12);
+  return (
+    <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.5, maxHeight: 220, overflow: 'auto' }} data-testid="delete-family-skips">
+      {shown.map((s, i) => <Typography key={`${s.drawingNumber}-${i}`} component="li" variant="body2" sx={{ mb: 0.25 }}><Mono>{s.drawingNumber}</Mono> — {s.reason}</Typography>)}
+      {skips.length > shown.length && <Typography component="li" variant="body2" color="text.secondary">and {(skips.length - shown.length).toLocaleString('en-US')} more</Typography>}
+    </Box>
+  );
+}
+
+/** Opens the confirm dialog that wipes one family's drawings. Hidden without Delete records. */
+function FamilyDrawingsDeleteButton({ label, onClick, size = 'medium' }: { label: string; onClick: () => void; size?: 'small' | 'medium' }) {
+  const { can } = useAuth();
+  if (!can('sequfloh.delete_records')) return null;
+  return <Button type="button" size={size} color="error" variant="outlined" data-testid="delete-family" aria-label={`Delete all drawings in ${label}`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}>Delete all</Button>;
+}
+
+/** Confirms, then deletes the drawings of one family and reports what was kept. */
+function FamilyDrawingsDeleteDialog({ familyId, label, onClose }: { familyId: string; label: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [plan, setPlan] = useState<DrawingPlan | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [soFar, setSoFar] = useState(0);
+  const [done, setDone] = useState<{ deleted: number; skipped: number; skips: DrawingSkip[]; family: string } | null>(null);
+  const url = `${D}/families/${encodeURIComponent(familyId)}`;
+  useEffect(() => {
+    let live = true;
+    setLoading(true); setError(null); setPlan(null);
+    get<DrawingPlan>(`${url}/delete-preview`).then((p) => { if (live) setPlan(p); }, (e: unknown) => { if (live) setError((e as Error).message); }).finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [url]);
+  const refreshLists = () => {
+    void qc.invalidateQueries({ queryKey: ['drawing-folders'] });
+    void qc.invalidateQueries({ queryKey: ['drawing-search'] });
+    void qc.invalidateQueries({ queryKey: ['drawings-for-part'] });
+    void qc.invalidateQueries({ queryKey: ['drawings-for-record'] });
+  };
+  const run = async () => {
+    setBusy(true); setError(null);
+    let deleted = 0;
+    try {
+      let last: DrawingDeleteResult;
+      do {
+        last = await post<DrawingDeleteResult>(`${url}/delete`);
+        deleted += last.deleted;
+        setSoFar(deleted);
+      } while (last.more);
+      setDone({ deleted, skipped: last.skipped, skips: last.skips, family: last.family });
+      refreshLists();
+    } catch (e) {
+      setError(`${(e as Error).message}${deleted ? ` ${nDrawings(deleted)} were already deleted.` : ''}`);
+      refreshLists();
+    } finally { setBusy(false); }
+  };
+  const name = done?.family ?? plan?.family ?? label;
+  const close = () => { if (!busy) onClose(); };
+  return (
+    <Dialog open onClose={close} fullWidth maxWidth="sm" data-testid={done ? 'delete-family-result' : 'delete-family-confirm'}>
+      <DialogTitle>{done ? 'Drawings deleted' : `Delete all drawings in ${name}?`}</DialogTitle>
+      <DialogContent>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {done ? <>
+          <Typography variant="body2" data-testid="delete-family-deleted">Deleted {nDrawings(done.deleted)} in {done.family}.</Typography>
+          <Typography variant="body2" sx={{ mt: 1 }} data-testid="delete-family-skipped">Skipped {nDrawings(done.skipped)}.</Typography>
+          {done.skipped > 0 && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>These stay. The reason is shown with each drawing number.</Typography>}
+          <DrawingSkipList skips={done.skips} />
+        </> : loading ? <Loading /> : plan && plan.deletable === 0 && plan.skipped === 0 ? <Typography variant="body2">{name} has no drawings to delete.</Typography> : plan && <>
+          <Typography variant="body2">This deletes {nDrawings(plan.deletable)} in {name}. Other families are not changed.</Typography>
+          {plan.skipped > 0 && <Typography variant="body2" sx={{ mt: 1 }}>{nDrawings(plan.skipped)} will be skipped.</Typography>}
+          <DrawingSkipList skips={plan.skips} />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>Part links and work order links on the deleted drawings are removed. The parts and work orders stay. The folders stay. This can't be undone.</Typography>
+          {busy && soFar > 0 && <Alert severity="info" sx={{ mt: 2 }}>Deleted {nDrawings(soFar)} so far. Still working through this family.</Alert>}
+        </>}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={close} disabled={busy}>{done || (plan && plan.deletable === 0) ? 'Close' : 'Cancel'}</Button>
+        {!done && plan && plan.deletable > 0 && <Button variant="contained" color="error" disabled={busy || loading} data-testid="delete-family-go" onClick={run}>{busy ? 'Deleting…' : `Delete ${nDrawings(plan.deletable)}`}</Button>}
+      </DialogActions>
+    </Dialog>
   );
 }
 

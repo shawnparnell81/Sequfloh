@@ -18,7 +18,7 @@ namespace Sequfloh.Deletion;
 /// Deletes records people added by mistake or no longer need. Every delete needs the "Delete records" permission for the record's site and department,
 /// writes one audit entry, and removes the stored files that went with the record. Records that other work depends on are not deleted; the message says why
 /// and what to do instead (time logged on a work order is kept for chargebacks).
-/// Deleting the parts of one product family uses the same part checks, one part at a time.
+/// Deleting the parts of one product family, or the drawings of one drawing family, uses the same checks as deleting one of those records.
 /// </summary>
 public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAccessService access, ICurrentUser me, ILogger<DeletionService> log, SequflohPartsService parts)
 {
@@ -382,6 +382,121 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
 
     // ---- drawings -------------------------------------------------------------------------------------------------------------------
 
+    sealed record FamilyDrawingRow(Guid Id, string Number, Guid SiteId, Guid? DepartmentId);
+
+    static string FamilyLabel(string name)
+    {
+        var label = System.Text.RegularExpressions.Regex.Replace(name, @"\s+drawings\s*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        return label.Length == 0 ? name.Trim() : label;
+    }
+
+    static string DrawingNumberOf(string? number, string title) => string.IsNullOrWhiteSpace(number) ? title : number.Trim();
+
+    /// <summary>Every folder under a top-level family folder, including the family folder itself. A cycle is visited once.</summary>
+    static HashSet<Guid> FolderTree(Guid root, IReadOnlyList<(Guid Id, Guid? ParentId)> all)
+    {
+        var children = new Dictionary<Guid, List<Guid>>();
+        foreach (var f in all)
+            if (f.ParentId is Guid parent)
+            {
+                if (!children.TryGetValue(parent, out var list)) children[parent] = list = [];
+                list.Add(f.Id);
+            }
+        var ids = new HashSet<Guid>();
+        var stack = new Stack<Guid>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var id = stack.Pop();
+            if (!ids.Add(id)) continue;
+            if (children.TryGetValue(id, out var kids)) foreach (var kid in kids) stack.Push(kid);
+        }
+        return ids;
+    }
+
+    /// <summary>The drawings in one family: the top-level folder and every folder under it. Archived drawings are included, so a wipe is complete.</summary>
+    async Task<(string Label, List<FamilyDrawingRow> Rows)> FamilyDrawingsAsync(string family, CancellationToken ct)
+    {
+        if (!Guid.TryParse(family, out var id)) throw new AppException("Choose a drawing family.");
+        var root = await db.DrawingFolders.AsNoTracking().Where(f => f.Id == id).Select(f => new { f.Id, f.Name, f.ParentId }).FirstOrDefaultAsync(ct)
+            ?? throw new NotFoundException("Drawing family");
+        if (root.ParentId is not null) throw new NotFoundException("Drawing family");
+        var all = await db.DrawingFolders.AsNoTracking().Select(f => new { f.Id, f.ParentId }).ToListAsync(ct);
+        var ids = FolderTree(root.Id, all.Select(f => (f.Id, f.ParentId)).ToList());
+        var rows = new List<FamilyDrawingRow>();
+        foreach (var chunk in ids.Chunk(400))
+        {
+            var idChunk = chunk.ToArray();
+            var part = await db.Drawings.AsNoTracking().Where(d => idChunk.Contains(d.FolderId))
+                .Select(d => new { d.Id, d.DrawingNumber, d.Title, d.SiteId, d.DepartmentId }).ToListAsync(ct);
+            rows.AddRange(part.Select(d => new FamilyDrawingRow(d.Id, DrawingNumberOf(d.DrawingNumber, d.Title), d.SiteId, d.DepartmentId)));
+        }
+        rows.Sort((a, b) =>
+        {
+            var byNumber = string.Compare(a.Number, b.Number, StringComparison.OrdinalIgnoreCase);
+            return byNumber != 0 ? byNumber : a.Id.CompareTo(b.Id);
+        });
+        return (FamilyLabel(root.Name), rows);
+    }
+
+    async Task<(string Label, List<FamilyDrawingRow> Free, List<FamilyDrawingSkip> Skips, int Total)> ClassifyFamilyDrawingsAsync(string family, CancellationToken ct)
+    {
+        var (label, rows) = await FamilyDrawingsAsync(family, ct);
+        var free = new List<FamilyDrawingRow>();
+        var skips = new List<FamilyDrawingSkip>();
+        foreach (var row in rows)
+        {
+            if (!await access.CanAccessAsync(UserId, Permissions.SequflohDeleteRecords, row.SiteId, row.DepartmentId, ct))
+            {
+                skips.Add(new FamilyDrawingSkip(row.Number, "You do not have permission to delete this drawing."));
+                continue;
+            }
+            free.Add(row);
+        }
+        return (label, free, skips, rows.Count);
+    }
+
+    /// <summary>What a family delete would do: how many drawings would go, and which stay, with the reason <see cref="DrawingAsync"/> would give.</summary>
+    public async Task<FamilyDrawingsDeletePlan> PreviewFamilyDrawingsAsync(string family, CancellationToken ct)
+    {
+        var (label, free, skips, total) = await ClassifyFamilyDrawingsAsync(family, ct);
+        return new FamilyDrawingsDeletePlan(label, total, free.Count, skips.Count, skips);
+    }
+
+    /// <summary>
+    /// Deletes every drawing of one family that <see cref="DrawingAsync"/> would delete. Part links and work order links go with each drawing; the parts,
+    /// work orders and folders stay. One audit entry is written per deleted drawing. A drawing the person cannot delete stays, with the reason.
+    /// A large family stops after <see cref="FamilyDeleteBudget"/> and reports More, so the caller repeats and the drawings already deleted stay deleted.
+    /// </summary>
+    public async Task<FamilyDrawingsDeleteResult> DeleteFamilyDrawingsAsync(string family, CancellationToken ct)
+    {
+        var (label, free, skips, _) = await ClassifyFamilyDrawingsAsync(family, ct);
+        var sw = Stopwatch.StartNew();
+        var deleted = 0;
+        var index = 0;
+        for (; index < free.Count; index++)
+        {
+            if (index > 0 && sw.Elapsed >= FamilyDeleteBudget) break;
+            var row = free[index];
+            try
+            {
+                await DrawingAsync(row.Id, ct);
+                deleted++;
+            }
+            catch (ConflictException ex)
+            {
+                skips.Add(new FamilyDrawingSkip(row.Number, ex.Message));
+            }
+            catch (ForbiddenException)
+            {
+                skips.Add(new FamilyDrawingSkip(row.Number, "You do not have permission to delete this drawing."));
+            }
+            catch (NotFoundException) { }
+            finally { db.ChangeTracker.Clear(); }
+        }
+        return new FamilyDrawingsDeleteResult(label, deleted, skips.Count, index < free.Count, skips);
+    }
+
     /// <summary>Deletes a drawing with every revision file. Its links to parts and work orders are removed; the parts and work orders stay.</summary>
     public async Task DrawingAsync(Guid id, CancellationToken ct)
     {
@@ -536,3 +651,12 @@ public sealed record FamilyPartsDeletePlan(string Family, int Total, int Deletab
 
 /// <summary>What one call of a family delete did. More is true when parts are still waiting and the caller should repeat the call.</summary>
 public sealed record FamilyPartsDeleteResult(string Family, int Deleted, int Skipped, bool More, IReadOnlyList<FamilyPartSkip> Skips);
+
+/// <summary>One drawing a family delete left in place, and why.</summary>
+public sealed record FamilyDrawingSkip(string DrawingNumber, string Reason);
+
+/// <summary>What deleting the drawings of one family would do, before anything is removed.</summary>
+public sealed record FamilyDrawingsDeletePlan(string Family, int Total, int Deletable, int Skipped, IReadOnlyList<FamilyDrawingSkip> Skips);
+
+/// <summary>What one call of a drawing-family delete did. More is true when drawings are still waiting and the caller should repeat the call.</summary>
+public sealed record FamilyDrawingsDeleteResult(string Family, int Deleted, int Skipped, bool More, IReadOnlyList<FamilyDrawingSkip> Skips);
