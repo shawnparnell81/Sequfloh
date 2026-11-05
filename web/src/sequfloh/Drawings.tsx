@@ -194,7 +194,7 @@ export function DrawingsPage() {
       <ListToolbar onSubmit={() => set('q', text.trim())}
         end={<FormControlLabel control={<Checkbox checked={archived} onChange={(_, c) => set('archived', c ? '1' : '')} />} label="Show archived" />}>
         <TextField size="small" label={family && !everywhere ? `Search ${familyLabel(familyName ?? '')} drawings` : 'Search drawings'} placeholder="Part number, drawing number or title" value={text} onChange={(e) => setText(e.target.value)} sx={{ width: { xs: '100%', sm: 360 } }} />
-        <TextField select size="small" label="Revision status" value={revisionStatus} onChange={(e) => set('status', e.target.value)} sx={{ minWidth: 160 }} slotProps={{ select: { displayEmpty: true } }} data-testid="revision-status-filter">
+        <TextField select size="small" label="Revision status" value={revisionStatus} onChange={(e) => set('status', e.target.value)} sx={{ minWidth: 160 }} slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }} data-testid="revision-status-filter">
           <MenuItem value="">All statuses</MenuItem>
           <MenuItem value="Current">Current</MenuItem>
           <MenuItem value="Pending">Pending</MenuItem>
