@@ -44,6 +44,27 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         }
     }
 
+    /// <summary>Removes stored files after the records that owned them are already committed. A file that cannot be removed is logged and the rest still go.</summary>
+    async Task RemoveStoredFilesAsync(IReadOnlyCollection<string> keys, CancellationToken ct)
+    {
+        var list = keys.Where(k => !string.IsNullOrEmpty(k)).Distinct().ToArray();
+        if (list.Length == 0) return;
+        IReadOnlyList<string> failed;
+        try { failed = await storage.DeleteManyAsync(list, ct); }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            log.LogWarning("Stored files could not be removed together after their records were deleted ({Error})", e.GetType().Name);
+            foreach (var key in list)
+            {
+                try { await storage.DeleteAsync(key, ct); }
+                catch (Exception one) { log.LogWarning(one, "Stored file {Key} could not be removed after its record was deleted", key); }
+            }
+            return;
+        }
+        foreach (var key in failed)
+            log.LogWarning("Stored file {Key} could not be removed after its record was deleted", key);
+    }
+
     async Task<List<string>> AttachmentKeysAsync(string ownerType, IReadOnlyCollection<Guid> owners, CancellationToken ct)
     {
         var files = await db.Attachments.Where(a => a.OwnerType == ownerType && owners.Contains(a.OwnerId)).ToListAsync(ct);
@@ -442,13 +463,14 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
     async Task<(string Label, List<FamilyDrawingRow> Free, List<FamilyDrawingSkip> Skips, int Total)> ClassifyFamilyDrawingsAsync(string family, CancellationToken ct)
     {
         var (label, rows) = await FamilyDrawingsAsync(family, ct);
-        var free = new List<FamilyDrawingRow>();
+        var scope = await access.GetScopeAsync(UserId, Permissions.SequflohDeleteRecords, ct);
+        var free = new List<FamilyDrawingRow>(rows.Count);
         var skips = new List<FamilyDrawingSkip>();
         foreach (var row in rows)
         {
-            if (!await access.CanAccessAsync(UserId, Permissions.SequflohDeleteRecords, row.SiteId, row.DepartmentId, ct))
+            if (!scope.Allows(row.SiteId, row.DepartmentId))
             {
-                skips.Add(new FamilyDrawingSkip(row.Number, "You do not have permission to delete this drawing."));
+                skips.Add(new FamilyDrawingSkip(row.Number, NoDrawingPermission));
                 continue;
             }
             free.Add(row);
@@ -463,38 +485,117 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         return new FamilyDrawingsDeletePlan(label, total, free.Count, skips.Count, skips);
     }
 
+    /// <summary>How many drawings one family-delete batch removes. One transaction and one storage cleanup, instead of a round trip per drawing.</summary>
+    const int FamilyDrawingBatch = 200;
+
+    const string NoDrawingPermission = "You do not have permission to delete this drawing.";
+
+    /// <summary>The same words <see cref="DrawingAsync"/> puts on a deleted drawing: how many revision files went, and which links were removed.</summary>
+    static string DrawingDeleteNote(int revisions, int parts, int orders)
+    {
+        var note = new List<string> { Count(revisions, "revision", "revisions") };
+        if (parts > 0) note.Add($"unlinked from {Count(parts, "part", "parts")}");
+        if (orders > 0) note.Add($"removed from {Count(orders, "work order", "work orders")}");
+        return "with " + string.Join("; ", note);
+    }
+
+    static string DrawingDeleteDescription(string? number, string title, int revisions, int parts, int orders)
+    {
+        var label = AuditText.Resolve($"drawing {(string.IsNullOrEmpty(number) ? "" : number + " ")}{title}", static _ => null);
+        return AuditText.Fit($"Deleted {label}: {DrawingDeleteNote(revisions, parts, orders)}");
+    }
+
     /// <summary>
     /// Deletes every drawing of one family that <see cref="DrawingAsync"/> would delete. Part links and work order links go with each drawing; the parts,
     /// work orders and folders stay. One audit entry is written per deleted drawing. A drawing the person cannot delete stays, with the reason.
+    /// Drawings go in batches of <see cref="FamilyDrawingBatch"/>: the database work for the batch is one transaction, then the stored files are removed together.
     /// A large family stops after <see cref="FamilyDeleteBudget"/> and reports More, so the caller repeats and the drawings already deleted stay deleted.
     /// </summary>
     public async Task<FamilyDrawingsDeleteResult> DeleteFamilyDrawingsAsync(string family, CancellationToken ct)
     {
         var (label, free, skips, _) = await ClassifyFamilyDrawingsAsync(family, ct);
+        var scope = await access.GetScopeAsync(UserId, Permissions.SequflohDeleteRecords, ct);
         var sw = Stopwatch.StartNew();
         var deleted = 0;
         var index = 0;
-        for (; index < free.Count; index++)
+        while (index < free.Count)
         {
             if (index > 0 && sw.Elapsed >= FamilyDeleteBudget) break;
-            var row = free[index];
-            try
-            {
-                await DrawingAsync(row.Id, ct);
-                deleted++;
-            }
-            catch (ConflictException ex)
-            {
-                skips.Add(new FamilyDrawingSkip(row.Number, ex.Message));
-            }
-            catch (ForbiddenException)
-            {
-                skips.Add(new FamilyDrawingSkip(row.Number, "You do not have permission to delete this drawing."));
-            }
-            catch (NotFoundException) { }
-            finally { db.ChangeTracker.Clear(); }
+            var take = Math.Min(FamilyDrawingBatch, free.Count - index);
+            deleted += await DeleteDrawingBatchAsync(free.GetRange(index, take), scope, skips, ct);
+            index += take;
+            db.ChangeTracker.Clear();
         }
         return new FamilyDrawingsDeleteResult(label, deleted, skips.Count, index < free.Count, skips);
+    }
+
+    /// <summary>
+    /// Deletes one batch of drawings the caller is allowed to delete. Part and work order links go; the parts, work orders and folders stay.
+    /// One audit entry is written per drawing, with the same description as <see cref="DrawingAsync"/>. Stored files are removed after the database commit.
+    /// </summary>
+    async Task<int> DeleteDrawingBatchAsync(List<FamilyDrawingRow> rows, AccessScope scope, List<FamilyDrawingSkip> skips, CancellationToken ct)
+    {
+        var wanted = rows.Select(r => r.Id).ToArray();
+        var numberOf = rows.ToDictionary(r => r.Id, r => r.Number);
+        var live = await db.Drawings.AsNoTracking().Where(d => wanted.Contains(d.Id))
+            .Select(d => new { d.Id, d.DrawingNumber, d.Title, d.SiteId, d.DepartmentId }).ToListAsync(ct);
+        var ids = new List<Guid>(live.Count);
+        var labels = new Dictionary<Guid, (string? Number, string Title, Guid SiteId)>(live.Count);
+        foreach (var d in live)
+        {
+            if (!scope.Allows(d.SiteId, d.DepartmentId))
+            {
+                skips.Add(new FamilyDrawingSkip(numberOf.GetValueOrDefault(d.Id) ?? DrawingNumberOf(d.DrawingNumber, d.Title), NoDrawingPermission));
+                continue;
+            }
+            ids.Add(d.Id);
+            labels[d.Id] = (d.DrawingNumber, d.Title, d.SiteId);
+        }
+        if (ids.Count == 0) return 0;
+
+        var idSet = ids.ToArray();
+        var revRows = await db.DrawingRevisions.AsNoTracking().Where(r => idSet.Contains(r.DrawingId)).Select(r => new { r.DrawingId, r.StorageKey }).ToListAsync(ct);
+        var partCounts = await db.DrawingPartLinks.AsNoTracking().Where(l => idSet.Contains(l.DrawingId)).GroupBy(l => l.DrawingId).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct);
+        var orderCounts = await db.TrackingRecordDrawings.AsNoTracking().Where(l => idSet.Contains(l.DrawingId)).GroupBy(l => l.DrawingId).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct);
+        var revCount = new Dictionary<Guid, int>();
+        var keys = new List<string>();
+        foreach (var rev in revRows)
+        {
+            revCount[rev.DrawingId] = revCount.GetValueOrDefault(rev.DrawingId) + 1;
+            if (!string.IsNullOrEmpty(rev.StorageKey)) keys.Add(rev.StorageKey);
+        }
+        var parts = partCounts.ToDictionary(x => x.Key, x => x.N);
+        var orders = orderCounts.ToDictionary(x => x.Key, x => x.N);
+        var now = DateTimeOffset.UtcNow;
+        var audits = ids.Select(id =>
+        {
+            var (number, title, siteId) = labels[id];
+            return new AuditEntry
+            {
+                OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Deleted", EntityType = nameof(Drawing), EntityId = id, SiteId = siteId,
+                CorrelationId = me.CorrelationId,
+                Description = DrawingDeleteDescription(number, title, revCount.GetValueOrDefault(id), parts.GetValueOrDefault(id), orders.GetValueOrDefault(id)),
+            };
+        }).ToList();
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.DrawingPartLinks.Where(l => idSet.Contains(l.DrawingId)).ExecuteDeleteAsync(ct);
+        await db.TrackingRecordDrawings.Where(l => idSet.Contains(l.DrawingId)).ExecuteDeleteAsync(ct);
+        await ForgetRecentAsync(idSet, ct);
+        await db.DrawingRevisions.Where(r => idSet.Contains(r.DrawingId)).ExecuteDeleteAsync(ct);
+        var removed = await db.Drawings.Where(d => idSet.Contains(d.Id)).ExecuteDeleteAsync(ct);
+        if (removed != idSet.Length)
+        {
+            var still = await db.Drawings.AsNoTracking().Where(d => idSet.Contains(d.Id)).Select(d => d.Id).ToListAsync(ct);
+            var gone = idSet.Except(still).ToHashSet();
+            audits.RemoveAll(a => !gone.Contains(a.EntityId));
+            keys.RemoveAll(k => !revRows.Any(r => r.StorageKey == k && gone.Contains(r.DrawingId)));
+        }
+        db.AuditEntries.AddRange(audits);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        await RemoveStoredFilesAsync(keys, ct);
+        return audits.Count;
     }
 
     /// <summary>Deletes a drawing with every revision file. Its links to parts and work orders are removed; the parts and work orders stay.</summary>
@@ -505,10 +606,7 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         var revs = await db.DrawingRevisions.Where(r => r.DrawingId == id).ToListAsync(ct);
         var parts = await db.DrawingPartLinks.CountAsync(l => l.DrawingId == id, ct);
         var orders = await db.TrackingRecordDrawings.CountAsync(l => l.DrawingId == id, ct);
-        var note = new List<string> { Count(revs.Count, "revision", "revisions") };
-        if (parts > 0) note.Add($"unlinked from {Count(parts, "part", "parts")}");
-        if (orders > 0) note.Add($"removed from {Count(orders, "work order", "work orders")}");
-        AuditInterceptor.Note(d, "with " + string.Join("; ", note));
+        AuditInterceptor.Note(d, DrawingDeleteNote(revs.Count, parts, orders));
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.DrawingPartLinks.Where(l => l.DrawingId == id).ExecuteDeleteAsync(ct);
         await db.TrackingRecordDrawings.Where(l => l.DrawingId == id).ExecuteDeleteAsync(ct);
