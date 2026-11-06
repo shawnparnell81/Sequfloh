@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react';
 import { FormDialogTitle } from './FullScreen';
 import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, LinearProgress, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
@@ -24,6 +24,9 @@ export function classify(files: File[], accept: string[], maxBytes?: number): It
   }).sort((a, b) => a.path.localeCompare(b.path));
 }
 
+const offscreen: CSSProperties = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap', border: 0 };
+/** Kept on the element React renders. Setting it afterwards lets a later render turn the folder picker back into a file picker, and the next click does nothing. */
+const folderAttrs = { webkitdirectory: '', directory: '' } as InputHTMLAttributes<HTMLInputElement>;
 const label: Record<State, string> = { skipped: 'Skipped', waiting: 'Waiting', importing: 'Importing…', imported: 'Imported', failed: 'Failed' };
 const color: Record<State, 'default' | 'success' | 'error' | 'warning' | 'info'> = { skipped: 'warning', waiting: 'default', importing: 'info', imported: 'success', failed: 'error' };
 
@@ -39,27 +42,46 @@ export function ImportButtons({ surface, accept, maxBytes, upload, onFiles, onDo
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const dirInput = useRef<HTMLInputElement>(null);
+  const [fileEpoch, setFileEpoch] = useState(0);
+  const [dirEpoch, setDirEpoch] = useState(0);
   const [items, setItems] = useState<Item[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [finished, setFinished] = useState(false);
-  const pick = (list: FileList | null, folder: boolean) => {
-    if (!list?.length) return;
-    if (onFiles) { onFiles([...list], folder); return; }
-    setItems(classify(Array.from(list), accept, maxBytes)); setFinished(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const openPicker = (el: HTMLInputElement | null) => { if (!el) return; el.value = ''; el.click(); };
+  const take = (list: FileList | null, folder: boolean, input: HTMLInputElement) => {
+    try {
+      const files = list ? Array.from(list) : [];
+      if (!files.length) { setPickError('No files were read from that selection. Nothing was imported.'); return; }
+      // read each relative path now; clearing the input can make the browser forget it, or throw
+      files.forEach((f) => { void (folder ? f.webkitRelativePath : f.name); });
+      setPickError(null);
+      if (onFiles) { onFiles(files, folder); return; }
+      setItems(classify(files, accept, maxBytes)); setFinished(false);
+    } catch (e) {
+      setPickError((e as Error).message || 'Those files could not be read. Nothing was imported.');
+    } finally {
+      input.value = '';
+      if (folder) setDirEpoch((n) => n + 1); else setFileEpoch((n) => n + 1);
+    }
   };
   const start = async () => {
     if (!items || !upload) return;
     setBusy(true);
-    onStart?.(items.filter((x) => x.state === 'waiting').length);
-    const next = [...items];
-    for (let i = 0; i < next.length; i++) {
-      if (next[i].state !== 'waiting') continue;
-      next[i] = { ...next[i], state: 'importing' }; setItems([...next]);
-      try { await upload(next[i].file, next[i].path); next[i] = { ...next[i], state: 'imported' }; }
-      catch (e) { next[i] = { ...next[i], state: 'failed', note: (e as Error).message || 'Could not import this file.' }; }
-      setItems([...next]);
-    }
-    setBusy(false); setFinished(true); onDone?.();
+    try {
+      onStart?.(items.filter((x) => x.state === 'waiting').length);
+      const next = [...items];
+      for (let i = 0; i < next.length; i++) {
+        if (next[i].state !== 'waiting') continue;
+        next[i] = { ...next[i], state: 'importing' }; setItems([...next]);
+        try { await upload(next[i].file, next[i].path); next[i] = { ...next[i], state: 'imported' }; }
+        catch (e) { next[i] = { ...next[i], state: 'failed', note: (e as Error).message || 'Could not import this file.' }; }
+        setItems([...next]);
+      }
+      setFinished(true); onDone?.();
+    } catch (e) {
+      setPickError((e as Error).message || 'The import failed.');
+    } finally { setBusy(false); }
   };
   const count = (s: State) => items?.filter((x) => x.state === s).length ?? 0;
   const toDo = count('waiting');
@@ -68,12 +90,13 @@ export function ImportButtons({ surface, accept, maxBytes, upload, onFiles, onDo
   const plural = (n: number) => `${n} ${what}${n === 1 ? '' : 's'}`;
   return <>
     <Stack direction="row" gap={1} data-upload-surface={surface} component="span" sx={{ display: 'inline-flex' }}>
-      <Button variant={variant} size={size} startIcon={<UploadFileOutlined />} onClick={() => fileInput.current?.click()}>Import file</Button>
-      <Button variant={variant} size={size} startIcon={<DriveFolderUploadOutlined />} onClick={() => dirInput.current?.click()}>Import folder</Button>
-      <input ref={fileInput} hidden type="file" multiple accept={accept.join(',')} data-testid={`${surface}-files-input`} onChange={(e) => { pick(e.target.files, false); e.target.value = ''; }} />
-      <input ref={(el) => { dirInput.current = el; el?.setAttribute('webkitdirectory', ''); }} hidden type="file" multiple data-testid={`${surface}-folder-input`}
-        onChange={(e) => { pick(e.target.files, true); e.target.value = ''; }} />
+      <Button type="button" variant={variant} size={size} startIcon={<UploadFileOutlined />} onClick={() => openPicker(fileInput.current)}>Import file</Button>
+      <Button type="button" variant={variant} size={size} startIcon={<DriveFolderUploadOutlined />} onClick={() => openPicker(dirInput.current)}>Import folder</Button>
+      <input key={`f${fileEpoch}`} ref={fileInput} type="file" multiple accept={accept.join(',')} data-testid={`${surface}-files-input`} style={offscreen} onChange={(e) => take(e.target.files, false, e.currentTarget)} />
+      <input key={`d${dirEpoch}`} ref={dirInput} {...folderAttrs} type="file" multiple data-testid={`${surface}-folder-input`} style={offscreen}
+        onChange={(e) => take(e.target.files, true, e.currentTarget)} />
     </Stack>
+    {pickError && <Alert severity="error" sx={{ mt: 1 }} data-testid="import-pick-error" onClose={() => setPickError(null)}>{pickError}</Alert>}
     {items && <Dialog open onClose={busy ? undefined : () => setItems(null)} maxWidth="md" fullWidth data-testid="bulk-import">
       <FormDialogTitle>Import {what}s</FormDialogTitle>
       <DialogContent>

@@ -49,7 +49,7 @@ test('drawings import: a folder tree with preview, part links, progress and a se
 
   await v.getByRole('button', { name: 'Import drawings' }).click();
   const dlg = page.getByRole('dialog');
-  await expect(dlg.getByLabel('Revision for all')).toHaveValue('A');
+  await expect(dlg.getByLabel('Revision when the Part Master has none')).toHaveValue('A');
   await dlg.getByTestId('import-folder-input').setInputFiles(top);
   const preview = dlg.getByTestId('import-preview');
   await expect(preview).toContainText('Folders4 (4 new)');
