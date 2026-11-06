@@ -308,6 +308,7 @@ public static class PermissionText
             "sequfloh.remove_test_results" => "Remove a part's test results from a test work order (kept in history)",
             "sequfloh.remove_time" => "Remove recorded time from a work order with a reason (kept in history, no longer counted)",
             "sequfloh.manage_chargebacks" => "Create and edit chargeback reports",
+            "sequfloh.delete_chargebacks" => "Delete chargeback reports",
             "sequfloh.manage_projects" => "Create, edit, close and delete projects",
             "sequfloh.reopen_completed" => "Reopen completed work orders",
             "sequfloh.delete_records" => "Delete records (instructions, work orders, parts, drawings, imported files)",

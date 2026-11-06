@@ -103,18 +103,18 @@ export const Empty = ({ text, action }: { text: string; action?: ReactNode }) =>
   <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}><Typography sx={{ fontSize: 28, mb: 0.5 }} aria-hidden>🗂️</Typography><Typography color="text.secondary">{text}</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: action ? 2 : 0 }}>Even the busiest cell gets a quiet minute.</Typography>{action}</Paper>;
 
 /** Confirmation dialog; when a reason is required the confirm button stays disabled until one is entered. */
-export function Confirm({ open, title, text, confirm, danger, reason, reasonLabel, reasonOptions, onClose, onConfirm }: {
-  open: boolean; title: string; text: string; confirm: string; danger?: boolean; reason?: 'required' | 'optional'; reasonLabel?: string; reasonOptions?: string[];
+export function Confirm({ open, title, text, confirm, danger, reason, reasonLabel, reasonOptions, testId, onClose, onConfirm }: {
+  open: boolean; title: string; text: string; confirm: string; danger?: boolean; reason?: 'required' | 'optional'; reasonLabel?: string; reasonOptions?: string[]; testId?: string;
   onClose: () => void; onConfirm: (reason: string) => Promise<unknown>;
 }) {
   const [r, setR] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setR(''); setError(null); } }}>
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm" data-testid={testId} TransitionProps={{ onEnter: () => { setR(''); setError(null); } }}>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
-        <Typography variant="body2" sx={{ mb: 2 }}>{text}</Typography>
+        <Typography variant="body2" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>{text}</Typography>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {reason && reasonOptions && reasonOptions.length > 0 && <TextField select fullWidth label={reasonLabel ?? 'Reason'} value={reasonOptions.includes(r.split(': ')[0]) ? r.split(': ')[0] : ''} sx={{ mb: 2 }}
           onChange={(e) => setR(e.target.value)}>{reasonOptions.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}</TextField>}

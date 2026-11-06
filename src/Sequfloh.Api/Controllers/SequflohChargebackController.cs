@@ -6,7 +6,7 @@ using Sequfloh.Infrastructure.Modules.Execution;
 
 namespace Sequfloh.Api.Controllers.Sequfloh;
 
-/// <summary>Saved chargeback reports. Viewing needs reports access; creating, editing and deleting need the chargeback permission (checked in the service).</summary>
+/// <summary>Saved chargeback reports. Viewing needs reports access; creating and editing need the chargeback permission; deleting needs delete chargeback reports (checked in the service).</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh/chargebacks")]
 public sealed class SequflohChargebackController(SequflohChargebackService svc) : ControllerBase
 {
@@ -22,7 +22,10 @@ public sealed class SequflohChargebackController(SequflohChargebackService svc) 
     [HttpGet("{id:guid}")] public Task<object> Get(Guid id, CancellationToken ct) => svc.GetAsync(id, ct);
     [HttpPost] public Task<object> Create(ChargebackInput r, CancellationToken ct) => svc.CreateAsync(r, ct);
     [HttpPut("{id:guid}")] public Task<object> Update(Guid id, ChargebackInput r, CancellationToken ct) => svc.UpdateAsync(id, r, ct);
+    public sealed record DeleteManyRequest(List<Guid>? Ids);
     [HttpDelete("{id:guid}")] public async Task<IActionResult> Delete(Guid id, CancellationToken ct) { await svc.DeleteAsync(id, ct); return NoContent(); }
+    /// <summary>Deletes the listed chargeback reports. One audit entry is written for each report that goes.</summary>
+    [HttpPost("delete")] public async Task<IActionResult> DeleteMany(DeleteManyRequest r, CancellationToken ct) { await svc.DeleteManyAsync(r.Ids ?? [], ct); return NoContent(); }
     [HttpGet("{id:guid}/pdf")] public async Task<IActionResult> Pdf(Guid id, CancellationToken ct) { var (b, n) = await svc.PdfAsync(id, ct); return InlinePdf.Send(this, b, n); }
     [HttpGet("{id:guid}/xlsx")]
     public async Task<IActionResult> Xlsx(Guid id, CancellationToken ct) { var (b, n) = await svc.ExcelAsync(id, ct); return File(b, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", n); }
