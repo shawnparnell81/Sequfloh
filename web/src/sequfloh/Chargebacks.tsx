@@ -3,9 +3,9 @@ import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'rea
 import { Alert, Autocomplete, Box, Button, Checkbox, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { get, post, put } from '../api';
+import { del, get, post, put } from '../api';
 import { fmtDateTime } from '../components/Status';
-import { Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, useSqf, useUnsaved } from './common';
+import { Confirm, Empty, ErrorState, Loading, Mono, S, SqfPage, qs, useOptions, useSqf, useUnsaved } from './common';
 import { eightDUrl } from './EightD';
 import { RecordActions } from '../components/RecordActions';
 import { otherNumbers, usePartSearch } from './partSearch';
@@ -27,7 +27,7 @@ interface Report { locked?: boolean;
   totalPersonnel?: number | null; totalHours?: number | null; crewHours?: number | null; userHours?: number | null; dateFrom?: string | null; dateTo?: string | null; hourlyRate?: number | null;
   laborCost?: number | null; discoveryMethod?: string | null; supplierPartNumber?: string | null; lotDateCodes?: string | null; rootCause?: string | null; correctiveAction?: string | null;
   parts: { partNumber: string; description?: string | null; quantity: number; unitCost?: number | null }[]; costLines: { description: string; amount: number }[]; notes?: string | null;
-  linkedWorkOrders?: LinkedWo[];
+  linkedWorkOrders?: LinkedWo[]; projectNumber?: string | null; projectName?: string | null;
   sections: string[]; hasPhotos?: boolean; period?: Period | null; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string; timeChangedAt?: string | null; timeChangedNote?: string | null;
 }
 type Form = Record<string, string>;
@@ -44,26 +44,73 @@ const num = (n?: number | null, dp = 0) => (n === null || n === undefined ? '—
 const n = (v?: string) => (v === undefined || v.trim() === '' ? null : Number(v));
 const t = (v?: string) => (v === undefined || v.trim() === '' ? null : v.trim());
 const useCanEdit = () => !!useSqf().data?.permissions.includes('sequfloh.manage_chargebacks');
+const useCanDelete = () => !!useSqf().data?.permissions.includes('sequfloh.delete_chargebacks');
+
+/** Names the report, its title, and the project or work orders it covers, for the delete confirmation. */
+export function chargebackDeleteText(r: Pick<Report, 'workOrderNumber' | 'trackingNumber' | 'partDescription' | 'linkedWorkOrders' | 'projectNumber' | 'projectName'>) {
+  const title = r.partDescription?.trim();
+  const name = title && title.toLowerCase() !== r.workOrderNumber.toLowerCase() ? `${r.workOrderNumber} (${title})` : r.workOrderNumber;
+  const wos = (r.linkedWorkOrders ?? []).map((w) => w.number).filter(Boolean);
+  const project = r.projectNumber ? `project ${r.projectNumber}${r.projectName ? ` (${r.projectName})` : ''}` : '';
+  const links = wos.length === 1 ? `work order ${wos[0]}` : wos.length > 1 ? `work orders ${wos.join(', ')}` : '';
+  const sole = !project && !links ? `work order ${r.trackingNumber && r.trackingNumber !== r.workOrderNumber ? r.trackingNumber : r.workOrderNumber}` : '';
+  const scope = [project, links, sole].filter(Boolean);
+  const about = scope.length ? ` for ${scope.join(' and ')}` : '';
+  return `This deletes chargeback report ${name}${about}. Work orders, photos, time entries, parts and drawings stay.`;
+}
 
 export function ChargebackListPage() {
   const [text, setText] = useState('');
-  const q = useQuery({ queryKey: ['sqf-cb', text], queryFn: () => get<(Report & { total?: number | null })[]>(`${S}/chargebacks?${qs({ q: text || undefined })}`) });
+  const q = useQuery({ queryKey: ['sqf-cb', text], queryFn: () => get<Report[]>(`${S}/chargebacks?${qs({ q: text || undefined })}`) });
   const nav = useNavigate();
+  const qc = useQueryClient();
   const canEdit = useCanEdit();
+  const canDelete = useCanDelete();
+  const [picked, setPicked] = useState<string[]>([]);
+  const [ask, setAsk] = useState<Report[] | null>(null);
+  const rows = q.data ?? [];
+  const ids = rows.map((r) => r.id);
+  const ticked = picked.filter((id) => ids.includes(id));
+  const allOn = ids.length > 0 && ids.every((id) => ticked.includes(id));
+  const tick = (id: string) => setPicked(ticked.includes(id) ? ticked.filter((x) => x !== id) : [...ticked, id]);
   return <SqfPage title="Chargeback Reports" crumbs={crumbs('All')} permission="sequfloh.view_reports" description="Supplier chargeback reports for inspection, rebox and repair jobs."
     actions={canEdit && <Button variant="contained" component={RouterLink} to="/sequfloh/chargebacks/new" data-testid="create-chargeback">Create report</Button>}>
-    <TextField size="small" label="Search work order, part or supplier" value={text} onChange={(e) => setText(e.target.value)} sx={{ mb: 2, minWidth: 320 }} />
-    {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : !q.data?.length ? <Empty text="No chargeback reports yet." /> :
+    <Stack direction="row" gap={1} alignItems="center" sx={{ mb: 2, flexWrap: 'wrap' }}>
+      <TextField size="small" label="Search work order, part or supplier" value={text} onChange={(e) => setText(e.target.value)} sx={{ minWidth: 320 }} />
+      {canDelete && <Button variant="outlined" color="error" disabled={ticked.length === 0} data-testid="cb-delete-selected" onClick={() => setAsk(rows.filter((r) => ticked.includes(r.id)))}>Delete selected</Button>}
+    </Stack>
+    {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} /> : !rows.length ? <Empty text="No chargeback reports yet." /> :
       <Paper variant="outlined"><Table size="small" data-testid="chargeback-list">
-        <TableHead><TableRow><TableCell>Work order #</TableCell><TableCell>Supplier</TableCell><TableCell>Part number</TableCell><TableCell>Result</TableCell><TableCell align="right">Qty</TableCell>
+        <TableHead><TableRow>
+          {canDelete && <TableCell padding="checkbox"><Checkbox size="small" checked={allOn} indeterminate={!allOn && ticked.length > 0} inputProps={{ 'aria-label': 'Select all chargeback reports' }}
+            onChange={() => setPicked(allOn ? [] : ids)} /></TableCell>}
+          <TableCell>Work order #</TableCell><TableCell>Supplier</TableCell><TableCell>Part number</TableCell><TableCell>Result</TableCell><TableCell align="right">Qty</TableCell>
           <TableCell align="right">Qty bad</TableCell><TableCell align="right">Personnel</TableCell><TableCell align="right">Hours</TableCell><TableCell align="right">Total</TableCell><TableCell>Created</TableCell><TableCell /></TableRow></TableHead>
-        <TableBody>{q.data.map((r) => <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => openChargebackPdf(r.id)}>
+        <TableBody>{rows.map((r) => <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => openChargebackPdf(r.id)} data-testid="cb-row">
+          {canDelete && <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}><Checkbox size="small" checked={ticked.includes(r.id)} onChange={() => tick(r.id)} inputProps={{ 'aria-label': `Select ${r.workOrderNumber}`, 'data-testid': 'cb-select' }} /></TableCell>}
           <TableCell><Mono>{r.workOrderNumber}</Mono></TableCell><TableCell>{r.supplier ?? '—'}</TableCell><TableCell><Mono>{r.partNumber ?? '—'}</Mono></TableCell><TableCell>{r.result ?? '—'}</TableCell>
           <TableCell align="right">{num(r.qtyInspected)}</TableCell><TableCell align="right">{num(r.qtyBad)}</TableCell><TableCell align="right">{num(r.totalPersonnel)}</TableCell>
           <TableCell align="right">{num(r.totalHours, 2)}</TableCell><TableCell align="right">{money(r.total)}</TableCell><TableCell>{fmtDateTime(r.createdAt)} · {r.createdByName}{r.timeChangedAt && <Box component="span" sx={{ color: 'warning.main', display: 'block' }}>Time changed, regenerate</Box>}</TableCell>
-          <TableCell onClick={(e) => e.stopPropagation()}>{canEdit && !r.locked && <Button size="small" onClick={() => nav(`/sequfloh/chargebacks/${r.id}`)} data-testid="cb-row-edit">Edit</Button>}</TableCell>
+          <TableCell onClick={(e) => e.stopPropagation()}>
+            <Stack direction="row" gap={0.5} justifyContent="flex-end">
+              {canEdit && !r.locked && <Button size="small" onClick={() => nav(`/sequfloh/chargebacks/${r.id}`)} data-testid="cb-row-edit">Edit</Button>}
+              {canDelete && <Button size="small" color="error" variant="outlined" data-testid="cb-delete" onClick={() => setAsk([r])}>Delete</Button>}
+            </Stack>
+          </TableCell>
         </TableRow>)}</TableBody>
       </Table></Paper>}
+    <Confirm open={!!ask} danger testId="cb-delete-confirm" confirm={ask && ask.length > 1 ? 'Delete selected' : 'Delete'}
+      title={ask && ask.length > 1 ? `Delete ${ask.length} chargeback reports?` : `Delete chargeback report ${ask?.[0]?.workOrderNumber ?? ''}?`}
+      text={ask ? `${ask.map(chargebackDeleteText).join('\n\n')}\n\nThis can't be undone.` : ''}
+      onClose={() => setAsk(null)}
+      onConfirm={async () => {
+        const gone = ask ?? [];
+        if (gone.length === 1) await del(`${S}/chargebacks/${gone[0].id}`);
+        else await post(`${S}/chargebacks/delete`, { ids: gone.map((r) => r.id) });
+        setPicked([]);
+        setAsk(null);
+        await qc.invalidateQueries();
+      }} />
   </SqfPage>;
 }
 
@@ -324,6 +371,7 @@ export function ChargebackViewPage() {
   const { id } = useParams();
   const nav = useNavigate();
   const canEdit = useCanEdit();
+  const canDelete = useCanDelete();
   const q = useQuery({ queryKey: ['sqf-cb-one', id], queryFn: () => get<Report>(`${S}/chargebacks/${id}`) });
   if (q.isLoading) return <Loading />;
   if (q.error || !q.data) return <ErrorState error={q.error} />;
@@ -331,7 +379,7 @@ export function ChargebackViewPage() {
   return <SqfPage title={`Chargeback report ${r.workOrderNumber}`} crumbs={crumbs(r.workOrderNumber)} permission="sequfloh.view_reports"
     actions={<RecordActions surface="chargeback-report" edit={canEdit && !r.locked && { onClick: () => nav(`/sequfloh/chargebacks/${r.id}`) }}
       print={{ href: `${S}/chargebacks/${r.id}/pdf`, testid: 'cb-pdf' }}
-      del={{ what: `chargeback report for work order ${r.workOrderNumber}`, url: `${S}/chargebacks/${r.id}`, to: '/sequfloh/chargebacks', perm: 'sequfloh.manage_chargebacks', show: canEdit && !r.locked }}>
+      del={{ what: `chargeback report ${r.workOrderNumber}`, extra: chargebackDeleteText(r), url: `${S}/chargebacks/${r.id}`, to: '/sequfloh/chargebacks', perm: 'sequfloh.delete_chargebacks', show: canDelete }}>
       <Button variant="outlined" href={`${S}/chargebacks/${r.id}/xlsx`} data-testid="cb-xlsx">Export Excel</Button>
     </RecordActions>}>
     {r.timeChangedAt && <Alert severity="warning" sx={{ mb: 2 }} data-testid="cb-time-changed">Time changed after this chargeback was created ({r.timeChangedNote}). Edit the report, refresh the hours and save to regenerate it.</Alert>}

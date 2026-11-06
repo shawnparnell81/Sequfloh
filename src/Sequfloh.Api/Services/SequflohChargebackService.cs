@@ -194,12 +194,26 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var ids = rows.Where(x => x.TrackingRecordId != null).Select(x => x.TrackingRecordId!.Value).Distinct().ToList();
         var closed = ids.Count == 0 || await m.CanAnyAsync(Permissions.SequflohReopenCompleted, ct) ? [] : (await db.SequflohTrackingRecords.AsNoTracking()
             .Where(r => ids.Contains(r.Id) && (r.Status == TrackingStatus.Completed || r.Status == TrackingStatus.Canceled)).Select(r => r.Id).ToListAsync(ct)).ToHashSet();
-        return rows.Select(x => new
+        var projects = await ProjectNamesAsync(rows.Select(x => PeriodOf(x.Period)?.ProjectId), ct);
+        return rows.Select(x =>
         {
-            Locked = x.TrackingRecordId is { } t && closed.Contains(t),
-            x.Id, x.WorkOrderNumber, x.TrackingNumber, x.Supplier, x.PartNumber, x.Result, x.QtyInspected, x.QtyBad, x.TotalPersonnel, x.TotalHours, x.DateFrom, x.DateTo,
-            Total = Total(x), x.CreatedAt, x.CreatedByName, x.TimeChangedAt, x.TimeChangedNote,
+            var period = PeriodOf(x.Period);
+            (string Number, string Name)? project = period?.ProjectId is { } pid && projects.TryGetValue(pid, out var name) ? name : null;
+            return new
+            {
+                Locked = x.TrackingRecordId is { } t && closed.Contains(t),
+                x.Id, x.WorkOrderNumber, x.TrackingNumber, x.Supplier, x.PartNumber, x.PartDescription, x.Result, x.QtyInspected, x.QtyBad, x.TotalPersonnel, x.TotalHours, x.DateFrom, x.DateTo,
+                Total = Total(x), x.CreatedAt, x.CreatedByName, x.TimeChangedAt, x.TimeChangedNote, LinkedWorkOrders = LinkedOf(x.LinkedWorkOrders),
+                ProjectNumber = project?.Number, ProjectName = project?.Name,
+            };
         });
+    }
+
+    async Task<Dictionary<Guid, (string Number, string Name)>> ProjectNamesAsync(IEnumerable<Guid?> ids, CancellationToken ct)
+    {
+        var list = ids.OfType<Guid>().Distinct().ToList();
+        if (list.Count == 0) return [];
+        return await db.SequflohProjects.AsNoTracking().Where(p => list.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => (p.Number, p.Name), ct);
     }
 
     public static decimal? TotalOf(SequflohChargebackReport x) => Total(x);
@@ -314,6 +328,11 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var d = JsonSerializer.SerializeToNode(Dto(x), SequflohJson.Options)!.AsObject();
         d["sections"] = JsonSerializer.SerializeToNode(await SectionsForAsync(x, ct), SequflohJson.Options);
         d["hasPhotos"] = await HasEvidenceAsync(PhotoOwners(x), ct);
+        if (PeriodOf(x.Period) is { ProjectId: { } pid })
+        {
+            var project = await db.SequflohProjects.AsNoTracking().Where(p => p.Id == pid).Select(p => new { p.Number, p.Name }).FirstOrDefaultAsync(ct);
+            if (project is not null) { d["projectNumber"] = project.Number; d["projectName"] = project.Name; }
+        }
         return d;
     }
 
@@ -343,14 +362,86 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         return await DetailAsync(x, ct);
     }
 
-    public async Task DeleteAsync(Guid id, CancellationToken ct)
+    public Task DeleteAsync(Guid id, CancellationToken ct) => DeleteManyAsync([id], ct);
+
+    /// <summary>
+    /// Deletes the chargeback reports and only what belongs to them: the report rows, files stored for those reports, and recent or pinned links to them.
+    /// Work orders, their photos and evidence, time, parts and drawings stay. A link to a project or to several work orders lives on the report, so it goes with the report
+    /// and the project and work orders stay linked to each other. One audit entry is written for each report. Closed work orders do not block this: the work order is not changed.
+    /// </summary>
+    public async Task DeleteManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
-        await RequireEditAsync(ct);
-        var x = await db.SequflohChargebackReports.FirstOrDefaultAsync(e => e.Id == id, ct) ?? throw new NotFoundException("Chargeback report");
-        await RequireUnlockedAsync(x, ct);
-        f.Audit("ChargebackReportDeleted", Entity, x.Id, $"Chargeback report for work order {x.WorkOrderNumber} deleted", x.SiteId, context: new { before = Snapshot(x), after = (string?)null });
-        db.SequflohChargebackReports.Remove(x);
+        var wanted = ids.Distinct().ToList();
+        if (wanted.Count == 0) throw new AppException("Choose at least one chargeback report.");
+        if (wanted.Count > 500) throw new AppException("Up to 500 chargeback reports at once.");
+        var rows = await db.SequflohChargebackReports.AsNoTracking().Where(x => wanted.Contains(x.Id)).ToListAsync(ct);
+        if (rows.Count != wanted.Count) throw new NotFoundException("Chargeback report");
+        foreach (var x in rows) await RequireDeleteAsync(x, ct);
+
+        var projects = await ProjectNamesAsync(rows.Select(x => PeriodOf(x.Period)?.ProjectId), ct);
+        var who = string.IsNullOrWhiteSpace(current.UserName) ? "Someone" : current.UserName.Trim();
+        var keys = await db.Attachments.AsNoTracking().Where(a => a.OwnerType == Entity && wanted.Contains(a.OwnerId)).Select(a => a.StorageKey).ToListAsync(ct);
+        var paths = wanted.SelectMany(id => new[] { $"/sequfloh/chargebacks/{id}", $"/sequfloh/chargebacks/{id}/view" }).ToList();
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Attachments.Where(a => a.OwnerType == Entity && wanted.Contains(a.OwnerId)).ExecuteDeleteAsync(ct);
+        await db.SequflohUserItems.Where(i => (i.RecordId != null && wanted.Contains(i.RecordId.Value)) || paths.Contains(i.Path)).ExecuteDeleteAsync(ct);
+        foreach (var x in rows)
+        {
+            var zone = await m.ZoneAsync(x.SiteId, ct);
+            var stamp = TimeZoneInfo.ConvertTime(m.Now, zone).ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
+            (string Number, string Name)? project = PeriodOf(x.Period)?.ProjectId is { } pid && projects.TryGetValue(pid, out var named) ? named : null;
+            f.Audit("ChargebackReportDeleted", Entity, x.Id, AuditText.Fit($"{who} deleted {ReportPhrase(x, project)} on {stamp}"), x.SiteId,
+                context: new { before = Snapshot(x), after = (string?)null });
+        }
+        var removed = await db.SequflohChargebackReports.Where(x => wanted.Contains(x.Id)).ExecuteDeleteAsync(ct);
+        if (removed != wanted.Count) throw new ConflictException("A chargeback report changed while it was being deleted. Try again.");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        await RemoveStoredFilesAsync(keys, ct);
+    }
+
+    async Task RequireDeleteAsync(SequflohChargebackReport x, CancellationToken ct)
+    {
+        var ok = x.SiteId is { } site
+            ? await m.CanAsync(Permissions.SequflohDeleteChargebacks, site, null, ct)
+            : await m.CanAnyAsync(Permissions.SequflohDeleteChargebacks, ct);
+        if (!ok) throw new ForbiddenException("You do not have permission to delete this chargeback report.");
+    }
+
+    /// <summary>The report as an auditor would name it: its number and title, then the project or the work orders it covers.</summary>
+    static string ReportPhrase(SequflohChargebackReport x, (string Number, string Name)? project)
+    {
+        var title = string.IsNullOrWhiteSpace(x.PartDescription) ? null : x.PartDescription.Trim();
+        var name = title is null || title.Equals(x.WorkOrderNumber, StringComparison.OrdinalIgnoreCase) ? x.WorkOrderNumber : $"{x.WorkOrderNumber} ({title})";
+        var linked = LinkedOf(x.LinkedWorkOrders).Select(w => w.Number).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var bits = new List<string>();
+        if (project is { } p && !string.IsNullOrWhiteSpace(p.Number))
+            bits.Add(string.IsNullOrWhiteSpace(p.Name) ? $"project {p.Number}" : $"project {p.Number} ({p.Name.Trim()})");
+        if (linked.Count == 1) bits.Add($"work order {linked[0]}");
+        else if (linked.Count > 1) bits.Add($"work orders {string.Join(", ", linked)}");
+        else if (project is null)
+        {
+            var wo = string.IsNullOrWhiteSpace(x.TrackingNumber) ? x.WorkOrderNumber : x.TrackingNumber;
+            bits.Add($"work order {wo}");
+        }
+        var scope = bits.Count == 0 ? "" : bits.Count == 1 ? $" for {bits[0]}" : $" for {bits[0]} and {string.Join(", ", bits.Skip(1))}";
+        return $"chargeback report {name}{scope}";
+    }
+
+    async Task RemoveStoredFilesAsync(IReadOnlyCollection<string> keys, CancellationToken ct)
+    {
+        var list = keys.Where(k => !string.IsNullOrEmpty(k)).Distinct().ToArray();
+        if (list.Length == 0) return;
+        try
+        {
+            foreach (var key in await storage.DeleteManyAsync(list, ct))
+                log.LogWarning("Stored file {Key} could not be removed after its chargeback report was deleted", key);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            log.LogWarning("Stored files could not be removed after a chargeback report was deleted ({Error})", e.GetType().Name);
+        }
     }
 
     async Task<SequflohChargebackReport> LoadAsync(Guid id, CancellationToken ct)

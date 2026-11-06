@@ -65,6 +65,7 @@ public static class Permissions
     public const string SequflohRemoveTestResults = "sequfloh.remove_test_results";
     public const string SequflohRemoveOrderInstruction = "sequfloh.remove_order_instruction";
     public const string SequflohManageChargebacks = "sequfloh.manage_chargebacks";
+    public const string SequflohDeleteChargebacks = "sequfloh.delete_chargebacks";
     public const string SequflohManageProjects = "sequfloh.manage_projects";
     public const string SequflohReopenCompleted = "sequfloh.reopen_completed";
     public const string SequflohViewTaskEvents = "sequfloh.view_task_events";

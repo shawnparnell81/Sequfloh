@@ -19,7 +19,7 @@ public sealed class ProjectChargebackTests(TestApp app)
     const string T = "/api/sequfloh/tracking";
     const string C = "/api/sequfloh/chargebacks";
     static readonly string[] Mgr = [Permissions.SequflohAccess, Permissions.SequflohManageProjects, Permissions.SequflohCreateProductionTask, Permissions.SequflohManageCrewTime,
-        Permissions.SequflohViewReports, Permissions.SequflohManageChargebacks, Permissions.SequflohRemoveTime];
+        Permissions.SequflohViewReports, Permissions.SequflohManageChargebacks, Permissions.SequflohDeleteChargebacks, Permissions.SequflohRemoveTime];
 
     sealed record Setup(Guid Site, ApiClient Mgr, Guid Project, string Tag, Guid A, Guid B, Guid X, string ANo, string BNo, string XNo, DateTimeOffset Start);
 
