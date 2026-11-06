@@ -17,7 +17,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record PartReplaced(string PartNumber, string? Description, decimal PerAssembly, decimal? Quantity, decimal? UnitCost = null);
 public sealed record CostLine(string Description, decimal Amount);
-/// <summary>Report sections beyond the summary. All off means the summary only. <see cref="Tests"/> is the explicit "Include test results report?" choice:
+/// <summary>Report sections beyond the summary. All off means the summary only. Photos are on when the work order has photos and this choice has not been saved. <see cref="Tests"/> is the explicit "Include test results report?" choice:
 /// when it is No, nothing about test results appears anywhere on the report, Full detail included.</summary>
 public sealed record ReportOptions(bool PerTech = false, bool TimeLog = false, bool Findings = false, bool Tests = false, bool Attachments = false, bool Photos = false, bool Cost = false)
 {
@@ -35,7 +35,7 @@ public sealed record KeyValue(string Column, decimal Min, decimal Average, decim
 /// Job-level quantity, parts replaced and tester result files for a work order, and the chargeback job report.
 /// Quantity belongs to the whole job, not to a person. Anyone who can see the work order can update it; every change is audited.
 /// </summary>
-public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohFoundationService f, IFileStorage storage, SequflohTestResultService tests)
+public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohFoundationService f, IFileStorage storage, SequflohTestResultService tests, ILogger<SequflohJobService> log)
 {
     public static readonly string[] DefaultPassValues = ["PASS", "PASSED", "P", "OK", "GOOD", "TRUE", "1"];
     public const long MaxFile = 25 * 1024 * 1024;
@@ -44,6 +44,26 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
     static readonly string[] Photo = [".jpg", ".jpeg", ".png"];
     static readonly string[] Attach = [".csv", ".xlsx", ".xls", ".pdf", ".txt", ".docx", ".doc", ".pptx", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"];
     public static ReportOptions Options(string json) => JsonSerializer.Deserialize<ReportOptions>(json, SequflohJson.Options) ?? new();
+    /// <summary>True when the saved options name the photos choice, so an untick stays off.</summary>
+    public static bool PhotosChosen(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            foreach (var p in doc.RootElement.EnumerateObject())
+                if (p.NameEquals("photos") || p.NameEquals("Photos")) return true;
+            return false;
+        }
+        catch (JsonException) { return false; }
+    }
+    /// <summary>The options to show and print. Photos default on when the work order has evidence and nobody has saved that choice.</summary>
+    public static ReportOptions ShownOptions(string json, bool hasPhotos)
+    {
+        var o = Options(json);
+        return hasPhotos && !PhotosChosen(json) ? o with { Photos = true } : o;
+    }
     public static JobFindings FindingsOf(string json)
     {
         var x = JsonSerializer.Deserialize<JobFindings>(json, SequflohJson.Options) ?? new();
@@ -119,7 +139,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             Columns = Map(r.TestColumns),
             Files = files.Select(FileDto),
             Tests = new { Tested = files.Where(x => x.Kind == "test").Sum(x => x.Tested ?? 0), Passed = files.Where(x => x.Kind == "test").Sum(x => x.Passed ?? 0), Failed = files.Where(x => x.Kind == "test").Sum(x => x.Failed ?? 0) },
-            Findings = FindingsOf(r.Findings), CostLines = Lines(r.CostLines), ReportOptions = Options(r.ReportOptions),
+            Findings = FindingsOf(r.Findings), CostLines = Lines(r.CostLines), ReportOptions = ShownOptions(r.ReportOptions, files.Any(x => x.Kind == "evidence")),
         };
     }
 
@@ -437,7 +457,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
         var (people, log) = await PeopleAsync(db, id, now, ct);
         var parts = Parts(r.PartsReplaced).Select(p => new ReportPart(p.PartNumber, p.Description, p.PerAssembly, Total(p, r.QuantityCompleted), p.Quantity is not null, p.UnitCost)).ToList();
         var all = await db.SequflohTestFiles.AsNoTracking().Where(x => x.TrackingRecordId == id).ToListAsync(ct);
-        var opts = Options(r.ReportOptions);
+        var opts = ShownOptions(r.ReportOptions, all.Any(x => x.Kind == "evidence"));
         // "Include test results report?" No: the report carries no test results at all
         var files = !opts.Tests ? [] : all.Where(x => x.Kind == "test")
             .OrderBy(x => x.TestDate ?? DateOnly.FromDateTime(x.CreatedAt.UtcDateTime)).ThenBy(x => x.Batch).ThenBy(x => x.CreatedAt)
@@ -543,9 +563,7 @@ public sealed class SequflohJobService(AppDbContext db, ModuleSupport m, ICurren
             foreach (var p in ph)
             {
                 var bytes = await BytesAsync(files[p.Id], ct);
-                var caption = $"{p.FileName} · {local(p.UploadedAt)}";
-                if (PdfCanvas.JpegSize(bytes) is not null) blocks.Add(new PrintImage(bytes, caption));
-                else blocks.Add(new PrintParagraph($"Photo attached separately: {caption}"));
+                blocks.Add(ReportPhoto.Block(bytes, $"{p.FileName} · {local(p.UploadedAt)}", log));
             }
         }
         // chargeback summary: always the totals; the line-by-line breakdown when chosen

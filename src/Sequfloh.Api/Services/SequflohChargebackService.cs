@@ -2,6 +2,7 @@ using Sequfloh.Infrastructure.Services;
 using Sequfloh.Platform;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Sequfloh.Application.Abstractions;
@@ -25,7 +26,7 @@ public sealed record ChargebackWorkOrder(Guid Id, string Number, string Type, st
 /// separately, then combined), parts replaced, findings, chargeback summary and sign-off. The work order number is typed by the user. No inventory is kept here.
 /// </summary>
 public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, ICurrentUser current, SequflohTrackingService tracking, SequflohCrewService crew,
-    SequflohFoundationService f, SequflohPrintService print, SequflohJobService jobs, IFileStorage storage)
+    SequflohFoundationService f, SequflohPrintService print, SequflohJobService jobs, IFileStorage storage, ILogger<SequflohChargebackService> log)
 {
     const string Entity = nameof(SequflohChargebackReport);
 
@@ -70,6 +71,17 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var saved = string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<List<string>>(json, SequflohJson.Options);
         return saved ?? [.. SectionOptions.Where(o => o.Default).Select(o => o.Key)];
     }
+    async Task<bool> HasEvidenceAsync(Guid? trackingId, CancellationToken ct) =>
+        trackingId is { } id && await db.SequflohTestFiles.AsNoTracking().AnyAsync(f => f.TrackingRecordId == id && f.Kind == "evidence", ct);
+    /// <summary>Saved section ticks, or the defaults. Photos are added to the defaults when the linked work order has evidence and no tick list has been saved.</summary>
+    async Task<List<string>> SectionsForAsync(SequflohChargebackReport x, CancellationToken ct)
+    {
+        var list = SectionsOf(x.Sections);
+        if (!string.IsNullOrWhiteSpace(x.Sections) || list.Contains("photos") || !await HasEvidenceAsync(x.TrackingRecordId, ct)) return list;
+        var chosen = list.ToHashSet();
+        chosen.Add("photos");
+        return [.. SectionOptions.Select(o => o.Key).Where(chosen.Contains)];
+    }
     /// <summary>Names for the person filter, scoped to the work order and/or the period with its filters.</summary>
     public async Task<List<string>> PeopleAsync(Guid? workOrderId, ReportPeriod? period, CancellationToken ct) =>
         await SequflohPeriodSummary.PeopleAsync(db, db.SequflohTrackingRecords.AsNoTracking(), workOrderId, period, await m.ZoneAsync(null, ct), ct);
@@ -98,7 +110,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             QtyInspected = QtyInspectedOf(r, fd), QtyBad = QtyBadOf(r, fd),
             fd.Supplier, SupplierReference = fd.PurchaseOrder, fd.DiscoveryMethod, fd.SupplierPartNumber, fd.LotDateCodes, fd.RootCause, TaskDescription = fd.Description ?? r.WorkInstructionTitle,
             CrewHours = Hr(t.CrewLaborSeconds), UserHours = Hr(t.UserSeconds), TotalHours = Hr(t.TotalSeconds), TotalPersonnel = t.Personnel, CrewSize = t.MaxCrew, t.Users,
-            DateFrom = t.From, DateTo = t.To,
+            DateFrom = t.From, DateTo = t.To, HasPhotos = await HasEvidenceAsync(r.Id, ct),
         };
     }
     static decimal Hr(long s) => Math.Round(s / 3600m, 2);
@@ -177,7 +189,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
     {
         await RequireViewAsync(ct);
         var x = await db.SequflohChargebackReports.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, ct) ?? throw new NotFoundException("Chargeback report");
-        var d = JsonSerializer.SerializeToNode(Dto(x), SequflohJson.Options)!.AsObject();
+        var d = await DetailAsync(x, ct);
         d["locked"] = await LockedAsync(x, ct);
         return d;
     }
@@ -269,7 +281,15 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         db.SequflohChargebackReports.Add(x);
         f.Audit("ChargebackReportCreated", Entity, x.Id, $"Chargeback report {Subject(x)} created{Linked(x)}", x.SiteId, context: new { before = (string?)null, after = Snapshot(x) });
         await db.SaveChangesAsync(ct);
-        return Dto(x);
+        return await DetailAsync(x, ct);
+    }
+
+    async Task<JsonObject> DetailAsync(SequflohChargebackReport x, CancellationToken ct)
+    {
+        var d = JsonSerializer.SerializeToNode(Dto(x), SequflohJson.Options)!.AsObject();
+        d["sections"] = JsonSerializer.SerializeToNode(await SectionsForAsync(x, ct), SequflohJson.Options);
+        d["hasPhotos"] = await HasEvidenceAsync(x.TrackingRecordId, ct);
+        return d;
     }
 
     /// <summary>True when the report belongs to a Completed or Canceled work order and the user can't reopen completed work orders.</summary>
@@ -295,7 +315,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         x.TimeChangedAt = null; x.TimeChangedNote = null;
         f.Audit("ChargebackReportUpdated", Entity, x.Id, $"Chargeback report {Subject(x)} updated{Linked(x)}", x.SiteId, context: new { before, after = Snapshot(x) });
         await db.SaveChangesAsync(ct);
-        return Dto(x);
+        return await DetailAsync(x, ct);
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken ct)
@@ -329,7 +349,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
     public async Task<(SequflohChargebackReport Report, List<ReportBlock> Blocks, Func<DateTimeOffset?, string> Local, string Printed)> BlocksAsync(Guid id, CancellationToken ct)
     {
         var x = await LoadAsync(id, ct);
-        var on = SectionsOf(x.Sections).ToHashSet();
+        var on = (await SectionsForAsync(x, ct)).ToHashSet();
         var (printed, local) = await print.ClockAsync(x.SiteId, ct);
         var org = await print.OrganizationAsync(ct);
         var now = m.Now;
@@ -494,8 +514,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
                     await using var st = await storage.GetAsync(file.StorageKey, ct);
                     if (st is not null) { using var ms = new MemoryStream(); await st.CopyToAsync(ms, ct); bytes = ms.ToArray(); }
                 }
-                if (bytes is not null && PdfCanvas.JpegSize(bytes) is not null) blocks.Add(new PrintImage(bytes, caption));
-                else blocks.Add(new PrintParagraph($"Photo attached separately: {caption}"));
+                blocks.Add(ReportPhoto.Block(bytes, caption, log));
             }
         }
         var org = await print.OrganizationAsync(ct);

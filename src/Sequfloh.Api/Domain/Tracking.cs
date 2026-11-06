@@ -45,7 +45,7 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public string PartsReplaced { get; set; } = "[]";
     /// <summary>How the columns of this job's tester result files are read (JSON), remembered once set.</summary>
     public string TestColumns { get; set; } = "{}";
-    /// <summary>Report sections to include (JSON object of section name to true/false). Empty means the summary only.</summary>
+    /// <summary>Report sections to include (JSON object of section name to true/false). Empty means the summary only. Photos are included when the work order has them until a choice is saved.</summary>
     public string ReportOptions { get; set; } = "{}";
     /// <summary>Findings / nonconformance for a supplier chargeback (JSON object; every field optional).</summary>
     public string Findings { get; set; } = "{}";
