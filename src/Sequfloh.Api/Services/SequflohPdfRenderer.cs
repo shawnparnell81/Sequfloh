@@ -45,8 +45,15 @@ public static class SequflohPdfRenderer
             switch (list[n])
             {
                 case PrintHeading x:
-                    // keep the section title with the first picture, instead of leaving the title alone at the bottom of a page
-                    if (n + 1 < list.Count && list[n + 1] is PrintImage next && c.Y > c.ContentTop + 8 && c.Y + 23 + PhotoHeight(next, c.Inner) > c.Bottom) c.NewPage();
+                    // The heading stays with the first picture. If the picture fits in the room left on this page, both stay here.
+                    // If it does not, both move to the next page. A picture taller than a page is shrunk onto that page, so the heading is never left alone.
+                    if (n + 1 < list.Count && list[n + 1] is PrintImage next && c.Y > c.ContentTop + 8)
+                    {
+                        var natural = PhotoHeight(next, c.Inner);
+                        var underHeading = Math.Max(42, c.Bottom - c.ContentTop - 23);
+                        var withHeading = Math.Min(natural, underHeading);
+                        if (c.Y + 23 + withHeading > c.Bottom) c.NewPage();
+                    }
                     c.Need(34); c.Y += 4; pdf.Fill(M, c.Y - 2, c.Inner, 15, HeadFill); pdf.Text(M + 4, c.Y + 1, 10, x.Text, new TextStyle(true, Colour: Brand)); c.Y += 19; break;
                 case PrintFields x: Fields(c, x.Items); break;
                 case PrintParagraph x:
@@ -58,8 +65,10 @@ public static class SequflohPdfRenderer
                     const double gap = 4, cap = 14;
                     double drawW = c.Inner, drawH = ih * (drawW / Math.Max(1, iw));
                     double BlockHeight() => drawH + gap + cap;
-                    // the picture and its caption stay together; a picture that does not fit starts on the next page
-                    if (c.Y + BlockHeight() > c.Bottom) c.NewPage();
+                    // A picture that follows its heading stays on that heading's page and shrinks to the room left.
+                    // Any other picture that does not fit moves to the next page. Never start a page and then leave it.
+                    var keepWithHeading = n > 0 && list[n - 1] is PrintHeading;
+                    if (c.Y + BlockHeight() > c.Bottom && c.Y > c.ContentTop + 8 && !keepWithHeading) c.NewPage();
                     var room = c.Bottom - c.Y;
                     if (BlockHeight() > room)
                     {
@@ -155,8 +164,22 @@ public static class SequflohPdfRenderer
             var x = M;
             for (var i = 0; i < widths.Length; i++)
             {
-                var y = c.Y;
-                foreach (var l in cells[i]) { c.P.Text(x + 3, y, 8, l); y += 10.5; }
+                var raw = i < r.Length ? r[i] ?? "" : "";
+                // The period chart is a run of block characters. Those are not in the PDF fonts (they would print as question marks), so draw the bar.
+                if (t.Columns[i].Name == "Chart")
+                {
+                    var units = raw.Count(ch => ch == '\u2588');
+                    if (units > 0)
+                    {
+                        var frac = Math.Min(1.0, units / 20.0);
+                        c.P.Fill(x + 3, c.Y, Math.Max(2, (widths[i] - 8) * frac), 8, Brand);
+                    }
+                }
+                else
+                {
+                    var y = c.Y;
+                    foreach (var l in cells[i]) { c.P.Text(x + 3, y, 8, l); y += 10.5; }
+                }
                 x += widths[i];
             }
             c.Y += height;
