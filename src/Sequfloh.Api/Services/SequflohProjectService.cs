@@ -177,7 +177,12 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
     {
         var recs = await (await m.ScopeAsync(db.SequflohTrackingRecords.AsNoTracking(), Permissions.SequflohAccess, ct)).Where(r => r.ProjectId == id).OrderBy(r => r.Number).ToListAsync(ct);
         var ids = recs.Select(r => r.Id).ToList();
-        var cbs = await db.SequflohChargebackReports.AsNoTracking().Where(c => c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)).ToListAsync(ct);
+        var idSet = ids.ToHashSet();
+        // Linked and project chargebacks have no single work order id. The project total counts each report once.
+        // A work order row shows the full amount of every chargeback that covers that work order.
+        var cbs = (await db.SequflohChargebackReports.AsNoTracking()
+            .Where(c => (c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)) || c.LinkedWorkOrders != null).ToListAsync(ct))
+            .Where(c => SequflohChargebackService.Covers(c, idSet)).ToList();
         var people = fromRequest is null ? [] : await NamesAsync(recs.Select(r => r.AssignedUserId), ct);
         var rows = new List<object>();
         long user = 0, crewLabor = 0, dayWorkers = 0; decimal lines = 0;
@@ -187,7 +192,7 @@ public sealed class SequflohProjectService(AppDbContext db, ModuleSupport m, Seq
             var cost = (JsonSerializer.Deserialize<List<CostLine>>(r.CostLines, SequflohJson.Options) ?? []).Sum(l => l.Amount);
             user += t.UserSeconds; crewLabor += t.CrewLaborSeconds; dayWorkers += t.DayWorkerSeconds; lines += cost;
             if (fromRequest is null) continue;
-            var cb = cbs.Where(c => c.TrackingRecordId == r.Id).Sum(c => SequflohChargebackService.TotalOf(c) ?? 0);
+            var cb = cbs.Where(c => c.TrackingRecordId == r.Id || SequflohChargebackService.LinkedOf(c.LinkedWorkOrders).Any(w => w.Id == r.Id)).Sum(c => SequflohChargebackService.TotalOf(c) ?? 0);
             rows.Add(new
             {
                 r.Id, r.Number, r.Type, TypeLabel = SequflohPeriodSummary.TypeName(r.Type), r.Status, StatusLabel = StatusText(r.Status), r.PartNumber, r.QtyGood, r.QtyBad,

@@ -183,10 +183,24 @@ public static class SequflohPeriodSummary
         }
         if (on.Contains("sumChargebacks"))
         {
-            var cbs = proj ? await db.SequflohChargebackReports.AsNoTracking().Where(c => c.Period == null && c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)).ToListAsync(ct)
-                : await db.SequflohChargebackReports.AsNoTracking().Where(c => c.CreatedAt >= from && c.CreatedAt < to && c.Period == null).ToListAsync(ct);
+            // A chargeback built from several work orders stores no single TrackingRecordId, and a project chargeback also stores its period.
+            // Count it when it charges one of the work orders in scope. A period rollup that links no work order is not itself a chargeback.
+            List<SequflohChargebackReport> cbs;
+            if (proj)
+            {
+                var rows = await db.SequflohChargebackReports.AsNoTracking()
+                    .Where(c => (c.TrackingRecordId != null && ids.Contains(c.TrackingRecordId.Value)) || c.LinkedWorkOrders != null).ToListAsync(ct);
+                cbs = [.. rows.Where(c => SequflohChargebackService.Covers(c, ids)).DistinctBy(c => c.Id)];
+            }
+            else
+            {
+                var rows = await db.SequflohChargebackReports.AsNoTracking()
+                    .Where(c => c.CreatedAt >= from && c.CreatedAt < to && (c.Period == null || c.LinkedWorkOrders != null)).ToListAsync(ct);
+                cbs = [.. rows.Where(c => string.IsNullOrWhiteSpace(c.Period) || SequflohChargebackService.LinkedOf(c.LinkedWorkOrders).Count > 0)];
+            }
             if (p.SiteId is { } cs) cbs = cbs.Where(c => c.SiteId == cs).ToList();
-            if (ids.Count > 0 && (type is not null || !string.IsNullOrWhiteSpace(p.SubType) || p.FamilyId is not null || !string.IsNullOrEmpty(person))) cbs = cbs.Where(c => c.TrackingRecordId is { } tid && ids.Contains(tid)).ToList();
+            if (!proj && ids.Count > 0 && (type is not null || !string.IsNullOrWhiteSpace(p.SubType) || p.FamilyId is not null || !string.IsNullOrEmpty(person)))
+                cbs = cbs.Where(c => SequflohChargebackService.Covers(c, ids)).ToList();
             var totals = cbs.Select(SequflohChargebackService.TotalOf).ToList();
             blocks.Add(new("sumChargebacks", "Chargeback totals", [("Chargeback reports", I(cbs.Count)), ("Qty bad charged back", I(cbs.Sum(c => c.QtyBad ?? 0))),
                 ("Hours charged back", H((long)(cbs.Sum(c => c.TotalHours ?? 0) * 3600))), ("Total chargeback", totals.Sum(x => x ?? 0).ToString("#,##0.00", CultureInfo.InvariantCulture))]));

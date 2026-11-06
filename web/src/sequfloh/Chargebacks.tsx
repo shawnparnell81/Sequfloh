@@ -33,7 +33,7 @@ interface Report { locked?: boolean;
 type Form = Record<string, string>;
 interface LinkedWo { id: string; number: string; type: string; partNumber?: string | null; status: string; from?: string | null; to?: string | null; personnel: number; crewHours: number; userHours: number; totalHours: number }
 interface LinkedTotals { workOrders: LinkedWo[]; crewHours: number; userHours: number; totalHours: number; personnel: number; dateFrom?: string | null; dateTo?: string | null;
-  partId?: string | null; partNumber?: string | null; partDescription?: string | null; qtyInspected?: number | null; qtyBad?: number | null }
+  partId?: string | null; partNumber?: string | null; partDescription?: string | null; qtyInspected?: number | null; qtyBad?: number | null; hasPhotos?: boolean }
 interface SectionOpt { key: string; label: string; default: boolean }
 interface Block { key: string; heading: string; fields?: { label: string; value: string }[] | null; columns?: string[] | null; widths?: number[] | null; rows?: (string | null)[][] | null; photos?: string[] | null; links?: { id: string; fileName: string }[] | null }
 const useSectionOptions = () => useQuery({ queryKey: ['sqf-cb-sections'], queryFn: () => get<SectionOpt[]>(`${S}/chargebacks/sections`), staleTime: Infinity });
@@ -114,6 +114,8 @@ export function ChargebackEditPage() {
       ...(!o.qtyBad && x.qtyBad !== null && x.qtyBad !== undefined ? { qtyBad: String(x.qtyBad) } : {}) }));
     if (x.partNumber) setPartText((t0) => t0 || x.partNumber!);
   }, [totals.data, many]);
+  // photos default on when any ticked work order has evidence, the same way a single work order does
+  useEffect(() => { if (many && totals.data) setPhotoDefault(!!totals.data.hasPhotos); }, [many, totals.data]);
   const families = useFamilies(); const subTypes = useOptions('inspection-sub-types');
   // the person list follows the linked work order, or the period with its filters
   const peopleArgs = { trackingRecordId: wo?.id, projectId: period?.kind === 'Project' ? period.projectId || undefined : undefined, kind: period?.kind === 'Project' ? (period.projectId ? 'Project' : undefined) : period?.kind && period.from ? period.kind : undefined, from: period?.from || undefined,
