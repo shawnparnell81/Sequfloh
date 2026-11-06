@@ -3,8 +3,10 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Sequfloh.Domain.Drawings;
 using Sequfloh.Domain.MasterData;
 using Sequfloh.Domain.Security;
+using Sequfloh.Drawings;
 using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Tests;
@@ -266,5 +268,112 @@ public sealed class DrawingImportTests(TestApp app)
         await c.PostOkAsync($"{D}/relink", new { });
         Assert.Empty(await LinksAsync(na));
         Assert.DoesNotContain(b, await LinksAsync(good.Id()));
+    }
+
+    async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<DrawingFolder, bool>> folders, System.Linq.Expressions.Expression<Func<Drawing, bool>>? drawings = null)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        if (drawings is null) return await db.DrawingFolders.CountAsync(folders);
+        return await db.Drawings.CountAsync(drawings);
+    }
+
+    /// <summary>
+    /// The company drive already matches the folders in Drawings. A second import, even with different capital letters and spaces at the ends of
+    /// folder names, must put each file in the folder that is already there. Same name and size is skipped. A different size is refused and is not stored as another drawing or another revision.
+    /// </summary>
+    [Fact]
+    public async Task Reimporting_the_same_tree_reuses_folders_and_does_not_duplicate_drawings()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync(Manager, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        Guid housings, valves;
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var pumps = new DrawingFolder { Name = "Pumps " + tag, SiteId = site };
+            var housed = new DrawingFolder { Name = " Housings ", ParentId = pumps.Id, SiteId = site };
+            var valve = new DrawingFolder { Name = "VALVES", ParentId = pumps.Id, SiteId = site };
+            db.DrawingFolders.AddRange(pumps, housed, valve);
+            await db.SaveChangesAsync();
+            housings = housed.Id; valves = valve.Id;
+        }
+        var foldersBefore = await CountAsync(f => f.SiteId == site);
+
+        var housingPdf = Pdf("housing");
+        var valvePdf = Pdf("valve-longer");
+        var housingPath = $"pumps {tag.ToLowerInvariant()}/housings/cover.pdf";
+        var valvePath = $"PUMPS {tag}/VALVES/BODY.PDF";
+        var files = new[] { new { path = housingPath, size = housingPdf.LongLength }, new { path = valvePath, size = valvePdf.LongLength } };
+        string[] folderPaths = [$"pumps {tag.ToLowerInvariant()}/housings", $"PUMPS {tag}/VALVES"];
+
+        var plan = await (await c.PostOkAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = false, files, folders = folderPaths })).JsonAsync();
+        Assert.All(plan.GetProperty("folders").EnumerateArray(), f => Assert.True(f.GetProperty("exists").GetBoolean()));
+        Assert.All(plan.GetProperty("files").EnumerateArray(), f => Assert.False(f.GetProperty("exists").GetBoolean()));
+        Assert.All(plan.GetProperty("files").EnumerateArray(), f => Assert.False(f.GetProperty("conflict").GetBoolean()));
+
+        var ids = (await (await c.PostOkAsync($"{I}/folders", new { folderId = (Guid?)null, linkParts = false, paths = folderPaths })).JsonAsync())
+            .EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetGuid());
+        Assert.Equal(housings, ids[$"pumps {tag.ToLowerInvariant()}/housings"]);
+        Assert.Equal(valves, ids[$"PUMPS {tag}/VALVES"]);
+        Assert.Equal(foldersBefore, await CountAsync(f => f.SiteId == site));
+
+        await ImportFileAsync(c, housings, "cover.pdf", housingPdf, []);
+        await ImportFileAsync(c, valves, "BODY.PDF", valvePdf, []);
+        Assert.Equal(1, await CountAsync(f => false, d => d.FolderId == housings));
+        Assert.Equal(1, await CountAsync(f => false, d => d.FolderId == valves));
+
+        // same bytes, file name differs only by capital letters: still the drawing that is already there
+        var again = await (await c.PostOkAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = false, files = new[] { new { path = $"pumps {tag}/housings/COVER.PDF", size = housingPdf.LongLength } }, folders = new[] { $"pumps {tag}/housings" } })).JsonAsync();
+        Assert.True(again.GetProperty("files")[0].GetProperty("exists").GetBoolean());
+        Assert.True(again.GetProperty("folders")[0].GetProperty("exists").GetBoolean());
+        Assert.True((await ImportFileAsync(c, housings, "COVER.PDF", housingPdf, [])).GetProperty("skipped").GetBoolean());
+        Assert.Equal(1, await CountAsync(f => false, d => d.FolderId == housings));
+
+        // a different file under the same name is left alone: not a second drawing and not a new revision
+        var changed = Pdf("housing-contents-differ");
+        var conflict = await (await c.PostOkAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = false, files = new[] { new { path = housingPath, size = changed.LongLength } }, folders = Array.Empty<string>() })).JsonAsync();
+        Assert.False(conflict.GetProperty("files")[0].GetProperty("exists").GetBoolean());
+        Assert.True(conflict.GetProperty("files")[0].GetProperty("conflict").GetBoolean());
+        var started = await (await c.PostOkAsync($"{I}/start", new { folderId = housings, fileName = "cover.pdf", size = changed.LongLength })).JsonAsync();
+        Assert.Equal(HttpStatusCode.NoContent, (await c.Http.PutAsync(started.Str("url"), new ByteArrayContent(changed))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await c.PostAsync($"{I}/finish", new { token = started.Str("token"), revision = "B", linkParts = false })).StatusCode);
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var drawing = await db.Drawings.SingleAsync(d => d.FolderId == housings);
+            Assert.Equal("A", drawing.CurrentRevision);
+            Assert.Equal(1, await db.DrawingRevisions.CountAsync(v => v.DrawingId == drawing.Id));
+        }
+        Assert.Equal(foldersBefore, await CountAsync(f => f.SiteId == site));
+    }
+
+    /// <summary>The browser sends at most 1000 names at a time. A few thousand files must plan in those batches, and one request over the server limit is refused before any upload.</summary>
+    [Fact]
+    public async Task Thousands_of_file_names_are_planned_in_batches()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync(Manager, site);
+        const int batch = 1000;
+        var files = Enumerable.Range(0, 2500).Select(n => new { path = $"Big batch/Group {n / 50}/sheet-{n}.pdf", size = 64L + (n % 17) }).ToArray();
+        var folderPaths = files.Select(f => f.path[..f.path.LastIndexOf('/')]).Distinct().ToArray();
+        var seen = 0;
+        for (var n = 0; n < Math.Max(files.Length, folderPaths.Length); n += batch)
+        {
+            var sliceFiles = files.Skip(n).Take(batch).ToArray();
+            var sliceFolders = folderPaths.Skip(n).Take(batch).ToArray();
+            var plan = await (await c.PostOkAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = false, files = sliceFiles, folders = sliceFolders })).JsonAsync();
+            seen += plan.GetProperty("files").GetArrayLength();
+            Assert.All(plan.GetProperty("files").EnumerateArray(), f => Assert.False(f.GetProperty("exists").GetBoolean()));
+        }
+        Assert.Equal(2500, seen);
+
+        var longName = new string('n', 180);
+        var wide = Enumerable.Range(0, batch).Select(n => new { path = $"{longName}/file-{n}.pdf", size = 32L }).ToArray();
+        Assert.Equal(batch, (await (await c.PostOkAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = false, files = wide, folders = new[] { longName } })).JsonAsync()).GetProperty("files").GetArrayLength());
+
+        var tooMany = Enumerable.Range(0, DrawingImportService.MaxBatch + 1).Select(n => new { path = $"over/{n}.pdf", size = 8L }).ToArray();
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.PostAsync($"{I}/plan", new { folderId = (Guid?)null, linkParts = false, files = tooMany, folders = Array.Empty<string>() })).StatusCode);
     }
 }

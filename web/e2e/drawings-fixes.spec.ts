@@ -61,7 +61,7 @@ test('drawings: import at the top level keeps the folder tree, PDFs only; the pa
   await dlg.getByRole('button', { name: 'Close' }).click();
 
   // the chosen folder's subfolder is a top-level folder now, with its tree; the part folder is linked to the part
-  await v.getByRole('button', { name: `Line A ${k}` }).click();
+  await v.getByRole('row', { name: `Line A ${k}` }).getByRole('button', { name: `Line A ${k}` }).click();
   await expect(v.getByRole('row').filter({ hasText: 'Fixtures' })).toContainText('1 drawing');
   await v.getByRole('button', { name: pn(7) }).click();
   await expect(v.getByText(`Part ${pn(7)}`)).toBeVisible();

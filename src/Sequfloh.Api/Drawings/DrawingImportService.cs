@@ -71,6 +71,8 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
     }
 
     static string Key(string[] segs) => string.Join("/", segs).ToUpperInvariant();
+    /// <summary>Folder names match ignoring capital letters and spaces at the start or end, so a second import reuses the folder instead of making another.</summary>
+    static string NormName(string? name) => (name ?? "").Trim().ToUpperInvariant();
 
     /// <summary>The folders under a folder that are not archived, by path from it ("" is the folder itself).</summary>
     async Task<Dictionary<string, Guid?>> TreeAsync(Root root, CancellationToken ct)
@@ -80,7 +82,10 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         if (root.Id is { } rid) level.Add((rid, ""));
         else
             foreach (var k in await db.DrawingFolders.AsNoTracking().Where(f => f.ParentId == null && f.SiteId == root.SiteId && !f.IsArchived).Select(f => new { f.Id, f.Name }).ToListAsync(ct))
-                if (map.TryAdd(k.Name.ToUpperInvariant(), k.Id)) level.Add((k.Id, k.Name.ToUpperInvariant()));
+            {
+                var key = NormName(k.Name);
+                if (key.Length > 0 && map.TryAdd(key, k.Id)) level.Add((k.Id, key));
+            }
         while (level.Count > 0 && map.Count < 200_000)
         {
             var ids = level.Select(x => x.Id).ToList();
@@ -89,7 +94,9 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             level = [];
             foreach (var k in kids)
             {
-                var path = (paths[k.ParentId!.Value].Length == 0 ? "" : paths[k.ParentId.Value] + "/") + k.Name.ToUpperInvariant();
+                var name = NormName(k.Name);
+                if (name.Length == 0) continue;
+                var path = (paths[k.ParentId!.Value].Length == 0 ? "" : paths[k.ParentId.Value] + "/") + name;
                 if (map.TryAdd(path, k.Id)) level.Add((k.Id, path));
             }
         }
@@ -123,17 +130,37 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         var files = r.Files ?? [];
         if (files.Count > MaxBatch) throw new AppException($"Send at most {MaxBatch} files at a time.");
         var tree = await TreeAsync(root, ct);
-        var folderIds = tree.Values.OfType<Guid>().ToList();
-        var have = new Dictionary<(Guid, string), List<long>>();
-        foreach (var chunk in folderIds.Chunk(5000))
+        // only the folders and file names in this batch are looked up, so a drive of thousands of drawings does not scan every revision on every call
+        var wanted = new Dictionary<Guid, HashSet<string>>();
+        foreach (var f in files)
         {
-            var rows = await db.DrawingRevisions.AsNoTracking().Join(db.Drawings.Where(d => chunk.Contains(d.FolderId) && !d.IsArchived), v => v.DrawingId, d => d.Id, (v, d) => new { d.FolderId, v.FileName, v.SizeBytes })
-                .ToListAsync(ct);
-            foreach (var x in rows)
+            try
             {
-                var k = (x.FolderId, x.FileName.ToUpperInvariant());
-                if (!have.TryGetValue(k, out var sizes)) have[k] = sizes = [];
-                sizes.Add(x.SizeBytes);
+                var s = Segments(f.Path);
+                if (s.Length == 0 || !tree.TryGetValue(Key(s[..^1]), out var fid) || fid is not Guid fv) continue;
+                if (!wanted.TryGetValue(fv, out var namesInFolder)) wanted[fv] = namesInFolder = new HashSet<string>(StringComparer.Ordinal);
+                namesInFolder.Add(s[^1].ToUpperInvariant());
+            }
+            catch (AppException) { /* reported on the file row */ }
+        }
+        var have = new Dictionary<(Guid, string), List<long>>();
+        foreach (var folderChunk in wanted.Keys.Chunk(200))
+        {
+            var folderIds = folderChunk.ToList();
+            var nameList = folderIds.SelectMany(id => wanted[id]).Distinct(StringComparer.Ordinal).ToList();
+            foreach (var nameChunk in nameList.Chunk(400))
+            {
+                var nameKeys = nameChunk.ToList();
+                var rows = await db.DrawingRevisions.AsNoTracking()
+                    .Join(db.Drawings.Where(d => folderIds.Contains(d.FolderId) && !d.IsArchived), v => v.DrawingId, d => d.Id, (v, d) => new { d.FolderId, v.FileName, v.SizeBytes })
+                    .Where(x => nameKeys.Contains(x.FileName.ToUpper()))
+                    .ToListAsync(ct);
+                foreach (var x in rows)
+                {
+                    var k = (x.FolderId, x.FileName.ToUpperInvariant());
+                    if (!have.TryGetValue(k, out var sizes)) have[k] = sizes = [];
+                    sizes.Add(x.SizeBytes);
+                }
             }
         }
         var folderPaths = new List<string[]>();
@@ -194,7 +221,10 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             tree[Key(s)] = f.Id;
         }
         await db.SaveChangesAsync(ct);
-        return paths.ToDictionary(s => string.Join("/", s), s => tree[Key(s)]!.Value);
+        var result = new Dictionary<string, Guid>(StringComparer.Ordinal);
+        foreach (var s in paths)
+            if (tree.TryGetValue(Key(s), out var id) && id is Guid g) result[string.Join("/", s)] = g;
+        return result;
     }
 
     // ---- one file -------------------------------------------------------------------------------------------------------------------

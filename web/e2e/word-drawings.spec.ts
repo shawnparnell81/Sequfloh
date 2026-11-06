@@ -80,7 +80,7 @@ test('word drawings: upload a .docx into a folder, see the Word tag, and import 
   await dlg.getByRole('button', { name: 'Import 3 drawings' }).click();
   await expect(dlg.getByTestId('import-progress')).toContainText('Finished. 3 of 3 files');
   await dlg.getByRole('button', { name: 'Close' }).click();
-  await v.getByRole('button', { name: `Word import ${k}` }).click();
+  await v.getByRole('button', { name: `Word import ${k}`, exact: true }).click();
   await v.getByRole('button', { name: 'Notes', exact: true }).click();
   await expect(v.getByTestId('word-label')).toHaveCount(2);
   await shot('04-imported-word-files');
@@ -114,7 +114,7 @@ test('word drawings: a top-level folder import takes PDF and Word files and skip
   await dlg.getByRole('button', { name: 'Import 2 drawings' }).click();
   await expect(dlg.getByTestId('import-progress')).toContainText('Finished. 2 of 2 files');
   await dlg.getByRole('button', { name: 'Close' }).click();
-  await v.getByRole('button', { name: `Line W ${k}` }).click();
+  await v.getByRole('row', { name: `Line W ${k}` }).getByRole('button', { name: `Line W ${k}` }).click();
   await expect(v.getByTestId('word-label')).toHaveCount(1);
   if (shots) await settledShot(page, path.join(shots, '06-top-level-imported.png'));
   fs.rmSync(root, { recursive: true, force: true });

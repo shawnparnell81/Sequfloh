@@ -18,7 +18,7 @@ import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
 import { FullScreenButton } from '../components/FullScreen';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
-import { ImportDrawingsDialog } from './DrawingsImport';
+import { ImportDrawingsDialog, pickedPath } from './DrawingsImport';
 import { ListToolbar, RecordHeader } from '../layout/PageHeader';
 import { SPACE } from '../layout/spacing';
 
@@ -177,7 +177,8 @@ export function DrawingsPage() {
   const [text, setText] = useState(search);
   const [dlg, setDlg] = useState<null | 'new' | 'edit' | 'upload' | 'import' | 'relink'>(null);
   const [confirm, setConfirm] = useState(false);
-  const [picked, setPicked] = useState<{ files: File[]; folder: boolean } | null>(null);
+  const [picked, setPicked] = useState<{ files: File[]; paths: string[]; folder: boolean } | null>(null);
+  const [importNote, setImportNote] = useState<string | null>(null);
   const [wipe, setWipe] = useState<{ id: string; label: string } | null>(null);
   const v = q.data; const here = v?.parent;
   const canManage = here ? here.canManage : !!v?.canCreate;
@@ -187,10 +188,19 @@ export function DrawingsPage() {
     <SqfPage title="Parts Drawings" crumbs={crumbs()} permission="sequfloh.view_drawings" description="Parts drawings kept in folders, one tab per family. Every revision is kept."
       actions={canManage && !here?.isArchived && <>
         <Button variant="outlined" onClick={() => setDlg('new')}>New folder</Button>
-        <ImportButtons surface="parts-drawings" accept={ACCEPT.split(',')} what="drawing" onFiles={(files, folder) => { setPicked({ files, folder }); setDlg('import'); }} />
+        <ImportButtons surface="parts-drawings" accept={ACCEPT.split(',')} what="drawing" onFiles={(files, folder) => {
+          try {
+            const paths = files.map((f) => pickedPath(f, folder, !here));
+            setImportNote(null);
+            setPicked({ files, paths, folder });
+            // open on the next turn so the folder picker's extra click does not dismiss the dialog before the upload starts
+            window.setTimeout(() => setDlg('import'), 0);
+          } catch (e) { setImportNote((e as Error).message || 'That folder could not be read. Nothing was imported.'); }
+        }} />
         <Button variant="outlined" onClick={() => { setPicked(null); setDlg('import'); }}>Import drawings</Button>
         {!here && <Button variant="outlined" onClick={() => setDlg('relink')}>Relink drawings</Button>}
       </>}>
+      {importNote && <Alert severity="error" sx={{ mb: 2 }} data-testid="drawings-import-error" onClose={() => setImportNote(null)}>{importNote}</Alert>}
       <Tabs value={folder && !family && q.isLoading ? false : family} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile data-testid="family-tabs" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
         onChange={(_, id: string) => { const n = new URLSearchParams(); if (id) n.set('folder', id); if (archived) n.set('archived', '1'); if (search) n.set('q', search); if (revisionStatus) n.set('status', revisionStatus); if (everywhere) n.set('all', '1'); setSp(n); }}>
         <Tab value="" label="All" data-testid="family-tab-all" />

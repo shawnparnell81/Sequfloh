@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, FormControlLabel, LinearProgress, Stack, TextField, Typography } from '@mui/material';
 import { post } from '../api';
@@ -8,11 +8,31 @@ import { SimpleTable } from './Parts';
 const D = '/api/drawings/import';
 const KNOWN = ['.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.dwg', '.dxf', '.step', '.stp', '.iges', '.igs', '.slddrw', '.sldprt', '.docx', '.doc'];
 const WORD = ['.docx', '.doc'];
+/** Names sent per plan or folder request. The server accepts 2000; this stays well under that and under the request size limit. */
 const BATCH = 1000;
 const PARALLEL = 3;
 const ext = (n: string) => (n.match(/\.[^./]+$/)?.[0] ?? '').toLowerCase();
 export const gb = (b: number) => (b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(2)} GB` : b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const dirOf = (p: string) => p.split('/').slice(0, -1).join('/');
+const offscreen: CSSProperties = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap', border: 0 };
+const folderAttrs = { webkitdirectory: '', directory: '' } as InputHTMLAttributes<HTMLInputElement>;
+const fail = (e: unknown) => {
+  const m = e instanceof Error ? e.message : '';
+  if (!m || m === 'Failed to fetch') return 'The import could not reach the server. Nothing was uploaded.';
+  return m;
+};
+
+/**
+ * The path a picked file is stored under. Backslashes are treated as separators, and spaces at the ends of a folder name are dropped, so a Windows
+ * folder matches the folders already here. At the top of Drawings the chosen folder's own name is dropped when the file sits in a subfolder; a file
+ * loose in the chosen folder keeps that folder.
+ */
+export function pickedPath(file: File, folderPick: boolean, top: boolean, preset?: string) {
+  const raw = preset ?? ((folderPick && file.webkitRelativePath) || file.name);
+  const parts = raw.replace(/\\/g, '/').split('/').map((s) => s.trim()).filter(Boolean);
+  if (top && parts.length > 2) parts.shift();
+  return parts.join('/');
+}
 
 const main = (i: { kind: string }) => i.kind === 'pdf' || i.kind === 'word';
 interface Item { file: File; path: string; kind: 'pdf' | 'word' | 'other' | 'unsupported'; exists?: boolean; conflict?: boolean; rejected?: boolean; reason?: string | null; parts?: string[] }
@@ -41,7 +61,7 @@ function putBlob(url: string, body: Blob, contentType: string | null, onBytes: (
  * with its file name, and the files go straight to file storage. Picking the same folder again skips what is already here.
  */
 export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDone, initial }: { open: boolean; folderId: string | null; folderName: string; onClose: () => void; onDone: () => void;
-  /** Files already picked with Import file or Import folder on the page. */ initial?: { files: File[]; folder: boolean } | null }) {
+  /** Files already picked with Import file or Import folder on the page. paths are read at pick time, before the input is cleared. */ initial?: { files: File[]; paths?: string[]; folder: boolean } | null }) {
   const [items, setItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Plan['folders']>([]);
   const [revision, setRevision] = useState('A');
@@ -51,26 +71,47 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
   const [err, setErr] = useState<string | null>(null);
   const [prog, setProg] = useState<Progress | null>(null);
   const stop = useRef<AbortController | null>(null);
-  const dirInput = useRef<HTMLInputElement>(null);
+  const gen = useRef(0);
+  const taken = useRef<typeof initial>(null);
+  const openedAt = useRef(0);
 
   const top = folderId === null;
   const reset = () => { setItems([]); setFolders([]); setRevision('A'); setLinkParts(true); setOthers(false); setErr(null); setProg(null); setBusy(''); };
+  const close = () => { gen.current++; setBusy(''); onClose(); };
 
-  const pick = async (list: FileList | File[] | null, folderPick: boolean) => {
-    if (!list?.length) return;
+  const pick = async (list: FileList | File[] | null, folderPick: boolean, presets?: string[]) => {
+    const mine = ++gen.current;
+    if (!list?.length) { setErr('No files were read from that folder. Nothing was imported.'); setBusy(''); return; }
     setErr(null); setProg(null); setBusy('reading');
     try {
-      const all: Item[] = [...list].filter((f) => !f.name.startsWith('.')).map((file) => {
-        let path = (folderPick && file.webkitRelativePath) || file.name;
-        // at the top level the chosen folder's subfolders become top-level folders; files loose in the chosen folder keep it as their folder
-        if (top && path.split('/').length > 2) path = path.split('/').slice(1).join('/');
-        const e = ext(file.name);
-        return { file, path, kind: e === '.pdf' ? 'pdf' : WORD.includes(e) ? 'word' : !top && KNOWN.includes(e) ? 'other' : 'unsupported' };
+      const unread: string[] = [];
+      const all: Item[] = [];
+      [...list].forEach((file, index) => {
+        try {
+          if (!file.name || file.name.startsWith('.')) return;
+          const path = presets?.[index] ?? pickedPath(file, folderPick, top);
+          if (!path) return;
+          const e = ext(file.name);
+          all.push({ file, path, kind: e === '.pdf' ? 'pdf' : WORD.includes(e) ? 'word' : !top && KNOWN.includes(e) ? 'other' : 'unsupported' });
+        } catch (e) { unread.push(`${file.name || 'A file'}: ${fail(e)}`); }
       });
-      await plan(all, linkParts);
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(''); }
+      if (mine !== gen.current) return;
+      if (all.length === 0) { setErr(unread[0] ?? 'No files were read from that folder. Nothing was imported.'); return; }
+      const planned = await plan(all, linkParts);
+      if (mine !== gen.current) return;
+      setItems(planned.items); setFolders(planned.folders);
+      if (unread.length) setErr(unread.slice(0, 5).join(' '));
+    } catch (e) { if (mine === gen.current) setErr(fail(e)); }
+    finally { if (mine === gen.current) setBusy(''); }
   };
-  useEffect(() => { if (open && initial) { reset(); void pick(initial.files, initial.folder); } }, [open, initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) openedAt.current = Date.now(); }, [open]);
+  useEffect(() => {
+    if (!open) { taken.current = null; return; }
+    if (!initial || taken.current === initial) return;
+    taken.current = initial;
+    reset();
+    void pick(initial.files, initial.folder, initial.paths);
+  }, [open, initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const plan = async (all: Item[], link: boolean) => {
@@ -82,8 +123,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       const r = await post<Plan>(`${D}/plan`, { folderId, linkParts: link, files: known.slice(n, n + BATCH).map((i) => ({ path: i.path, size: i.file.size })), folders: dirs.slice(n, n + BATCH) });
       r.files.forEach((f) => byPath.set(f.path, f)); fl.push(...r.folders);
     }
-    setItems(all.map((i) => { const hit = byPath.get(i.path); return { ...i, exists: hit?.exists, conflict: hit?.conflict, rejected: hit?.rejected, reason: hit?.reason, parts: hit?.parts }; }));
-    setFolders(fl);
+    return { items: all.map((i) => { const hit = byPath.get(i.path); return { ...i, exists: hit?.exists, conflict: hit?.conflict, rejected: hit?.rejected, reason: hit?.reason, parts: hit?.parts }; }), folders: fl };
   };
 
   const todo = items.filter((i) => (main(i) || (others && i.kind === 'other')) && !i.exists && !i.conflict && !i.rejected);
@@ -102,9 +142,11 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       const queue = [...todo];
       const one = async (i: Item) => {
         const dir = dirOf(i.path);
+        const dest = ids[dir];
         let s: Start | null = null;
         try {
-          s = await post<Start>(`${D}/start`, { folderId: ids[dir], fileName: i.file.name, size: i.file.size });
+          if (!dest) throw new Error('No matching folder for this file. Nothing was uploaded for it.');
+          s = await post<Start>(`${D}/start`, { folderId: dest, fileName: i.file.name, size: i.file.size });
           const add = (n: number) => { p.bytes += n; tick(); };
           let parts: { partNumber: number; eTag: string }[] = [];
           if (s.uploadId) {
@@ -120,45 +162,47 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
         } catch (e) {
           if (s) post(`${D}/abort`, { token: s.token, uploadId: s.uploadId ?? null }).catch(() => {});
           if ((e as Error).name === 'AbortError') return;
-          p.failed.push(`${i.path}: ${(e as Error).message}`);
+          p.failed.push(`${i.path}: ${fail(e)}`);
         }
         tick();
       };
       await Promise.all(Array.from({ length: PARALLEL }, async () => { while (queue.length && !ac.signal.aborted) await one(queue.shift()!); }));
-    } catch (e) { setErr((e as Error).message); }
-    await post(`${D}/summary`, { folderId, imported: p.done, folders: p.folders, bytes: p.doneBytes,
-      skipped: p.skipped + items.filter((i) => i.exists).length, failed: p.failed.length, linked: p.linked, cancelled: ac.signal.aborted, conflicts: p.conflicts }).catch(() => {});
-    p.cancelled = ac.signal.aborted; stop.current = null; setBusy(''); tick(); onDone();
+    } catch (e) { if ((e as Error).name !== 'AbortError') setErr(fail(e)); }
+    finally {
+      await post(`${D}/summary`, { folderId, imported: p.done, folders: p.folders, bytes: p.doneBytes,
+        skipped: p.skipped + items.filter((i) => i.exists).length, failed: p.failed.length, linked: p.linked, cancelled: ac.signal.aborted, conflicts: p.conflicts }).catch(() => {});
+      p.cancelled = ac.signal.aborted; stop.current = null; setBusy(''); tick(); onDone();
+    }
   };
 
   const pdfs = items.filter((i) => i.kind === 'pdf'), words = items.filter((i) => i.kind === 'word'), other = items.filter((i) => i.kind === 'other'), bad = items.filter((i) => i.kind === 'unsupported');
   const already = items.filter((i) => i.exists).length;
-  const matches = [...folders.filter((f) => f.parts.length).map((f) => ({ name: f.path, kind: 'Folder', parts: f.parts })),
+  const matches = [...folders.filter((f) => f.parts?.length).map((f) => ({ name: f.path, kind: 'Folder', parts: f.parts ?? [] })),
     ...items.filter((i) => i.parts?.length && (main(i) || others)).map((i) => ({ name: i.path, kind: 'Drawing', parts: i.parts! }))];
   const pct = prog && prog.totalBytes ? Math.min(100, (prog.bytes / prog.totalBytes) * 100) : 0;
   const finished = prog && busy === '';
 
-  return <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="md" TransitionProps={{ onEnter: () => { if (!initial) reset(); } }}>
+  return <Dialog open={open} onClose={(_, reason) => { if (busy === 'importing') return; if (reason === 'backdropClick' && Date.now() - openedAt.current < 600) return; close(); }} fullWidth maxWidth="md" TransitionProps={{ onEnter: () => { if (!initial) reset(); } }}>
     <FormDialogTitle>Import drawings into {folderName}</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }} data-testid="import-drawings">
       {err && <Alert severity="error">{err}</Alert>}
       {!prog && <>
         {top ? <Typography variant="body2" color="text.secondary">Choose a folder. Its subfolders are made as drawing folders here, with the same names and nesting, and each PDF or Word file goes into its matching folder,
-          titled with its file name. Only PDF and Word (DOCX, DOC) files are imported; other files are skipped. Choosing the same folder again skips a file already imported with the same name and size. A file whose contents differ is left alone. A path that steps out of the folder is rejected.</Typography>
+          titled with its file name. Only PDF and Word (DOCX, DOC) files are imported; other files are skipped. A folder already here is used again, including when the only difference is capital letters or spaces at the ends of a name. Choosing the same folder again skips a file already imported with the same name and size. A file whose contents differ is left alone and is not saved as another drawing or another revision. A path that steps out of the folder is rejected.</Typography>
         : <Typography variant="body2" color="text.secondary">Choose a folder to bring in everything in it, with its subfolders, or choose several files. Each file becomes a drawing titled with its file name.
-          Files go straight to file storage. Choosing the same folder again skips a file that is already here with the same name and size. A file whose contents differ is left alone; nothing is overwritten. A path that steps out of the folder is rejected.</Typography>}
+          Files go straight to file storage. A folder already here is used again, including when the only difference is capital letters or spaces at the ends of a name. Choosing the same folder again skips a file that is already here with the same name and size. A file whose contents differ is left alone and is not saved as another drawing or another revision. A path that steps out of the folder is rejected.</Typography>}
         <Stack direction="row" gap={1}>
           <Button variant="outlined" component="label" disabled={!!busy}>Choose folder
-            <input hidden type="file" ref={(el) => { dirInput.current = el; el?.setAttribute('webkitdirectory', ''); }} multiple data-testid="import-folder-input" onChange={(e) => { pick(e.target.files, true); e.target.value = ''; }} /></Button>
+            <input type="file" {...folderAttrs} multiple data-testid="import-folder-input" style={offscreen} onChange={(e) => { const input = e.currentTarget; const files = input.files ? Array.from(input.files) : []; input.value = ''; void pick(files, true); }} /></Button>
           {!top && <Button variant="outlined" component="label" disabled={!!busy}>Choose files
-            <input hidden type="file" multiple data-testid="import-files-input" onChange={(e) => { pick(e.target.files, false); e.target.value = ''; }} /></Button>}
+            <input type="file" multiple data-testid="import-files-input" style={offscreen} onChange={(e) => { const input = e.currentTarget; const files = input.files ? Array.from(input.files) : []; input.value = ''; void pick(files, false); }} /></Button>}
         </Stack>
         <Stack direction="row" gap={2} alignItems="center" flexWrap="wrap">
           <TextField size="small" label="Revision when the Part Master has none" required value={revision} onChange={(e) => setRevision(e.target.value.toUpperCase())} sx={{ width: 280 }} helperText="Used only if the Part Master has no drawing revision. Never read from the file name." />
-          <FormControlLabel control={<Checkbox checked={linkParts} disabled={!!busy} onChange={(_, c) => { setLinkParts(c); if (items.length) { setBusy('reading'); plan(items, c).catch((e) => setErr(e.message)).finally(() => setBusy('')); } }} />}
+          <FormControlLabel control={<Checkbox checked={linkParts} disabled={!!busy} onChange={(_, c) => { setLinkParts(c); if (items.length) { setBusy('reading'); plan(items, c).then((planned) => { setItems(planned.items); setFolders(planned.folders); }).catch((e) => setErr(fail(e))).finally(() => setBusy('')); } }} />}
             label="Link to parts by matching name" />
         </Stack>
-        {busy === 'reading' && <LinearProgress />}
+        {busy === 'reading' && <Box><Typography variant="body2" sx={{ mb: 1 }}>Reading the folder…</Typography><LinearProgress /></Box>}
         {items.length > 0 && <>
           <Stack direction="row" gap={3} flexWrap="wrap" data-testid="import-preview">
             <Fact label="Folders" value={`${folders.length.toLocaleString('en-US')} (${folders.filter((f) => !f.exists).length.toLocaleString('en-US')} new)`} />
@@ -196,7 +240,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       </Box>}
     </Stack></DialogContent>
     <DialogActions>
-      {busy === 'importing' ? <Button color="error" onClick={() => stop.current?.abort()}>Cancel import</Button> : <Button onClick={onClose}>{finished ? 'Close' : 'Cancel'}</Button>}
+      {busy === 'importing' ? <Button color="error" onClick={() => stop.current?.abort()}>Cancel import</Button> : <Button onClick={close}>{finished ? 'Close' : 'Cancel'}</Button>}
       {!prog && <Button variant="contained" disabled={!!busy || todo.length === 0 || !revision.trim()} onClick={run}>Import {todo.length.toLocaleString('en-US')} drawing{todo.length === 1 ? '' : 's'}</Button>}
     </DialogActions>
   </Dialog>;
