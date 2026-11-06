@@ -50,7 +50,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         new("userTime", "Man hours by technician (registered people)", true),
         new("timeLog", "Detailed time log (registered people)", false),
         new("attachments", "Attachments (from the linked work order)", false),
-        new("photos", "Photos and evidence (from the linked work order)", false),
+        new("photos", "Photos and evidence (from the linked work orders)", false),
         new("notes", "Notes", true),
         new("cost", "Chargeback summary (rate and costs)", true),
         new("signoff", "Sign-off and signatures", true),
@@ -71,13 +71,29 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var saved = string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<List<string>>(json, SequflohJson.Options);
         return saved ?? [.. SectionOptions.Where(o => o.Default).Select(o => o.Key)];
     }
-    async Task<bool> HasEvidenceAsync(Guid? trackingId, CancellationToken ct) =>
-        trackingId is { } id && await db.SequflohTestFiles.AsNoTracking().AnyAsync(f => f.TrackingRecordId == id && f.Kind == "evidence", ct);
-    /// <summary>Saved section ticks, or the defaults. Photos are added to the defaults when the linked work order has evidence and no tick list has been saved.</summary>
+    static bool IsEvidencePhoto(string? fileName)
+    {
+        var ext = Path.GetExtension(fileName ?? "").ToLowerInvariant();
+        return ext is ".jpg" or ".jpeg" or ".png";
+    }
+    /// <summary>Work orders whose evidence photos belong on this report: every linked work order, or the single linked one.</summary>
+    static List<Guid> PhotoOwners(SequflohChargebackReport x)
+    {
+        var ids = LinkedOf(x.LinkedWorkOrders).Select(w => w.Id).ToList();
+        if (x.TrackingRecordId is { } tid && !ids.Contains(tid)) ids.Add(tid);
+        return ids;
+    }
+    async Task<bool> HasEvidenceAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        if (ids.Count == 0) return false;
+        var names = await db.SequflohTestFiles.AsNoTracking().Where(f => ids.Contains(f.TrackingRecordId) && f.Kind == "evidence").Select(f => f.FileName).ToListAsync(ct);
+        return names.Any(IsEvidencePhoto);
+    }
+    /// <summary>Saved section ticks, or the defaults. Photos are added to the defaults when any linked work order has a JPG or PNG and no tick list has been saved.</summary>
     async Task<List<string>> SectionsForAsync(SequflohChargebackReport x, CancellationToken ct)
     {
         var list = SectionsOf(x.Sections);
-        if (!string.IsNullOrWhiteSpace(x.Sections) || list.Contains("photos") || !await HasEvidenceAsync(x.TrackingRecordId, ct)) return list;
+        if (!string.IsNullOrWhiteSpace(x.Sections) || list.Contains("photos") || !await HasEvidenceAsync(PhotoOwners(x), ct)) return list;
         var chosen = list.ToHashSet();
         chosen.Add("photos");
         return [.. SectionOptions.Select(o => o.Key).Where(chosen.Contains)];
@@ -110,7 +126,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             QtyInspected = QtyInspectedOf(r, fd), QtyBad = QtyBadOf(r, fd),
             fd.Supplier, SupplierReference = fd.PurchaseOrder, fd.DiscoveryMethod, fd.SupplierPartNumber, fd.LotDateCodes, fd.RootCause, TaskDescription = fd.Description ?? r.WorkInstructionTitle,
             CrewHours = Hr(t.CrewLaborSeconds), UserHours = Hr(t.UserSeconds), TotalHours = Hr(t.TotalSeconds), TotalPersonnel = t.Personnel, CrewSize = t.MaxCrew, t.Users,
-            DateFrom = t.From, DateTo = t.To, HasPhotos = await HasEvidenceAsync(r.Id, ct),
+            DateFrom = t.From, DateTo = t.To, HasPhotos = await HasEvidenceAsync([r.Id], ct),
         };
     }
     static decimal Hr(long s) => Math.Round(s / 3600m, 2);
@@ -119,7 +135,15 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
     public static List<ChargebackWorkOrder> LinkedOf(string? json) => string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<ChargebackWorkOrder>>(json, SequflohJson.Options) ?? [];
 
     public sealed record LinkedTotals(List<ChargebackWorkOrder> WorkOrders, decimal CrewHours, decimal UserHours, decimal TotalHours, int Personnel, DateOnly? DateFrom, DateOnly? DateTo,
-        Guid? PartId, string? PartNumber, string? PartDescription, int? QtyInspected, int? QtyBad, Guid? SiteId);
+        Guid? PartId, string? PartNumber, string? PartDescription, int? QtyInspected, int? QtyBad, Guid? SiteId, bool HasPhotos);
+    /// <summary>True when the chargeback is for one of these work orders, or links one of them. A period rollup with no work order does not count.</summary>
+    public static bool Covers(SequflohChargebackReport c, IReadOnlySet<Guid> workOrders)
+    {
+        if (c.TrackingRecordId is { } tid && workOrders.Contains(tid)) return true;
+        foreach (var w in LinkedOf(c.LinkedWorkOrders))
+            if (workOrders.Contains(w.Id)) return true;
+        return false;
+    }
 
     /// <summary>
     /// The totals of several work orders, with the same rules as one: crew labor (elapsed × crew size), day workers and registered people, paused time excluded.
@@ -153,7 +177,8 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
         var sites = records.Select(r => r.SiteId).Distinct().ToList();
         return new(rows, rows.Sum(w => w.CrewHours), rows.Sum(w => w.UserHours), rows.Sum(w => w.TotalHours), users + workers + maxCrew,
             rows.Where(w => w.From != null).Select(w => w.From).Min(), rows.Where(w => w.To != null).Select(w => w.To).Max(),
-            part?.PartId, part?.PartNumber, part?.PartDescription, Sum(w => w.QtyInspected), Sum(w => w.QtyBad), sites.Count == 1 ? sites[0] : null);
+            part?.PartId, part?.PartNumber, part?.PartDescription, Sum(w => w.QtyInspected), Sum(w => w.QtyBad), sites.Count == 1 ? sites[0] : null,
+            await HasEvidenceAsync(distinct, ct));
     }
 
     public async Task<object> ListAsync(string? q, CancellationToken ct)
@@ -288,7 +313,7 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
     {
         var d = JsonSerializer.SerializeToNode(Dto(x), SequflohJson.Options)!.AsObject();
         d["sections"] = JsonSerializer.SerializeToNode(await SectionsForAsync(x, ct), SequflohJson.Options);
-        d["hasPhotos"] = await HasEvidenceAsync(x.TrackingRecordId, ct);
+        d["hasPhotos"] = await HasEvidenceAsync(PhotoOwners(x), ct);
         return d;
     }
 
@@ -341,6 +366,24 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
     static string? I(int? v) => v?.ToString(CultureInfo.InvariantCulture);
     static string? Hd(decimal? v) => v is { } h ? h.ToString("0.00", CultureInfo.InvariantCulture) : null;
     static string Blank(string? s) => string.IsNullOrWhiteSpace(s) ? "____" : s.Trim();
+
+    /// <summary>JPG and PNG evidence from the given work orders, captioned with the work order number when the report links more than one.</summary>
+    async Task<List<(Guid Id, string Caption)>> EvidencePhotosAsync(List<(Guid Id, string Number)> owners, bool nameTheWorkOrder, Func<DateTimeOffset?, string> local, CancellationToken ct)
+    {
+        if (owners.Count == 0) return [];
+        var ids = owners.Select(o => o.Id).Distinct().ToList();
+        var files = await db.SequflohTestFiles.AsNoTracking().Where(f => ids.Contains(f.TrackingRecordId) && f.Kind == "evidence").ToListAsync(ct);
+        var number = owners.GroupBy(o => o.Id).ToDictionary(g => g.Key, g => g.First().Number);
+        return [.. files.Where(f => IsEvidencePhoto(f.FileName))
+            .OrderBy(f => number.GetValueOrDefault(f.TrackingRecordId) ?? "", StringComparer.OrdinalIgnoreCase).ThenBy(f => f.CreatedAt)
+            .Select(f =>
+            {
+                var wo = number.GetValueOrDefault(f.TrackingRecordId);
+                var when = local(f.CreatedAt);
+                var caption = nameTheWorkOrder && !string.IsNullOrWhiteSpace(wo) ? $"{wo} · {f.FileName} · {when}" : $"{f.FileName} · {when}";
+                return (f.Id, caption);
+            })];
+    }
 
     /// <summary>
     /// The report in the order and style of the work order chargeback job report (SequflohJobService.PdfAsync), with crew time added.
@@ -450,8 +493,14 @@ public sealed class SequflohChargebackService(AppDbContext db, ModuleSupport m, 
             blocks.Add(new("timeLog", "Detailed time log", Columns: [("When", 2.2), ("Technician", 2.5), ("Event", 1.6)], Rows: [.. tl.Select(e => new string?[] { local(e.At), e.Name, e.Kind })]));
         if (on.Contains("attachments") && job?.Attachments is { Count: > 0 } at)
             blocks.Add(new("attachments", "Attachments", Columns: [("File", 6), ("Added", 2)], Rows: [.. at.Select(a => new string?[] { a.FileName, local(a.UploadedAt) })]));
-        if (on.Contains("photos") && job?.Photos is { Count: > 0 } ph)
-            blocks.Add(new("photos", "Photos and evidence", Photos: [.. ph.Select(p => (p.Id, $"{p.FileName} · {local(p.UploadedAt)}"))]));
+        if (on.Contains("photos"))
+        {
+            var owners = new List<(Guid Id, string Number)>();
+            if (linkedWos.Count > 0) owners.AddRange(linkedWos.Select(w => (w.Id, w.Number)));
+            else if (x.TrackingRecordId is { } only) owners.Add((only, x.TrackingNumber ?? job?.Number ?? x.WorkOrderNumber));
+            var shots = await EvidencePhotosAsync(owners, linkedWos.Count > 0, local, ct);
+            if (shots.Count > 0) blocks.Add(new("photos", "Photos and evidence", Photos: shots));
+        }
         // 8D reports: the work order's own (not Validation / FAI), or for a project rollup the project's and those of its linked records
         var eightD = new List<EightDFile>();
         if (x.TrackingRecordId is { } wid && job is not null && !SequflohEightDService.Excluded(Enum.Parse<TrackingType>(job.Type))) eightD.AddRange(job.EightD ?? []);
