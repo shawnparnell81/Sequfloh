@@ -7,6 +7,7 @@ using Sequfloh.Domain.Audit;
 using Sequfloh.Domain.Common;
 using Sequfloh.Domain.Drawings;
 using Sequfloh.Domain.Execution;
+using Sequfloh.Domain.MasterData;
 using Sequfloh.Domain.Security;
 using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
@@ -217,8 +218,13 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
 
     sealed record FamilyPartRow(Guid Id, string PartNumber, Guid SiteId, Guid? DepartmentId);
 
-    /// <summary>Stop a long family after this and let the caller repeat the same call, so one request does not run until a proxy times it out. Each part is saved on its own.</summary>
+    /// <summary>Stop a long family after this and let the caller repeat the same call, so one request does not run until a proxy times it out.</summary>
     static readonly TimeSpan FamilyDeleteBudget = TimeSpan.FromSeconds(20);
+
+    /// <summary>How many parts one family-delete batch removes. One transaction for the batch, instead of a round trip per part.</summary>
+    const int FamilyPartBatch = 200;
+
+    const string NoPartPermission = "You do not have permission to delete this part.";
 
     string UseText(PartUses u)
     {
@@ -282,13 +288,14 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
     {
         var (label, rows) = await FamilyPartsAsync(family, ct);
         var uses = await UsesForAsync(rows.Select(r => r.Id).ToList(), ct);
-        var free = new List<FamilyPartRow>();
+        var scope = await access.GetScopeAsync(UserId, Permissions.SequflohDeleteRecords, ct);
+        var free = new List<FamilyPartRow>(rows.Count);
         var skips = new List<FamilyPartSkip>();
         foreach (var row in rows)
         {
-            if (!await access.CanAccessAsync(UserId, Permissions.SequflohDeleteRecords, row.SiteId, row.DepartmentId, ct))
+            if (!scope.Allows(row.SiteId, row.DepartmentId))
             {
-                skips.Add(new FamilyPartSkip(row.PartNumber, 0, 0, 0, "You do not have permission to delete this part."));
+                skips.Add(new FamilyPartSkip(row.PartNumber, 0, 0, 0, NoPartPermission));
                 continue;
             }
             if (uses.TryGetValue(row.Id, out var u)) { skips.Add(Skip(row, u, UseText(u))); continue; }
@@ -304,21 +311,139 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         return new FamilyPartsDeletePlan(label, total, free.Count, skips.Count, skips);
     }
 
+    /// <summary>The same words <see cref="PartAsync"/> adds when a deleted part had drawing links. The drawings stay.</summary>
+    static string? PartDeleteNote(int drawingLinks) =>
+        drawingLinks > 0 ? $"removed its links to {Count(drawingLinks, "drawing", "drawings")} (the drawings stay)" : null;
+
+    static string PartDeleteDescription(string partNumber, string revision, int drawingLinks)
+    {
+        var label = AuditText.Resolve($"Part {partNumber} rev {revision}", static _ => null);
+        var note = PartDeleteNote(drawingLinks);
+        return AuditText.Fit(note is null ? $"Deleted {label}" : $"Deleted {label}: {note}");
+    }
+
     /// <summary>
     /// Deletes every part of one product family that <see cref="PartAsync"/> would delete. Parts used by a work order, a work instruction or a parts list
     /// stay, with the same reason. Drawing links of deleted parts go; the drawings stay. One audit entry is written per deleted part.
+    /// Parts go in batches of <see cref="FamilyPartBatch"/>. Each batch locks those parts, checks their links again, then removes the free ones in one transaction.
     /// A large family stops after <see cref="FamilyDeleteBudget"/> and reports More, so the caller repeats and the parts already deleted stay deleted.
     /// </summary>
     public async Task<FamilyPartsDeleteResult> DeleteFamilyPartsAsync(string family, CancellationToken ct)
     {
         var (label, free, skips, _) = await ClassifyFamilyAsync(family, ct);
+        var scope = await access.GetScopeAsync(UserId, Permissions.SequflohDeleteRecords, ct);
         var sw = Stopwatch.StartNew();
         var deleted = 0;
         var index = 0;
-        for (; index < free.Count; index++)
+        while (index < free.Count)
         {
             if (index > 0 && sw.Elapsed >= FamilyDeleteBudget) break;
-            var row = free[index];
+            var take = Math.Min(FamilyPartBatch, free.Count - index);
+            deleted += await DeletePartBatchAsync(free.GetRange(index, take), scope, skips, ct);
+            index += take;
+            db.ChangeTracker.Clear();
+        }
+        return new FamilyPartsDeleteResult(label, deleted, skips.Count, index < free.Count, skips);
+    }
+
+    /// <summary>
+    /// Deletes one batch of parts <see cref="PartAsync"/> would delete. The parts are locked first, then their work order, instruction and parts-list links are counted again,
+    /// so a reference added at the same moment keeps the part and is reported. Drawing links go; drawings, folders, work orders, instructions and parts lists stay.
+    /// </summary>
+    async Task<int> DeletePartBatchAsync(List<FamilyPartRow> rows, AccessScope scope, List<FamilyPartSkip> skips, CancellationToken ct)
+    {
+        var wanted = rows.Select(r => r.Id).ToArray();
+        if (wanted.Length == 0) return 0;
+        var batchSkips = new List<FamilyPartSkip>();
+        int deleted;
+        await using (var tx = await db.Database.BeginTransactionAsync(ct))
+        {
+            try
+            {
+                var ids = new Npgsql.NpgsqlParameter("ids", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Uuid) { Value = wanted };
+                await db.Database.ExecuteSqlRawAsync("""SELECT 1 FROM sqf.parts WHERE "Id" = ANY(@ids) FOR UPDATE""", [ids], ct);
+                var live = await db.Parts.AsNoTracking().Where(p => wanted.Contains(p.Id))
+                    .Select(p => new { p.Id, p.PartNumber, p.Revision, p.SiteId, p.DepartmentId }).ToListAsync(ct);
+                var allowed = new List<Guid>(live.Count);
+                var labels = new Dictionary<Guid, (string Number, string Revision, Guid SiteId)>(live.Count);
+                foreach (var p in live)
+                {
+                    if (!scope.Allows(p.SiteId, p.DepartmentId))
+                    {
+                        batchSkips.Add(new FamilyPartSkip(p.PartNumber, 0, 0, 0, NoPartPermission));
+                        continue;
+                    }
+                    allowed.Add(p.Id);
+                    labels[p.Id] = (p.PartNumber, p.Revision, p.SiteId);
+                }
+                if (allowed.Count == 0)
+                {
+                    await tx.CommitAsync(ct);
+                    skips.AddRange(batchSkips);
+                    return 0;
+                }
+
+                var idSet = allowed.ToArray();
+                var uses = await UsesForAsync(idSet, ct);
+                var free = new List<Guid>(idSet.Length);
+                foreach (var id in idSet)
+                {
+                    if (uses.TryGetValue(id, out var u))
+                    {
+                        batchSkips.Add(new FamilyPartSkip(labels[id].Number, u.Orders, u.Instructions, u.Lists, UseText(u)));
+                        continue;
+                    }
+                    free.Add(id);
+                }
+                if (free.Count == 0)
+                {
+                    await tx.CommitAsync(ct);
+                    skips.AddRange(batchSkips);
+                    return 0;
+                }
+
+                var freeIds = free.ToArray();
+                var drawingCounts = await db.DrawingPartLinks.AsNoTracking().Where(l => freeIds.Contains(l.PartId)).GroupBy(l => l.PartId).Select(g => new { g.Key, N = g.Count() }).ToListAsync(ct);
+                var drawings = drawingCounts.ToDictionary(x => x.Key, x => x.N);
+                await db.PartRevisions.Where(r => freeIds.Contains(r.PartId)).ExecuteDeleteAsync(ct);
+                await db.DrawingPartLinks.Where(l => freeIds.Contains(l.PartId)).ExecuteDeleteAsync(ct);
+                await db.DrawingFolders.Where(f => f.PartId != null && freeIds.Contains(f.PartId.Value)).ExecuteUpdateAsync(s => s.SetProperty(f => f.PartId, (Guid?)null), ct);
+                await ForgetRecentAsync(freeIds, ct);
+                var removed = await db.Parts.Where(p => freeIds.Contains(p.Id)).ExecuteDeleteAsync(ct);
+                if (removed != freeIds.Length)
+                    throw new ConflictException("Some parts changed while they were being deleted. Run Delete all again.");
+                var now = DateTimeOffset.UtcNow;
+                db.AuditEntries.AddRange(freeIds.Select(id =>
+                {
+                    var (number, revision, siteId) = labels[id];
+                    return new AuditEntry
+                    {
+                        OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Deleted", EntityType = nameof(Part), EntityId = id, SiteId = siteId,
+                        CorrelationId = me.CorrelationId, Description = PartDeleteDescription(number, revision, drawings.GetValueOrDefault(id)),
+                    };
+                }));
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                deleted = freeIds.Length;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException && IsForeignKey(ex))
+            {
+                await tx.RollbackAsync(ct);
+                deleted = -1;
+            }
+        }
+        db.ChangeTracker.Clear();
+        if (deleted < 0) return await DeletePartsOneByOneAsync(rows, skips, ct);
+        skips.AddRange(batchSkips);
+        return deleted;
+    }
+
+    /// <summary>The per-part path, used when a batch hits a reference that appeared during the delete. Each part keeps the same skip or delete result as <see cref="PartAsync"/>.</summary>
+    async Task<int> DeletePartsOneByOneAsync(List<FamilyPartRow> rows, List<FamilyPartSkip> skips, CancellationToken ct)
+    {
+        var deleted = 0;
+        foreach (var row in rows)
+        {
             try
             {
                 await PartAsync(row.Id, ct);
@@ -331,12 +456,19 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
             }
             catch (ForbiddenException)
             {
-                skips.Add(new FamilyPartSkip(row.PartNumber, 0, 0, 0, "You do not have permission to delete this part."));
+                skips.Add(new FamilyPartSkip(row.PartNumber, 0, 0, 0, NoPartPermission));
             }
             catch (NotFoundException) { }
             finally { db.ChangeTracker.Clear(); }
         }
-        return new FamilyPartsDeleteResult(label, deleted, skips.Count, index < free.Count, skips);
+        return deleted;
+    }
+
+    static bool IsForeignKey(Exception e)
+    {
+        for (var x = e; x is not null; x = x.InnerException)
+            if (x is Npgsql.PostgresException { SqlState: "23503" }) return true;
+        return false;
     }
 
     /// <summary>Deletes a part. Drawing links go with it (the drawings stay). Not possible while instructions, work orders or parts lists use it.</summary>
@@ -348,7 +480,7 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         if (uses is { } u)
             throw new ConflictException($"{p.PartNumber} is used by {UseText(u)}, so it can't be deleted. Deactivate it instead.");
         var links = await db.DrawingPartLinks.CountAsync(l => l.PartId == id, ct);
-        if (links > 0) AuditInterceptor.Note(p, $"removed its links to {Count(links, "drawing", "drawings")} (the drawings stay)");
+        if (PartDeleteNote(links) is { } note) AuditInterceptor.Note(p, note);
         await db.PartRevisions.Where(r => r.PartId == id).ExecuteDeleteAsync(ct);
         await db.DrawingPartLinks.Where(l => l.PartId == id).ExecuteDeleteAsync(ct);
         await db.DrawingFolders.Where(f => f.PartId == id).ExecuteUpdateAsync(s => s.SetProperty(f => f.PartId, (Guid?)null), ct);
