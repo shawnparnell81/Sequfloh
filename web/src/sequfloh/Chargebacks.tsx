@@ -28,7 +28,7 @@ interface Report { locked?: boolean;
   laborCost?: number | null; discoveryMethod?: string | null; supplierPartNumber?: string | null; lotDateCodes?: string | null; rootCause?: string | null; correctiveAction?: string | null;
   parts: { partNumber: string; description?: string | null; quantity: number; unitCost?: number | null }[]; costLines: { description: string; amount: number }[]; notes?: string | null;
   linkedWorkOrders?: LinkedWo[];
-  sections: string[]; period?: Period | null; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string; timeChangedAt?: string | null; timeChangedNote?: string | null;
+  sections: string[]; hasPhotos?: boolean; period?: Period | null; partsCost: number; otherCost: number; total?: number | null; createdAt: string; createdByName: string; timeChangedAt?: string | null; timeChangedNote?: string | null;
 }
 type Form = Record<string, string>;
 interface LinkedWo { id: string; number: string; type: string; partNumber?: string | null; status: string; from?: string | null; to?: string | null; personnel: number; crewHours: number; userHours: number; totalHours: number }
@@ -95,6 +95,7 @@ export function ChargebackEditPage() {
   const [busy, setBusy] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [sections, setSections] = useState<string[] | null>(null);
+  const [photoDefault, setPhotoDefault] = useState(false);
   const [period, setPeriod] = useState<Period | null>(() => sp.get('project') ? { kind: 'Project', projectId: sp.get('project') } : null);
   const projects = useProjects();
   // a project report links the project's work orders: all ticked to start with, any can be unticked
@@ -127,7 +128,8 @@ export function ChargebackEditPage() {
   }, [peopleList, people.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
   const setP = (v: Partial<Period>) => setPeriod({ ...(period ?? { kind: 'Day' }), ...v });
   const sectionOpts = useSectionOptions();
-  const picked = sections ?? (sectionOpts.data ?? []).filter((o) => o.default).map((o) => o.key);
+  const defaultKeys = (sectionOpts.data ?? []).filter((o) => o.default || (o.key === 'photos' && photoDefault)).map((o) => o.key);
+  const picked = sections ?? defaultKeys;
   const results = useOptions('validation-results');
   const methods = useOptions('discovery-methods');
   const partSearch = usePartSearch<PartOpt>(partText);
@@ -142,6 +144,7 @@ export function ChargebackEditPage() {
         Object.assign(next, keep(k));
       set(next);
       if (next.partNumber) setPartText(next.partNumber);
+      setPhotoDefault(p.hasPhotos === true);
       setWo({ id: trackingId, number: String(p.trackingNumber), workOrder: (p.workOrderNumber as string) ?? null });
     } catch (e) { setErr((e as Error).message); }
   };
@@ -152,6 +155,7 @@ export function ChargebackEditPage() {
     setParts(r.parts.map((p) => ({ partNumber: p.partNumber, description: p.description ?? '', quantity: String(p.quantity), unitCost: p.unitCost === null || p.unitCost === undefined ? '' : String(p.unitCost) })));
     setLines(r.costLines.map((l) => ({ description: l.description, amount: String(l.amount) })));
     if (r.trackingRecordId) setWo({ id: r.trackingRecordId, number: r.trackingNumber ?? '' });
+    setPhotoDefault(!!r.hasPhotos);
     setSections(r.sections); setPeriod(r.period ?? null); setLinked((r.linkedWorkOrders ?? []).map((w) => w.id)); setBase(null); setHydrated(true);
   }, [existing.data]);
   const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections, period, linked]);
@@ -211,7 +215,7 @@ export function ChargebackEditPage() {
           !many && <Autocomplete key="link" fullWidth options={wos.data?.items ?? []} value={wo} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id}
             getOptionLabel={(o) => `${o.number}${o.workOrder ? ` · ${o.workOrder}` : ''}${o.partNumber ? ` · ${o.partNumber}` : ''}`}
             onInputChange={(_, v, r) => r === 'input' && setWoText(v)}
-            onChange={(_, o) => { setWo(o); if (o) void prefill(o.id); else set({ trackingRecordId: '', crewHours: '', userHours: '' }); }}
+            onChange={(_, o) => { setWo(o); if (o) void prefill(o.id); else { setPhotoDefault(false); set({ trackingRecordId: '', crewHours: '', userHours: '' }); } }}
             renderInput={(p) => <TextField {...p} label="Linked work order in the app (optional)" helperText="Fills hours, personnel and dates from its crew and clocked time" />} />,
         )}
         {row(fld('supplier', 'Supplier'), fld('supplierReference', 'Supplier reference / PO'))}
@@ -301,7 +305,7 @@ export function ChargebackEditPage() {
         </Box>
         <Stack direction="row" gap={1}>
           <Button size="small" onClick={() => setSections((sectionOpts.data ?? []).map((o) => o.key))}>Tick all</Button>
-          <Button size="small" onClick={() => setSections((sectionOpts.data ?? []).filter((o) => o.default).map((o) => o.key))}>Defaults</Button>
+          <Button size="small" onClick={() => setSections(defaultKeys)}>Defaults</Button>
           <Button size="small" onClick={() => setSections([])}>Untick all</Button>
         </Stack>
       </Section>

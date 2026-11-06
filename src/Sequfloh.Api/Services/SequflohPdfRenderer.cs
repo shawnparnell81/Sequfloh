@@ -7,7 +7,7 @@ public abstract record PrintBlock;
 public sealed record PrintHeading(string Text) : PrintBlock;
 public sealed record PrintFields(IReadOnlyList<(string Label, string? Value)> Items) : PrintBlock;
 public sealed record PrintParagraph(string Text) : PrintBlock;
-/// <summary>A JPEG photo with a caption.</summary>
+/// <summary>A baseline JPEG photo with a caption. Drawn to the page width, kept on one page with its caption.</summary>
 public sealed record PrintImage(byte[] Jpeg, string Caption) : PrintBlock;
 public sealed record PrintTable(IReadOnlyList<(string Name, double Weight)> Columns, IReadOnlyList<string?[]> Rows, bool Wrap = true) : PrintBlock;
 
@@ -27,7 +27,7 @@ public static class SequflohPdfRenderer
 
     sealed class Ctx(PdfCanvas p, PrintHeader h)
     {
-        public readonly PdfCanvas P = p; public readonly PrintHeader Hd = h; public double Y; public int Page = 1;
+        public readonly PdfCanvas P = p; public readonly PrintHeader Hd = h; public double Y; public double ContentTop; public int Page = 1;
         public double Inner => W - 2 * M;
         public double Bottom => H - M - 30;
         public Action NewPage = () => { };
@@ -40,21 +40,37 @@ public static class SequflohPdfRenderer
         var c = new Ctx(pdf, header);
         c.NewPage = () => { pdf.AddPage(W, H); c.Page++; Header(c); };
         Header(c);
-        foreach (var b in blocks)
-            switch (b)
+        var list = blocks.ToList();
+        for (var n = 0; n < list.Count; n++)
+            switch (list[n])
             {
-                case PrintHeading x: c.Need(34); c.Y += 4; pdf.Fill(M, c.Y - 2, c.Inner, 15, HeadFill); pdf.Text(M + 4, c.Y + 1, 10, x.Text, new TextStyle(true, Colour: Brand)); c.Y += 19; break;
+                case PrintHeading x:
+                    // keep the section title with the first picture, instead of leaving the title alone at the bottom of a page
+                    if (n + 1 < list.Count && list[n + 1] is PrintImage next && c.Y > c.ContentTop + 8 && c.Y + 23 + PhotoHeight(next, c.Inner) > c.Bottom) c.NewPage();
+                    c.Need(34); c.Y += 4; pdf.Fill(M, c.Y - 2, c.Inner, 15, HeadFill); pdf.Text(M + 4, c.Y + 1, 10, x.Text, new TextStyle(true, Colour: Brand)); c.Y += 19; break;
                 case PrintFields x: Fields(c, x.Items); break;
                 case PrintParagraph x:
                     foreach (var l in PdfCanvas.Wrap(x.Text, Fs, c.Inner)) { c.Need(12); pdf.Text(M, c.Y, Fs, l); c.Y += 12; }
                     c.Y += 4; break;
                 case PrintTable x: Table(c, x); break;
                 case PrintImage x:
-                    c.Need(230);
-                    pdf.Jpeg(M, c.Y, c.Inner * 0.6, 200, x.Jpeg);
-                    var (iw, ih) = PdfCanvas.JpegSize(x.Jpeg)!.Value;
-                    c.Y += Math.Min(c.Inner * 0.6 / iw, 200.0 / ih) * ih + 4;
-                    pdf.TextFit(M, c.Y, 8, c.Inner, x.Caption); c.Y += 16; break;
+                    var (iw, ih) = PdfCanvas.JpegSize(x.Jpeg) ?? (1, 1);
+                    const double gap = 4, cap = 14;
+                    double drawW = c.Inner, drawH = ih * (drawW / Math.Max(1, iw));
+                    double BlockHeight() => drawH + gap + cap;
+                    // the picture and its caption stay together; a picture that does not fit starts on the next page
+                    if (c.Y + BlockHeight() > c.Bottom) c.NewPage();
+                    var room = c.Bottom - c.Y;
+                    if (BlockHeight() > room)
+                    {
+                        drawH = Math.Max(24, room - gap - cap);
+                        drawW = iw * (drawH / Math.Max(1, ih));
+                        if (drawW > c.Inner) { drawW = c.Inner; drawH = ih * (drawW / Math.Max(1, iw)); }
+                    }
+                    pdf.Jpeg(M, c.Y, drawW, drawH, x.Jpeg);
+                    var scale = Math.Min(drawW / iw, drawH / ih);
+                    c.Y += ih * scale + gap;
+                    pdf.TextFit(M, c.Y, 8, c.Inner, x.Caption); c.Y += cap; break;
             }
         // footers with the final page count
         for (var i = 0; i < pdf.PageCount; i++)
@@ -69,6 +85,13 @@ public static class SequflohPdfRenderer
             if (header.Watermark is { Length: > 0 } wm) pdf.Watermark(wm.ToUpperInvariant(), 64);
         }
         return pdf.ToBytes();
+    }
+
+    /// <summary>Height of the picture at full page width, plus the caption under it.</summary>
+    static double PhotoHeight(PrintImage x, double inner)
+    {
+        var (iw, ih) = PdfCanvas.JpegSize(x.Jpeg) ?? (1, 1);
+        return ih * (inner / Math.Max(1, iw)) + 18;
     }
 
     static void Header(Ctx c)
@@ -92,7 +115,7 @@ public static class SequflohPdfRenderer
         foreach (var l in PdfCanvas.Wrap(h.DocumentTitle, 13, c.Inner).Take(2)) { p.Text(M, y, 13, l, true); y += 16; }
         var meta = string.Join("   ·   ", new[] { h.EffectiveDate is null ? null : "Effective " + h.EffectiveDate, h.Applicability }.Where(x => !string.IsNullOrWhiteSpace(x)));
         if (meta.Length > 0) { p.TextFit(M, y, 8.5, c.Inner, meta); y += 12; }
-        c.Y = y + 8;
+        c.ContentTop = c.Y = y + 8;
     }
 
     static void Fields(Ctx c, IReadOnlyList<(string Label, string? Value)> items)
