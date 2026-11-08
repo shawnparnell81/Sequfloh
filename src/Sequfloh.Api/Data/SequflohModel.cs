@@ -35,6 +35,8 @@ public partial class AppDbContext
     public DbSet<SequflohSavedJobReport> SequflohSavedJobReports => Set<SequflohSavedJobReport>();
     public DbSet<SequflohInspectionRequest> SequflohInspectionRequests => Set<SequflohInspectionRequest>();
     public DbSet<SequflohProject> SequflohProjects => Set<SequflohProject>();
+    public DbSet<MonthlyQualityReport> MonthlyQualityReports => Set<MonthlyQualityReport>();
+    public DbSet<MonthlyReportFile> MonthlyReportFiles => Set<MonthlyReportFile>();
 
     private static void ConfigureSequfloh(ModelBuilder b)
     {
@@ -422,6 +424,32 @@ public partial class AppDbContext
             e.Property(x => x.UserName).HasMaxLength(200);
             e.Property(x => x.Reason).HasMaxLength(300);
             e.Property(x => x.Comment).HasMaxLength(4000);
+        });
+        b.Entity<MonthlyQualityReport>(e =>
+        {
+            e.ToTable("monthly_quality_reports");
+            e.HasIndex(x => new { x.Year, x.Month }).IsUnique();
+            e.Property(x => x.Status).HasMaxLength(20);
+            e.Property(x => x.FlatRate).HasPrecision(12, 2);
+            e.Property(x => x.Body).HasColumnType("jsonb");
+            e.Property(x => x.FinalizedByName).HasMaxLength(200);
+            e.Property(x => x.ReopenReason).HasMaxLength(2000);
+            e.Property(x => x.CreatedByName).HasMaxLength(200);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.FinalizedById).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.ReopenedById).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<MonthlyReportFile>(e =>
+        {
+            e.ToTable("monthly_report_files");
+            e.HasIndex(x => new { x.ReportId, x.FileType, x.CreatedAt });
+            e.HasIndex(x => new { x.Year, x.Month, x.FileType });
+            e.Property(x => x.FileType).HasMaxLength(40);
+            e.Property(x => x.FileName).HasMaxLength(300);
+            e.Property(x => x.ContentType).HasMaxLength(200);
+            e.Property(x => x.StorageKey).HasMaxLength(500);
+            e.Property(x => x.UploadedByName).HasMaxLength(200);
+            e.Property(x => x.Result).HasColumnType("jsonb");
+            e.HasOne<MonthlyQualityReport>().WithMany().HasForeignKey(x => x.ReportId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<Part>(e =>
         {

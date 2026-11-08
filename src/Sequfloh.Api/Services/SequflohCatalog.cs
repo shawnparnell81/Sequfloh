@@ -50,6 +50,12 @@ public static class SequflohCatalog
         new("evidence-types", "Evidence types", "Kinds of evidence references.", ["Photo", "Measurement record", "Test report", "Certificate", "Data file"]),
     ];
 
+    /// <summary>Monthly quality reports are ticked on by an administrator. The built-in Administrator role still receives them with every other permission.</summary>
+    static readonly HashSet<string> MonthlyReportPermissions = new(StringComparer.Ordinal)
+    {
+        Permissions.SequflohMonthlyReportsView, Permissions.SequflohMonthlyReportsEdit, Permissions.SequflohMonthlyReportsFinalize,
+    };
+
     static string[] P(params string[] caps) => caps.Select(c => "sequfloh." + c).ToArray();
 
     public static List<RoleSuggestion> DefaultRoleSuggestions() =>
@@ -60,7 +66,7 @@ public static class SequflohCatalog
         new() { Name = "Quality", Description = "Releases instructions and checks results.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "release_work_instruction", "obsolete_work_instruction", "view_quality_folder", "edit_quality_folder", "view_imported_files", "import_files", "view_drawings", "view_reports", "export_records", "view_audit_trail", "create_fai_record", "create_validation_record")] },
         new() { Name = "Engineering", Description = "Develops and revises work instructions, parts lists and operation steps.", Permissions = [.. P("access", "view_dashboard", "create_work_instruction", "edit_draft_work_instruction", "revise_work_instruction", "view_engineering_folder", "edit_engineering_folder", "view_imported_files", "import_files", "view_drawings", "manage_drawings", "edit_parts", "manage_parts_lists", "manage_operation_steps", "view_reports")] },
         new() { Name = "Document control", Description = "Releases instructions and marks them obsolete.", Permissions = [.. P("access", "view_dashboard", "release_work_instruction", "obsolete_work_instruction", "view_audit_trail", "view_reports", "export_records")] },
-        new() { Name = "Module administrator", Description = "Administers SEQUFLOH settings, dropdowns and module access.", Permissions = [.. Permissions.All.Where(p => p.StartsWith("sequfloh.", StringComparison.Ordinal) && !Permissions.AssignOnly.Contains(p))] },
+        new() { Name = "Module administrator", Description = "Administers SEQUFLOH settings, dropdowns and module access.", Permissions = [.. Permissions.All.Where(p => p.StartsWith("sequfloh.", StringComparison.Ordinal) && !Permissions.AssignOnly.Contains(p) && !MonthlyReportPermissions.Contains(p))] },
     ];
 
     public static IReadOnlyList<string> AllPermissions => Permissions.All.Where(p => p.StartsWith("sequfloh.", StringComparison.Ordinal)).ToList();

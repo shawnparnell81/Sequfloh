@@ -11,6 +11,7 @@ import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined';
 import ArchitectureOutlined from '@mui/icons-material/ArchitectureOutlined';
 import EngineeringOutlined from '@mui/icons-material/EngineeringOutlined';
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined';
+import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
 import AdminPanelSettingsOutlined from '@mui/icons-material/AdminPanelSettingsOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import GroupOutlined from '@mui/icons-material/GroupOutlined';
@@ -105,6 +106,7 @@ export const sequfloh: ModuleDef = {
         { label: 'Validation / FAI', path: '/sequfloh/engineering/validation' },
         { label: 'Development', path: '/sequfloh/engineering/development' },
       ] },
+      { label: 'Monthly Reports', path: '/sequfloh/monthly-reports', permission: 'sequfloh.monthly_reports_view', icon: <CalendarMonthOutlined fontSize="small" />, match: ['/sequfloh/monthly-reports'] },
       { label: 'Reports', path: '/sequfloh/reports/task-performance', permission: 'sequfloh.view_reports', icon: <AssessmentOutlined fontSize="small" />, match: ['/sequfloh/reports', '/sequfloh/chargebacks'], children: [
         { label: 'Chargeback Reports', path: '/sequfloh/chargebacks' },
         { label: 'Job Reports', path: '/sequfloh/reports/job-reports' },

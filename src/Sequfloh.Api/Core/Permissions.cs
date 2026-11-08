@@ -47,6 +47,9 @@ public static class Permissions
     public const string SequflohReviseDrawings = "sequfloh.revise_drawings";
     public const string SequflohReleaseDrawings = "sequfloh.release_drawings";
     public const string SequflohViewReports = "sequfloh.view_reports";
+    public const string SequflohMonthlyReportsView = "sequfloh.monthly_reports_view";
+    public const string SequflohMonthlyReportsEdit = "sequfloh.monthly_reports_edit";
+    public const string SequflohMonthlyReportsFinalize = "sequfloh.monthly_reports_finalize";
     public const string SequflohExportRecords = "sequfloh.export_records";
     public const string SequflohViewAuditTrail = "sequfloh.view_audit_trail";
     public const string SequflohManageSettings = "sequfloh.manage_settings";
