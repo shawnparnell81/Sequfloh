@@ -86,6 +86,7 @@ builder.Services.AddScoped<SequflohChargebackService>();
 builder.Services.AddScoped<SequflohTrackingService>();
 builder.Services.AddScoped<SequflohNotifications>();
 builder.Services.AddScoped<SequflohReportService>();
+builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<MessageService>();
 builder.Services.AddScoped<Seeder>();
 builder.Services.AddSingleton<Sequfloh.Imports.ILegacyOfficeConverter, Sequfloh.Imports.HeadlessOfficeConverter>();

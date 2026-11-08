@@ -59,6 +59,8 @@ const SqfCbList = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ def
 const SqfCbEdit = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ default: m.ChargebackEditPage })));
 const SqfCbView = lazy(() => import('./sequfloh/Chargebacks').then((m) => ({ default: m.ChargebackViewPage })));
 const SqfReport = lazy(() => import('./sequfloh/Reports').then((m) => ({ default: m.ReportPage })));
+const SqfMonthlyList = lazy(() => import('./sequfloh/MonthlyReports').then((m) => ({ default: m.MonthlyReportsPage })));
+const SqfMonthly = lazy(() => import('./sequfloh/MonthlyReports').then((m) => ({ default: m.MonthlyReportPage })));
 const CompletedFormsPage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.CompletedFormsPage })));
 const ImportedFilesPage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilesPage })));
 const ImportedFilePage = lazy(() => import('./sequfloh/Imports').then((m) => ({ default: m.ImportedFilePage })));
@@ -206,6 +208,8 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/sequfloh/chargebacks" element={<SqfCbList />} />
         <Route path="/sequfloh/chargebacks/:id" element={<SqfCbEdit />} />
         <Route path="/sequfloh/chargebacks/:id/view" element={<SqfCbView />} />
+        <Route path="/sequfloh/monthly-reports" element={<SqfMonthlyList />} />
+        <Route path="/sequfloh/monthly-reports/:id" element={<SqfMonthly />} />
         <Route path="/sequfloh/reports/export-center" element={<SqfExportCenter />} />
         <Route path="/sequfloh/reports/:slug" element={<SqfReport />} />
         <Route path="/sequfloh/audit/:view" element={<SqfAudit />} />

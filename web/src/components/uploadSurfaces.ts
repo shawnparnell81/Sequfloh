@@ -25,4 +25,5 @@ export const SINGLE_FILE_INPUTS: Record<string, string> = {
   'import-files-input': 'Inside the Import drawings dialog (the same dialog the shared Import file / Import folder buttons open)',
   'import-folder-input': 'Inside the Import drawings dialog (the same dialog the shared Import file / Import folder buttons open)',
   'import-file': 'Parts import: one spreadsheet read into the column mapping wizard',
+  'monthly-report-source': 'Monthly quality report: one workbook or picture for one report, not a folder import',
 };
