@@ -41,6 +41,14 @@ public sealed class LinyiPnTests(TestApp app)
         string L(int n) => $"9.ZZ.{tag}.{n:000}";
         var kept = (await (await eng.PostOkAsync($"{A}/parts", Part($"LK-{tag}", site, new() { ["linyiPn"] = L(1) }))).JsonAsync()).Id();
         var blank = (await (await eng.PostOkAsync($"{A}/parts", Part($"LB-{tag}", site))).JsonAsync()).Id();
+        var customer = await ImportDefaults.CustomerAsync();
+        var line = await ImportDefaults.LineAsync();
+        using (var stamp = app.Services.CreateScope())
+        {
+            var stamped = stamp.ServiceProvider.GetRequiredService<AppDbContext>();
+            await stamped.Parts.Where(p => p.Id == kept || p.Id == blank).ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.CustomerId, customer).SetProperty(p => p.TypeId, line).SetProperty(p => p.ProductFamily, "Fuel Pump"));
+        }
         // row 1 keeps its value, row 2 fills a blank, row 3 is a new part whose LINYI PN is already on LK (it must not match LK), row 4 has a "/" placeholder
         var csv = $"DMA PN,LINYI PN, Drawing\nLK-{tag},{L(9)},\nLB-{tag},{L(2)},\nLN-{tag},{L(1)},\nLP-{tag},/,\n";
         var form = new MultipartFormDataContent(); var file = new ByteArrayContent(Encoding.UTF8.GetBytes(csv));
@@ -76,7 +84,7 @@ public sealed class LinyiPnTests(TestApp app)
         var rv = (await eng.GetElAsync($"{A}/parts/{blank}")).GetProperty("part").GetProperty("rowVersion").GetUInt32();
         var put = await eng.Http.PutAsJsonAsync($"{A}/parts/{blank}", new { part = new { partNumber = $"LB-{tag}", name = "Example part", description = "", partType = 0, revision = "A", unitOfMeasure = "EA", productId = (Guid?)null, material = "", hasSpecialCharacteristics = false, siteId = site, departmentId = (Guid?)null, status = 0, rowVersion = rv },
             execution = new { productFamily = (string?)null, assemblyType = (string?)null, isRepairable = false, isSerialized = false, isLotControlled = false, drawingNumber = (string?)null, specification = (string?)null },
-            typeId = (Guid?)null, attributes = new Dictionary<string, string?> { ["linyiPn"] = L(3) } });
+            typeId = line, attributes = new Dictionary<string, string?> { ["linyiPn"] = L(3) } });
         Assert.True(put.IsSuccessStatusCode, await put.Content.ReadAsStringAsync());
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

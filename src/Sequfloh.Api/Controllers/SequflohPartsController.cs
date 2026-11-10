@@ -46,6 +46,18 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     [HttpPost("parts/import/preview")]
     public Task<PartsImportPlan> ImportPreview(PartsImportRequest r, CancellationToken ct) => import.PreviewAsync(r, ct);
 
+    [HttpPost("parts/import/held.csv")]
+    public async Task<IActionResult> ImportHeld(PartsImportRequest r, CancellationToken ct) =>
+        File(await import.HeldCsvAsync(r, ct), "text/csv", "held-part-rows.csv");
+
+    public sealed record RetryLinks(List<Guid> PartIds);
+    [HttpPost("parts/import/link-drawings")]
+    public async Task<object> RetryDrawingLinks(RetryLinks r, CancellationToken ct)
+    {
+        var (added, failure) = await import.RetryLinksAsync(r.PartIds, ct);
+        return new { added, failure };
+    }
+
     [HttpPost("parts/import")]
     public Task<PartsImportPlan> Import(PartsImportRequest r, CancellationToken ct) => import.ImportAsync(r, ct);
 

@@ -71,8 +71,9 @@ public sealed class DrawingRevisionControlTests(TestApp app)
         var clash = $"OR #,DWG #,Drawing revision\nPN-{k},{number},D\n";
         var again = await ReadAsync(eng, clash);
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(again, site, true))).JsonAsync();
-        Assert.Equal(1, plan.Int("errors"));
+        Assert.Equal(1, plan.Int("held"));
         Assert.Equal(0, plan.Int("update"));
+        Assert.Equal(0, plan.Int("errors"));
         Assert.Contains("already recorded", plan.GetProperty("rows")[0].GetProperty("messages")[0].GetString());
         Assert.Equal(HttpStatusCode.BadRequest, (await eng.PostAsync("/api/sequfloh/parts/import", Request(again, site, true))).StatusCode);
 

@@ -10,6 +10,9 @@
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Sequfloh.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" />
     <RuntimeHostConfigurationOption Include="System.GC.RetainVM" Value="false" />
   </ItemGroup>

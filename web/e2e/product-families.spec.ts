@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { choosePartType, settledShot, signIn, view, choosePartName } from './support';
+import { chooseImportScope, choosePartType, settledShot, signIn, view, choosePartName } from './support';
 
 /** Product families from the admin list, the cross-reference fields, list columns and import detection. Made-up parts only. */
 test('product families and cross-reference fields', async ({ page }) => {
@@ -87,7 +87,7 @@ test('product families and cross-reference fields', async ({ page }) => {
   await imp.getByTestId('import-file').setInputFiles({ name: 'example-cross-reference.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await imp.getByRole('button', { name: 'Read file' }).click();
   await expect(imp.locator('input[data-testid="header-row"]')).toHaveValue('2');
-  await expect(imp.locator('input[data-field="partNumber"]')).toHaveValue('col:1');
+  await expect(imp.locator('input[data-field="attr:orNumber"]')).toHaveValue('col:1');
   await expect(imp.locator('input[data-field="drawingNumber"]')).toHaveValue('col:0');
   await expect(imp.locator('input[data-field="attr:napaCa"]')).toHaveValue('col:4');
   await expect(imp.locator('input[data-field="attr:position"]')).toHaveValue('col:6');
@@ -95,18 +95,19 @@ test('product families and cross-reference fields', async ({ page }) => {
   await page.getByRole('option', { name: 'Complete Strut Assembly (CSA)' }).click();
   await imp.getByRole('combobox', { name: /^Name/ }).click();
   await page.getByRole('option', { name: 'Struts', exact: true }).click();
+  await chooseImportScope(page, 'Complete Strut Assembly (CSA)');
   await shot('09-import-mapping');
   await imp.getByRole('button', { name: 'Preview' }).click();
-  await expect(imp.getByTestId('import-counts')).toContainText('Add 2');
-  await expect(imp.getByTestId('import-counts')).toContainText('Skip 2');
+  await expect(imp.getByTestId('import-counts')).toContainText('Add 3');
+  await expect(imp.getByTestId('import-counts')).toContainText('Skip 1');
   await expect(imp.getByTestId('import-counts')).toContainText('Errors 0');
   await expect(imp.getByText(/Same Part number as row 3/)).toBeVisible();
   await shot('10-import-preview');
-  await imp.getByRole('button', { name: 'Import 2 parts' }).click();
-  await expect(imp.getByTestId('import-done')).toContainText('2 added');
+  await imp.getByRole('button', { name: 'Import 3 parts' }).click();
+  await expect(imp.getByTestId('import-done')).toContainText('3 added');
   await imp.getByRole('button', { name: 'Close' }).click();
   await page.goto(`/sequfloh/parts?q=IM-${k}`);
-  await expect(view(page).getByText(`IM-${k}-1`)).toBeVisible();
+  await expect(view(page).locator('span').filter({ hasText: new RegExp(`^IM-${k}-1$`) })).toBeVisible();
   await expect(view(page).getByText('00451')).toBeVisible();
   await expect(view(page).getByText('Complete Strut Assembly (CSA)').first()).toBeVisible();
   await shot('11-imported-parts');

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import CloseIcon from '@mui/icons-material/Close';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, ListSubheader, MenuItem, Radio, RadioGroup, Stack, Table, TableBody, TableCell,
@@ -12,14 +12,14 @@ import { LOT_CHOICES, S, UNITS } from './common';
 interface ImportTable { fileName: string; headers: string[]; rows: string[][]; mapping: Record<string, number>; warnings: string[]; headerRow: number; rowNumbers?: number[]; top?: { row: number; cells: string[] }[]; tabs?: ImportTab[] | null; skippedTabs?: string[] | null }
 interface ImportTab { name: string; familyId: string; family: string; headers: string[]; rows: string[][]; mapping: Record<string, number>; headerRow: number; rowNumbers: number[] }
 interface TabCount { tab: string; family: string; rows: number; add: number; update: number; skip: number; errors: number }
-interface PlanRow { row: number; action: 'Add' | 'Update' | 'Skip' | 'Error'; partNumber?: string; name?: string; messages: string[]; repeat?: boolean; tab?: string | null }
-interface Plan { rows: PlanRow[]; add: number; update: number; skip: number; errors: number; tabs?: TabCount[] | null; skippedTabs?: string[] | null }
-interface LayoutData { headerRow?: number; headers?: string[]; columns?: Record<string, { title: string; index: number }>; fixed?: Record<string, string>; updateExisting?: boolean; keepRepeats?: boolean; removed?: string[] }
+interface PlanRow { row: number; action: 'Add' | 'Update' | 'Skip' | 'Error' | 'Held' | 'Unchanged'; partNumber?: string; name?: string; messages: string[]; repeat?: boolean; tab?: string | null; saved?: string | null; incoming?: string | null }
+interface Plan { rows: PlanRow[]; add: number; update: number; skip: number; errors: number; held?: number; unchanged?: number; linkFailure?: string | null; savedPartIds?: string[] | null; tabs?: TabCount[] | null; skippedTabs?: string[] | null }
+interface LayoutData { headerRow?: number; headers?: string[]; columns?: Record<string, { title: string; index: number }>; fixed?: Record<string, string>; updateExisting?: boolean; keepRepeats?: boolean; removed?: string[]; customerId?: string; productLineId?: string }
 interface SavedLayout { id: string; name: string; layout: LayoutData }
 /** Fields that are always imported and cannot be removed from the mapping. Part number can be removed: the part number then comes from the other number columns. */
 const KEEP = ['name'];
 const norm = (h: string) => h.trim().toLowerCase().replace(/\s+/g, ' ');
-const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'error' } as const;
+const actionColor = { Add: 'success', Update: 'info', Skip: 'default', Error: 'error', Held: 'warning', Unchanged: 'default' } as const;
 
 /** Bulk import into the Part Master: choose a file, check the column mapping, preview, then confirm. */
 /** preset: a product family label set as the Name and Product family for all rows (from a family's parts list). */
@@ -31,6 +31,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const importSites = (allSites.data ?? []).filter((x) => canAt('sequfloh.edit_parts', x.id) && canAt('parts.edit', x.id));
   const sites = { data: importSites };
   const types = useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/product-families`), enabled: open });
+  const customers = useQuery({ queryKey: ['sqf-customers-active'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/customers?active=true`), enabled: open });
   const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'units' | 'yesNo' | 'lot' | null; isNumber?: boolean }[]>(`${S}/parts/import/fields`), enabled: open });
   const qc = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
@@ -39,6 +40,8 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const [table, setTable] = useState<ImportTable | null>(null);
   const [mapping, setMapping] = useState<Record<string, number>>({});
   const [siteId, setSiteId] = useState('');
+  const [customerId, setCustomerId] = useState('');
+  const [lineId, setLineId] = useState('');
   const [update, setUpdate] = useState(false);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [done, setDone] = useState<Plan | null>(null);
@@ -51,7 +54,12 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const [naming, setNaming] = useState<{ mode: 'save' | 'rename'; name: string } | null>(null);
   const layouts = useQuery({ queryKey: ['sqf-part-import-layouts'], queryFn: () => get<SavedLayout[]>(`${S}/parts/import/layouts`), enabled: open });
   const site = (siteId && importSites.some((x) => x.id === siteId) ? siteId : '') || importSites[0]?.id || '';
-  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setAllTabs(false); setFixed({}); setKeepRepeats(false); setRemoved([]); setLayoutId(''); setNaming(null); };
+  const reset = () => { setFile(null); setTable(null); setMapping({}); setPlan(null); setDone(null); setErr(''); setUpdate(false); setAllTables(false); setAllTabs(false); setFixed({}); setKeepRepeats(false); setRemoved([]); setLayoutId(''); setNaming(null); setCustomerId(''); setLineId(''); };
+  useEffect(() => {
+    if (!open || lineId || !preset || !types.data) return;
+    const hit = types.data.find((t) => t.label === preset && t.isActive);
+    if (hit) setLineId(hit.id);
+  }, [open, preset, types.data, lineId]);
   const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(''); try { await fn(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
   /** Fills the mapping from a saved layout: each column is found by its title, or by its position when no title matches. */
   const applyLayout = (t: ImportTable, l: LayoutData) => {
@@ -60,7 +68,10 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
       const i = titles.indexOf(norm(c.title));
       if (i >= 0) m[key] = i; else if (c.index < t.headers.length) m[key] = c.index;
     }
-    setMapping(m); setFixed({ ...(l.fixed ?? {}) }); setUpdate(!!l.updateExisting); setKeepRepeats(!!l.keepRepeats); setRemoved((l.removed ?? []).filter((k) => !KEEP.includes(k))); setPlan(null);
+    setMapping(m); setFixed({ ...(l.fixed ?? {}) }); setUpdate(!!l.updateExisting); setKeepRepeats(!!l.keepRepeats); setRemoved((l.removed ?? []).filter((k) => !KEEP.includes(k)));
+    if (l.customerId && customers.data?.some((c) => c.id === l.customerId)) setCustomerId(l.customerId);
+    if (l.productLineId && types.data?.some((t) => t.id === l.productLineId)) setLineId(l.productLineId);
+    setPlan(null);
   };
   const read = (headerRow?: number, layout?: LayoutData) => run(async () => {
     const fd = new FormData(); fd.append('file', file!);
@@ -74,7 +85,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
     if (l.layout.headerRow && l.layout.headerRow !== table.headerRow && table.top?.some((x) => x.row === l.layout.headerRow)) read(l.layout.headerRow, l.layout); else applyLayout(table, l.layout);
   };
   const currentLayout = (): LayoutData => ({
-    headerRow: table!.headerRow, headers: table!.headers, updateExisting: update, keepRepeats, removed,
+    headerRow: table!.headerRow, headers: table!.headers, updateExisting: update, keepRepeats, removed, customerId: customerId || undefined, productLineId: lineId || undefined,
     columns: Object.fromEntries(Object.entries(mapping).filter(([k]) => !removed.includes(k)).map(([k, i]) => [k, { title: table!.headers[i] ?? '', index: i }])),
     fixed: Object.fromEntries(Object.entries(fixed).filter(([k]) => !removed.includes(k))),
   });
@@ -92,7 +103,11 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const multi = !!table?.tabs;
   const nameOk = multi || !!fixed.name;
   const keep = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => !removed.includes(k)));
+  // a product family column (or each tab) names the line for its own rows, so a single product line is not also required
+  const familyColumn = mapping.typeName !== undefined && !removed.includes('typeName');
+  const scopeReady = !!customerId && (multi || familyColumn || !!lineId);
   const body = (upd = update, map = mapping) => ({ fileName: table!.fileName, headers: table!.headers, rows: table!.rows, mapping: keep(map), siteId: site, updateExisting: upd,
+    customerId: customerId || null, defaultTypeId: multi || (map.typeName !== undefined && !removed.includes('typeName')) ? null : (lineId || null),
     rowNumbers: table!.rowNumbers, keepRepeats, fixed: keep(fixed), ...(multi ? { tabs: table!.tabs, skippedTabs: table!.skippedTabs ?? [], fixed: {} } : {}) });
   const preview = (upd = update, map = mapping) => run(async () => setPlan(await post<Plan>(`${S}/parts/import/preview`, body(upd, map))));
   const confirm = () => run(async () => { setDone(await post<Plan>(`${S}/parts/import`, body())); qc.invalidateQueries({ queryKey: ['sqf-parts'] }); });
@@ -114,7 +129,8 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
       <FormDialogTitle>Import parts</FormDialogTitle>
       <DialogContent>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-        {done ? <Alert severity="success" data-testid="import-done">Imported from {table?.fileName}: {done.add} added, {done.update} updated, {done.skip} skipped{done.errors ? `, ${done.errors} row${done.errors === 1 ? '' : 's'} with errors not imported` : ''}.</Alert> : <>
+        {done ? <Stack gap={1}><Alert severity="success" data-testid="import-done">Imported from {table?.fileName}: {done.add} added, {done.update} updated, {done.unchanged ?? 0} unchanged, {done.held ?? 0} held, {done.skip} skipped{done.errors ? `, ${done.errors} with errors` : ''}. Held rows were not changed.</Alert>
+          {done.linkFailure && <Alert severity="warning" data-testid="link-failure" action={<Button color="inherit" size="small" onClick={() => run(async () => { const r = await post<{ added: number; failure?: string | null }>(`${S}/parts/import/link-drawings`, { partIds: done.savedPartIds ?? [] }); if (r.failure) setErr(r.failure); else setDone({ ...done, linkFailure: null }); })}>Try links again</Button>}>{done.linkFailure}</Alert>}</Stack> : <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Excel (.xlsx, .xlsm, .xls), CSV or a Word (.docx, .doc) table with a header row. The file is only read; macros never run. Serial numbers are not imported.
           </Typography>
@@ -124,6 +140,12 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
             <Typography variant="body2">{file?.name ?? 'No file chosen'}</Typography>
             {isBook && <FormControlLabel control={<Checkbox checked={allTabs} data-testid="all-tabs" onChange={(e) => { setAllTabs(e.target.checked); setTable(null); setPlan(null); }} />} label="Import every tab: tab name is the product family" />}
             {isDocx && <FormControlLabel control={<Checkbox checked={allTables} onChange={(e) => setAllTables(e.target.checked)} />} label="Read all tables (same headings)" />}
+            <TextField select size="small" label="Customer" value={customerId} data-testid="import-customer" onChange={(e) => { setCustomerId(e.target.value); setPlan(null); }} sx={{ minWidth: 200 }}>
+              {(customers.data ?? []).filter((c) => c.isActive).map((c) => <MenuItem key={c.id} value={c.id}>{c.label}</MenuItem>)}
+            </TextField>
+            <TextField select size="small" label="Product line" value={lineId} disabled={allTabs || familyColumn} data-testid="import-line" helperText={allTabs ? 'Each tab is its own product line.' : familyColumn ? 'The product family column is the product line.' : undefined} onChange={(e) => { setLineId(e.target.value); setPlan(null); }} sx={{ minWidth: 240 }}>
+              {(types.data ?? []).filter((t) => t.isActive).map((t) => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
+            </TextField>
             <TextField select size="small" label="Site for new parts" value={site} data-testid="import-site"
               helperText={allSites.data && !importSites.length ? 'Your roles do not give both part permissions for a whole site. Ask an administrator to give you the role for a site or for All sites.' : undefined} onChange={(e) => { setSiteId(e.target.value); setPlan(null); }} sx={{ minWidth: 220 }}>
               {(sites.data ?? []).map((x) => <MenuItem key={x.id} value={x.id}>{x.code} · {x.name}</MenuItem>)}
@@ -191,14 +213,19 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
               </RadioGroup>
               <FormControlLabel control={<Checkbox size="small" checked={keepRepeats} data-testid="keep-repeats" onChange={(e) => { setKeepRepeats(e.target.checked); setPlan(null); }} />}
                 label="Keep rows that repeat a Part number but differ" title="A row with the same Part number as another row but other values (for example another Position) is added as its own part. Exact duplicate rows are always skipped." />
-              <Button variant="outlined" disabled={busy || !nameOk || (!multi && noNumbers)} onClick={() => preview()}>Preview</Button>
+              <Button variant="outlined" disabled={busy || !nameOk || !scopeReady || (!multi && noNumbers)} onClick={() => preview()}>Preview</Button>
             </Stack>
             {!multi && noNumbers && <Alert severity="warning" sx={{ mt: 2 }} data-testid="number-required">Map at least one number column (Part number, OR #, DWG # or a cross-reference number such as NAPA) so each part gets a part number.</Alert>}
+            {!scopeReady && <Alert severity="warning" sx={{ mt: 2 }} data-testid="scope-required">Choose the customer{multi || familyColumn ? '' : ' and product line'}. Parts are matched only inside that customer{multi ? ' and each tab’s product line' : familyColumn ? ' and the product family on each row' : ' and product line'}.</Alert>}
             {!nameOk && <Alert severity="warning" sx={{ mt: 2 }} data-testid="name-required">Choose the Name for all rows before you preview or import. The name is never taken from the file.</Alert>}
           </Box>}
           {plan && <Box sx={{ mt: 2 }}>
             <Stack direction="row" gap={1} sx={{ mb: 1 }} data-testid="import-counts">
-              <Chip color="success" label={`Add ${plan.add}`} /><Chip color="info" label={`Update ${plan.update}`} /><Chip label={`Skip ${plan.skip}`} /><Chip color="error" label={`Errors ${plan.errors}`} />
+              <Chip color="success" label={`Add ${plan.add}`} /><Chip color="info" label={`Update ${plan.update}`} /><Chip label={`Unchanged ${plan.unchanged ?? 0}`} /><Chip color="warning" label={`Held ${plan.held ?? 0}`} /><Chip label={`Skip ${plan.skip}`} /><Chip color="error" label={`Errors ${plan.errors}`} />
+              {(plan.held ?? 0) > 0 && <Button size="small" data-testid="export-held" onClick={() => {
+                const lines = ['Row,Part number,Saved,Incoming,Why', ...plan.rows.filter((r) => r.action === 'Held').map((r) => [r.tab ? `${r.tab} ${r.row}` : String(r.row), r.partNumber ?? '', r.saved ?? '', r.incoming ?? '', r.messages.join(' ')].map((c) => /[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c).join(','))];
+                const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/csv' })); a.download = 'held-part-rows.csv'; a.click(); URL.revokeObjectURL(a.href);
+              }}>Export held rows</Button>}
             </Stack>
             {(plan.skippedTabs ?? []).map((m) => <Alert key={m} severity="warning" sx={{ mb: 1 }} data-testid="tab-skipped">{m}</Alert>)}
             {plan.tabs && <Table size="small" sx={{ mb: 2 }} data-testid="tab-counts">
@@ -209,7 +236,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
               <TableHead><TableRow><TableCell>Row</TableCell><TableCell>Action</TableCell><TableCell>Part number</TableCell><TableCell>Name</TableCell><TableCell>Notes</TableCell></TableRow></TableHead>
               <TableBody>{plan.rows.map((r) => (
                 <TableRow key={`${r.tab ?? ''}-${r.row}`}><TableCell data-testid="plan-row">{r.tab ? `Tab ${r.tab}, row ${r.row}` : r.row}</TableCell><TableCell><Chip size="small" color={actionColor[r.action]} label={r.repeat ? 'Add (repeat Part number, different values)' : r.action} /></TableCell>
-                  <TableCell>{r.partNumber}</TableCell><TableCell>{r.name}</TableCell><TableCell>{r.messages.join(' ')}</TableCell></TableRow>))}
+                  <TableCell>{r.partNumber}</TableCell><TableCell>{r.name}</TableCell><TableCell>{[r.saved && r.incoming ? `Saved ${r.saved}; file says ${r.incoming}.` : '', r.messages.join(' ')].filter(Boolean).join(' ')}</TableCell></TableRow>))}
               </TableBody></Table></TableContainer>
           </Box>}
         </>}

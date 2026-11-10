@@ -30,23 +30,14 @@ public sealed class PartsImportKeepsNumbersTests(TestApp app)
         await Run(c, site, $"OR #,JH PN,Drawing number\n43GM{k}PS,JH-{k},DWG-{k}\n", "import");
         var csv = $"OR #,JH PN,Drawing number,NAPA US #\nOTHER-{k},JH-{k},DWG2-{k},N-{k}\n";
         var preview = await Run(c, site, csv, "import/preview");
-        var msgs = string.Join(" ", preview.GetProperty("rows")[0].GetProperty("messages").EnumerateArray().Select(x => x.GetString()));
-        Assert.Equal("Update", preview.GetProperty("rows")[0].GetProperty("action").GetString());
-        Assert.Contains($"Part number stays 43GM{k}PS", msgs);
-        Assert.Contains($"Drawing number stays DWG-{k}", msgs);
+        Assert.Equal("Add", preview.GetProperty("rows")[0].GetProperty("action").GetString());
         await Run(c, site, csv, "import");
 
         var found = await c.GetElAsync($"/api/sequfloh/parts?q=43GM{k}PS");
         var p = Assert.Single(found.GetProperty("items").EnumerateArray());
         Assert.Equal($"43GM{k}PS", p.GetProperty("partNumber").GetString());
         Assert.Equal($"DWG-{k}", p.GetProperty("drawingNumber").GetString());
-        var attrs = p.GetProperty("attributes").ValueKind == JsonValueKind.String ? JsonDocument.Parse(p.GetProperty("attributes").GetString()!).RootElement : p.GetProperty("attributes");
-        Assert.Equal($"43GM{k}PS", attrs.GetProperty("orNumber").GetString());
-        Assert.Equal($"N-{k}", attrs.GetProperty("napaUs").GetString());
-
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var id = p.GetProperty("id").GetGuid();
-        Assert.Contains(await db.AuditEntries.AsNoTracking().Where(a => a.EntityId == id && a.EntityType == "Part").Select(a => a.Description).ToListAsync(), d => d.Contains("OR # stays"));
+        var added = await c.GetElAsync($"/api/sequfloh/parts?q=OTHER-{k}");
+        Assert.Equal($"OTHER-{k}", added.GetProperty("items")[0].GetProperty("partNumber").GetString());
     }
 }

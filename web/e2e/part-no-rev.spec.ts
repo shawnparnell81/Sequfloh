@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { choosePartName, choosePartType, settledShot, signIn, view } from './support';
+import { chooseImportScope, choosePartName, choosePartType, settledShot, signIn, view } from './support';
 
 /** Parts have no revision; notes, editable Part number, OR # column, Fuel Pump fields (JH part #, Box size) and part-number counts. */
 test('parts: no revision, notes, editable part number, OR # column and fuel pump fields', async ({ page }) => {
@@ -27,6 +27,7 @@ test('parts: no revision, notes, editable part number, OR # column and fuel pump
   await page.getByRole('option', { name: 'Fuel Pump', exact: true }).click();
   await dlg.getByRole('combobox', { name: /^Product family/ }).click();
   await page.getByRole('option', { name: 'Fuel Pump', exact: true }).click();
+  await chooseImportScope(page, 'Fuel Pump');
   await shot('04-import-mapping-no-rev');
   await dlg.getByRole('button', { name: 'Preview' }).click();
   await expect(dlg.getByTestId('import-counts')).toContainText('Add 3');
@@ -46,11 +47,11 @@ test('parts: no revision, notes, editable part number, OR # column and fuel pump
   await shot('03-fuel-pump-list');
 
   // edit the Part number and add notes after import
-  await v.getByText(`NR-${k}-2`).click();
+  await v.locator('span').filter({ hasText: new RegExp(`^NR-${k}-2$`) }).click();
   await expect(v.getByRole('tab', { name: 'Revisions' })).toHaveCount(0);
   await v.getByRole('button', { name: 'Edit' }).click();
   const ed = page.getByRole('dialog');
-  await expect(ed.getByLabel('Revision')).toHaveCount(0);
+  await expect(ed.getByLabel('Revision', { exact: true })).toHaveCount(0);
   await expect(ed.getByLabel('JH PN')).toHaveValue(`JH-${k}-3`);
   await ed.getByLabel('Part number').fill(`NR-${k}-2X`);
   await ed.getByTestId('part-notes-input').fill('Example note: ships with a new strainer.\nCheck the individual box size before packing.');
@@ -72,7 +73,7 @@ test('parts: no revision, notes, editable part number, OR # column and fuel pump
   await v.getByRole('button', { name: 'New part' }).click();
   await choosePartType(page, 'Fuel Pump');
   await choosePartName(page, 'Fuel Pump');
-  await expect(page.getByRole('dialog').getByLabel('Revision')).toHaveCount(0);
+  await expect(page.getByRole('dialog').getByLabel('Revision', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('dialog').getByLabel('Individual Box Size')).toBeVisible();
   await expect(page.getByRole('dialog').getByLabel('DWG #')).toHaveCount(0);
   await expect(page.getByRole('dialog').getByLabel('Position')).toHaveCount(0);

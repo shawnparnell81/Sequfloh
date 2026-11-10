@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { section, settledShot, signIn, view } from './support';
+import { chooseImportScope, section, settledShot, signIn, view } from './support';
 
 /** A made-up one-page drawing as a PDF; nothing here is a real part or drawing. */
 async function pdf(browser: Browser, title: string) {
@@ -19,6 +19,7 @@ async function importParts(page: Page, csv: string, count: number) {
   await imp.getByTestId('import-file').setInputFiles({ name: 'example-fuel-cross.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await imp.getByRole('button', { name: 'Read file' }).click();
   await imp.getByRole('combobox', { name: /^Name/ }).click(); await page.getByRole('option', { name: 'Fuel Pump', exact: true }).click();
+  await chooseImportScope(page, 'Fuel Pump');
   await imp.getByRole('button', { name: 'Preview' }).click();
   await imp.getByRole('button', { name: `Import ${count} parts` }).click();
   await expect(imp.getByTestId('import-done')).toContainText(`${count} added`, { timeout: 60_000 });

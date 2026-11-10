@@ -33,6 +33,18 @@ export async function choosePartType(page: Page, name?: string) {
   await (name ? page.getByRole('option', { name, exact: true }) : page.getByRole('option').first()).click();
 }
 
+/** Picks the customer and product line on the open Import parts dialog. All-tab imports leave the product line to each tab. */
+export async function chooseImportScope(page: Page, line = 'Fuel Pump') {
+  const dlg = page.getByRole('dialog');
+  await dlg.getByRole('combobox', { name: 'Customer' }).click();
+  await page.getByRole('option', { name: "O'Reilly", exact: true }).click();
+  const product = dlg.getByRole('combobox', { name: 'Product line' });
+  if (await product.isEnabled()) {
+    await product.click();
+    await page.getByRole('option', { name: line, exact: true }).click();
+  }
+}
+
 /** Picks the part Name, which offers the product families list. */
 export async function choosePartName(page: Page, name?: string) {
   await page.getByRole('dialog').getByRole('combobox', { name: /^Name/ }).click();
