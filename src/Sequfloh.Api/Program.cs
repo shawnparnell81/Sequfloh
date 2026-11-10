@@ -72,6 +72,7 @@ builder.Services.AddScoped<SequflohFoundationService>();
 builder.Services.AddScoped<SequflohPartsService>();
 builder.Services.AddScoped<SequflohPartsImport>();
 builder.Services.AddScoped<PartFamilyChangeService>();
+builder.Services.AddScoped<PartCustomerMoveService>();
 builder.Services.AddScoped<CustomerAssignmentService>();
 builder.Services.AddScoped<SequflohInspectionService>();
 builder.Services.AddScoped<SequflohProjectService>();
