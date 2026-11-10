@@ -35,14 +35,11 @@ test('parts: no revision, notes, editable part number, OR # column and fuel pump
   await expect(dlg.getByTestId('import-done')).toContainText('3 added');
   await dlg.getByRole('button', { name: 'Close' }).click();
 
-  // the Fuel Pump list shows JH part # and Box size and no Rev column
-  await v.getByTestId('family-card-Fuel Pump').click();
+  // the customer's Fuel Pump line lists the customer part number, description, UPC and drawing, with no part revision column
+  await v.getByTestId("customer-card-O'Reilly").locator('a').click();
+  await v.getByTestId('line-tab-Fuel Pump').click();
   await v.getByRole('textbox', { name: 'Search', exact: true }).fill(`NR-${k}`); await v.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(v.getByText(`JH-${k}-3`)).toBeVisible();
-  await expect(v.getByRole('columnheader', { name: 'JH PN', exact: true })).toBeVisible();
-  await expect(v.getByRole('columnheader', { name: 'Individual Box Size' })).toBeVisible();
-  // the first column is the tick boxes; poll because the table can re-render right after the search
-  await expect.poll(async () => (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase()).filter(Boolean)).toEqual(['part number', 'or #', 'napa pn', 'dma pn', 'cross', 'jh pn', 'individual box size']);
+  await expect.poll(async () => (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase()).filter(Boolean)).toEqual(['customer part #', 'description', 'upc / barcode', 'drawing #', 'also sold as']);
   await expect(v.getByRole('columnheader', { name: 'Rev', exact: true })).toHaveCount(0);
   await shot('03-fuel-pump-list');
 
@@ -68,7 +65,7 @@ test('parts: no revision, notes, editable part number, OR # column and fuel pump
 
   // a new part form has no Revision and shows the Fuel Pump fields
   await page.goto('/sequfloh/parts');
-  await expect(v.getByTestId('family-card-Fuel Pump')).toContainText('part numbers');
+  await expect(v.getByTestId("customer-card-O'Reilly").getByTestId('customer-count')).toBeVisible();
   await shot('05-home-part-numbers');
   await v.getByRole('button', { name: 'New part' }).click();
   await choosePartType(page, 'Fuel Pump');

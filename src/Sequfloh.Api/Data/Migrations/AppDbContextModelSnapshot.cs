@@ -3245,6 +3245,12 @@ namespace Sequfloh.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<string>("DrawingKey")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasComputedColumnSql("NULLIF(upper(regexp_replace(btrim(\"DrawingNumber\"), '[[:space:]_/\\\\-]+', '', 'g')), '')", true);
+
                     b.Property<string>("DrawingNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -3374,9 +3380,13 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasIndex("DepartmentId");
 
+                    b.HasIndex("DrawingKey");
+
                     b.HasIndex("DrawingNumber");
 
                     b.HasIndex("PartNumber");
+
+                    b.HasIndex("PartNumberKey");
 
                     b.HasIndex("SiteId");
 

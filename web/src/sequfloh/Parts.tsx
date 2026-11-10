@@ -3,7 +3,7 @@ import { ListToolbar } from '../layout/PageHeader';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogTitle, Menu, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogTitle, Menu, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowUpward from '@mui/icons-material/ArrowUpward';
 import ArrowDownward from '@mui/icons-material/ArrowDownward';
@@ -56,9 +56,15 @@ const defaultHidden = ['attr:keyApplication'];
 const withCurrent = (list: string[], current?: string) => (current && !list.some((x) => x.toLowerCase() === current.toLowerCase()) ? [...list, current] : list);
 
 // ------------------------------------------------------------------ Part Master
+interface SoldAs { id: string; partNumber: string; customerId?: string | null; customerName?: string | null; upc?: string | null; drawingNumber?: string | null }
 interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; partClass?: string | null; isAssembly?: boolean; lotControl?: string | null; unitOfMeasure: string;
   status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; drawingRevision?: string | null; upc?: string; specification?: string; updatedAt: string;
-  typeId?: string | null; typeName?: string | null; attributes?: string | null; notes?: string | null }
+  typeId?: string | null; typeName?: string | null; attributes?: string | null; notes?: string | null; customerId?: string | null; customerName?: string | null; alsoSoldAs?: SoldAs[] | null }
+interface CustomerLine { typeId: string | null; label: string; count: number }
+interface CustomerTab { id: string; label: string; isActive: boolean; count: number; lines: CustomerLine[] }
+interface CustomerTabs { customers: CustomerTab[]; unassigned: { count: number; lines: CustomerLine[] } }
+interface LocateHit { id: string; partNumber: string; customerId?: string | null; customerName?: string | null; typeId?: string | null; line?: string | null; exactPartNumber: boolean }
+const useCustomerTabs = () => useQuery({ queryKey: ['sqf-customer-tabs'], queryFn: () => get<CustomerTabs>(`${S}/parts/customer-tabs`) });
 const viewHelp: Record<string, string> = {
   repairable: 'Parts marked Repairable: the part itself can be repaired and can be the subject of a repair work order.',
   'repair-parts': 'Component and replacement parts ordered to carry out repairs, such as screws, nuts and top mounts. A part is listed here only when Repair part is ticked; Repairable does not add it.',
@@ -78,8 +84,10 @@ export function PartMasterPage() {
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('partNumber:asc');
   const v = (k: string) => sp.get(k) ?? '';
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
-  const filterQs = () => qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), partType: v('partType'), tag: v('tag'), sort });
-  const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${filterQs()}&${qs({ page, pageSize: size })}`), enabled: !home });
+  const filterQs = () => qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), partType: v('partType'), tag: v('tag'), customer: v('customer'), sort });
+  const customerKeyEarly = v('customer');
+  const waitingLine = !view && !!customerKeyEarly && !v('partType');
+  const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${filterQs()}&${qs({ page, pageSize: size })}`), enabled: !home && !waitingLine });
   const types = usePartTypes();
   const attrDefs = useAttrDefs();
   const untyped = useQuery({ queryKey: ['sqf-parts-untyped'], queryFn: () => get<Paged<PartRow>>(`${S}/parts?partType=none&pageSize=1`) });
@@ -112,7 +120,25 @@ export function PartMasterPage() {
   const preset = family && v('partType') !== 'none' ? family : undefined;
   const famRow = types.data?.find((t) => t.id === v('partType')); const familyCode = famRow?.code;
   const fp = familyCode === FUEL_PUMP;
-  const title = family ?? views[view] ?? 'Part Master';
+  const customerKey = v('customer');
+  const customerTabs = useCustomerTabs();
+  const customerTab = customerKey && customerKey !== 'unassigned' ? customerTabs.data?.customers.find((c) => c.id === customerKey) : undefined;
+  const customerLines = customerKey === 'unassigned' ? customerTabs.data?.unassigned.lines : customerTab?.lines;
+  const customerName = customerKey === 'unassigned' ? 'Unassigned' : customerTab ? (customerTab.isActive ? customerTab.label : `${customerTab.label} (inactive)`) : '';
+  const lineName = v('partType') === 'none' ? 'No product line' : types.data?.find((t) => t.id === v('partType'))?.label;
+  const customerList = !view && !!customerKey;
+  useEffect(() => {
+    if (!customerList || !customerTabs.data) return;
+    const first = customerLines?.[0];
+    if (!first) return;
+    setSp((prev) => {
+      if (prev.get('view') || prev.get('partType')) return prev;
+      const n = new URLSearchParams(prev);
+      n.set('partType', first.typeId ?? 'none');
+      return n;
+    });
+  }, [customerList, customerTabs.data, customerLines, setSp]);
+  const title = customerList ? [customerName, lineName].filter(Boolean).join(' · ') || 'Part Master' : family ?? views[view] ?? 'Part Master';
   const baseCols: Col<PartRow>[] = [{ key: 'partNumber', label: pnLabel(familyCode), sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'typeName', label: 'Product family', sort: true, render: (r) => r.typeName ?? r.productFamily ?? '—' },
           ...(familyCode === FUEL_PUMP ? [] : [{ key: 'drawingNumber', label: DWG_LABEL, render: (r: PartRow) => r.drawingNumber ?? '—' }]),
           ...(attrDefs.data ?? []).filter((d) => attrFor(d, familyCode, famRow?.shownFields)).map((d): Col<PartRow> => ({ key: `attr:${d.key}`, label: d.label, render: (r) => attrsOf(r.attributes)[d.key] ?? '—' })),
@@ -134,24 +160,36 @@ export function PartMasterPage() {
     {canChange && <CustomerAssignmentDialog open={assigning} onClose={() => setAssigning(false)} />}
     {wipe && family && <FamilyDeleteDialog familyId={v('partType')} label={family} onClose={() => setWipe(false)} />}
   </>;
+  const soldAs = (r: PartRow) => (r.alsoSoldAs ?? []).length === 0 ? '—' : <Stack gap={0.25} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()} data-testid="also-sold-as">
+    {(r.alsoSoldAs ?? []).map((x) => <Link key={x.id} component={RouterLink} to={`/sequfloh/parts/${x.id}`} underline="hover" data-testid="also-sold-as-link">{(x.customerName || 'Unassigned')}: {x.partNumber}</Link>)}</Stack>;
+  const customerCols: Col<PartRow>[] = [
+    { key: 'partNumber', label: 'Customer part #', sort: true, render: (r) => <Box data-testid={r.id === v('found') ? 'found-part' : undefined} sx={r.id === v('found') ? { bgcolor: 'warning.light', px: 0.5, borderRadius: 0.5 } : undefined}><Mono>{r.partNumber}</Mono></Box> },
+    { key: 'description', label: 'Description', render: (r) => r.description?.trim() || r.name || '—' },
+    { key: 'upc', label: 'UPC / Barcode', render: (r) => r.upc || '—' },
+    { key: 'drawingNumber', label: 'Drawing #', render: (r) => r.drawingNumber || '—' },
+    { key: 'alsoSoldAs', label: 'Also sold as', render: soldAs },
+  ];
   if (home) return (
-    <SqfPage title="Part Master" crumbs={crumbs('Part Master')} description="Search for a part, or open a product family to see its parts." actions={buttons(false)}>
+    <SqfPage title="Part Master" crumbs={crumbs('Part Master')} description="Customers first. Each customer keeps its own parts and the links already attached to those parts." actions={buttons(false)}>
       {(untyped.data?.total ?? 0) > 0 && v('partType') !== 'none' && <Alert severity="info" sx={{ mb: 2 }} data-testid="untyped-parts"
         action={<Button color="inherit" size="small" onClick={() => set('partType', 'none')}>Show them</Button>}>
         {untyped.data!.total} {untyped.data!.total === 1 ? 'part has' : 'parts have'} no product family yet. Open a part and choose its product family with Edit.</Alert>}
-      <PartsHome types={types.data ?? []} untyped={untyped.data?.total ?? 0} />
+      <PartsHome />
       {dialogs}
     </SqfPage>
   );
   return (
-    <SqfPage title={title} crumbs={crumbs(title)} description={viewHelp[view] ?? (family ? `Parts in the ${family} product family.` : 'The part master with execution attributes for each part and revision.')}
-      actions={<Stack direction="row" gap={1} flexWrap="wrap" useFlexGap alignItems="center">{buttons(true)}{family && <FamilyDeleteButton label={family} onClick={() => setWipe(true)} />}</Stack>}>
+    <SqfPage title={title} crumbs={customerList ? crumbs('Part Master', { label: title }) : crumbs(title)} description={viewHelp[view] ?? (customerList ? 'Only this customer’s product lines are shown. Each row is that customer’s own part.' : family ? `Parts in the ${family} product family.` : 'The part master with execution attributes for each part and revision.')}
+      actions={<Stack direction="row" gap={1} flexWrap="wrap" useFlexGap alignItems="center">{buttons(true)}{family && !customerList && <FamilyDeleteButton label={family} onClick={() => setWipe(true)} />}</Stack>}>
       {!view && <Link component={RouterLink} to="/sequfloh/parts" sx={{ display: 'inline-block', mb: 1 }} data-testid="parts-home-link">Back to Part Master home</Link>}
+      {customerList && customerTabs.data && <CustomerBar tabs={customerTabs.data} customer={customerKey} line={v('partType')} onCustomer={(id) => { const n = new URLSearchParams(); n.set('customer', id); setSp(n); setPage(1); }} onLine={(id) => set('partType', id)} />}
+      {customerList && v('exact') === '1' && v('found') && <Alert severity="info" sx={{ mb: 2 }} data-testid="search-landed" action={<Button color="inherit" size="small" component={RouterLink} to={`/sequfloh/parts/${v('found')}`}>Open this part</Button>}>
+        Exact part-number match: {customerName}{lineName ? ` › ${lineName}` : ''}. The original part is selected.</Alert>}
       {(untyped.data?.total ?? 0) > 0 && v('partType') !== 'none' && <Alert severity="info" sx={{ mb: 2 }} data-testid="untyped-parts"
         action={<Button color="inherit" size="small" onClick={() => set('partType', 'none')}>Show them</Button>}>
         {untyped.data!.total} {untyped.data!.total === 1 ? 'part has' : 'parts have'} no product family yet. Open a part and choose its product family with Edit.</Alert>}
       <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ partType: v('partType'), status: v('status'), type: v('type'), tag: v('tag') }} onChange={set}
-        extra={<><Button size="small" onClick={(e) => setColsAnchor(e.currentTarget)}>Columns</Button>
+        extra={customerList ? undefined : <><Button size="small" onClick={(e) => setColsAnchor(e.currentTarget)}>Columns</Button>
           <Menu anchorEl={colsAnchor} open={!!colsAnchor} onClose={() => setColsAnchor(null)}>
             {allCols.filter((c) => c.key !== 'partNumber').map((c) => <MenuItem key={c.key} dense onClick={() => toggleCol(c.key)}><Checkbox size="small" checked={!isHidden(c.key)} sx={{ p: 0.5, mr: 1 }} />{c.label}</MenuItem>)}
           </Menu></>}
@@ -161,56 +199,84 @@ export function PartMasterPage() {
       <InventoryNote />
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
         selected={canChange ? ticked : undefined} onSelect={canChange ? setTicked : undefined}
-        cols={allCols.filter((c) => !isHidden(c.key))} />
+        cols={(customerList ? customerCols : allCols).filter((c) => customerList || !isHidden(c.key))} />
       {dialogs}
     </SqfPage>
   );
 }
 
-/** Part Master home: a search box and one card per product family with its part count. */
-function PartsHome({ types, untyped }: { types: PartTypeValue[]; untyped: number }) {
+/** Part Master home: one card per active customer, with the product lines that customer already has. */
+function PartsHome() {
   const nav = useNavigate();
+  const tabs = useCustomerTabs();
   const [text, setText] = useState('');
-  const [q, setQ] = useState('');
-  const [target, setTarget] = useState<{ id: string; label: string } | null>(null);
-  const counts = useQuery({ queryKey: ['sqf-parts', 'family-counts'], queryFn: () => get<{ typeId: string | null; count: number }[]>(`${S}/parts/family-counts`) });
-  const found = useQuery({ queryKey: ['sqf-parts', 'home-search', q], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${qs({ q, page: 1, pageSize: 10 })}`), enabled: !!q });
-  const countOf = (id: string | null) => counts.data?.find((c) => c.typeId === id)?.count ?? 0;
-  const cards = [...types.filter((t) => t.isActive || countOf(t.id) > 0).map((t) => ({ id: t.id, label: t.isActive ? t.label : `${t.label} (inactive)`, n: countOf(t.id) })),
-    ...(untyped > 0 ? [{ id: 'none', label: 'No product family', n: countOf(null) }] : [])];
+  const [hits, setHits] = useState<LocateHit[] | null>(null);
+  const [err, setErr] = useState('');
+  const search = async () => {
+    const term = text.trim();
+    setErr(''); setHits(null);
+    if (term.length < 2) { setErr('Enter at least two characters.'); return; }
+    const r = await get<{ items: LocateHit[] }>(`${S}/parts/locate?${qs({ q: term })}`);
+    const exact = r.items.filter((i) => i.exactPartNumber);
+    if (exact.length === 1) {
+      const i = exact[0];
+      nav(`/sequfloh/parts?${qs({ customer: i.customerId ?? 'unassigned', partType: i.typeId ?? 'none', found: i.id, exact: '1', q: i.partNumber })}`);
+      return;
+    }
+    setHits(r.items);
+  };
+  const place = (i: LocateHit) => [i.customerName || 'Unassigned', i.line || 'No product line', i.partNumber].join(' › ');
+  const cards = [...(tabs.data?.customers ?? []).map((c) => ({ ...c, key: c.id, name: c.isActive ? c.label : `${c.label} (inactive)`, to: c.id })),
+    { key: 'unassigned', id: 'unassigned', name: 'Unassigned', isActive: true, count: tabs.data?.unassigned.count ?? 0, lines: tabs.data?.unassigned.lines ?? [], to: 'unassigned' }];
   return (
     <Stack gap={3}>
-      <ListToolbar onSubmit={() => setQ(text.trim())}>
-        <TextField size="small" label="Search parts" placeholder="Part number, DWG #, NAPA or Nissan #, or key application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} sx={{ width: { xs: '100%', sm: 480 } }} />
-        <Button type="submit" variant="outlined">Search</Button>
+      <ListToolbar onSubmit={() => { void search(); }}>
+        <TextField size="small" label="Search parts" placeholder="Search any customer part number, drawing or application" value={text} onChange={(e) => setText(e.target.value)} inputProps={{ 'data-testid': 'parts-search' }} sx={{ width: { xs: '100%', sm: 520 } }} />
+        <Button type="submit" variant="contained">Search</Button>
       </ListToolbar>
-      {q && <Paper variant="outlined" data-testid="parts-search-results">
-        {found.isLoading ? <Loading /> : found.isError ? <ErrorState error={found.error} /> : !found.data?.items.length ? <Box sx={{ p: 2 }}><Typography color="text.secondary">No parts match "{q}".</Typography></Box> :
-          <Table size="small"><TableHead><TableRow><TableCell>{PN_LABEL}</TableCell><TableCell>{DWG_LABEL}</TableCell><TableCell>Name</TableCell><TableCell>Position</TableCell><TableCell>Key Application</TableCell></TableRow></TableHead>
-            <TableBody>{found.data.items.map((r) => { const a = attrsOf(r.attributes); return (
-              <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => nav(`/sequfloh/parts/${r.id}`)}>
-                <TableCell><Mono>{r.partNumber}</Mono></TableCell><TableCell>{r.drawingNumber ?? '—'}</TableCell><TableCell>{r.name}</TableCell><TableCell>{a.position ?? '—'}</TableCell><TableCell>{a.keyApplication ?? '—'}</TableCell>
-              </TableRow>); })}</TableBody></Table>}
-        {(found.data?.total ?? 0) > 10 && <Box sx={{ p: 1.5 }}><Link component={RouterLink} to={`/sequfloh/parts?${qs({ q })}`}>Show all {found.data!.total} matches</Link></Box>}
+      {err && <Alert severity="info">{err}</Alert>}
+      {hits && <Paper variant="outlined" data-testid="parts-search-results" sx={{ p: 2 }}>
+        {hits.length === 0 ? <Typography color="text.secondary">No parts match "{text.trim()}".</Typography> : <>
+          <Typography variant="body2" sx={{ mb: 1 }}>{hits.length === 1 ? '1 match' : `${hits.length} matches`}. Choose the customer and product line. Nothing is opened on its own when more than one part matches.</Typography>
+          <Stack gap={0.5}>{hits.map((i) => <Button key={i.id} component={RouterLink} to={`/sequfloh/parts?${qs({ customer: i.customerId ?? 'unassigned', partType: i.typeId ?? 'none', found: i.id, q: i.partNumber })}`} sx={{ justifyContent: 'flex-start' }} data-testid="search-hit">{place(i)}{i.exactPartNumber ? '' : ' · alias'}</Button>)}</Stack>
+        </>}
       </Paper>}
-      <Box>
-        <Typography variant="subtitle1" sx={{ mb: 1 }}>Product families</Typography>
-        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-          {cards.map((c) => (
-            <Paper key={c.id} variant="outlined" data-testid={`family-card-${c.label}`}
-              sx={{ p: 2, minHeight: 148, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 1, '&:hover': { borderColor: 'primary.main' } }}>
-              <Box component={RouterLink} to={`/sequfloh/parts?${qs({ partType: c.id })}`} sx={{ textDecoration: 'none', color: 'inherit', flex: 1 }}>
-                <Typography fontWeight={600}>{c.label}</Typography>
-                <Typography variant="h5" data-testid="family-count">{counts.isLoading ? '…' : c.n.toLocaleString('en-US')}</Typography>
-                <Typography variant="body2" color="text.secondary">{c.n === 1 ? 'part number' : 'part numbers'}</Typography>
-              </Box>
-              {c.n > 0 && <FamilyDeleteButton size="small" label={c.label} onClick={() => setTarget({ id: c.id, label: c.label })} />}
-            </Paper>))}
-        </Box>
+      <Alert severity="info" icon={false}>Open a customer, then a product line. Each customer shows only the lines and parts it has.</Alert>
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+        {cards.map((c) => (
+          <Paper key={c.key} variant="outlined" data-testid={`customer-card-${c.name.replace(' (inactive)', '')}`}
+            sx={{ p: 2, minHeight: 148, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 1, '&:hover': { borderColor: 'primary.main' } }}>
+            <Box component={RouterLink} to={`/sequfloh/parts?${qs({ customer: c.to })}`} sx={{ textDecoration: 'none', color: 'inherit' }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="baseline" gap={1}>
+                <Typography fontWeight={700}>{c.name}</Typography>
+                <Typography variant="h5" color="primary" data-testid="customer-count">{tabs.isLoading ? '…' : c.count.toLocaleString('en-US')}</Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{c.lines.length === 0 ? 'No product lines yet' : c.lines.map((l) => `${l.label} (${l.count.toLocaleString('en-US')})`).join(' · ')}</Typography>
+              <Typography variant="caption" color="text.secondary">{c.lines.length} product {c.lines.length === 1 ? 'line' : 'lines'}</Typography>
+            </Box>
+            <Typography variant="body2" color="primary" fontWeight={600}>Open customer</Typography>
+          </Paper>))}
       </Box>
-      {target && <FamilyDeleteDialog familyId={target.id} label={target.label} onClose={() => setTarget(null)} />}
     </Stack>
   );
+}
+
+/** A chosen customer or product line: white text on the indigo fill, so a long name stays readable. */
+const selectedChip = { backgroundColor: '#4F46E5', color: '#FFFFFF', '& .MuiChip-label': { color: '#FFFFFF' }, '&:hover': { backgroundColor: '#3730A3', color: '#FFFFFF', '& .MuiChip-label': { color: '#FFFFFF' } } };
+
+/** Customer chips and, under the chosen customer, only the product lines that customer has. */
+function CustomerBar({ tabs, customer, line, onCustomer, onLine }: { tabs: CustomerTabs; customer: string; line: string; onCustomer: (id: string) => void; onLine: (id: string) => void }) {
+  const mine = customer === 'unassigned' ? tabs.unassigned.lines : tabs.customers.find((c) => c.id === customer)?.lines ?? [];
+  const chips = [...tabs.customers.map((c) => ({ id: c.id, label: `${c.isActive ? c.label : `${c.label} (inactive)`} ${c.count.toLocaleString('en-US')}` })), { id: 'unassigned', label: `Unassigned ${tabs.unassigned.count.toLocaleString('en-US')}` }];
+  return <Stack gap={1} sx={{ mb: 2 }} data-testid="customer-bar">
+    <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>{chips.map((c) => { const on = c.id === customer; return <Chip key={c.id} label={c.label} clickable variant={on ? 'filled' : 'outlined'} sx={on ? selectedChip : undefined} onClick={() => onCustomer(c.id)} data-testid={`customer-chip-${c.id}`} />; })}</Stack>
+    {mine.length > 0 && <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap data-testid="line-tabs">{mine.map((l) => {
+      const id = l.typeId ?? 'none';
+      const on = id === line;
+      return <Chip key={id} label={`${l.label} ${l.count.toLocaleString('en-US')}`} clickable variant={on ? 'filled' : 'outlined'} sx={on ? selectedChip : undefined} onClick={() => onLine(id)} data-testid={`line-tab-${l.label}`} />;
+    })}</Stack>}
+    {mine.length === 0 && <Typography variant="body2" color="text.secondary" data-testid="no-lines">This customer has no parts yet. Import a sheet to add the first product line.</Typography>}
+  </Stack>;
 }
 
 const nParts = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'part' : 'parts'}`;
@@ -300,7 +366,7 @@ function FamilyDeleteDialog({ familyId, label, onClose }: { familyId: string; la
 
 interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record<string, string>; productId?: string; material?: string; hasSpecialCharacteristics: boolean; hiddenFields?: string[]; siteId: string; departmentId?: string; rowVersion: number; createdAt: string; createdBy: string; updatedBy: string; customerId?: string | null; customerName?: string | null };
   revisions: { id: string; revision: string; reason: string; createdAt: string }[]; partsLists: { id: string; number: string; title: string; revision: string; status: string; listType: string }[];
-  related: { partsLists: number }; canEdit: boolean; canEditMaster: boolean }
+  related: { partsLists: number }; crossReferences?: SoldAs[]; canEdit: boolean; canEditMaster: boolean }
 
 function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: PartDetail['part']; prefill?: string; prefillUpc?: string }) {
   const sites = useSites();
@@ -460,6 +526,13 @@ export function PartDetailPage() {
             {code !== FUEL_PUMP && <Field label={DWG_LABEL} hide={hid('drawingNumber')}>{p.drawingNumber}</Field>}<Field label="Drawing revision" hide={hid('drawingRevision')}><span data-testid="part-drawing-revision-value">{p.drawingRevision || '—'}</span></Field><Field label="UPC / Barcode"><span data-testid="part-upc-value">{p.upc}</span>{q.data?.canEdit && <BarcodeButton partId={p.id} upc={p.upc} onSaved={refresh} />}</Field><Field label="Specification" hide={hid('specification')}>{p.specification}</Field><Field label="Created">{`${fmtDateTime(p.createdAt)} · ${p.createdBy}`}</Field><Field label="Last updated">{`${fmtDateTime(p.updatedAt)} · ${p.updatedBy}`}</Field>
           </Grid>
           {p.description && !hid('description') && <Typography variant="body2" sx={{ mt: 2 }}>{p.description}</Typography>}
+          <Typography variant="subtitle2" sx={{ mt: 2 }}>Also sold as — other customer parts</Typography>
+          <Typography variant="caption" color="text.secondary">Matched by drawing number. Each link opens that customer's own part.</Typography>
+          {(q.data?.crossReferences ?? []).length === 0 ? <Typography variant="body2" data-testid="cross-references">No other part uses this drawing.</Typography>
+            : <Table size="small" data-testid="cross-references"><TableHead><TableRow><TableCell>Customer</TableCell><TableCell>Their part number</TableCell><TableCell>UPC / Barcode</TableCell><TableCell>Same drawing</TableCell></TableRow></TableHead>
+              <TableBody>{q.data!.crossReferences!.map((x) => <TableRow key={x.id}><TableCell>{x.customerName || 'Unassigned'}</TableCell>
+                <TableCell><Link component={RouterLink} to={`/sequfloh/parts/${x.id}`} data-testid="cross-reference-link"><Mono>{x.partNumber}</Mono></Link></TableCell>
+                <TableCell>{x.upc || '—'}</TableCell><TableCell>{x.drawingNumber || '—'}</TableCell></TableRow>)}</TableBody></Table>}
           <Typography variant="subtitle2" sx={{ mt: 2 }}>Related SEQUFLOH records</Typography>
           <Typography variant="body2">Parts lists: {q.data!.related.partsLists}</Typography>
         </Paper>}
@@ -517,7 +590,7 @@ function PartPicker({ value, onChange, label = 'Part' }: { value: string; onChan
   const scan = usePartFieldScan((p) => { setText(''); onChange(p.id, p.partNumber); });
   return <Box {...scan}><Autocomplete size="small" options={parts.items} value={current} filterOptions={(x) => x} isOptionEqualToValue={(a, b) => a.id === b.id} loading={parts.loading}
     getOptionLabel={(p) => partOption(p)} noOptionsText={text ? 'No part matches' : 'Type a part number'}
-    renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partOption(p)}</Typography>{otherNumbers(p) && <Typography variant="caption" color="text.secondary">{otherNumbers(p)}</Typography>}</Box></li>}
+    renderOption={(props, p) => <li {...props} key={p.id}><Box><Typography variant="body2">{partOption(p)}</Typography><Typography variant="caption" color="text.secondary">{[p.customerName || 'Unassigned', p.typeName].filter(Boolean).join(' › ')}{otherNumbers(p) ? ` · ${otherNumbers(p)}` : ''}</Typography></Box></li>}
     onInputChange={(_, t, r) => { if (r === 'input') setText(t); }} onChange={(_, p) => onChange(p?.id ?? '', p?.partNumber)}
     renderInput={(p) => <TextField {...p} label={label} helperText={parts.hint} placeholder="Search by part number, DWG #, NAPA, DMA or JH PN" />} /></Box>;
 }
