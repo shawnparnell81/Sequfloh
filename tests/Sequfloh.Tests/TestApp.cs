@@ -130,6 +130,7 @@ public sealed class MadeUpNumbers : DelegatingHandler
     static readonly System.Text.RegularExpressions.Regex Creates = new(
         @"^/api/sequfloh/(tracking|instructions|inspection-requests|parts-lists|operation-steps)$|^/api/sequfloh/(instructions|parts-lists|operation-steps)/[0-9a-f-]{36}/duplicate$|^/api/sequfloh/inspection-requests/[0-9a-f-]{36}/convert$|^/api/imported-files/[0-9a-f-]{36}/(fill-out|save-as-copy)$|^/api/sequfloh/chargebacks$");
     static readonly System.Text.RegularExpressions.Regex Uploads = new(@"^/api/imported-files$|^/api/sequfloh/instructions/import$|^/api/imported-files/import-folder$");
+    static readonly System.Text.RegularExpressions.Regex ImportWrites = new(@"^/api/sequfloh/parts/import(/preview|/held\.csv)?$");
 
     public static string MadeUp() => "T-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
 
@@ -151,6 +152,25 @@ public sealed class MadeUpNumbers : DelegatingHandler
                     }
                 }
             }
+            else if (ImportWrites.IsMatch(path) && request.Content is { } ic && ic.Headers.ContentType?.MediaType == "application/json")
+            {
+                var text = await ic.ReadAsStringAsync(ct);
+                if (System.Text.Json.Nodes.JsonNode.Parse(text) is System.Text.Json.Nodes.JsonObject o)
+                {
+                    var changed = false;
+                    if (!o.Any(p => p.Key.Equals("customerId", StringComparison.OrdinalIgnoreCase) && p.Value is not null))
+                    { o["customerId"] = (await ImportDefaults.CustomerAsync()).ToString(); changed = true; }
+                    var tabs = o.FirstOrDefault(p => p.Key.Equals("tabs", StringComparison.OrdinalIgnoreCase)).Value;
+                    var hasTabs = tabs is System.Text.Json.Nodes.JsonArray { Count: > 0 };
+                    var mapping = o.FirstOrDefault(p => p.Key.Equals("mapping", StringComparison.OrdinalIgnoreCase)).Value as System.Text.Json.Nodes.JsonObject;
+                    var fixedFields = o.FirstOrDefault(p => p.Key.Equals("fixed", StringComparison.OrdinalIgnoreCase)).Value as System.Text.Json.Nodes.JsonObject;
+                    var columnIsTheLine = mapping?.Any(p => p.Key.Equals("typeName", StringComparison.OrdinalIgnoreCase)) == true
+                        || fixedFields?.ContainsKey("typeName") == true && fixedFields["typeName"] is not null;
+                    if (!hasTabs && !columnIsTheLine && !o.Any(p => p.Key.Equals("defaultTypeId", StringComparison.OrdinalIgnoreCase) && p.Value is not null))
+                    { o["defaultTypeId"] = (await ImportDefaults.LineAsync()).ToString(); changed = true; }
+                    if (changed) request.Content = new StringContent(o.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
+                }
+            }
             else if (Uploads.IsMatch(path) && request.Content is MultipartFormDataContent form)
             {
                 var names = form.Select(p => p.Headers.ContentDisposition?.Name?.Trim('"')).ToList();
@@ -159,6 +179,24 @@ public sealed class MadeUpNumbers : DelegatingHandler
             }
         }
         return await base.SendAsync(request, ct);
+    }
+}
+
+/// <summary>The customer and product line older import tests did not send. New parts from those tests belong to O'Reilly / Fuel Pump.</summary>
+static class ImportDefaults
+{
+    static Guid? customer;
+    static Guid? line;
+    public static async Task<Guid> CustomerAsync() => customer ??= await IdAsync("customers", "O'Reilly");
+    public static async Task<Guid> LineAsync() => line ??= await IdAsync("product-families", "Fuel Pump");
+    static async Task<Guid> IdAsync(string list, string label)
+    {
+        await using var c = new Npgsql.NpgsqlConnection(TestApp.ConnectionString);
+        await c.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand("SELECT \"Id\" FROM sqf.sequfloh_reference_values WHERE \"ListKey\" = @l AND \"Label\" = @n", c);
+        cmd.Parameters.AddWithValue("l", list);
+        cmd.Parameters.AddWithValue("n", label);
+        return (Guid)(await cmd.ExecuteScalarAsync())!;
     }
 }
 

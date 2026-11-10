@@ -98,12 +98,12 @@ public sealed class PartsImportExactMatchTests(TestApp app)
         var (site, eng, k, fam) = await SetupAsync();
         var before = await Snapshot(k);
         var (_, off) = await Preview(eng, site, Book(fam, ["Part number", "Position", "NAPA PN"], [$"8{k}1C", "", $"NP9{k}1C"]), update: false);
-        Assert.Equal("Error", Rows(off).Single().Action);
-        // two parts have this part number and Position, so the exact match is ambiguous
+        Assert.Equal("Skip", Rows(off).Single().Action);
+        // two parts have this part number and Position, so the exact match is held
         var (_, amb) = await Preview(eng, site, Book(fam, ["Part number", "Position", "NAPA PN"], [$"3{k}D", "Front", $"NP9{k}3D"]), update: true);
         var row = Rows(amb).Single();
-        Assert.Equal("Error", row.Action);
-        Assert.Contains("Matches more than one part", row.Msg);
+        Assert.Equal("Held", row.Action);
+        Assert.Contains("More than one", row.Msg);
         Assert.Equal(before, await Snapshot(k));
     }
 
@@ -117,8 +117,7 @@ public sealed class PartsImportExactMatchTests(TestApp app)
             [$"N{k}7", "", ""]), update: true);   // nothing known: added
         var rows = Rows(plan);
         Assert.Equal("Update", rows.Single(r => r.Pn == $"8{k}2C").Action);
-        Assert.Equal("Update", rows.Single(r => r.Pn == $"X{k}9").Action);
-        Assert.Contains($"Part number stays NP9{k}1C", rows.Single(r => r.Pn == $"X{k}9").Msg);
+        Assert.Equal("Add", rows.Single(r => r.Pn == $"X{k}9").Action);
         Assert.Equal("Add", rows.Single(r => r.Pn == $"N{k}7").Action);
     }
 }

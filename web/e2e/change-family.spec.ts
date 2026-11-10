@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { section, settledShot, signIn, view } from './support';
+import { chooseImportScope, section, settledShot, signIn, view } from './support';
 
 /** A made-up one-page drawing as a PDF; nothing here is a real part or drawing. */
 async function pdf(browser: Browser, title: string) {
@@ -17,9 +17,13 @@ async function importParts(page: Page, csv: string, count: number) {
   await v.getByTestId('family-card-Fuel Pump').click(); // imported from the Fuel Pump page: the family is preset
   await v.getByRole('button', { name: 'Import parts' }).click();
   const imp = page.getByRole('dialog');
+  await expect(imp.getByTestId('import-customer')).toBeVisible();
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running')).catch(() => {});
   await imp.getByTestId('import-file').setInputFiles({ name: 'example-fuel-mixed.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(imp.getByText('example-fuel-mixed.csv')).toBeVisible();
   await imp.getByRole('button', { name: 'Read file' }).click();
   await expect(imp.locator('input[data-field="typeName"]')).toHaveValue('fix:Fuel Pump');
+  await chooseImportScope(page, 'Fuel Pump');
   await imp.getByRole('button', { name: 'Preview' }).click();
   await imp.getByRole('button', { name: `Import ${count} parts` }).click();
   await expect(imp.getByTestId('import-done')).toContainText(`${count} added`, { timeout: 60_000 });

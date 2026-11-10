@@ -22,12 +22,12 @@ public sealed record PartsImportTab(string Name, Guid FamilyId, string Family, L
 public sealed record PartsImportTabCount(string Tab, string Family, int Rows, int Add, int Update, int Skip, int Errors);
 public sealed record PartsImportTopRow(int Row, List<string> Cells);
 public sealed record PartsImportRequest(string FileName, List<string> Headers, List<List<string>> Rows, Dictionary<string, int> Mapping, Guid SiteId, bool UpdateExisting,
-    List<int>? RowNumbers = null, Guid? DefaultTypeId = null, bool KeepRepeats = false, Dictionary<string, string>? Fixed = null, List<PartsImportTab>? Tabs = null, List<string>? SkippedTabs = null);
+    List<int>? RowNumbers = null, Guid? DefaultTypeId = null, bool KeepRepeats = false, Dictionary<string, string>? Fixed = null, List<PartsImportTab>? Tabs = null, List<string>? SkippedTabs = null, Guid? CustomerId = null);
 /// <summary>Repeat is true for an added row whose part number is already used by another row or part but whose values differ.</summary>
-public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages, bool Repeat = false, string? Tab = null);
+public sealed record PartsImportRow(int Row, string Action, string? PartNumber, string? Name, List<string> Messages, bool Repeat = false, string? Tab = null, string? Saved = null, string? Incoming = null);
 public sealed record ImportLayoutInput(string Name, System.Text.Json.JsonElement Layout);
 public sealed record ImportLayoutView(Guid Id, string Name, System.Text.Json.JsonElement Layout);
-public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Update, int Skip, int Errors, List<PartsImportTabCount>? Tabs = null, List<string>? SkippedTabs = null);
+public sealed record PartsImportPlan(List<PartsImportRow> Rows, int Add, int Update, int Skip, int Errors, List<PartsImportTabCount>? Tabs = null, List<string>? SkippedTabs = null, int Held = 0, int Unchanged = 0, string? LinkFailure = null, List<Guid>? SavedPartIds = null);
 
 /// <summary>
 /// Bulk import into the Part Master from Excel, CSV or the tables of a Word document. Files are only read, never run (macros are ignored).
@@ -276,11 +276,6 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
 
     static bool IsNumber(PartAttributeDef a) => a.Key is not ("keyApplication" or "position" or "boxSize");
 
-    /// <summary>The real numbers of an existing part: its part number, drawing number and cross-reference numbers.</summary>
-    static IEnumerable<string> NumbersOf(Part x) => new[] { x.PartNumber, x.DrawingNumber ?? "" }
-        .Concat(PartAttributes.Read(x.Attributes).Where(kv => PartAttributes.Find(kv.Key) is { } d && IsMatchNumber(d)).Select(kv => kv.Value))
-        .Select(v => v.Trim()).Where(v => !PartFields.IsBlank(v)).Distinct(StringComparer.OrdinalIgnoreCase);
-
     static bool? Flag(string v) => Norm(v) switch
     {
         "" => null, "y" or "yes" or "true" or "1" or "x" => true, "n" or "no" or "false" or "0" => false, _ => throw new FormatException(),
@@ -393,17 +388,73 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         return list;
     }
 
+    public const string ChooseCustomerAndLine = "Choose a customer and a product line. Parts are matched only inside that customer and product line, at the chosen site.";
+
+    /// <summary>Test seam. When set, drawing links after a saved import are reported as failed and no links are written. Cleared by the test.</summary>
+    internal static Exception? LinkFault { get; set; }
+
+    sealed record ImportScope(Guid CustomerId, string Customer, Guid? LineId, string? Line);
+
+    async Task<ImportScope> RequireScopeAsync(PartsImportRequest r, CancellationToken ct)
+    {
+        var columnIsTheLine = r.Mapping.ContainsKey("typeName") || r.Fixed?.ContainsKey("typeName") == true;
+        if (r.CustomerId is null || (r.Tabs is null && r.DefaultTypeId is null && !columnIsTheLine)) throw new AppException(ChooseCustomerAndLine);
+        var customer = await db.SequflohReferenceValues.AsNoTracking().FirstOrDefaultAsync(v => v.Id == r.CustomerId && v.ListKey == SequflohCatalog.Customers, ct)
+            ?? throw new AppException("Choose a customer from the Customers list.");
+        if (!customer.IsActive) throw new AppException($"{customer.Label} is deactivated. Choose an active customer.");
+        if (r.Tabs is not null || r.DefaultTypeId is null) return new ImportScope(customer.Id, customer.Label, null, null);
+        var line = await db.SequflohReferenceValues.AsNoTracking().FirstOrDefaultAsync(v => v.Id == r.DefaultTypeId && v.ListKey == SequflohCatalog.ProductFamilies, ct)
+            ?? throw new AppException("Choose a product line from the product families list.");
+        if (!line.IsActive) throw new AppException($"{line.Label} is deactivated. Choose an active product line.");
+        return new ImportScope(customer.Id, customer.Label, line.Id, line.Label);
+    }
+
     public async Task<PartsImportPlan> PreviewAsync(PartsImportRequest r, CancellationToken ct)
     {
         var (plan, _, _) = await PlanAsync(r, ct);
         return Present(r, plan);
     }
 
+    /// <summary>The held rows of a preview, as CSV, so they can be corrected and read again. Nothing is saved.</summary>
+    public async Task<byte[]> HeldCsvAsync(PartsImportRequest r, CancellationToken ct)
+    {
+        var plan = await PreviewAsync(r, ct);
+        var sb = new System.Text.StringBuilder();
+        sb.Append("Row,Part number,Name,Saved,Incoming,Why\r\n");
+        foreach (var row in plan.Rows.Where(x => x.Action == "Held"))
+            sb.Append(string.Join(",", new[] { row.Tab is { } t ? $"{t} {row.Row}" : row.Row.ToString(), row.PartNumber, row.Name, row.Saved, row.Incoming, string.Join(" ", row.Messages) }.Select(Csv))).Append("\r\n");
+        return System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+    }
+
+    /// <summary>Runs the existing drawing matcher again for parts already saved. It only adds links.</summary>
+    public async Task<(int Added, string? Failure)> RetryLinksAsync(List<Guid> partIds, CancellationToken ct)
+    {
+        await RequireCanImportAsync(ct);
+        if (partIds.Count == 0) throw new AppException("Choose the parts whose drawing links should be tried again.");
+        try
+        {
+            var added = await drawingLinks.LinkPartsAsync(partIds, ct);
+            return (added, null);
+        }
+        catch (Exception ex) when (ex is not AppException and not ForbiddenException)
+        {
+            return (0, "Drawing links were not completed. The parts were not changed. Try the links again.");
+        }
+    }
+
+    static string Csv(string? v)
+    {
+        var s = v ?? "";
+        if (s.Length > 0 && "=+-@\t\r".Contains(s[0])) s = "'" + s;
+        return s.IndexOfAny([',', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
+    }
+
     /// <summary>
     /// Rows without any number and exact repeats of an earlier row are skipped. A row that repeats a part number with other values (for example another
-    /// Position) is skipped, or added as its own part when KeepRepeats is on. An existing part is matched by part number and Position, or by any number
-    /// of the row (part number, drawing number or a cross-reference number) that only one row of the file and only one existing part have.
-    /// A row that matches more than one part is an error. Placeholders such as "/" are never numbers.
+    /// Position) is skipped, or added as its own part when KeepRepeats is on. An existing part is matched by part number and Position inside the chosen
+    /// customer, product line and site. A drawing number or another customer's number never selects a part. More than one possible part is held.
+    /// A row whose drawing number or drawing revision disagrees with the part already saved is held, and that part is left unchanged.
+    /// Placeholders such as "/" are never numbers.
     /// </summary>
     async Task<(PartsImportPlan Plan, List<Parsed> Parsed, Dictionary<int, Part> Targets)> PlanAsync(PartsImportRequest r, CancellationToken ct)
     {
@@ -417,16 +468,17 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             throw new ForbiddenException($"You cannot import parts at {code}: your roles do not give {string.Join(" and ", missing)} for this site. Choose another site, or ask an administrator to give you the role for {code} or for All sites.");
         }
         await m.ValidateLocationAsync(r.SiteId, null, ct);
+        var scope = await RequireScopeAsync(r, ct);
         var parsed = r.Tabs is { } tabList ? await ParseTabsAsync(r, tabList, ct) : await ParseAsync(r, ct);
         string At(int row) => Label(r, row);
         var all = await db.Parts.ToListAsync(ct);
-        var existing = all.Where(p => !PartFields.IsBlank(p.PartNumber))
-            .GroupBy(p => p.PartNumber, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-        // a number shared by several existing parts, or by several different rows of the file, is not used to match
-        var byNumber = all.SelectMany(x => NumbersOf(x).Select(n => (n, x))).GroupBy(t => t.n, StringComparer.OrdinalIgnoreCase)
-            .Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single().x, StringComparer.OrdinalIgnoreCase);
-        var inFile = parsed.DistinctBy(p => p.Key).SelectMany(p => p.Numbers ?? []).GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        // only parts of this customer, product line and site. A drawing number or another customer's alias never selects a part.
+        bool InScope(Part p, Parsed row)
+        {
+            if (p.SiteId != r.SiteId || p.CustomerId != scope.CustomerId) return false;
+            var line = scope.LineId ?? row.TypeId;
+            return line is null || p.TypeId == line;
+        }
         var exact = new Dictionary<string, int>(StringComparer.Ordinal);
         var firstOf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var claimed = new HashSet<Guid>();
@@ -437,46 +489,54 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         {
             if (p.PartNumber is null) { rows.Add(new(p.Row, "Skip", null, p.Name, ["No part numbers in this row."])); continue; }
             if (p.Errors.Count > 0) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, p.Errors)); continue; }
+            if (scope.LineId is { } selected && p.TypeId is { } got && got != selected)
+            {
+                rows.Add(new(p.Row, "Held", p.PartNumber, p.Name, [$"This row is for {p.Family ?? "another product line"}, and the import is for {scope.Line}. The row was not imported."], Saved: scope.Line, Incoming: p.Family));
+                continue;
+            }
             if (exact.TryGetValue(p.PartNumber + "\u001e" + p.Key, out var same)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Exact duplicate of {At(same)}."])); continue; }
             exact[p.PartNumber + "\u001e" + p.Key] = p.Row;
             var repeatOf = firstOf.TryGetValue(p.PartNumber, out var fr) ? fr : (int?)null;
             firstOf.TryAdd(p.PartNumber, p.Row);
-            // an existing part with this part number: the one with the same Position, or the only one when the file has not used the number yet
-            var candidates = existing.GetValueOrDefault(p.PartNumber)?.Where(x => !claimed.Contains(x.Id)).ToList() ?? [];
-            var match = candidates.FirstOrDefault(x => string.Equals(Pos(x), p.Position ?? "", StringComparison.OrdinalIgnoreCase))
-                ?? (repeatOf is null && existing.GetValueOrDefault(p.PartNumber)?.Count == 1 ? candidates.FirstOrDefault() : null);
-            // or the one existing part that has another number of this row
-            var hits = (p.Numbers ?? []).Where(n => inFile.GetValueOrDefault(n) == 1 && byNumber.ContainsKey(n)).Select(n => byNumber[n])
-                .Concat(match is null ? [] : [match]).DistinctBy(x => x.Id).ToList();
-            // when updating, one part with exactly this part number and Position wins over other numbers of the row (for example a NAPA PN that is also the NAPA part's own number)
-            if (r.UpdateExisting && hits.Count > 1 && existing.GetValueOrDefault(p.PartNumber)?.Where(x => string.Equals(Pos(x), p.Position ?? "", StringComparison.OrdinalIgnoreCase)).ToList() is [var only] && !claimed.Contains(only.Id))
-                hits = [only];
-            if (hits.Count > 1) { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, [$"Matches more than one part in the Part Master: {string.Join(", ", hits.Select(x => x.PartNumber))}."])); continue; }
-            if (hits.Count == 1 && claimed.Contains(hits[0].Id)) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Matches the same part as an earlier row ({hits[0].PartNumber})."])); continue; }
-            match = hits.FirstOrDefault();
+            // the customer part number, inside this customer, product line and site. Position separates allowed repeats. A shared drawing is not a match.
+            var candidates = all.Where(x => InScope(x, p) && !claimed.Contains(x.Id) && string.Equals(x.PartNumber.Trim(), p.PartNumber.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            var samePos = candidates.Where(x => string.Equals(Pos(x).Trim(), (p.Position ?? "").Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (samePos.Count > 1)
+            {
+                rows.Add(new(p.Row, "Held", p.PartNumber, p.Name, [$"More than one {scope.Customer} part has this part number and position ({string.Join(", ", samePos.Select(x => x.PartNumber))}). The row was not imported."]));
+                continue;
+            }
+            var match = samePos.Count == 1 ? samePos[0] : candidates.Count == 1 && repeatOf is null ? candidates[0] : null;
+            if (candidates.Count > 1 && match is null)
+            {
+                if (!r.KeepRepeats) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Same Part number as a part already in {scope.Customer} with a different position. Turn on \"Keep rows that repeat a Part number but differ\" to add it as its own part."])); continue; }
+            }
             if (match is not null)
             {
                 claimed.Add(match.Id);
-                if (!r.UpdateExisting) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, ["Already in the Part Master."]));
-                else if (!await m.CanAsync(Permissions.MasterDataEdit, match.SiteId, match.DepartmentId, ct) || !await m.CanAsync(Permissions.SequflohEditParts, match.SiteId, match.DepartmentId, ct))
-                    rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, ["You cannot edit this existing part."]));
-                else
+                if (!r.UpdateExisting) { rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, ["Already in the Part Master."])); continue; }
+                if (!await m.CanAsync(Permissions.MasterDataEdit, match.SiteId, match.DepartmentId, ct) || !await m.CanAsync(Permissions.SequflohEditParts, match.SiteId, match.DepartmentId, ct))
+                { rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, ["You cannot edit this existing part."])); continue; }
+                var savedDrawing = (match.DrawingNumber ?? "").Trim();
+                var incomingDrawing = (p.Drawing ?? "").Trim();
+                if (savedDrawing.Length > 0 && incomingDrawing.Length > 0 && !string.Equals(savedDrawing, incomingDrawing, StringComparison.OrdinalIgnoreCase))
                 {
-                    var msgs = PartFields.IsBlank(match.PartNumber) ? new List<string> { $"Part number \"{match.PartNumber}\" becomes {p.PartNumber}." }
-                        : !string.Equals(match.PartNumber, p.PartNumber, StringComparison.OrdinalIgnoreCase) ? [$"Part number stays {match.PartNumber} (the file has {p.PartNumber})."] : [];
-                    if (Sequfloh.Drawings.DrawingRevisionRules.Conflict(match.DrawingRevision, p.DrawingRevision) is { } revConflict)
-                    {
-                        rows.Add(new(p.Row, "Error", p.PartNumber, p.Name, [revConflict]));
-                        continue;
-                    }
-                    msgs.AddRange(KeptNumbers(match, p.Drawing, p.Attrs));
-                    if (p.TypeId is { } ft && HasFamily(match) && match.TypeId != ft) msgs.Add($"Family kept: {match.ProductFamily} (file says {p.Family}).");
-                    if (!PartFields.IsBlank(p.DrawingRevision) && PartFields.IsBlank(match.DrawingRevision)) msgs.Add($"Drawing revision set to {p.DrawingRevision} from the Part Master file.");
-                    rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, msgs)); targets[p.Row] = match;
+                    rows.Add(new(p.Row, "Held", p.PartNumber, p.Name, [$"Held {p.PartNumber}: saved drawing {savedDrawing}; file says {incomingDrawing}. Existing part and links unchanged."], Saved: savedDrawing, Incoming: incomingDrawing));
+                    continue;
                 }
+                if (Sequfloh.Drawings.DrawingRevisionRules.Conflict(match.DrawingRevision, p.DrawingRevision) is { } revConflict)
+                {
+                    rows.Add(new(p.Row, "Held", p.PartNumber, p.Name, [revConflict + " Existing part and links unchanged."], Saved: match.DrawingRevision, Incoming: p.DrawingRevision));
+                    continue;
+                }
+                var msgs = new List<string>();
+                msgs.AddRange(KeptNumbers(match, null, p.Attrs));
+                if (!PartFields.IsBlank(p.DrawingRevision) && PartFields.IsBlank(match.DrawingRevision)) msgs.Add($"Drawing revision set to {p.DrawingRevision}.");
+                if (!WouldChange(match, p)) { rows.Add(new(p.Row, "Unchanged", p.PartNumber, p.Name, ["Already matches the file. Nothing was changed."])); continue; }
+                rows.Add(new(p.Row, "Update", p.PartNumber, p.Name, msgs)); targets[p.Row] = match;
                 continue;
             }
-            var used = repeatOf is not null || existing.ContainsKey(p.PartNumber);
+            var used = repeatOf is not null || candidates.Count > 0;
             if (!used) { rows.Add(new(p.Row, "Add", p.PartNumber, p.Name, [])); continue; }
             var where = repeatOf is { } rr ? At(rr) : "a part already in the Part Master";
             if (!r.KeepRepeats) rows.Add(new(p.Row, "Skip", p.PartNumber, p.Name, [$"Same Part number as {where} with different values. Turn on \"Keep rows that repeat a Part number but differ\" to add it as its own part."]));
@@ -494,11 +554,15 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var target = targets.GetValueOrDefault(row.Row);
             if (target is not null && !string.IsNullOrEmpty(target.Upc))
             {
-                if (target.UpcKey != k) rows[i] = row with { Messages = [.. row.Messages, $"UPC / Barcode stays {target.Upc} (the file has {u})."] };
+                if (target.UpcKey != k)
+                {
+                    rows[i] = row with { Action = "Held", Messages = [$"Held {row.PartNumber}: saved UPC / Barcode {target.Upc}; file says {u}. Existing part and links unchanged."], Saved = target.Upc, Incoming = u };
+                    targets.Remove(row.Row);
+                }
                 continue;
             }
-            if (byUpc.TryGetValue(k, out var owner) && owner.Id != target?.Id) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is already on part {owner.PartNumber}."] }; targets.Remove(row.Row); continue; }
-            if (upcRow.TryGetValue(k, out var first)) { rows[i] = row with { Action = "Error", Messages = [$"UPC / Barcode {u} is also on {At(first)}. A barcode can be on one part only."] }; targets.Remove(row.Row); continue; }
+            if (byUpc.TryGetValue(k, out var owner) && owner.Id != target?.Id) { rows[i] = row with { Action = "Held", Messages = [$"Held {row.PartNumber}: UPC / Barcode {u} is already on part {owner.PartNumber}. The row was not imported."] }; targets.Remove(row.Row); continue; }
+            if (upcRow.TryGetValue(k, out var first)) { rows[i] = row with { Action = "Held", Messages = [$"Held {row.PartNumber}: UPC / Barcode {u} is also on {At(first)}. A barcode can be on one part only. The row was not imported."] }; targets.Remove(row.Row); continue; }
             upcRow[k] = row.Row;
         }
         // a supplier LINYI PN is not a match key; one already on another part or repeated in the file is pointed out for a check, not refused
@@ -515,15 +579,43 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             if (linyiRow.TryGetValue(v, out var first)) rows[i] = row with { Messages = [.. row.Messages, $"LINYI PN {v} is also on {At(first)}. Check this is right."] };
             else linyiRow[v] = row.Row;
         }
-        return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error")), parsed, targets);
+        return (new PartsImportPlan(rows, rows.Count(x => x.Action == "Add"), rows.Count(x => x.Action == "Update"), rows.Count(x => x.Action == "Skip"), rows.Count(x => x.Action == "Error"), Held: rows.Count(x => x.Action == "Held"), Unchanged: rows.Count(x => x.Action == "Unchanged")), parsed, targets);
+    }
+
+    /// <summary>True when applying the row would change a stored field. Blank incoming values do not count.</summary>
+    static bool WouldChange(Part p, Parsed row)
+    {
+        var copy = new Part
+        {
+            Name = p.Name, Description = p.Description, UnitOfMeasure = p.UnitOfMeasure, PartClass = p.PartClass, IsAssembly = p.IsAssembly,
+            Material = p.Material, DrawingNumber = p.DrawingNumber, DrawingRevision = p.DrawingRevision, Specification = p.Specification,
+            Upc = p.Upc, UpcKey = p.UpcKey, IsRepairable = p.IsRepairable, IsRepairPart = p.IsRepairPart, LotControl = p.LotControl,
+            IsLotControlled = p.IsLotControlled, TypeId = p.TypeId, ProductFamily = p.ProductFamily, Attributes = p.Attributes,
+            HiddenFields = p.HiddenFields, PartNumber = p.PartNumber, CustomerId = p.CustomerId,
+        };
+        row.Apply(copy);
+        return copy.Name != p.Name || copy.Description != p.Description || copy.UnitOfMeasure != p.UnitOfMeasure || copy.PartClass != p.PartClass
+            || copy.IsAssembly != p.IsAssembly || copy.Material != p.Material || copy.DrawingNumber != p.DrawingNumber || copy.DrawingRevision != p.DrawingRevision
+            || copy.Specification != p.Specification || copy.Upc != p.Upc || copy.IsRepairable != p.IsRepairable || copy.IsRepairPart != p.IsRepairPart
+            || copy.LotControl != p.LotControl || copy.TypeId != p.TypeId || !SameAttrs(copy.Attributes, p.Attributes);
+    }
+
+    static bool SameAttrs(string? a, string? b)
+    {
+        var left = PartAttributes.Read(a);
+        var right = PartAttributes.Read(b);
+        return left.Count == right.Count && left.All(kv => right.TryGetValue(kv.Key, out var v) && v == kv.Value);
     }
 
     public async Task<PartsImportPlan> ImportAsync(PartsImportRequest r, CancellationToken ct)
     {
-        var (plan, parsed, targets) = await PlanAsync(r, ct);
-        if (plan.Add + plan.Update == 0) throw new AppException("There is nothing to import.");
+        var scope = await RequireScopeAsync(r, ct);
         var today = await m.TodayAsync(r.SiteId, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var lockKey = $"{r.SiteId:N}|{r.CustomerId:N}|{r.DefaultTypeId:N}";
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))", ct);
+        var (plan, parsed, targets) = await PlanAsync(r, ct);
+        if (plan.Add + plan.Update == 0 && plan.Unchanged == 0) throw new AppException(plan.Held > 0 ? "Nothing was imported. Every row was skipped or held for review." : "There is nothing to import.");
         var byRow = parsed.ToDictionary(p => p.Row);
         var saved = new List<Guid>();
         foreach (var row in plan.Rows)
@@ -531,7 +623,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             var p = byRow[row.Row];
             if (row.Action == "Add")
             {
-                var part = new Part { PartNumber = p.PartNumber!, Name = p.Name!, UnitOfMeasure = "Each", SiteId = r.SiteId, Status = MasterStatus.Active, PartType = PartType.Component };
+                var part = new Part { PartNumber = p.PartNumber!, Name = p.Name!, UnitOfMeasure = "Each", SiteId = r.SiteId, Status = MasterStatus.Active, PartType = PartType.Component, CustomerId = r.CustomerId };
                 part.Revision = p.Revision ?? "A"; // on an update the revision is changed only through Revise
                 p.Apply(part);
                 db.Parts.Add(part);
@@ -555,16 +647,29 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             }
         }
         var file = Path.GetFileName(r.FileName);
+        var heldNotes = plan.Rows.Where(x => x.Action == "Held").Take(20).Select(x => $"{x.PartNumber}: {string.Join(" ", x.Messages)}").ToList();
+        var families = plan.Rows.Where(x => x.Action is "Add" or "Update" or "Unchanged").Select(x => byRow.GetValueOrDefault(x.Row)?.Family).Where(f => !string.IsNullOrWhiteSpace(f)).Distinct().ToList();
+        var line = scope.Line ?? (r.Tabs is { } tabs ? string.Join(", ", tabs.Select(t => t.Family).Distinct()) : families.Count > 0 ? string.Join(", ", families) : "the selected product lines");
         db.AuditEntries.Add(new AuditEntry
         {
             OccurredAt = m.Now, UserId = m.UserId, UserName = m.Current.UserName, Action = "Import", EntityType = "PartsImport", EntityId = Guid.NewGuid(), SiteId = r.SiteId,
-            Description = $"Imported parts from {file}: {plan.Add} added, {plan.Update} updated, {plan.Skip} skipped, {plan.Errors} with errors ({(r.UpdateExisting ? r.Tabs is null ? "update existing" : "fill blanks of existing" : "skip existing")})."
+            Description = $"Imported {scope.Customer} / {line} from {file}: {plan.Add} added, {plan.Update} updated, {plan.Unchanged} unchanged, {plan.Held} held, {plan.Skip} skipped, {plan.Errors} with errors. Existing part IDs and links were kept."
+                + (heldNotes.Count > 0 ? " Held: " + string.Join(" ", heldNotes) : "")
                 + (r.Tabs is { } tl ? $" Tabs: {string.Join(", ", tl.Select(t => $"{t.Name} ({t.Family})"))}." + (r.SkippedTabs is { Count: > 0 } st ? $" Skipped: {string.Join(" ", st)}" : "") : ""),
         });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        await drawingLinks.LinkPartsAsync(saved, ct); // drawings already named with a new or changed number link to these parts
-        return Present(r, plan);
+        string? linkFailure = null;
+        try
+        {
+            if (LinkFault is { } fault) { LinkFault = null; throw fault; }
+            await drawingLinks.LinkPartsAsync(saved, ct); // drawings already named with a number link to these parts; links are only added
+        }
+        catch (Exception ex) when (ex is not AppException and not ForbiddenException)
+        {
+            linkFailure = "Drawing links were not completed. The parts were saved and were not created again. Try the links again.";
+        }
+        return Present(r, plan with { LinkFailure = linkFailure, SavedPartIds = saved });
     }
 
     // ------------------------------------------------------------------ every tab of a workbook

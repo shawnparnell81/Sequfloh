@@ -68,7 +68,7 @@ public sealed class PartsImportTests(TestApp app)
         // the same file again: each part is matched by OR # and Position
         var again = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true, true))).JsonAsync();
         Assert.Equal(0, again.GetProperty("add").GetInt32());
-        Assert.Equal(4, again.GetProperty("update").GetInt32());
+        Assert.Equal(4, again.GetProperty("unchanged").GetInt32());
         var skip = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, false, true))).JsonAsync();
         Assert.Equal(0, skip.GetProperty("add").GetInt32());
     }
@@ -94,25 +94,25 @@ public sealed class PartsImportTests(TestApp app)
         map.Remove("attr:dmaPn"); map["partNumber"] = 0;
         var req = new { fileName = "pumps2.csv", headers = t2.GetProperty("headers"), rows = t2.GetProperty("rows"), mapping = map, siteId = site, updateExisting = true, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Injector" } };
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", req)).JsonAsync();
-        Assert.Equal(["Update", "Update", "Update", "Update"], plan.GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("action").GetString()).ToList());
-        await eng.PostOkAsync("/api/sequfloh/parts/import", req);
+        // the part number is the DMA PN here, which is not the customer part number already saved, so these are new parts
+        Assert.Equal(["Add", "Add", "Add", "Add"], plan.GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("action").GetString()).ToList());
+
+        // the same customer part numbers again do not add duplicates
+        var same = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true))).JsonAsync();
+        Assert.Equal(0, same.GetProperty("add").GetInt32());
+        Assert.Equal(4, same.GetProperty("unchanged").GetInt32());
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var parts = await db.Parts.AsNoTracking().Where(p => p.SiteId == site).ToListAsync();
         Assert.Equal(4, parts.Count);
         Assert.DoesNotContain(parts, p => p.PartNumber == "/");
-        Assert.All(parts, p => Assert.Equal("Fuel Injector", p.Name));
 
-        // a row whose numbers belong to two different parts is an error, not a guess
+        // another customer's number on the row does not pull in a second part
         var mixed = $"OR PN,NAPA PN\nOR{k}1,NP{k}3\n";
         var t3 = await Read(eng, "mixed.csv", Encoding.UTF8.GetBytes(mixed));
-        var bad = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t3, site, false))).JsonAsync();
-        Assert.Equal("Error", bad.GetProperty("rows")[0].GetProperty("action").GetString());
-        Assert.Contains("more than one part", bad.GetProperty("rows")[0].GetProperty("messages")[0].GetString());
-        // when updating, the one part with exactly the row's part number is the one updated
-        var upd = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t3, site, true))).JsonAsync();
-        Assert.Equal("Update", upd.GetProperty("rows")[0].GetProperty("action").GetString());
+        var one = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t3, site, true))).JsonAsync();
+        Assert.Equal("Update", one.GetProperty("rows")[0].GetProperty("action").GetString());
     }
 
     [Fact]
@@ -122,12 +122,14 @@ public sealed class PartsImportTests(TestApp app)
         var (_, eng) = await app.CreateUserAsync(Editor, site);
         var k = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
         // parts an earlier import left numbered "/", told apart only by their NAPA PN
+        var customer = (await eng.GetElAsync("/api/sequfloh/reference/customers")).EnumerateArray().First(x => x.Str("label") == "O'Reilly").Id();
+        var line = (await eng.GetElAsync("/api/sequfloh/reference/product-families")).EnumerateArray().First(x => x.Str("label") == "Fuel Pump").Id();
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             foreach (var (pn, napa) in new[] { ($"OR{k}1", "/"), ("/", $"NP{k}2"), ("/", $"NP{k}3") })
             {
-                var p = new Sequfloh.Domain.MasterData.Part { PartNumber = pn, Name = "Fuel Pump", Revision = "A", UnitOfMeasure = "Each", SiteId = site };
+                var p = new Sequfloh.Domain.MasterData.Part { PartNumber = pn, Name = "Fuel Pump", Revision = "A", UnitOfMeasure = "Each", SiteId = site, CustomerId = customer, TypeId = line, ProductFamily = "Fuel Pump" };
                 Sequfloh.Infrastructure.Modules.Execution.PartAttributes.Write(p, new Dictionary<string, string?> { ["napaPn"] = napa });
                 db.Parts.Add(p);
             }
@@ -136,14 +138,10 @@ public sealed class PartsImportTests(TestApp app)
         var csv = $"OR PN,NAPA PN\nOR{k}1,/\n/,NP{k}2\n/,NP{k}3\n";
         var t = await Read(eng, "pumps.csv", Encoding.UTF8.GetBytes(csv));
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, true, true))).JsonAsync();
-        Assert.Equal(3, plan.GetProperty("update").GetInt32());
-        Assert.Contains($"becomes NP{k}2", plan.GetProperty("rows")[1].GetProperty("messages")[0].GetString());
-        await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, true, true));
-
-        using var scope2 = app.Services.CreateScope();
-        var db2 = scope2.ServiceProvider.GetRequiredService<AppDbContext>();
-        var numbers = await db2.Parts.AsNoTracking().Where(p => p.SiteId == site).Select(p => p.PartNumber).OrderBy(x => x).ToListAsync();
-        Assert.Equal(new[] { $"NP{k}2", $"NP{k}3", $"OR{k}1" }, numbers);
+        // a placeholder part number is not chosen because another column matches; the real numbers are new parts
+        Assert.Equal("Update", plan.GetProperty("rows")[0].GetProperty("action").GetString());
+        Assert.Equal("Add", plan.GetProperty("rows")[1].GetProperty("action").GetString());
+        Assert.Equal("Add", plan.GetProperty("rows")[2].GetProperty("action").GetString());
     }
 
     public static byte[] Docx(params string[][][] tables)
@@ -175,7 +173,9 @@ public sealed class PartsImportTests(TestApp app)
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            db.Parts.Add(new Sequfloh.Domain.MasterData.Part { PartNumber = $"IMP-{k}-1", Name = "Old name", Revision = "A", UnitOfMeasure = "EA", SiteId = site });
+            var customer = db.SequflohReferenceValues.Single(v => v.ListKey == "customers" && v.Label == "O'Reilly").Id;
+            var line = db.SequflohReferenceValues.Single(v => v.ListKey == "product-families" && v.Label == "Struts").Id;
+            db.Parts.Add(new Sequfloh.Domain.MasterData.Part { PartNumber = $"IMP-{k}-1", Name = "Old name", Revision = "A", UnitOfMeasure = "EA", SiteId = site, CustomerId = customer, TypeId = line, ProductFamily = "Struts" });
             await db.SaveChangesAsync();
         }
         var csv = $"Item Number,Description,Rev,Category,Repairable,Serial Number\nIMP-{k}-1,Example bracket,A,Struts,yes,S1\nIMP-{k}-2,Example screw M4,B,gas lift,no,S2\nIMP-{k}-2,Example screw again,B,gas lift,no,S3\n,No number,A,gas lift,no,\nIMP-{k}-3,Example nut,A,gas lift,maybe,\n";
@@ -211,7 +211,7 @@ public sealed class PartsImportTests(TestApp app)
             Assert.Equal("Example bracket", parts[0].Description); Assert.True(parts[0].IsRepairable); Assert.Equal("Struts", parts[0].ProductFamily); Assert.NotNull(parts[0].TypeId);
             Assert.Equal("Fuel Pump", parts[1].Name); Assert.False(parts[1].IsRepairable);
             var audit = await db.AuditEntries.AsNoTracking().Where(a => a.EntityType == "PartsImport" && a.SiteId == site).SingleAsync();
-            Assert.Contains("parts.csv: 1 added, 1 updated, 2 skipped, 1 with errors", audit.Description);
+            Assert.Contains("Imported O'Reilly / Struts, Gas Lift from parts.csv: 1 added, 1 updated, 0 unchanged, 0 held, 2 skipped, 1 with errors", audit.Description);
         }
     }
 
@@ -263,7 +263,9 @@ public sealed class PartsImportTests(TestApp app)
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             foreach (var (pn, napa) in new[] { ($"OR{k}1", $"NP{k}1"), ($"NP{k}2", $"NP{k}2"), ($"NP{k}3", $"NP{k}3") })
             {
-                var p = new Sequfloh.Domain.MasterData.Part { PartNumber = pn, Name = "Fuel Pump", Revision = "A", UnitOfMeasure = "EA", SiteId = site };
+                var customer = db.SequflohReferenceValues.Single(v => v.ListKey == "customers" && v.Label == "O'Reilly").Id;
+                var line = db.SequflohReferenceValues.Single(v => v.ListKey == "product-families" && v.Label == "Fuel Pump").Id;
+                var p = new Sequfloh.Domain.MasterData.Part { PartNumber = pn, Name = "Fuel Pump", Revision = "A", UnitOfMeasure = "EA", SiteId = site, CustomerId = customer, TypeId = line, ProductFamily = "Fuel Pump" };
                 Sequfloh.Infrastructure.Modules.Execution.PartAttributes.Write(p, new Dictionary<string, string?> { ["napaPn"] = napa, ["dmaPn"] = $"DM{pn}" });
                 db.Parts.Add(p);
             }
@@ -322,8 +324,8 @@ public sealed class PartsImportTests(TestApp app)
         // import without Part number, then update: existing parts keep their part numbers
         await eng.PostOkAsync("/api/sequfloh/parts/import", Req(removed));
         var upd = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Req(removed, true))).JsonAsync();
-        Assert.Equal(2, upd.GetProperty("update").GetInt32());
-        Assert.Equal($"Update:OR{k}1:|Update:NP{k}2:", Rows(upd));
+        Assert.Equal(2, upd.GetProperty("unchanged").GetInt32());
+        Assert.Equal($"Unchanged:OR{k}1:Already matches the file. Nothing was changed.|Unchanged:NP{k}2:Already matches the file. Nothing was changed.", Rows(upd));
 
         // a layout with Part number removed saves and reads back as is
         var layout = new { name = $"No part number {k}", layout = new { headerRow = 1, headers = new[] { "Part Number", "OR PN", "NAPA PN" },

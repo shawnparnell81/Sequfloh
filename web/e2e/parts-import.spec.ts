@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { chooseImportScope, settledShot, signIn, view } from './support';
 
 /** Part Master bulk import: read a synthetic CSV, check the mapping, preview Add / Update / Skip / Error, then import. */
 test('parts import: mapping, preview and confirm', async ({ page }) => {
@@ -19,6 +19,7 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await page.goto('/sequfloh/parts');
   await view(page).getByRole('button', { name: 'Import parts' }).click();
   const dlg = page.getByRole('dialog');
+  await chooseImportScope(page, 'Gas Lift');
   await dlg.getByTestId('import-file').setInputFiles({ name: 'example-parts.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await dlg.getByRole('button', { name: 'Read file' }).click();
   await expect(dlg.getByText('7 rows found')).toBeVisible();
@@ -36,12 +37,14 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await expect(dlg.getByText('Repairable must be Yes or No.')).toBeVisible();
   await shot('02-preview');
   await dlg.getByRole('button', { name: 'Import 4 parts' }).click();
-  await expect(dlg.getByTestId('import-done')).toContainText('4 added, 0 updated, 2 skipped, 1 row with errors not imported');
+  await expect(dlg.getByTestId('import-done')).toContainText('4 added');
+  await expect(dlg.getByTestId('import-done')).toContainText('2 skipped');
   await shot('03-imported');
   await dlg.getByRole('button', { name: 'Close' }).click();
 
   // the same file again: existing parts are skipped by default, or updated when chosen
   await view(page).getByRole('button', { name: 'Import parts' }).click();
+  await chooseImportScope(page, 'Gas Lift');
   await dlg.getByTestId('import-file').setInputFiles({ name: 'example-parts.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await dlg.getByRole('button', { name: 'Read file' }).click();
   await dlg.getByRole('combobox', { name: /^Name/ }).click();
@@ -49,7 +52,7 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await dlg.getByRole('button', { name: 'Preview' }).click();
   await expect(counts).toContainText('Add 0'); await expect(counts).toContainText('Skip 6');
   await dlg.getByLabel('Update existing').check();
-  await expect(counts).toContainText('Update 4');
+  await expect(counts).toContainText('Unchanged 4');
   await shot('04-update-existing');
   // keeping the repeated Part number row adds it as its own part with the same number
   await dlg.getByLabel('Skip existing').check();
@@ -64,6 +67,6 @@ test('parts import: mapping, preview and confirm', async ({ page }) => {
   await expect(view(page).getByText(`EX-${k}-02`)).toBeVisible();
   await expect(view(page).getByText(`EX-${k}-01`)).toHaveCount(0);
   await page.goto('/admin/audit-trail');
-  await expect(view(page).getByText(/Imported parts from example-parts.csv: 4 added/).first()).toBeVisible();
+  await expect(view(page).getByText(/Imported .* from example-parts.csv: 4 added/).first()).toBeVisible();
   await shot('05-audit-entry');
 });

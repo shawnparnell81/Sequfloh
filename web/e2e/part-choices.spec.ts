@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { choosePartName, choosePartType, settledShot, signIn, view } from './support';
+import { chooseImportScope, choosePartName, choosePartType, settledShot, signIn, view } from './support';
 
 /** Part form and Parts import offer set choices for Name, Product family, Part class, Unit of measure, Assembly, Lot controlled and Repairable. Synthetic data only. */
 test('part choices: form dropdowns and import "same for all rows" or "from file column"', async ({ page }) => {
@@ -74,6 +74,7 @@ test('part choices: form dropdowns and import "same for all rows" or "from file 
   await page.getByRole('option', { name: 'Yes', exact: true }).click();
   await expect(imp.locator('input[data-field="unitOfMeasure"]')).toHaveValue('col:2');
   await expect(imp.locator('input[data-field="isLotControlled"]')).toHaveValue('col:3');
+  await chooseImportScope(page, 'Complete Strut Assembly (CSA)');
   await shot('05-import-mapping');
   await imp.getByRole('button', { name: 'Preview' }).click();
   const counts = imp.getByTestId('import-counts');
@@ -84,6 +85,6 @@ test('part choices: form dropdowns and import "same for all rows" or "from file 
   await expect(imp.getByTestId('import-done')).toContainText('2 added');
   await imp.getByRole('button', { name: 'Close' }).click();
   await page.goto(`/sequfloh/parts?view=assemblies&q=PC-${k}`);
-  await expect(view(page).getByText(`PC-${k}-2`)).toBeVisible();
-  await expect(view(page).getByText(`PC-${k}-3`)).toBeVisible();
+  await expect(view(page).locator('span').filter({ hasText: new RegExp(`^PC-${k}-2$`) })).toBeVisible();
+  await expect(view(page).locator('span').filter({ hasText: new RegExp(`^PC-${k}-3$`) })).toBeVisible();
 });

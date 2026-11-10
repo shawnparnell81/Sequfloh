@@ -104,6 +104,13 @@ public sealed class UpcTests(TestApp app)
         var kept = NewUpc(); var filled = NewUpc(); var fresh = NewUpc(); var ignored = NewUpc();
         var withUpc = (await (await eng.PostOkAsync($"{A}/parts", Part($"IK-{tag}", site, kept))).JsonAsync()).Id();
         var blank = (await (await eng.PostOkAsync($"{A}/parts", Part($"IB-{tag}", site))).JsonAsync()).Id();
+        var customer = (await eng.GetElAsync($"{A}/reference/customers")).EnumerateArray().First(x => x.Str("label") == "O'Reilly").Id();
+        var line = (await eng.GetElAsync($"{A}/reference/product-families")).EnumerateArray().First(x => x.Str("label") == "Fuel Pump").Id();
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Parts.Where(p => p.Id == withUpc || p.Id == blank).ExecuteUpdateAsync(s => s.SetProperty(p => p.CustomerId, customer).SetProperty(p => p.TypeId, line).SetProperty(p => p.ProductFamily, "Fuel Pump"));
+        }
         var csv = $"Part number,UPC\nIK-{tag},{ignored}\nIB-{tag},{filled}\nIN-{tag},{fresh}\nIT-{tag},{kept}\nIU-{tag},{fresh}\n";
         var form = new MultipartFormDataContent(); var file = new ByteArrayContent(Encoding.UTF8.GetBytes(csv));
         file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream"); form.Add(file, "file", "p.csv");
@@ -112,10 +119,11 @@ public sealed class UpcTests(TestApp app)
         var req = new { fileName = "p.csv", headers = t.GetProperty("headers"), rows = t.GetProperty("rows"), mapping = t.GetProperty("mapping"), siteId = site, updateExisting = true, keepRepeats = false, @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump" } };
         var plan = await (await eng.PostOkAsync($"{A}/parts/import", req)).JsonAsync();
         var rows = plan.GetProperty("rows").EnumerateArray().ToDictionary(x => x.GetProperty("row").GetInt32());
-        Assert.Contains(rows[1].GetProperty("messages").EnumerateArray(), m => m.GetString() == $"UPC / Barcode stays {kept} (the file has {ignored}).");
-        Assert.Equal("Error", rows[4].GetProperty("action").GetString());
+        Assert.Equal("Held", rows[1].GetProperty("action").GetString());
+        Assert.Contains(kept, rows[1].GetProperty("messages")[0].GetString());
+        Assert.Equal("Held", rows[4].GetProperty("action").GetString());
         Assert.Contains($"IK-{tag}", rows[4].GetProperty("messages")[0].GetString());
-        Assert.Equal("Error", rows[5].GetProperty("action").GetString());
+        Assert.Equal("Held", rows[5].GetProperty("action").GetString());
         async Task<string?> UpcOf(Guid id) => (await eng.GetElAsync($"{A}/parts/{id}")).GetProperty("part").GetProperty("upc").GetString();
         Assert.Equal(kept, await UpcOf(withUpc));
         Assert.Equal(filled, await UpcOf(blank));

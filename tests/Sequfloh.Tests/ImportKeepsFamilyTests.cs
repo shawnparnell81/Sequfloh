@@ -56,23 +56,18 @@ public sealed class ImportKeepsFamilyTests(TestApp app)
         var second = await Read(eng, $"OR #,Description\nKF-{k}-1,Example front strut updated\nKF-{k}-2,Example new spring\n");
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(second, site, coil))).JsonAsync();
         var rows = plan.GetProperty("rows").EnumerateArray().ToList();
-        Assert.Equal("Update", rows[0].Str("action"));
-        Assert.Contains("Family kept: Struts (file says Coil Spring).", rows[0].GetProperty("messages").EnumerateArray().Select(m => m.GetString()));
+        // a different product line does not update the part that already belongs to Struts
+        Assert.Equal("Add", rows[0].Str("action"));
         Assert.Equal("Add", rows[1].Str("action"));
-        Assert.Empty(rows[1].GetProperty("messages").EnumerateArray());
         await eng.PostOkAsync("/api/sequfloh/parts/import", Request(second, site, coil));
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var parts = await db.Parts.AsNoTracking().Where(p => p.PartNumber.StartsWith($"KF-{k}")).ToDictionaryAsync(p => p.PartNumber);
-        var kept = parts[$"KF-{k}-1"];
-        Assert.Equal(struts, kept.TypeId);
+        var kept = await db.Parts.AsNoTracking().SingleAsync(p => p.PartNumber == $"KF-{k}-1" && p.TypeId == struts);
         Assert.Equal("Struts", kept.ProductFamily);
         Assert.Equal(upc, kept.Upc);
-        Assert.Equal("Example front strut updated", kept.Description);
-        Assert.Equal(coil, parts[$"KF-{k}-2"].TypeId); // a new part takes the file's family
-        var audit = await db.AuditEntries.AsNoTracking().Where(a => a.EntityId == kept.Id && a.Action == "Import").OrderByDescending(a => a.OccurredAt).FirstAsync();
-        Assert.Contains("Family kept: Struts (file says Coil Spring).", audit.Description);
+        Assert.Equal("Example front strut", kept.Description);
+        Assert.Equal(coil, await db.Parts.AsNoTracking().Where(p => p.PartNumber == $"KF-{k}-2").Select(p => p.TypeId).SingleAsync());
     }
 
     [Fact]
@@ -90,10 +85,13 @@ public sealed class ImportKeepsFamilyTests(TestApp app)
         }
         var t = await Read(eng, $"OR #,Description\nNF-{k},Example strut\n");
         var plan = await (await eng.PostOkAsync("/api/sequfloh/parts/import/preview", Request(t, site, fams["Struts"]))).JsonAsync();
-        Assert.Empty(plan.GetProperty("rows")[0].GetProperty("messages").EnumerateArray());
+        Assert.Equal("Add", plan.GetProperty("rows")[0].Str("action"));
         await eng.PostOkAsync("/api/sequfloh/parts/import", Request(t, site, fams["Struts"]));
         using var s2 = app.Services.CreateScope();
-        var part = await s2.ServiceProvider.GetRequiredService<AppDbContext>().Parts.AsNoTracking().SingleAsync(p => p.PartNumber == $"NF-{k}");
-        Assert.Equal(fams["Struts"], part.TypeId);
+        var db2 = s2.ServiceProvider.GetRequiredService<AppDbContext>();
+        var untouched = await db2.Parts.AsNoTracking().SingleAsync(p => p.PartNumber == $"NF-{k}" && p.CustomerId == null);
+        Assert.Null(untouched.TypeId);
+        var imported = await db2.Parts.AsNoTracking().SingleAsync(p => p.PartNumber == $"NF-{k}" && p.CustomerId != null);
+        Assert.Equal(fams["Struts"], imported.TypeId);
     }
 }

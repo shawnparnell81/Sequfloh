@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { chooseImportScope, settledShot, signIn, view } from './support';
 
 /** Part Master home: search, one card per product family with counts, and a family's parts list with its own import. */
 test('parts home: search, family cards and fuel pump import', async ({ page }) => {
@@ -32,6 +32,7 @@ test('parts home: search, family cards and fuel pump import', async ({ page }) =
   await dlg.getByRole('button', { name: 'Read file' }).click();
   await expect(dlg.locator('input[data-field="name"]')).toHaveValue('fix:Fuel Pump');
   await expect(dlg.locator('input[data-field="typeName"]')).toHaveValue('fix:Fuel Pump');
+  await chooseImportScope(page, 'Fuel Pump');
   await dlg.getByRole('button', { name: 'Preview' }).click();
   await expect(dlg.getByTestId('import-counts')).toContainText('Add 3');
   await dlg.getByRole('button', { name: 'Import 3 parts' }).click();
@@ -40,7 +41,7 @@ test('parts home: search, family cards and fuel pump import', async ({ page }) =
 
   // the family list keeps filters, Columns and Export CSV
   await v.getByLabel('Search').first().fill(`FP-${k}`); await v.getByLabel('Search').first().press('Enter');
-  await expect(v.getByText(`FP-${k}-3`)).toBeVisible();
+  await expect(v.locator('span').filter({ hasText: new RegExp(`^FP-${k}-3$`) })).toBeVisible();
   await expect(v.getByRole('button', { name: 'Columns' })).toBeVisible();
   await expect(v.getByRole('button', { name: 'Export CSV' })).toBeVisible();
   await shot('11-family-parts-list');
