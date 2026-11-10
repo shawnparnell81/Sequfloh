@@ -50,6 +50,10 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public string? Specification { get; set; }
     /// <summary>Part type from the admin-managed part types list (for example Fuel Pump or Strut). Empty on parts added before part types existed.</summary>
     public Guid? TypeId { get; set; }
+    /// <summary>Customer from the Customers list. Null means the part is unassigned. Existing parts stay null until an administrator confirms an assignment.</summary>
+    public Guid? CustomerId { get; set; }
+    /// <summary>Trimmed lower-case part number, stored for lookup. Not unique: legacy repeats stay.</summary>
+    public string PartNumberKey { get; set; } = "";
     /// <summary>Cross-reference numbers and other attributes as JSON, keyed by the definitions in PartAttributes.</summary>
     public string? Attributes { get; set; }
     /// <summary>Fields marked Not applicable on this part, comma-separated keys (see PartFields). They are hidden on the part screen; their values are kept.</summary>

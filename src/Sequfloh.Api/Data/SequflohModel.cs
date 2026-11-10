@@ -466,8 +466,13 @@ public partial class AppDbContext
             e.Property(x => x.Specification).HasMaxLength(200);
             e.Property(x => x.Attributes).HasColumnType("jsonb");
             e.Property(x => x.AttributeText).HasMaxLength(4000);
+            e.Property(x => x.PartNumberKey).HasMaxLength(60).HasComputedColumnSql("lower(btrim(\"PartNumber\"))", stored: true);
             e.HasIndex(x => x.TypeId);
+            e.HasIndex(x => x.CustomerId);
+            e.HasIndex(x => x.DrawingNumber);
+            e.HasIndex(x => new { x.CustomerId, x.TypeId, x.PartNumberKey });
             e.HasIndex(x => new { x.Status, x.PartNumber });
+            e.HasOne<SequflohReferenceValue>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

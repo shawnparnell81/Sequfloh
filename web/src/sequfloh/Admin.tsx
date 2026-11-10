@@ -339,7 +339,7 @@ export function DropdownsPage() {
               {key === 'product-families' && <Button size="small" data-testid="family-number-code" onClick={() => setCodeFor(v)}>Number code{v.numberCode ? `: ${v.numberCode}` : ''}</Button>}
               {key === 'product-families' && <Button size="small" data-testid="family-test-template" onClick={() => setTplFor(v)}>Test template{v.testTemplate ? ' set' : ': none'}</Button>}
               <Button size="small" onClick={() => setHistory(v)}>History</Button>
-              {key === 'product-families' && <Button size="small" data-testid="reference-uses" onClick={() => setUsesFor(v)}>What uses it</Button>}
+              {(key === 'product-families' || key === 'customers') && <Button size="small" data-testid="reference-uses" onClick={() => setUsesFor(v)}>What uses it</Button>}
               <Button size="small" color="error" data-testid="reference-delete" onClick={() => setConfirm({ title: 'Delete value', text: `Delete "${v.label}" permanently? This can't be undone.`, run: () => del(`${S}/reference/values/${v.id}`) })}>Delete</Button>
             </TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}

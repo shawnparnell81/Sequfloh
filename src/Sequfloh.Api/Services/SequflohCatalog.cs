@@ -10,6 +10,9 @@ public static class SequflohCatalog
     /// <summary>The admin-managed product families list; a part stores the value Id in TypeId and a copy of the label in ProductFamily.</summary>
     public const string ProductFamilies = "product-families";
 
+    /// <summary>The admin-managed customers list. A part stores the value Id in CustomerId, or null when the part is unassigned.</summary>
+    public const string Customers = "customers";
+
     public const string InspectionSubTypes = "inspection-sub-types";
 
     public const string Module = "sequfloh";
@@ -43,6 +46,8 @@ public static class SequflohCatalog
         new("qualification-labels", "Qualification labels", "Qualifications required for steps and technicians.", ["Trained operator", "Certified technician", "Senior technician", "Qualified inspector", "ESD trained", "Soldering certified"]),
         new(ProductFamilies, "Product families", "The product family chosen when a part is added, for example Complete Strut Assembly (CSA) or Fuel Pump. Renaming a family renames it on every part; a deactivated family stays on existing parts but is no longer offered. In Parts import a value matches the label, the code, or either part of a label such as \"Complete Strut Assembly (CSA)\".",
             ["Complete Strut Assembly (CSA)", "Fuel Pump", "Fuel Injector", "Brake Wear Sensor", "Gas Lift", "Electric Lift", "Coil Spring", "Struts", "Air Struts"], NoDefault: true),
+        new(Customers, "Customers", "The customer that owns a part's primary number, for example NAPA US, NAPA Canada, O'Reilly or AutoZone. Add, rename or deactivate customers here. A part with no customer stays unassigned, and nothing is assigned until someone confirms it. Deactivate a customer that should no longer be offered; a customer that parts already use cannot be deleted. SenSen is the supplier, not a customer. Brand names are not customers and stay in the description.",
+            ["NAPA US", "NAPA Canada", "O'Reilly", "AutoZone"], NoDefault: true),
         new("operation-categories", "Operation categories", "Categories of reusable operation steps.", ["Inspection", "Disassembly", "Assembly", "Cleaning", "Test", "Adjustment", "Packaging", "Labeling", "Safety"]),
         new("equipment-types", "Equipment types", "Equipment types used in instructions.", ["Hand tool", "Torque tool", "Gauge", "Test equipment", "Fixture", "Software", "Environmental monitor"]),
         new("lifecycle-actions", "Lifecycle actions", "Display labels of work instruction actions.", ["Release", "Create revision", "Mark obsolete"]),

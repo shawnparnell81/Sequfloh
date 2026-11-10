@@ -3235,6 +3235,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("CreatedById")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid");
 
@@ -3296,6 +3299,13 @@ namespace Sequfloh.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
+
+                    b.Property<string>("PartNumberKey")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasComputedColumnSql("lower(btrim(\"PartNumber\"))", true);
 
                     b.Property<int>("PartType")
                         .HasColumnType("integer");
@@ -3360,7 +3370,11 @@ namespace Sequfloh.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CustomerId");
+
                     b.HasIndex("DepartmentId");
+
+                    b.HasIndex("DrawingNumber");
 
                     b.HasIndex("PartNumber");
 
@@ -3373,6 +3387,8 @@ namespace Sequfloh.Data.Migrations
                         .HasFilter("\"UpcKey\" IS NOT NULL");
 
                     b.HasIndex("Status", "PartNumber");
+
+                    b.HasIndex("CustomerId", "TypeId", "PartNumberKey");
 
                     b.ToTable("parts", "sqf");
                 });
@@ -4575,6 +4591,11 @@ namespace Sequfloh.Data.Migrations
 
             modelBuilder.Entity("Sequfloh.Domain.MasterData.Part", b =>
                 {
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohReferenceValue", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sequfloh.Domain.Organization.Department", null)
                         .WithMany()
                         .HasForeignKey("DepartmentId")
