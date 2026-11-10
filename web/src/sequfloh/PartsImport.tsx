@@ -110,7 +110,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
     customerId: customerId || null, defaultTypeId: multi || (map.typeName !== undefined && !removed.includes('typeName')) ? null : (lineId || null),
     rowNumbers: table!.rowNumbers, keepRepeats, fixed: keep(fixed), ...(multi ? { tabs: table!.tabs, skippedTabs: table!.skippedTabs ?? [], fixed: {} } : {}) });
   const preview = (upd = update, map = mapping) => run(async () => setPlan(await post<Plan>(`${S}/parts/import/preview`, body(upd, map))));
-  const confirm = () => run(async () => { setDone(await post<Plan>(`${S}/parts/import`, body())); qc.invalidateQueries({ queryKey: ['sqf-parts'] }); });
+  const confirm = () => run(async () => { setDone(await post<Plan>(`${S}/parts/import`, body())); qc.invalidateQueries({ queryKey: ['sqf-parts'] }); qc.invalidateQueries({ queryKey: ['sqf-customer-tabs'] }); });
   /** A field's dropdown value: '' not imported, 'col:<index>' a file column, 'fix:<choice>' the same choice for all rows. */
   const valueOf = (key: string) => (fixed[key] ? `fix:${fixed[key]}` : mapping[key] !== undefined ? `col:${mapping[key]}` : '');
   const setMap = (key: string, v: string) => {

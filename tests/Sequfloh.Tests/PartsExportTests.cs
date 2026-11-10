@@ -55,7 +55,7 @@ public sealed class PartsExportTests(TestApp app)
         var head = lines[0].Split(',');
         var dwg = Array.IndexOf(head, "DWG #");
         Assert.True(dwg > 0);
-        Assert.Equal(["Drawing revision", "Linked drawings", "Serialized", "Material", "Notes", "Created", "Last updated", "UPC / Barcode", "Specification", "Status"], head[(dwg + 1)..]);
+        Assert.Equal(["Drawing revision", "Linked drawings", "Serialized", "Material", "Notes", "Created", "Last updated", "UPC / Barcode", "Specification", "Status", "Also sold as"], head[(dwg + 1)..]);
         Assert.StartsWith("Part number,Name,Description,Product family,", lines[0]);
 
         var cells = Split(lines[1]);

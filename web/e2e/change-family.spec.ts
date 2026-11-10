@@ -14,7 +14,6 @@ async function pdf(browser: Browser, title: string) {
 async function importParts(page: Page, csv: string, count: number) {
   const v = view(page);
   await page.goto('/sequfloh/parts');
-  await v.getByTestId('family-card-Fuel Pump').click(); // imported from the Fuel Pump page: the family is preset
   await v.getByRole('button', { name: 'Import parts' }).click();
   const imp = page.getByRole('dialog');
   await expect(imp.getByTestId('import-customer')).toBeVisible();
@@ -22,6 +21,10 @@ async function importParts(page: Page, csv: string, count: number) {
   await imp.getByTestId('import-file').setInputFiles({ name: 'example-fuel-mixed.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(imp.getByText('example-fuel-mixed.csv')).toBeVisible();
   await imp.getByRole('button', { name: 'Read file' }).click();
+  await imp.getByRole('combobox', { name: /^Name/ }).click();
+  await page.getByRole('option', { name: 'Fuel Pump', exact: true }).click();
+  await imp.getByRole('combobox', { name: /^Product family/ }).click();
+  await page.getByRole('option', { name: 'Fuel Pump', exact: true }).click();
   await expect(imp.locator('input[data-field="typeName"]')).toHaveValue('fix:Fuel Pump');
   await chooseImportScope(page, 'Fuel Pump');
   await imp.getByRole('button', { name: 'Preview' }).click();

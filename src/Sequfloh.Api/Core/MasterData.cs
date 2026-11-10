@@ -54,6 +54,8 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public Guid? CustomerId { get; set; }
     /// <summary>Trimmed lower-case part number, stored for lookup. Not unique: legacy repeats stay.</summary>
     public string PartNumberKey { get; set; } = "";
+    /// <summary>Drawing number with spaces and punctuation removed, stored for the cross-reference lookup. Empty drawings stay null.</summary>
+    public string? DrawingKey { get; set; }
     /// <summary>Cross-reference numbers and other attributes as JSON, keyed by the definitions in PartAttributes.</summary>
     public string? Attributes { get; set; }
     /// <summary>Fields marked Not applicable on this part, comma-separated keys (see PartFields). They are hidden on the part screen; their values are kept.</summary>

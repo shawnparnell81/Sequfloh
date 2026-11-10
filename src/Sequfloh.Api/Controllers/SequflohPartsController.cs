@@ -62,9 +62,9 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     public Task<PartsImportPlan> Import(PartsImportRequest r, CancellationToken ct) => import.ImportAsync(r, ct);
 
     // ---------------- Part Master (shared parts table)
-    async Task<IQueryable<Part>> FilteredAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, string? partType, string? sort, string? tag, CancellationToken ct)
+    async Task<IQueryable<Part>> FilteredAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, string? partType, string? sort, string? tag, CancellationToken ct, string? customer = null)
     {
-        var query = await parts.PartsQueryAsync(q, view, family, status, type, ct, partType);
+        var query = await parts.PartsQueryAsync(q, view, family, status, type, ct, partType, customer);
         var types = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.ProductFamilies);
         return sort switch
         {
@@ -84,17 +84,58 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
 
     [HttpGet("parts")]
     public async Task<object> Parts([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
-        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
+        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, [FromQuery] string? customer, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken ct = default)
     {
-        var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
+        var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct, customer);
         var types = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.ProductFamilies);
         var customerNames = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.Customers);
-        return await Paging.PageAsync(query.Select(p => new
+        var paged = await Paging.PageAsync(query.Select(p => new PartListRow(
+            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.ProductFamily, p.PartType.ToString(), p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.UnitOfMeasure, p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
+            p.DrawingNumber, p.Upc, p.Specification, p.Notes, p.SiteId, p.UpdatedAt, p.TypeId, types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes,
+            p.CustomerId, customerNames.Where(v => v.Id == p.CustomerId).Select(v => v.Label).FirstOrDefault(), null)), page, pageSize, ct);
+        var names = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.Customers).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
+        var sold = await PartCrossReferences.ForAsync(paged.Items.Select(p => (p.Id, p.DrawingNumber, p.Attributes)).ToList(), await parts.PartsQueryAsync(null, null, null, null, null, ct), names, ct);
+        return new PagedResult<PartListRow>(paged.Items.Select(p => p with { AlsoSoldAs = sold.GetValueOrDefault(p.Id) ?? [] }).ToList(), paged.Total);
+    }
+
+    /// <summary>One row of the part list. AlsoSoldAs is filled after the page is read, from the drawings on that page only.</summary>
+    public sealed record PartListRow(Guid Id, string PartNumber, string Name, string? Description, string Revision, string? ProductFamily, string PartType, string? AssemblyType, string? PartClass, bool IsAssembly, string? LotControl, string UnitOfMeasure, string Status, bool IsRepairable, bool IsRepairPart, bool IsSerialized, bool IsLotControlled,
+        string? DrawingNumber, string? Upc, string? Specification, string? Notes, Guid SiteId, DateTimeOffset UpdatedAt, Guid? TypeId, string? TypeName, string? Attributes, Guid? CustomerId, string? CustomerName, List<SoldAs>? AlsoSoldAs);
+
+    /// <summary>Active customers, plus an inactive customer that still has parts, and the unassigned parts. Counts and product lines come from parts this person can see.</summary>
+    [HttpGet("parts/customer-tabs")]
+    public async Task<object> CustomerTabs(CancellationToken ct)
+    {
+        var scoped = await parts.PartsQueryAsync(null, null, null, null, null, ct);
+        var counts = await scoped.GroupBy(p => new { p.CustomerId, p.TypeId }).Select(g => new { g.Key.CustomerId, g.Key.TypeId, Count = g.Count() }).ToListAsync(ct);
+        var values = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.Customers || v.ListKey == SequflohCatalog.ProductFamilies).ToListAsync(ct);
+        var lines = values.Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToDictionary(v => v.Id);
+        List<object> Lines(Guid? customerId) => counts.Where(c => c.CustomerId == customerId && c.Count > 0)
+            .Select(c => new { typeId = c.TypeId, label = c.TypeId is { } id && lines.TryGetValue(id, out var line) ? line.Label : "No product line", count = c.Count })
+            .OrderBy(x => x.label, StringComparer.OrdinalIgnoreCase).Cast<object>().ToList();
+        var customers = values.Where(v => v.ListKey == SequflohCatalog.Customers).OrderBy(v => v.SortOrder).ThenBy(v => v.Label).ToList();
+        var tabs = customers.Where(c => c.IsActive || counts.Any(n => n.CustomerId == c.Id)).Select(c => new
         {
-            p.Id, p.PartNumber, p.Name, p.Description, p.Revision, p.ProductFamily, PartType = p.PartType.ToString(), p.AssemblyType, p.PartClass, p.IsAssembly, p.LotControl, p.UnitOfMeasure, Status = p.Status.ToString(), p.IsRepairable, p.IsRepairPart, p.IsSerialized, p.IsLotControlled,
-            p.DrawingNumber, p.Upc, p.Specification, p.Notes, p.SiteId, p.UpdatedAt, p.TypeId, TypeName = types.Where(v => v.Id == p.TypeId).Select(v => v.Label).FirstOrDefault(), p.Attributes,
-            p.CustomerId, CustomerName = customerNames.Where(v => v.Id == p.CustomerId).Select(v => v.Label).FirstOrDefault()
-        }), page, pageSize, ct);
+            c.Id, c.Label, c.IsActive, count = counts.Where(n => n.CustomerId == c.Id).Sum(n => n.Count), lines = Lines(c.Id),
+        });
+        return new { customers = tabs, unassigned = new { count = counts.Where(n => n.CustomerId == null).Sum(n => n.Count), lines = Lines(null) } };
+    }
+
+    /// <summary>Part-number search for the Part Master. An exact part number comes before an alias, UPC or drawing hit. Every match is returned; nothing is chosen for the caller.</summary>
+    [HttpGet("parts/locate")]
+    public async Task<object> Locate([FromQuery] string? q, CancellationToken ct)
+    {
+        q = (q ?? "").Trim();
+        if (q.Length < 2) return new { items = Array.Empty<object>() };
+        var scoped = await parts.PartsQueryAsync(null, null, null, null, null, ct);
+        var key = q.ToLowerInvariant();
+        var like = $"%{q}%";
+        var types = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.ProductFamilies);
+        var customerNames = db.SequflohReferenceValues.Where(v => v.ListKey == SequflohCatalog.Customers);
+        var rows = await scoped.Where(x => x.PartNumberKey == key || EF.Functions.ILike(x.PartNumber + " " + x.Name + " " + (x.Description ?? "") + " " + (x.DrawingNumber ?? "") + " " + (x.Upc ?? "") + " " + (x.AttributeText ?? ""), like))
+            .OrderBy(x => x.PartNumberKey == key ? 0 : 1).ThenBy(x => x.PartNumber).Take(20)
+            .Select(x => new { x.Id, x.PartNumber, x.CustomerId, CustomerName = customerNames.Where(v => v.Id == x.CustomerId).Select(v => v.Label).FirstOrDefault(), x.TypeId, Line = types.Where(v => v.Id == x.TypeId).Select(v => v.Label).FirstOrDefault(), ExactPartNumber = x.PartNumberKey == key }).ToListAsync(ct);
+        return new { items = rows };
     }
 
     /// <summary>The attribute fields (cross-reference numbers and others) shown on the part form, list, export and import.</summary>
@@ -108,9 +149,9 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
     /// <summary>Every part that matches the filters as CSV, with the part type, attribute columns, and the fields shown on the part detail card. At most 50,000 rows.</summary>
     [HttpGet("parts/export")]
     public async Task<IActionResult> Export([FromQuery] string? q, [FromQuery] string? view, [FromQuery] string? family, [FromQuery] MasterStatus? status, [FromQuery] PartType? type,
-        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, CancellationToken ct = default)
+        [FromQuery] string? sort, [FromQuery] string? tag, [FromQuery] string? partType, [FromQuery] string? customer, CancellationToken ct = default)
     {
-        var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct);
+        var query = await FilteredAsync(q, view, family, status, type, partType, sort, tag, ct, customer);
         var types = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
         var customerNames = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.Customers).ToDictionaryAsync(v => v.Id, v => v.Label, ct);
         var rows = await query.Take(50_000).ToListAsync(ct);
@@ -120,11 +161,12 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             ? new Dictionary<Guid, string>()
             : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         var linked = await LinkedDrawingsAsync(ids, ct);
+        var sold = await PartCrossReferences.ForAsync(rows.Select(p => (p.Id, p.DrawingNumber, p.Attributes)).ToList(), await parts.PartsQueryAsync(null, null, null, null, null, ct), customerNames, ct);
         var head = new List<string> { "Part number", "Name", "Description", "Product family", "Customer" };
         head.AddRange(PartAttributes.All.Select(a => a.Label));
         head.AddRange(["Part class", "Assembly", "Unit of measure", "Repairable", "Repair part", "Lot controlled", "DWG #",
             "Drawing revision", "Linked drawings", "Serialized", "Material", "Notes", "Created", "Last updated",
-            "UPC / Barcode", "Specification", "Status"]);
+            "UPC / Barcode", "Specification", "Status", "Also sold as"]);
         var sb = new System.Text.StringBuilder();
         sb.Append(string.Join(",", head.Select(Csv))).Append("\r\n");
         foreach (var p in rows)
@@ -135,7 +177,8 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             cells.AddRange([p.PartClass, p.IsAssembly ? "Yes" : "No", p.UnitOfMeasure, p.IsRepairable ? "Yes" : "No", p.IsRepairPart ? "Yes" : "No", p.LotControl ?? (p.IsLotControlled ? "Yes" : "No"),
                 p.DrawingNumber, p.DrawingRevision, LinkedDrawings(linked.GetValueOrDefault(p.Id), p.DrawingRevision), p.IsSerialized ? "Yes" : "No", p.Material, p.Notes,
                 When(p.CreatedAt, p.CreatedById, names), When(p.UpdatedAt, p.UpdatedById, names),
-                p.Upc, p.Specification, p.Status.ToString()]);
+                p.Upc, p.Specification, p.Status.ToString(),
+                sold.TryGetValue(p.Id, out var others) ? string.Join("; ", others.Select(o => $"{(o.CustomerName ?? "Unassigned")} {o.PartNumber}")) : ""]);
             sb.Append(string.Join(",", cells.Select(Csv))).Append("\r\n");
         }
         return File(System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray(), "text/csv", "parts.csv");
@@ -246,6 +289,8 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
             PartsLists = await db.SequflohPartsLists.AsNoTracking().Where(l => l.ParentPartId == id || l.Items.Any(i => i.PartId == id)).OrderBy(l => l.Number)
                 .Select(l => new { l.Id, l.Number, l.Title, l.Revision, l.Status, l.ListType }).ToListAsync(ct),
             Related = await RelatedAsync(id, ct),
+            CrossReferences = (await PartCrossReferences.ForAsync([(id, p.DrawingNumber, p.Attributes)], await parts.PartsQueryAsync(null, null, null, null, null, ct),
+                await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.Customers).ToDictionaryAsync(v => v.Id, v => v.Label, ct), ct)).GetValueOrDefault(id) ?? [],
             CanEdit = await m.CanAsync(Permissions.SequflohEditParts, p.SiteId, p.DepartmentId, ct),
             CanEditMaster = await m.CanAsync(Permissions.MasterDataEdit, p.SiteId, p.DepartmentId, ct)
         };

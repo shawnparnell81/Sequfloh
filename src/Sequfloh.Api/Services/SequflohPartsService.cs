@@ -180,9 +180,11 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<IQueryable<Part>> PartsQueryAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, CancellationToken ct, string? partType = null)
+    public async Task<IQueryable<Part>> PartsQueryAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, CancellationToken ct, string? partType = null, string? customer = null)
     {
         var query = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
+        if (customer == "unassigned") query = query.Where(x => x.CustomerId == null);
+        else if (Guid.TryParse(customer, out var customerId)) query = query.Where(x => x.CustomerId == customerId);
         if (view == "active") query = query.Where(x => x.Status == MasterStatus.Active);
         if (view == "repairable") query = query.Where(x => x.IsRepairable);
         if (view == "repair-parts") query = query.Where(x => x.IsRepairPart);
