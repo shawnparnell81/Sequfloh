@@ -18,6 +18,7 @@ import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { ImportPartsDialog } from './PartsImport';
 import { ChangeFamilyDialog } from './ChangeFamily';
+import { CustomerAssignmentDialog } from './CustomerAssignment';
 import { PartLinksPanel } from './PartLinks';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, ViewDrawingButton, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { InventoryNote } from './Job';
@@ -103,6 +104,7 @@ export function PartMasterPage() {
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [assigning, setAssigning] = useState(false);
   const [wipe, setWipe] = useState(false);
   const [ticked, setTicked] = useState<string[]>([]);
   const canChange = can('sequfloh.edit_parts') && can('parts.edit');
@@ -123,12 +125,13 @@ export function PartMasterPage() {
   const lead = familyCode === FUEL_PUMP ? FP_COLS : ['partNumber', 'attr:orNumber'];
   const isHidden = (k: string) => (fp ? !fpShown.includes(k) && k !== 'partNumber' : hidden.includes(k));
   const allCols = [...lead.map((k) => baseCols.find((c) => c.key === k)!).filter(Boolean), ...baseCols.filter((c) => !lead.includes(c.key))];
-  const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1}>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
+  const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" data-testid="assign-customers" onClick={() => setAssigning(true)}>Assign customers</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
   const dialogs = <>
     <PartDialog open={open || !!addFromScan || !!addUpc} prefill={addFromScan || undefined} prefillUpc={addUpc || undefined} onClose={() => { setOpen(false); if (addFromScan) set('add', ''); if (addUpc) set('addUpc', ''); }} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
     <ImportPartsDialog open={importing} onClose={() => setImporting(false)} preset={preset} />
     {canChange && <ChangeFamilyDialog open={changing} onClose={() => setChanging(false)} families={types.data ?? []} defs={attrDefs.data ?? []} ticked={ticked}
       filters={{ q: v('q'), partType: v('partType'), status: v('status'), tag: v('tag') }} currentFamily={v('partType') && v('partType') !== 'none' ? v('partType') : undefined} onDone={() => setTicked([])} />}
+    {canChange && <CustomerAssignmentDialog open={assigning} onClose={() => setAssigning(false)} />}
     {wipe && family && <FamilyDeleteDialog familyId={v('partType')} label={family} onClose={() => setWipe(false)} />}
   </>;
   if (home) return (
@@ -295,7 +298,7 @@ function FamilyDeleteDialog({ familyId, label, onClose }: { familyId: string; la
   );
 }
 
-interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record<string, string>; productId?: string; material?: string; hasSpecialCharacteristics: boolean; hiddenFields?: string[]; siteId: string; departmentId?: string; rowVersion: number; createdAt: string; createdBy: string; updatedBy: string };
+interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record<string, string>; productId?: string; material?: string; hasSpecialCharacteristics: boolean; hiddenFields?: string[]; siteId: string; departmentId?: string; rowVersion: number; createdAt: string; createdBy: string; updatedBy: string; customerId?: string | null; customerName?: string | null };
   revisions: { id: string; revision: string; reason: string; createdAt: string }[]; partsLists: { id: string; number: string; title: string; revision: string; status: string; listType: string }[];
   related: { partsLists: number }; canEdit: boolean; canEditMaster: boolean }
 
@@ -449,6 +452,7 @@ export function PartDetailPage() {
             {showHidden ? 'Hide not-applicable fields' : `Show ${p.hiddenFields!.length} not-applicable field${p.hiddenFields!.length === 1 ? '' : 's'}`}</Button>}
           <Grid cols={4}>
             <Field label={pnLabel(code)}><Mono>{p.partNumber}</Mono><ViewDrawingButton partId={p.id} /></Field><Field label="Name">{p.name}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
+            <Field label="Customer"><span data-testid="part-customer">{p.customerName || 'Unassigned'}</span></Field>
             <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class" hide={hid('partClass')}>{p.partClass}</Field><Field label="Assembly" hide={hid('isAssembly')}>{yes(p.isAssembly)}</Field><Field label="Unit of measure" hide={hid('unitOfMeasure')}>{p.unitOfMeasure}</Field>
             <Field label="Repairable" hide={hid('isRepairable')}>{yes(p.isRepairable)}</Field><Field label="Repair part" hide={hid('isRepairPart')}>{yes(!!p.isRepairPart)}</Field><Field label="Serialized" hide={hid('isSerialized')}>{yes(p.isSerialized)}</Field><Field label="Lot controlled" hide={hid('isLotControlled')}>{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material" hide={hid('material')}>{p.material}</Field>
             {(attrDefs.data ?? []).filter((d) => attrFor(d, code, pFam?.shownFields)).map((d) => <Field key={d.key} label={d.label} hide={hid(d.key)}>{p.attributes?.[d.key]}</Field>)}
