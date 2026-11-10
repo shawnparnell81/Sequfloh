@@ -13,7 +13,7 @@ namespace Sequfloh.Api.Controllers.Sequfloh;
 
 /// <summary>SEQUFLOH Parts and Items: shared Part Master view and execution attributes, parts lists, reusable operation steps, revision history.</summary>
 [ApiController, Authorize, RequirePermission(Permissions.SequflohAccess), SequflohEnabled, Route("api/sequfloh")]
-public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, SequflohPartsService parts, SequflohPartsImport import, PartFamilyChangeService familyChange, CustomerAssignmentService customers) : ControllerBase
+public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, SequflohPartsService parts, SequflohPartsImport import, PartFamilyChangeService familyChange, CustomerAssignmentService customers, PartCustomerMoveService moves) : ControllerBase
 {
     // ---------------- Part Master bulk import: read the file, preview, then confirm
     [HttpPost("parts/import/read"), RequestSizeLimit(20_000_000)]
@@ -264,6 +264,14 @@ public sealed class SequflohPartsController(AppDbContext db, ModuleSupport m, Se
 
     [HttpPost("parts/customers/assignment")]
     public Task<CustomerAssignmentResult> ConfirmCustomerAssignment(CustomerAssignmentConfirm r, CancellationToken ct) => customers.ConfirmAsync(r, ct);
+
+    /// <summary>Preview a customer move. Nothing is saved. Conflicts are listed and will be skipped.</summary>
+    [HttpPost("parts/move-customer/preview")]
+    public Task<MoveCustomerPlan> MoveCustomerPreview(MoveCustomerRequest r, CancellationToken ct) => moves.PreviewAsync(r, ct);
+
+    /// <summary>Move the chosen parts to one customer in a single request. Only CustomerId changes.</summary>
+    [HttpPost("parts/move-customer")]
+    public Task<MoveCustomerPlan> MoveCustomer(MoveCustomerRequest r, CancellationToken ct) => moves.ApplyAsync(r, ct);
 
     [HttpGet("parts/families")]
     public async Task<List<string>> Families(CancellationToken ct) =>

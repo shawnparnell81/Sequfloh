@@ -19,6 +19,7 @@ import { fmtDateTime } from '../components/Status';
 import { ImportPartsDialog } from './PartsImport';
 import { ChangeFamilyDialog } from './ChangeFamily';
 import { CustomerAssignmentDialog } from './CustomerAssignment';
+import { MoveCustomerDialog } from './MoveCustomer';
 import { PartLinksPanel } from './PartLinks';
 import { DrawingFileFields, DrawingPicker, PartDrawingLinks, ViewDrawingButton, blankDrawing, drawingForm, type PartDrawing } from './Drawings';
 import { InventoryNote } from './Job';
@@ -113,6 +114,8 @@ export function PartMasterPage() {
   const [importing, setImporting] = useState(false);
   const [changing, setChanging] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [allMatching, setAllMatching] = useState(false);
   const [wipe, setWipe] = useState(false);
   const [ticked, setTicked] = useState<string[]>([]);
   const canChange = can('sequfloh.edit_parts') && can('parts.edit');
@@ -151,13 +154,14 @@ export function PartMasterPage() {
   const lead = familyCode === FUEL_PUMP ? FP_COLS : ['partNumber', 'attr:orNumber'];
   const isHidden = (k: string) => (fp ? !fpShown.includes(k) && k !== 'partNumber' : hidden.includes(k));
   const allCols = [...lead.map((k) => baseCols.find((c) => c.key === k)!).filter(Boolean), ...baseCols.filter((c) => !lead.includes(c.key))];
-  const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" data-testid="assign-customers" onClick={() => setAssigning(true)}>Assign customers</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
+  const buttons = (csv: boolean) => can('sequfloh.edit_parts') && can('parts.edit') && <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>{csv && <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>}<Button variant="outlined" onClick={() => setChanging(true)}>Change product family{ticked.length ? ` (${ticked.length})` : ''}</Button><Button variant="outlined" data-testid="move-to-customer" disabled={!allMatching && ticked.length === 0} onClick={() => setMoving(true)}>Move to customer</Button><Button variant="outlined" data-testid="assign-customers" onClick={() => setAssigning(true)}>Assign customers</Button><Button variant="outlined" onClick={() => setImporting(true)}>Import parts</Button><Button variant="contained" onClick={() => setOpen(true)}>New part</Button></Stack>;
   const dialogs = <>
     <PartDialog open={open || !!addFromScan || !!addUpc} prefill={addFromScan || undefined} prefillUpc={addUpc || undefined} onClose={() => { setOpen(false); if (addFromScan) set('add', ''); if (addUpc) set('addUpc', ''); }} onSaved={(id) => nav(`/sequfloh/parts/${id}`)} />
     <ImportPartsDialog open={importing} onClose={() => setImporting(false)} preset={preset} />
     {canChange && <ChangeFamilyDialog open={changing} onClose={() => setChanging(false)} families={types.data ?? []} defs={attrDefs.data ?? []} ticked={ticked}
       filters={{ q: v('q'), partType: v('partType'), status: v('status'), tag: v('tag') }} currentFamily={v('partType') && v('partType') !== 'none' ? v('partType') : undefined} onDone={() => setTicked([])} />}
     {canChange && <CustomerAssignmentDialog open={assigning} onClose={() => setAssigning(false)} />}
+    {canChange && <MoveCustomerDialog open={moving} onClose={() => setMoving(false)} onDone={() => { setMoving(false); setTicked([]); setAllMatching(false); }} allMatching={allMatching} ticked={ticked} filters={{ q: v('q'), view, family: v('family'), status: v('status'), partType: v('partType'), customer: v('customer'), type: v('type'), tag: v('tag') }} />}
     {wipe && family && <FamilyDeleteDialog familyId={v('partType')} label={family} onClose={() => setWipe(false)} />}
   </>;
   const soldAs = (r: PartRow) => (r.alsoSoldAs ?? []).length === 0 ? '—' : <Stack gap={0.25} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()} data-testid="also-sold-as">
@@ -197,8 +201,13 @@ export function PartMasterPage() {
         filters={[{ key: 'partType', label: 'Product family', options: [['none', 'No product family'], ...(types.data ?? []).map((t): [string, string] => [t.id, t.isActive ? t.label : `${t.label} (inactive)`])] },
           { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) }]} />
       <InventoryNote />
+      {canChange && (allMatching || ticked.length > 0) && <Alert severity="info" sx={{ mb: 2 }} data-testid="select-all-matching" action={<Stack direction="row" gap={1}>
+        {!allMatching && (q.data?.total ?? 0) > ticked.length && <Button color="inherit" size="small" onClick={() => setAllMatching(true)}>Select all {q.data!.total} matching</Button>}
+        {allMatching && <Button color="inherit" size="small" onClick={() => setAllMatching(false)}>Only the ticked rows</Button>}
+        <Button color="inherit" size="small" onClick={() => setMoving(true)}>Move to customer</Button>
+      </Stack>}>{allMatching ? `All ${q.data?.total ?? 0} parts matching this list are selected, including other pages.` : `${ticked.length} selected on this page.`}</Alert>}
       <PagedTable q={q} page={page} size={size} onPage={setPage} onSize={setSize} sort={sort} onSort={setSort} onRow={(r) => nav(`/sequfloh/parts/${r.id}`)} empty="No parts match these filters."
-        selected={canChange ? ticked : undefined} onSelect={canChange ? setTicked : undefined}
+        selected={canChange ? ticked : undefined} onSelect={canChange ? (ids) => { setAllMatching(false); setTicked(ids); } : undefined}
         cols={(customerList ? customerCols : allCols).filter((c) => customerList || !isHidden(c.key))} />
       {dialogs}
     </SqfPage>
@@ -370,6 +379,9 @@ interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record
 
 function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { open: boolean; onClose: () => void; onSaved: (id: string) => void; edit?: PartDetail['part']; prefill?: string; prefillUpc?: string }) {
   const sites = useSites();
+  const qc = useQueryClient();
+  const customers = useQuery({ queryKey: ['sqf-customers-active'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/customers?active=true`), enabled: open });
+  const [customerId, setCustomerId] = useState('');
   const { can } = useAuth();
   const drawingsOk = can('sequfloh.manage_drawings');
   const [links, setLinks] = useState<{ id: string; label: string }[]>([]);
@@ -391,6 +403,7 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
     setLinks([]); setInline(null); setTypeId(edit?.typeId ?? ''); setAttrs({ ...(edit?.attributes ?? {}) }); setHidden(edit?.hiddenFields ?? []);
     if (edit && drawingsOk) get<PartDrawing[]>(`/api/drawings/for-part?partId=${edit.id}`).then((l) => setLinks(l.map((d) => ({ id: d.id, label: `${d.drawingNumber ? d.drawingNumber + ' · ' : ''}${d.title} (rev ${d.currentRevision})` })))).catch(() => undefined);
     const lc = (e?: PartDetail['part']) => (e ? (e.lotControl || (e.isLotControlled ? 'Yes' : 'No')) : '');
+    setCustomerId(edit?.customerId ?? '');
     setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, partNumber: prefill ?? '', upc: prefillUpc ?? '', siteId: sites.data?.[0]?.id ?? '' }); };
   const familyLabels = (types.data ?? []).filter((t) => t.isActive).map((t) => t.label);
   const yn = (k: 'isAssembly' | 'isRepairable') => ({ value: f[k] ? 'Yes' : 'No', onChange: (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value === 'Yes' }) });
@@ -407,6 +420,10 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
     try {
       let id = edit?.id;
       if (edit) await put(`${S}/parts/${edit.id}`, body); else id = (await post<{ id: string }>(`${S}/parts`, body)).id;
+      if (id && (edit?.customerId ?? '') !== customerId) {
+        await post(`${S}/parts/move-customer`, { mode: 'ids', partIds: [id], customerId: customerId || null, toUnassigned: customerId === '' });
+        qc.invalidateQueries({ queryKey: ['sqf-customer-tabs'] });
+      }
       if (drawingsOk && id) {
         try {
           await put(`/api/drawings/for-part/${id}`, { ids: links.map((l) => l.id) });
@@ -424,6 +441,10 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         <Box sx={{ pt: 1 }}><Grid>
           <TextField label={pnLabel(typeCode)} required value={f.partNumber} onChange={s('partNumber')} />
+          <TextField select label="Customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} inputProps={{ 'data-testid': 'part-customer-select' }} helperText="Unassigned until a customer is chosen. A part number the customer already has in this product line is left unchanged.">
+            <MenuItem value="">Unassigned</MenuItem>
+            {(customers.data ?? []).filter((c) => c.isActive || c.id === customerId).map((c) => <MenuItem key={c.id} value={c.id}>{c.isActive ? c.label : `${c.label} (inactive)`}</MenuItem>)}
+          </TextField>
           <TextField select label="Product family" required value={typeId} onChange={(e) => setTypeId(e.target.value)} inputProps={{ 'data-testid': 'part-type-select' }}
             error={!!edit && !typeId} helperText={edit && !typeId ? 'Choose the product family for this part.' : undefined}>
             {(types.data ?? []).filter((t) => t.isActive || t.id === typeId).map((t) => <MenuItem key={t.id} value={t.id}>{t.isActive ? t.label : `${t.label} (inactive)`}</MenuItem>)}</TextField>
