@@ -16,7 +16,7 @@ public sealed record PartExecutionInput(string? ProductFamily, string? AssemblyT
     string? PartClass = null, bool? IsAssembly = null, string? LotControl = null, string? DrawingRevision = null);
 /// <summary>A part with its execution attributes, part type (from the part types list) and attribute values (see PartAttributes).</summary>
 /// <summary>Upc: null keeps the part's UPC / Barcode, an empty value clears it.</summary>
-public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null, List<string>? HiddenFields = null, string? Upc = null);
+public sealed record SqfPartInput(SavePartRequest Part, PartExecutionInput Execution, Guid? TypeId = null, Dictionary<string, string?>? Attributes = null, string? Notes = null, List<string>? HiddenFields = null, string? Upc = null, Guid? BrandId = null);
 public sealed record PartsListInput(string Title, Guid? ParentPartId, string? Description, PartsListType ListType, uint RowVersion = 0, string? Number = null);
 public sealed record PartsListItemInput(Guid? PartId, string? PartNumber, string? Description, decimal Quantity, string? Unit, bool Required, string? AlternatePartNumber,
     TraceabilityRequirement Traceability, string? Notes);
@@ -42,6 +42,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await m.RequireAsync(Permissions.SequflohEditParts, r.Part.SiteId, r.Part.DepartmentId, ct);
         // the New part form requires a part type; other callers (import, older clients) may leave it empty and set it later
         await CheckTypeAsync(r.TypeId, null, ct);
+        await CheckBrandAsync(r.BrandId, null, ct);
         await CheckChoicesAsync(r.Execution, null, ct);
         if (r.Attributes is not null) PartAttributes.Clean(r.Attributes); // checked before anything is saved
         var upc = await CheckUpcAsync(r.Upc, null, ct);
@@ -59,6 +60,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await m.RequireAsync(Permissions.SequflohEditParts, part.SiteId, part.DepartmentId, ct);
         if (r.TypeId is null && part.TypeId is not null) throw new AppException("Choose the part type.");
         await CheckTypeAsync(r.TypeId, part.TypeId, ct);
+        await CheckBrandAsync(r.BrandId, part.BrandId, ct);
         await CheckChoicesAsync(r.Execution, part.PartClass, ct);
         if (r.Attributes is not null) PartAttributes.Clean(r.Attributes);
         // the OR # can be changed; it may match other parts only when this part's Position differs from theirs
@@ -105,6 +107,14 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         catch (DbUpdateException) { throw new ConflictException($"UPC / Barcode {v} was just added to another part. A barcode can be on one part only."); }
     }
 
+    /// <summary>A new or changed brand must be an active value of the Brands list. A part may keep a brand that was deactivated later, or have no brand.</summary>
+    async Task CheckBrandAsync(Guid? brandId, Guid? current, CancellationToken ct)
+    {
+        if (brandId is null || brandId == current) return;
+        if (!await db.SequflohReferenceValues.AnyAsync(x => x.Id == brandId && x.ListKey == SequflohCatalog.Brands && x.IsActive, ct))
+            throw new AppException("The brand is not an active value of the Brands list.");
+    }
+
     /// <summary>A new or changed product family must be an active value of the product families list; a part may keep a family that was deactivated later.</summary>
     async Task CheckTypeAsync(Guid? typeId, Guid? current, CancellationToken ct)
     {
@@ -125,6 +135,7 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
     async Task ApplyTypeAndAttributesAsync(Guid id, SqfPartInput r, CancellationToken ct, bool isNew = false)
     {
         var p = await db.Parts.FirstAsync(x => x.Id == id, ct);
+        p.BrandId = r.BrandId;
         p.TypeId = r.TypeId;
         // the label is copied to ProductFamily so work instructions and filters that read the text keep working
         if (r.TypeId is { } t) p.ProductFamily = await db.SequflohReferenceValues.Where(x => x.Id == t).Select(x => x.Label).FirstAsync(ct);
@@ -180,11 +191,13 @@ public sealed class SequflohPartsService(AppDbContext db, ModuleSupport m, IAcce
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<IQueryable<Part>> PartsQueryAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, CancellationToken ct, string? partType = null, string? customer = null)
+    public async Task<IQueryable<Part>> PartsQueryAsync(string? q, string? view, string? family, MasterStatus? status, PartType? type, CancellationToken ct, string? partType = null, string? customer = null, string? brand = null)
     {
         var query = await m.ScopeAsync(db.Parts.AsNoTracking(), Permissions.SequflohAccess, ct);
         if (customer == "unassigned") query = query.Where(x => x.CustomerId == null);
         else if (Guid.TryParse(customer, out var customerId)) query = query.Where(x => x.CustomerId == customerId);
+        if (brand == "none") query = query.Where(x => x.BrandId == null);
+        else if (Guid.TryParse(brand, out var brandId)) query = query.Where(x => x.BrandId == brandId);
         if (view == "active") query = query.Where(x => x.Status == MasterStatus.Active);
         if (view == "repairable") query = query.Where(x => x.IsRepairable);
         if (view == "repair-parts") query = query.Where(x => x.IsRepairPart);

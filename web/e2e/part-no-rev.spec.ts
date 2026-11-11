@@ -39,7 +39,7 @@ test('parts: no revision, notes, editable part number, OR # column and fuel pump
   await v.getByTestId("customer-card-O'Reilly").locator('a').click();
   await v.getByTestId('line-tab-Fuel Pump').click();
   await v.getByRole('textbox', { name: 'Search', exact: true }).fill(`NR-${k}`); await v.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect.poll(async () => (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase()).filter(Boolean)).toEqual(['customer part #', 'description', 'upc / barcode', 'drawing #', 'also sold as']);
+  await expect.poll(async () => (await v.getByRole('columnheader').allInnerTexts()).map((h) => h.trim().toLowerCase()).filter(Boolean)).toEqual(['customer part #', 'description', 'brand', 'upc / barcode', 'drawing #', 'also sold as']);
   await expect(v.getByRole('columnheader', { name: 'Rev', exact: true })).toHaveCount(0);
   await shot('03-fuel-pump-list');
 

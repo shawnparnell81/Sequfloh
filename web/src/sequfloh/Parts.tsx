@@ -60,7 +60,7 @@ const withCurrent = (list: string[], current?: string) => (current && !list.some
 interface SoldAs { id: string; partNumber: string; customerId?: string | null; customerName?: string | null; upc?: string | null; drawingNumber?: string | null }
 interface PartRow { id: string; partNumber: string; name: string; description?: string; revision: string; productFamily?: string; partType: string; assemblyType?: string; partClass?: string | null; isAssembly?: boolean; lotControl?: string | null; unitOfMeasure: string;
   status: string; isRepairable: boolean; isRepairPart?: boolean; isSerialized: boolean; isLotControlled: boolean; drawingNumber?: string; drawingRevision?: string | null; upc?: string; specification?: string; updatedAt: string;
-  typeId?: string | null; typeName?: string | null; attributes?: string | null; notes?: string | null; customerId?: string | null; customerName?: string | null; alsoSoldAs?: SoldAs[] | null }
+  typeId?: string | null; typeName?: string | null; attributes?: string | null; notes?: string | null; customerId?: string | null; customerName?: string | null; brandId?: string | null; brandName?: string | null; alsoSoldAs?: SoldAs[] | null }
 interface CustomerLine { typeId: string | null; label: string; count: number }
 interface CustomerTab { id: string; label: string; isActive: boolean; count: number; lines: CustomerLine[] }
 interface CustomerTabs { customers: CustomerTab[]; unassigned: { count: number; lines: CustomerLine[] } }
@@ -85,11 +85,12 @@ export function PartMasterPage() {
   const [page, setPage] = useState(1); const [size, setSize] = useState(25); const [sort, setSort] = useState('partNumber:asc');
   const v = (k: string) => sp.get(k) ?? '';
   const set = (k: string, val: string) => { const n = new URLSearchParams(sp); if (val) n.set(k, val); else n.delete(k); setSp(n); setPage(1); };
-  const filterQs = () => qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), partType: v('partType'), tag: v('tag'), customer: v('customer'), sort });
+  const filterQs = () => qs({ q: v('q'), view, family: v('family'), status: v('status'), type: v('type'), partType: v('partType'), tag: v('tag'), customer: v('customer'), brand: v('brand'), sort });
   const customerKeyEarly = v('customer');
   const waitingLine = !view && !!customerKeyEarly && !v('partType');
   const q = useQuery({ queryKey: ['sqf-parts', sp.toString(), page, size, sort], queryFn: () => get<Paged<PartRow>>(`${S}/parts?${filterQs()}&${qs({ page, pageSize: size })}`), enabled: !home && !waitingLine });
   const types = usePartTypes();
+  const brands = useQuery({ queryKey: ['sqf-brands'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/brands`), staleTime: 60_000 });
   const attrDefs = useAttrDefs();
   const untyped = useQuery({ queryKey: ['sqf-parts-untyped'], queryFn: () => get<Paged<PartRow>>(`${S}/parts?partType=none&pageSize=1`) });
   const [hidden, setHidden] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(COLS_KEY) ?? 'null') ?? defaultHidden; } catch { return defaultHidden; } });
@@ -143,6 +144,7 @@ export function PartMasterPage() {
   }, [customerList, customerTabs.data, customerLines, setSp]);
   const title = customerList ? [customerName, lineName].filter(Boolean).join(' · ') || 'Part Master' : family ?? views[view] ?? 'Part Master';
   const baseCols: Col<PartRow>[] = [{ key: 'partNumber', label: pnLabel(familyCode), sort: true, render: (r) => <Mono>{r.partNumber}</Mono> }, { key: 'name', label: 'Name', sort: true }, { key: 'typeName', label: 'Product family', sort: true, render: (r) => r.typeName ?? r.productFamily ?? '—' },
+          { key: 'brandName', label: 'Brand', render: (r) => r.brandName || '—' },
           ...(familyCode === FUEL_PUMP ? [] : [{ key: 'drawingNumber', label: DWG_LABEL, render: (r: PartRow) => r.drawingNumber ?? '—' }]),
           ...(attrDefs.data ?? []).filter((d) => attrFor(d, familyCode, famRow?.shownFields)).map((d): Col<PartRow> => ({ key: `attr:${d.key}`, label: d.label, render: (r) => attrsOf(r.attributes)[d.key] ?? '—' })),
           { key: 'partClass', label: 'Part class', render: (r) => r.partClass ?? '—' },
@@ -161,7 +163,7 @@ export function PartMasterPage() {
     {canChange && <ChangeFamilyDialog open={changing} onClose={() => setChanging(false)} families={types.data ?? []} defs={attrDefs.data ?? []} ticked={ticked}
       filters={{ q: v('q'), partType: v('partType'), status: v('status'), tag: v('tag') }} currentFamily={v('partType') && v('partType') !== 'none' ? v('partType') : undefined} onDone={() => setTicked([])} />}
     {canChange && <CustomerAssignmentDialog open={assigning} onClose={() => setAssigning(false)} />}
-    {canChange && <MoveCustomerDialog open={moving} onClose={() => setMoving(false)} onDone={() => { setMoving(false); setTicked([]); setAllMatching(false); }} allMatching={allMatching} ticked={ticked} filters={{ q: v('q'), view, family: v('family'), status: v('status'), partType: v('partType'), customer: v('customer'), type: v('type'), tag: v('tag') }} />}
+    {canChange && <MoveCustomerDialog open={moving} onClose={() => setMoving(false)} onDone={() => { setMoving(false); setTicked([]); setAllMatching(false); }} allMatching={allMatching} ticked={ticked} filters={{ q: v('q'), view, family: v('family'), status: v('status'), partType: v('partType'), customer: v('customer'), type: v('type'), tag: v('tag'), brand: v('brand') }} />}
     {wipe && family && <FamilyDeleteDialog familyId={v('partType')} label={family} onClose={() => setWipe(false)} />}
   </>;
   const soldAs = (r: PartRow) => (r.alsoSoldAs ?? []).length === 0 ? '—' : <Stack gap={0.25} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()} data-testid="also-sold-as">
@@ -169,6 +171,7 @@ export function PartMasterPage() {
   const customerCols: Col<PartRow>[] = [
     { key: 'partNumber', label: 'Customer part #', sort: true, render: (r) => <Box data-testid={r.id === v('found') ? 'found-part' : undefined} sx={r.id === v('found') ? { bgcolor: 'warning.light', px: 0.5, borderRadius: 0.5 } : undefined}><Mono>{r.partNumber}</Mono></Box> },
     { key: 'description', label: 'Description', render: (r) => r.description?.trim() || r.name || '—' },
+    { key: 'brandName', label: 'Brand', render: (r) => <span data-testid={`part-brand-${r.partNumber}`}>{r.brandName || '—'}</span> },
     { key: 'upc', label: 'UPC / Barcode', render: (r) => r.upc || '—' },
     { key: 'drawingNumber', label: 'Drawing #', render: (r) => r.drawingNumber || '—' },
     { key: 'alsoSoldAs', label: 'Also sold as', render: soldAs },
@@ -192,13 +195,18 @@ export function PartMasterPage() {
       {(untyped.data?.total ?? 0) > 0 && v('partType') !== 'none' && <Alert severity="info" sx={{ mb: 2 }} data-testid="untyped-parts"
         action={<Button color="inherit" size="small" onClick={() => set('partType', 'none')}>Show them</Button>}>
         {untyped.data!.total} {untyped.data!.total === 1 ? 'part has' : 'parts have'} no product family yet. Open a part and choose its product family with Edit.</Alert>}
-      <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ partType: v('partType'), status: v('status'), type: v('type'), tag: v('tag') }} onChange={set}
+      <Filters search={v('q')} onSearch={(s) => set('q', s)} values={{ partType: v('partType'), status: v('status'), type: v('type'), tag: v('tag'), brand: v('brand') }} onChange={set}
         extra={customerList ? undefined : <><Button size="small" onClick={(e) => setColsAnchor(e.currentTarget)}>Columns</Button>
           <Menu anchorEl={colsAnchor} open={!!colsAnchor} onClose={() => setColsAnchor(null)}>
             {allCols.filter((c) => c.key !== 'partNumber').map((c) => <MenuItem key={c.key} dense onClick={() => toggleCol(c.key)}><Checkbox size="small" checked={!isHidden(c.key)} sx={{ p: 0.5, mr: 1 }} />{c.label}</MenuItem>)}
           </Menu></>}
-        onClear={() => { setSp(view ? { view } : family ? { partType: v('partType') } : {}); setPage(1); }}
+        onClear={() => {
+          if (customerList) { const n = new URLSearchParams(); n.set('customer', customerKey); if (v('partType')) n.set('partType', v('partType')); setSp(n); }
+          else setSp(view ? { view } : family ? { partType: v('partType') } : {});
+          setPage(1);
+        }}
         filters={[{ key: 'partType', label: 'Product family', options: [['none', 'No product family'], ...(types.data ?? []).map((t): [string, string] => [t.id, t.isActive ? t.label : `${t.label} (inactive)`])] },
+          { key: 'brand', label: 'Brand', options: [['none', 'No brand'], ...(brands.data ?? []).map((b): [string, string] => [b.id, b.isActive ? b.label : `${b.label} (inactive)`])] },
           { key: 'status', label: 'Status', options: masterStatuses.map((x) => [x, x]) }]} />
       <InventoryNote />
       {canChange && (allMatching || ticked.length > 0) && <Alert severity="info" sx={{ mb: 2 }} data-testid="select-all-matching" action={<Stack direction="row" gap={1}>
@@ -373,7 +381,7 @@ function FamilyDeleteDialog({ familyId, label, onClose }: { familyId: string; la
   );
 }
 
-interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record<string, string>; productId?: string; material?: string; hasSpecialCharacteristics: boolean; hiddenFields?: string[]; siteId: string; departmentId?: string; rowVersion: number; createdAt: string; createdBy: string; updatedBy: string; customerId?: string | null; customerName?: string | null };
+interface PartDetail { part: Omit<PartRow, 'attributes'> & { attributes?: Record<string, string>; productId?: string; material?: string; hasSpecialCharacteristics: boolean; hiddenFields?: string[]; siteId: string; departmentId?: string; rowVersion: number; createdAt: string; createdBy: string; updatedBy: string; customerId?: string | null; customerName?: string | null; brandId?: string | null; brandName?: string | null };
   revisions: { id: string; revision: string; reason: string; createdAt: string }[]; partsLists: { id: string; number: string; title: string; revision: string; status: string; listType: string }[];
   related: { partsLists: number }; crossReferences?: SoldAs[]; canEdit: boolean; canEditMaster: boolean }
 
@@ -381,7 +389,9 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
   const sites = useSites();
   const qc = useQueryClient();
   const customers = useQuery({ queryKey: ['sqf-customers-active'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/customers?active=true`), enabled: open });
+  const brands = useQuery({ queryKey: ['sqf-brands'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/brands`), enabled: open });
   const [customerId, setCustomerId] = useState('');
+  const [brandId, setBrandId] = useState('');
   const { can } = useAuth();
   const drawingsOk = can('sequfloh.manage_drawings');
   const [links, setLinks] = useState<{ id: string; label: string }[]>([]);
@@ -404,6 +414,7 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
     if (edit && drawingsOk) get<PartDrawing[]>(`/api/drawings/for-part?partId=${edit.id}`).then((l) => setLinks(l.map((d) => ({ id: d.id, label: `${d.drawingNumber ? d.drawingNumber + ' · ' : ''}${d.title} (rev ${d.currentRevision})` })))).catch(() => undefined);
     const lc = (e?: PartDetail['part']) => (e ? (e.lotControl || (e.isLotControlled ? 'Yes' : 'No')) : '');
     setCustomerId(edit?.customerId ?? '');
+    setBrandId(edit?.brandId ?? '');
     setErr(null); setF(edit ? { ...blank, ...Object.fromEntries(Object.entries(edit).map(([k, x]) => [k, x ?? ''])), lotControl: lc(edit) } as typeof blank : { ...blank, partNumber: prefill ?? '', upc: prefillUpc ?? '', siteId: sites.data?.[0]?.id ?? '' }); };
   const familyLabels = (types.data ?? []).filter((t) => t.isActive).map((t) => t.label);
   const yn = (k: 'isAssembly' | 'isRepairable') => ({ value: f[k] ? 'Yes' : 'No', onChange: (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value === 'Yes' }) });
@@ -416,7 +427,7 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
       execution: { productFamily: nul(f.productFamily), assemblyType: nul(f.assemblyType), isRepairable: f.isRepairable, isRepairPart: f.isRepairPart, isSerialized: f.isSerialized, isLotControlled: f.lotControl === 'Yes',
         partClass: nul(f.partClass), isAssembly: f.isAssembly, lotControl: nul(f.lotControl),
         drawingNumber: nul(f.drawingNumber), drawingRevision: nul(f.drawingRevision), specification: nul(f.specification), rowVersion: edit?.rowVersion ?? 0 },
-      typeId: typeId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])), notes: f.notes, hiddenFields: edit || hidden.length ? hidden : null, upc: f.upc.trim() };
+      typeId: typeId || null, brandId: brandId || null, attributes: Object.fromEntries(shownAttrs.map((d) => [d.key, nul(attrs[d.key] ?? '')])), notes: f.notes, hiddenFields: edit || hidden.length ? hidden : null, upc: f.upc.trim() };
     try {
       let id = edit?.id;
       if (edit) await put(`${S}/parts/${edit.id}`, body); else id = (await post<{ id: string }>(`${S}/parts`, body)).id;
@@ -444,6 +455,10 @@ function PartDialog({ open, onClose, onSaved, edit, prefill, prefillUpc }: { ope
           <TextField select label="Customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} inputProps={{ 'data-testid': 'part-customer-select' }} helperText="Unassigned until a customer is chosen. A part number the customer already has in this product line is left unchanged.">
             <MenuItem value="">Unassigned</MenuItem>
             {(customers.data ?? []).filter((c) => c.isActive || c.id === customerId).map((c) => <MenuItem key={c.id} value={c.id}>{c.isActive ? c.label : `${c.label} (inactive)`}</MenuItem>)}
+          </TextField>
+          <TextField select label="Brand" value={brandId} onChange={(e) => setBrandId(e.target.value)} inputProps={{ 'data-testid': 'part-brand-select' }}>
+            <MenuItem value="">None</MenuItem>
+            {(brands.data ?? []).filter((b) => b.isActive || b.id === brandId).map((b) => <MenuItem key={b.id} value={b.id}>{b.isActive ? b.label : `${b.label} (inactive)`}</MenuItem>)}
           </TextField>
           <TextField select label="Product family" required value={typeId} onChange={(e) => setTypeId(e.target.value)} inputProps={{ 'data-testid': 'part-type-select' }}
             error={!!edit && !typeId} helperText={edit && !typeId ? 'Choose the product family for this part.' : undefined}>
@@ -540,6 +555,7 @@ export function PartDetailPage() {
           <Grid cols={4}>
             <Field label={pnLabel(code)}><Mono>{p.partNumber}</Mono><ViewDrawingButton partId={p.id} /></Field><Field label="Name">{p.name}</Field><Field label="Status"><SqfStatus status={p.status} /></Field>
             <Field label="Customer"><span data-testid="part-customer">{p.customerName || 'Unassigned'}</span></Field>
+            <Field label="Brand"><span data-testid="part-brand">{p.brandName || '—'}</span></Field>
             <Field label="Product family">{p.typeName ?? p.productFamily}</Field><Field label="Part class" hide={hid('partClass')}>{p.partClass}</Field><Field label="Assembly" hide={hid('isAssembly')}>{yes(p.isAssembly)}</Field><Field label="Unit of measure" hide={hid('unitOfMeasure')}>{p.unitOfMeasure}</Field>
             <Field label="Repairable" hide={hid('isRepairable')}>{yes(p.isRepairable)}</Field><Field label="Repair part" hide={hid('isRepairPart')}>{yes(!!p.isRepairPart)}</Field><Field label="Serialized" hide={hid('isSerialized')}>{yes(p.isSerialized)}</Field><Field label="Lot controlled" hide={hid('isLotControlled')}>{p.lotControl || yes(p.isLotControlled)}</Field><Field label="Material" hide={hid('material')}>{p.material}</Field>
             {(attrDefs.data ?? []).filter((d) => attrFor(d, code, pFam?.shownFields)).map((d) => <Field key={d.key} label={d.label} hide={hid(d.key)}>{p.attributes?.[d.key]}</Field>)}

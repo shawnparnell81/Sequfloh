@@ -13,6 +13,9 @@ public static class SequflohCatalog
     /// <summary>The admin-managed customers list. A part stores the value Id in CustomerId, or null when the part is unassigned.</summary>
     public const string Customers = "customers";
 
+    /// <summary>The admin-managed brands list. A part stores the value Id in BrandId, or null when the part has no brand.</summary>
+    public const string Brands = "brands";
+
     public const string InspectionSubTypes = "inspection-sub-types";
 
     public const string Module = "sequfloh";
@@ -48,6 +51,8 @@ public static class SequflohCatalog
             ["Complete Strut Assembly (CSA)", "Fuel Pump", "Fuel Injector", "Brake Wear Sensor", "Gas Lift", "Electric Lift", "Coil Spring", "Struts", "Air Struts"], NoDefault: true),
         new(Customers, "Customers", "The customer that owns a part's primary number, for example NAPA US, NAPA Canada, O'Reilly or AutoZone. Add, rename or deactivate customers here. A part with no customer stays unassigned, and nothing is assigned until someone confirms it. Deactivate a customer that should no longer be offered; a customer that parts already use cannot be deleted. SenSen is the supplier, not a customer. Brand names are not customers and stay in the description.",
             ["NAPA US", "NAPA Canada", "O'Reilly", "AutoZone"], NoDefault: true),
+        new(Brands, "Brands", "The brand of a part, for example Duralast or Spectra Premium. Add, rename, deactivate or reorder brands here. A part can have no brand. Deactivate a brand that should no longer be offered; a brand that parts already use cannot be deleted.",
+            ["Duralast", "MasterPro", "Proformer", "Import Direct", "Precision", "Dorman", "Spectra Premium", "Monoshock", "UAS", "WD Fuelmaster", "Brakemaster", "RideMaster", "US Proformer Air", "Nissan Air", "Nissan", "MasterPro Monoshock", "Calvert Racing"], NoDefault: true),
         new("operation-categories", "Operation categories", "Categories of reusable operation steps.", ["Inspection", "Disassembly", "Assembly", "Cleaning", "Test", "Adjustment", "Packaging", "Labeling", "Safety"]),
         new("equipment-types", "Equipment types", "Equipment types used in instructions.", ["Hand tool", "Torque tool", "Gauge", "Test equipment", "Fixture", "Software", "Environmental monitor"]),
         new("lifecycle-actions", "Lifecycle actions", "Display labels of work instruction actions.", ["Release", "Create revision", "Mark obsolete"]),

@@ -31,8 +31,9 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
   const importSites = (allSites.data ?? []).filter((x) => canAt('sequfloh.edit_parts', x.id) && canAt('parts.edit', x.id));
   const sites = { data: importSites };
   const types = useQuery({ queryKey: ['sqf-part-types'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/product-families`), enabled: open });
+  const brands = useQuery({ queryKey: ['sqf-brands'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/brands`), enabled: open });
   const customers = useQuery({ queryKey: ['sqf-customers-active'], queryFn: () => get<{ id: string; label: string; isActive: boolean }[]>(`${S}/reference/customers?active=true`), enabled: open });
-  const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'units' | 'yesNo' | 'lot' | null; isNumber?: boolean }[]>(`${S}/parts/import/fields`), enabled: open });
+  const fields = useQuery({ queryKey: ['sqf-part-import-fields'], queryFn: () => get<{ key: string; label: string; choices?: 'families' | 'brands' | 'units' | 'yesNo' | 'lot' | null; isNumber?: boolean }[]>(`${S}/parts/import/fields`), enabled: open });
   const qc = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [allTables, setAllTables] = useState(false);
@@ -119,6 +120,7 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
     setMapping(n); setFixed(x); setPlan(null);
   };
   const choiceList = (kind?: string | null): string[] => kind === 'families' ? (types.data ?? []).filter((t) => t.isActive).map((t) => t.label)
+    : kind === 'brands' ? (brands.data ?? []).filter((b) => b.isActive).map((b) => b.label)
     : kind === 'units' ? UNITS : kind === 'yesNo' ? ['Yes', 'No'] : kind === 'lot' ? LOT_CHOICES : [];
   const columnItems = (key: string) => table!.headers.map((h, i) => <MenuItem key={`${key}-c${i}`} value={`col:${i}`} sx={{ pl: 4 }}>{h || `Column ${i + 1}`}</MenuItem>);
   const noNumbers = !!fields.data && !(fields.data ?? []).some((f) => f.isNumber && !removed.includes(f.key) && mapping[f.key] !== undefined);
@@ -180,8 +182,8 @@ export function ImportPartsDialog({ open, onClose, preset }: { open: boolean; on
             </Stack>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Column mapping · {table.rows.length} rows found</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              For each field, pick the column in your file that fills it. Name is picked here for every row and never comes from the file. Fields with set choices (Product family, Part class, Unit of measure, Assembly, Repairable, Lot controlled)
-              can also use one choice for every row. Values from a column must match a choice; rows that do not are listed as errors in the preview.
+              For each field, pick the column in your file that fills it. Name is picked here for every row and never comes from the file. Fields with set choices (Product family, Part class, Brand, Unit of measure, Assembly, Repairable, Lot controlled)
+              can also use one choice for every row. A brand in the file must match a brand on the Brands list. Rows that do not are listed as errors in the preview, and the brand is not created.
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 1.5 }}>
               {(fields.data ?? []).filter((f) => !removed.includes(f.key)).map((f) => (

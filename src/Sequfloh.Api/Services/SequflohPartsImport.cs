@@ -47,6 +47,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         ("name", "Name", ["name", "part name", "item name", "title"]),
         ("description", "Description", ["description", "desc", "details", "purchase description", "sales description"]),
         ("typeName", "Product family", ["product family", "family", "category", "item category", "product category", "part type", "type", "product type"]),
+        ("brand", "Brand", ["brand", "brand name"]),
         ("partClass", "Part class", ["part class", "item type", "class"]),
         ("unitOfMeasure", "Unit of measure", ["unit of measure", "uom", "unit", "units"]),
         ("isAssembly", "Assembly", ["assembly", "is assembly", "assembly type"]),
@@ -64,7 +65,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     /// <summary>Which choice list a field takes ("families", "units", "yesNo", "lot"), or null for a text field.</summary>
     public static string? ChoiceKind(string key) => key switch
     {
-        "name" or "typeName" or "partClass" => "families", "unitOfMeasure" => "units", "isAssembly" or "isRepairable" => "yesNo", "isLotControlled" => "lot", _ => null,
+        "name" or "typeName" or "partClass" => "families", "brand" => "brands", "unitOfMeasure" => "units", "isAssembly" or "isRepairable" => "yesNo", "isLotControlled" => "lot", _ => null,
     };
 
     static string Norm(string s) => Regex.Replace(s.ToLowerInvariant().Replace('_', ' ').Replace('-', ' '), @"[^a-z0-9# ]", "").Trim().Replace("  ", " ");
@@ -292,6 +293,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         if (!r.Mapping.Any(kv => IsNumberKey(kv.Key) && kv.Value >= 0)) throw new AppException(NoNumberColumn);
         if (r.Rows.Count > MaxRows) throw new AppException($"A file can import at most {MaxRows} parts at a time.");
         var partTypes = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.IsActive).Select(v => new { v.Id, v.Code, v.Label }).ToListAsync(ct);
+        var brands = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.Brands && v.IsActive).Select(v => new { v.Id, v.Label }).ToListAsync(ct);
         var familyHidden = await db.SequflohReferenceValues.AsNoTracking().Where(v => v.ListKey == SequflohCatalog.ProductFamilies && v.HiddenFields != null).ToDictionaryAsync(v => v.Id, v => v.HiddenFields, ct);
         if (r.RowNumbers is { } rn && rn.Count != r.Rows.Count) throw new AppException("The row numbers do not match the rows.");
         if (r.DefaultTypeId is { } dt && partTypes.All(x => x.Id != dt)) throw new AppException("The product family for all rows is not an active product family.");
@@ -344,6 +346,13 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             if (upc is not null && (!Gtin.IsBarcode(upc) || !Gtin.CheckDigitOk(upc))) { errors.Add($"UPC / Barcode \"{upc}\" must be 8, 12, 13 or 14 digits with a right check digit."); upc = null; }
             var rep = FlagOf("isRepairable", "Repairable"); var rp = FlagOf("isRepairPart", "Repair part"); string? lot = null;
             if (Get("isLotControlled") is { Length: > 0 } lv && (lot = PartChoices.Lot(lv)) is null) errors.Add($"Lot controlled \"{lv}\" must be Yes, No or Not applicable.");
+            Guid? brandId = null;
+            var brandText = Get("brand");
+            if (brandText.Length > 0)
+            {
+                brandId = brands.FirstOrDefault(x => string.Equals(x.Label.Trim(), brandText, StringComparison.OrdinalIgnoreCase))?.Id;
+                if (brandId is null) errors.Add($"Brand \"{brandText}\" is not on the Brands list.");
+            }
             Guid? typeId = r.DefaultTypeId;
             var tn = Get("typeName");
             if (tn.Length > 0)
@@ -377,6 +386,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
                 if (lot is not null) { p.LotControl = lot; p.IsLotControlled = lot == "Yes"; }
                 // a part that already has a product family keeps it; the file only sets the family of a part that has none
                 if (typeId is not null && !HasFamily(p)) { p.TypeId = typeId; p.ProductFamily = partTypes.First(x => x.Id == typeId).Label; }
+                if (brandId is not null) p.BrandId = brandId;
                 var have = PartAttributes.Read(p.Attributes);
                 PartAttributes.Merge(p, attrs.Where(kv => !(PartAttributes.Find(kv.Key) is { } d && IsNumber(d) && have.GetValueOrDefault(kv.Key) is { } old && !PartFields.IsBlank(old)))
                     .ToDictionary(kv => kv.Key, kv => kv.Value));
@@ -591,13 +601,13 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             Material = p.Material, DrawingNumber = p.DrawingNumber, DrawingRevision = p.DrawingRevision, Specification = p.Specification,
             Upc = p.Upc, UpcKey = p.UpcKey, IsRepairable = p.IsRepairable, IsRepairPart = p.IsRepairPart, LotControl = p.LotControl,
             IsLotControlled = p.IsLotControlled, TypeId = p.TypeId, ProductFamily = p.ProductFamily, Attributes = p.Attributes,
-            HiddenFields = p.HiddenFields, PartNumber = p.PartNumber, CustomerId = p.CustomerId,
+            HiddenFields = p.HiddenFields, PartNumber = p.PartNumber, CustomerId = p.CustomerId, BrandId = p.BrandId,
         };
         row.Apply(copy);
         return copy.Name != p.Name || copy.Description != p.Description || copy.UnitOfMeasure != p.UnitOfMeasure || copy.PartClass != p.PartClass
             || copy.IsAssembly != p.IsAssembly || copy.Material != p.Material || copy.DrawingNumber != p.DrawingNumber || copy.DrawingRevision != p.DrawingRevision
             || copy.Specification != p.Specification || copy.Upc != p.Upc || copy.IsRepairable != p.IsRepairable || copy.IsRepairPart != p.IsRepairPart
-            || copy.LotControl != p.LotControl || copy.TypeId != p.TypeId || !SameAttrs(copy.Attributes, p.Attributes);
+            || copy.LotControl != p.LotControl || copy.TypeId != p.TypeId || copy.BrandId != p.BrandId || !SameAttrs(copy.Attributes, p.Attributes);
     }
 
     static bool SameAttrs(string? a, string? b)
@@ -717,7 +727,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
     static void FillBlanks(Action<Part> apply, Part t)
     {
         static bool Blank(string? v) => string.IsNullOrWhiteSpace(v);
-        var (name, desc, uom, pclass, mat, dwg, dwgRev, spec, lot, fam, typeId, hidden) = (t.Name, t.Description, t.UnitOfMeasure, t.PartClass, t.Material, t.DrawingNumber, t.DrawingRevision, t.Specification, t.LotControl, t.ProductFamily, t.TypeId, t.HiddenFields);
+        var (name, desc, uom, pclass, mat, dwg, dwgRev, spec, lot, fam, typeId, hidden, brandId) = (t.Name, t.Description, t.UnitOfMeasure, t.PartClass, t.Material, t.DrawingNumber, t.DrawingRevision, t.Specification, t.LotControl, t.ProductFamily, t.TypeId, t.HiddenFields, t.BrandId);
         var (asm, rep, rp, lotOn, upc, upcKey) = (t.IsAssembly, t.IsRepairable, t.IsRepairPart, t.IsLotControlled, t.Upc, t.UpcKey);
         var attrs = PartAttributes.Read(t.Attributes).Where(kv => !PartFields.IsBlank(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value);
         apply(t);
@@ -731,6 +741,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
         if (!Blank(spec)) t.Specification = spec;
         if (!Blank(lot)) { t.LotControl = lot; t.IsLotControlled = lotOn; }
         if (typeId is not null) { t.TypeId = typeId; t.ProductFamily = fam; }
+        if (brandId is not null) t.BrandId = brandId;
         if (!Blank(upc)) { t.Upc = upc; t.UpcKey = upcKey; }
         // Yes/No flags have no empty state, so they are kept as they are
         t.IsAssembly = asm; t.IsRepairable = rep; t.IsRepairPart = rp;

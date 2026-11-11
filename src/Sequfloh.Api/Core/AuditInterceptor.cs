@@ -145,6 +145,7 @@ public sealed class AuditInterceptor(ICurrentUser user, IClock clock) : SaveChan
         if (open().Count > 0) await Add(ctx.Set<Domain.Security.Role>().AsNoTracking().Where(r => ids.Contains(r.Id)).Select(r => new { r.Id, r.Name }), x => x.Id, x => x.Name);
         if (open().Count > 0) await Add(ctx.Set<Domain.Organization.Site>().AsNoTracking().Where(r => ids.Contains(r.Id)).Select(r => new { r.Id, r.Code }), x => x.Id, x => x.Code);
         if (open().Count > 0) await Add(ctx.Set<Domain.Organization.Department>().AsNoTracking().Where(r => ids.Contains(r.Id)).Select(r => new { r.Id, r.Code }), x => x.Id, x => x.Code);
+        if (open().Count > 0) await Add(ctx.Set<Domain.Execution.SequflohReferenceValue>().AsNoTracking().Where(r => ids.Contains(r.Id)).Select(r => new { r.Id, r.Label }), x => x.Id, x => x.Label);
         foreach (var e in ctx.ChangeTracker.Entries<Entity>())
             if (e.Entity is IAudited a && ids.Contains(e.Entity.Id) && !names.ContainsKey(e.Entity.Id))
                 names[e.Entity.Id] = AuditText.RefPattern().Replace(a.AuditLabel, m => m.Groups[2].Value);

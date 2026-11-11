@@ -474,10 +474,12 @@ public partial class AppDbContext
             e.HasIndex(x => x.PartNumberKey);
             e.HasIndex(x => x.DrawingKey);
             e.HasIndex(x => x.CustomerId);
+            e.HasIndex(x => x.BrandId);
             e.HasIndex(x => x.DrawingNumber);
             e.HasIndex(x => new { x.CustomerId, x.TypeId, x.PartNumberKey });
             e.HasIndex(x => new { x.Status, x.PartNumber });
             e.HasOne<SequflohReferenceValue>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<SequflohReferenceValue>().WithMany().HasForeignKey(x => x.BrandId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
