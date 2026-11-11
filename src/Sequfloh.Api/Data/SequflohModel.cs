@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Sequfloh.Domain.Execution;
 using Sequfloh.Domain.MasterData;
+using Sequfloh.Domain.Organization;
 using Sequfloh.Infrastructure.Identity;
 
 namespace Sequfloh.Infrastructure.Persistence;
@@ -25,6 +26,8 @@ public partial class AppDbContext
     public DbSet<SequflohTaskEvent> SequflohTaskEvents => Set<SequflohTaskEvent>();
     public DbSet<SequflohTaskAssignee> SequflohTaskAssignees => Set<SequflohTaskAssignee>();
     public DbSet<SequflohTimeEntry> SequflohTimeEntries => Set<SequflohTimeEntry>();
+    public DbSet<SequflohDayClock> SequflohDayClocks => Set<SequflohDayClock>();
+    public DbSet<SequflohDaySegment> SequflohDaySegments => Set<SequflohDaySegment>();
     public DbSet<SequflohTestFile> SequflohTestFiles => Set<SequflohTestFile>();
     public DbSet<SequflohJobNote> SequflohJobNotes => Set<SequflohJobNote>();
     public DbSet<SequflohTestSpec> SequflohTestSpecs => Set<SequflohTestSpec>();
@@ -45,7 +48,8 @@ public partial class AppDbContext
             e.ToTable("sequfloh_settings");
             foreach (var p in new[] { nameof(Domain.Execution.SequflohSettings.General), nameof(Domain.Execution.SequflohSettings.Numbering), nameof(Domain.Execution.SequflohSettings.WorkInstructions),
                          nameof(Domain.Execution.SequflohSettings.Tracking), nameof(Domain.Execution.SequflohSettings.Validation), nameof(Domain.Execution.SequflohSettings.Fai), nameof(Domain.Execution.SequflohSettings.Repair),
-                         nameof(Domain.Execution.SequflohSettings.Display), nameof(Domain.Execution.SequflohSettings.Export), nameof(Domain.Execution.SequflohSettings.Notifications), nameof(Domain.Execution.SequflohSettings.Security) })
+                         nameof(Domain.Execution.SequflohSettings.Display), nameof(Domain.Execution.SequflohSettings.Export), nameof(Domain.Execution.SequflohSettings.Notifications), nameof(Domain.Execution.SequflohSettings.Security),
+                         nameof(Domain.Execution.SequflohSettings.DayClock) })
                 e.Property(p).HasColumnType("jsonb");
         });
         b.Entity<SequflohReferenceValue>(e =>
@@ -410,6 +414,43 @@ public partial class AppDbContext
             e.Property(x => x.TrackingNumber).HasMaxLength(40);
             e.Property(x => x.Events).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
             e.Property(x => x.UserName).HasMaxLength(200);
+        });
+        b.Entity<SequflohDayClock>(e =>
+        {
+            e.ToTable("sequfloh_day_clocks");
+            e.HasIndex(x => new { x.UserId, x.StartedAt });
+            e.HasIndex(x => x.UserId, "IX_sequfloh_day_clocks_open").HasFilter("\"EndedAt\" IS NULL").IsUnique();
+            e.Property(x => x.UserName).HasMaxLength(200);
+            e.Property(x => x.EndKind).HasMaxLength(20);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Department>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.SetNull);
+        });
+        b.Entity<SequflohDaySegment>(e =>
+        {
+            e.ToTable("sequfloh_day_segments");
+            e.HasIndex(x => new { x.DayClockId, x.StartedAt });
+            e.HasIndex(x => new { x.UserId, x.StartedAt });
+            e.HasIndex(x => x.UserId, "IX_sequfloh_day_segments_open").HasFilter("\"EndedAt\" IS NULL AND \"VoidedAt\" IS NULL").IsUnique();
+            e.HasQueryFilter(x => x.VoidedAt == null);
+            e.Property(x => x.UserName).HasMaxLength(200);
+            e.Property(x => x.Kind).HasMaxLength(20);
+            e.Property(x => x.TrackingNumber).HasMaxLength(40);
+            e.Property(x => x.TaskName).HasMaxLength(200);
+            e.Property(x => x.Note).HasMaxLength(300);
+            e.Property(x => x.EndKind).HasMaxLength(20);
+            e.Property(x => x.ResumeKind).HasMaxLength(20);
+            e.Property(x => x.ResumeTrackingNumber).HasMaxLength(40);
+            e.Property(x => x.ResumeTaskName).HasMaxLength(200);
+            e.Property(x => x.ResumeNote).HasMaxLength(300);
+            e.Property(x => x.VoidedBy).HasMaxLength(200);
+            e.Property(x => x.VoidReason).HasMaxLength(500);
+            e.Property(x => x.AdjustedBy).HasMaxLength(200);
+            e.Property(x => x.AdjustReason).HasMaxLength(500);
+            e.HasOne<SequflohDayClock>().WithMany().HasForeignKey(x => x.DayClockId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<SequflohTrackingRecord>().WithMany().HasForeignKey(x => x.TrackingRecordId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<SequflohTimeEntry>().WithMany().HasForeignKey(x => x.TimeEntryId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<SequflohReferenceValue>().WithMany().HasForeignKey(x => x.IndirectValueId).OnDelete(DeleteBehavior.Restrict);
         });
         b.Entity<SequflohTaskEvent>(e =>
         {

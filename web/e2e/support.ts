@@ -16,6 +16,14 @@ export async function signIn(page: Page) {
   await page.click('button[type=submit]');
   await expect(page.getByTestId('tab-strip')).toBeVisible();
 }
+/** A job clock needs the day clock open. Clock in when the person is still out. */
+export async function clockInDay(page: Page) {
+  const status = await page.request.get('/api/sequfloh/day-clock');
+  if (status.ok() && !(await status.json()).clockedIn) {
+    const inn = await page.request.post('/api/sequfloh/day-clock/in');
+    if (!inn.ok() && inn.status() !== 409) throw new Error(await inn.text());
+  }
+}
 export const view = (p: Page) => p.locator('[data-testid^="tab-view-"][data-active="true"]');
 export const strip = (p: Page) => p.getByTestId('tab-strip');
 export const tabs = (p: Page) => strip(p).locator('[data-tab-url]');

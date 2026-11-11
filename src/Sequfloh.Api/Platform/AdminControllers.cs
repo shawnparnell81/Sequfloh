@@ -315,6 +315,11 @@ public static class PermissionText
             "sequfloh.delete_chargebacks" => "Delete chargeback reports",
             "sequfloh.manage_projects" => "Create, edit, close and delete projects",
             "sequfloh.reopen_completed" => "Reopen completed work orders",
+            "sequfloh.view_own_day_clock" => "View your own day clock and timesheet (arrival, tasks, breaks; not payroll)",
+            "sequfloh.view_team_day_clock" => "View the day clock and timesheets of people in your department",
+            "sequfloh.view_all_day_clock" => "View every person's day clock and timesheet",
+            "sequfloh.correct_day_clock" => "Correct a missed day-clock punch or task, with a reason (audited)",
+            "sequfloh.manage_day_clock" => "Set the automatic day clock-out time and the Working late limit",
             "sequfloh.delete_records" => "Delete records (instructions, work orders, parts, drawings, imported files)",
             _ => char.ToUpperInvariant(words[0]) + words[1..],
         };

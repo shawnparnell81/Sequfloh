@@ -82,7 +82,7 @@ public sealed class DeleteAndTimeTests(TestApp app)
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         Assert.Contains("obsolete", await conflict.Content.ReadAsStringAsync());
 
-        await deleter.PostOkAsync($"{U}/{worked}/time/start");
+        await deleter.PostOkAsync($"{U}/{worked}/time/start", new { clockIn = true });
         await deleter.PostOkAsync($"{U}/{worked}/time/stop");
         var blocked = await deleter.DeleteAsync($"{U}/{worked}");
         Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
@@ -181,9 +181,9 @@ public sealed class DeleteAndTimeTests(TestApp app)
 
         // timers: three people at once, including one without any permission
         await planner.StartAsync(id);
-        await planner.PostOkAsync($"{U}/{id}/time/start");
-        await helper.PostOkAsync($"{U}/{id}/time/start");
-        await stranger.PostOkAsync($"{U}/{id}/time/start");
+        await planner.PostOkAsync($"{U}/{id}/time/start", new { clockIn = true });
+        await helper.PostOkAsync($"{U}/{id}/time/start", new { clockIn = true });
+        await stranger.PostOkAsync($"{U}/{id}/time/start", new { clockIn = true });
         Assert.Equal(HttpStatusCode.Conflict, (await helper.PostAsync($"{U}/{id}/time/start")).StatusCode);
         { var db = Db(out var s); using var _ = s; await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE sqf.sequfloh_time_entries SET \"StartedAt\" = \"StartedAt\" - interval '10 minutes' WHERE \"TrackingRecordId\" = {id} AND \"UserId\" = {helperId}"); }
         await helper.PostOkAsync($"{U}/{id}/time/stop");

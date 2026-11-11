@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { clockInDay, settledShot, signIn, view } from './support';
 
 /** Made-up records only. Crew time next to registered clock on/off, bulk backdated crew time, and a chargeback report with PDF and Excel. */
 test('crew time, bulk backdate and chargeback report', async ({ page }) => {
@@ -22,6 +22,7 @@ test('crew time, bulk backdate and chargeback report', async ({ page }) => {
   const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-CB-${stamp}` } }))).id as string;
 
   // a registered person clocks on and off the usual way
+  await clockInDay(page);
   await page.goto(`/sequfloh/record/${wo}`);
   await view(page).getByTestId('start-timer').click();
   await expect(view(page).getByTestId('stop-timer')).toBeVisible();

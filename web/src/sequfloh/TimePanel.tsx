@@ -60,9 +60,19 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
   const [showLog, setShowLog] = useState(false);
   const d = q.data;
   const total = d ? d.people.reduce((a, p) => a + p.seconds, 0) : 0;
-  const go = async (what: 'start' | 'stop' | 'pause' | 'resume', reason?: 'Break' | 'Lunch') => {
+  const day = useQuery({ queryKey: ['day-clock'], queryFn: () => get<{ clockedIn: boolean }>(`${S}/day-clock`) });
+  const needsIn = !!day.data && !day.data.clockedIn;
+  const go = async (what: 'start' | 'stop' | 'pause' | 'resume', reason?: 'Break' | 'Lunch', clockIn?: boolean) => {
     setBusy(true); setErr(null);
-    try { await post(`${S}/tracking/${recordId}/time/${what}`, reason ? { reason } : undefined); await qc.invalidateQueries(); }
+    try {
+      const body = what === 'start' ? { clockIn: !!clockIn } : reason ? { reason } : undefined;
+      try { await post(`${S}/tracking/${recordId}/time/${what}`, body); }
+      catch (e) {
+        if (what === 'start' && !clockIn && (e as Error).message.includes('Clock in for the day')) await post(`${S}/tracking/${recordId}/time/start`, { clockIn: true });
+        else throw e;
+      }
+      await qc.invalidateQueries();
+    }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   return (
@@ -81,12 +91,12 @@ export function TimePanel({ recordId, closed = false, notStarted }: { recordId: 
           </>)}
         {d && (d.mineRunning
           ? <Tooltip describeChild title="Stop logging your time on this job."><Button variant="contained" color="error" disabled={busy} data-testid="stop-timer" onClick={() => go('stop')}>Clock off job</Button></Tooltip>
-          : !closed && <Tooltip describeChild title="Start logging your time on this job. Job time only, not payroll."><Button variant="contained" color="success" disabled={busy || !!notStarted} data-testid="start-timer" onClick={() => go('start')}>Clock on job</Button></Tooltip>)}
+          : !closed && <Tooltip describeChild title={needsIn ? 'Clock in for the day and start this job. One click does both. Job time only, not payroll.' : 'Start logging your time on this job. Job time only, not payroll.'}><Button variant="contained" color="success" disabled={busy || !!notStarted} data-testid="start-timer" onClick={() => go('start', undefined, needsIn)}>{needsIn ? 'Clock in and start' : 'Clock on job'}</Button></Tooltip>)}
         <AddPastTimeButton recordId={recordId} />
         {!closed && notStarted && <Typography variant="body2" color="text.secondary" data-testid="clock-on-hint">{notStarted}</Typography>}
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
-      {d && d.people.some((p) => p.staleNote) && <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="time-stale">{d.people.filter((p) => p.staleNote).map((p) => `${p.name}: ${p.staleNote}.`).join(' ')} Nothing is clocked off automatically.</Alert>}
+      {d && d.people.some((p) => p.staleNote) && <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="time-stale">{d.people.filter((p) => p.staleNote).map((p) => `${p.name}: ${p.staleNote}.`).join(' ')} The day clock stops an open job when the day ends.</Alert>}
       {d && (d.people.length === 0 ? <Typography variant="body2" color="text.secondary">No time logged yet. Anyone can clock on this job.</Typography> :
         <Table size="small" data-testid="time-people">
           <TableHead><TableRow><TableCell>Person</TableCell><TableCell align="right">Worked</TableCell><TableCell align="right">Paused (not counted)</TableCell><TableCell align="right">Sessions</TableCell><TableCell>Now</TableCell></TableRow></TableHead>

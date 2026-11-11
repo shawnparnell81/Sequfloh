@@ -127,6 +127,20 @@ public sealed class RoleSuggestion
     public List<string> Permissions { get; set; } = [];
 }
 
+/// <summary>
+/// When the shop day ends. Staff are salaried; this answers when someone arrived and what they did, not payroll.
+/// The clock is America/New_York. Everyone still clocked in is clocked out at <see cref="EndTime"/> unless they chose Working late.
+/// </summary>
+public sealed class DayClockSettings
+{
+    /// <summary>Local time of day (HH:mm, 24-hour) when open day clocks are closed. 16:00 is 4:00 PM.</summary>
+    public string EndTime { get; set; } = "16:00";
+    /// <summary>Minutes after the end time that Working late may run before a hard clock-out. 240 is 8:00 PM when the day ends at 4:00 PM.</summary>
+    public int HardCapMinutes { get; set; } = 240;
+    /// <summary>Minutes before the end time when the clock offers Working late.</summary>
+    public int WarnMinutes { get; set; } = 15;
+}
+
 public sealed class SecuritySettings
 {
     public bool RequireReasonForOverride { get; set; } = true;

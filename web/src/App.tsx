@@ -12,6 +12,7 @@ import { useAuth, useBranding } from './auth';
 import { LoginPage, SetupPage, ChangePasswordPage } from './pages/SignIn';
 import { TabbedWorkspace } from './tabs/Workspace';
 import { UpdateBanner } from './components/UpdateBanner';
+import { DayClockBar, DayClockPage } from './sequfloh/DayClock';
 
 import { ScanBox, ScanProvider } from './scan/ScanProvider';
 import { NotificationBell } from './components/NotificationBell';
@@ -132,7 +133,7 @@ function TopBar() {
 }
 
 function Signed({ children }: { children: ReactNode }) {
-  return <PresenceProvider><ScanProvider><TopBar /><UpdateBanner />{children}</ScanProvider></PresenceProvider>;
+  return <PresenceProvider><ScanProvider><TopBar /><UpdateBanner /><DayClockBar />{children}</ScanProvider></PresenceProvider>;
 }
 
 export function App() {
@@ -174,6 +175,9 @@ function AppRoutes({ location }: { location?: Location }) {
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/messages/all" element={<AllMessagesPage />} />
         <Route path="/sequfloh" element={<SqfHome />} />
+        <Route path="/sequfloh/day-clock" element={<DayClockPage />} />
+        <Route path="/sequfloh/day-clock/week" element={<DayClockPage view="week" />} />
+        <Route path="/sequfloh/day-clock/team" element={<DayClockPage view="team" />} />
         {/* the separate Validation and FAI pages are now Validation / FAI */}
         <Route path="/sequfloh/settings/fai" element={<Navigate to="/sequfloh/settings/validation" replace />} />
         <Route path="/sequfloh/instructions/fai" element={<Navigate to="/sequfloh/instructions/validation" replace />} />

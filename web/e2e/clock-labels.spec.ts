@@ -18,9 +18,12 @@ test('job time: clock on, pause for break and lunch, clock off', async ({ page }
     content: { validationAcceptance: { overallAcceptanceCriteria: 'Made-up check passes' } }, steps: [{ sequence: 10, title: 'Work' }], characteristics: [], partsRows: [], rowVersion: doc.rowVersion ?? 0 } }));
   await ok(rq.post(`/api/sequfloh/instructions/${wi}/actions/release`, { data: { effectiveDate: '2026-10-01' } }));
   const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: wi, siteId: site, workOrder: `WO-C${stamp}` } }))).id as string;
-
+  const opened = await ok(rq.get(`/api/sequfloh/tracking/${wo}`));
+  await ok(rq.post(`/api/sequfloh/tracking/${wo}/actions/start`, { data: { operationId: crypto.randomUUID(), stateVersion: opened.record.stateVersion } }));
+  if (!(await (await rq.get('/api/sequfloh/day-clock')).json()).clockedIn) await ok(rq.post('/api/sequfloh/day-clock/in'));
   await page.goto(`/sequfloh/record/${wo}?tab=time`);
   const v = view(page);
+  await expect(page.getByTestId('day-clock-widget')).toBeVisible();
   await expect(v.getByRole('button', { name: 'Clock on job' })).toBeVisible();
   await shot('clock-on-job');
   await v.getByRole('button', { name: 'Clock on job' }).click();

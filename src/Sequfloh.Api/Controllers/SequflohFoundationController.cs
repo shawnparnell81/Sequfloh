@@ -41,7 +41,7 @@ public sealed class SequflohFoundationController(SequflohFoundationService f) : 
 
     // settings (read by every module user: dropdown rules, thresholds, display options)
     [HttpGet("settings")] public Task<SettingsDto> Settings(CancellationToken ct) => f.GetSettingsAsync(ct);
-    [HttpPut("settings/{section}")] [RequirePermission(Permissions.SequflohManageSettings)]
+    [HttpPut("settings/{section}")]
     public async Task<IActionResult> SaveSettings(string section, SettingsSaveRequest r, CancellationToken ct) { await f.SaveSectionAsync(section, r.Value, r.RowVersion, ct); return NoContent(); }
 
 

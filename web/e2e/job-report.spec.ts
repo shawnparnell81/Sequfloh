@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { clockInDay, settledShot, signIn, view } from './support';
 
 /** Made-up records only. Covers the Job tab, the chargeback report, the NetSuite inventory note, history filter and CSV export. */
 test('job quantity, parts, tester files, chargeback report and the NetSuite note', async ({ page }) => {
@@ -38,6 +38,7 @@ test('job quantity, parts, tester files, chargeback report and the NetSuite note
 
   // anyone can start a job and log time without being assigned
   { const sv = (await ok(rq.get(`/api/sequfloh/tracking/${wo}`))).stateVersion; await ok(rq.post(`/api/sequfloh/tracking/${wo}/actions/start`, { data: { operationId: crypto.randomUUID(), stateVersion: sv } })); } // clocking on needs a started work order
+  await clockInDay(page);
   await page.goto(`/sequfloh/record/${wo}`);
   await view(page).getByTestId('start-timer').click();
   await expect(view(page).getByTestId('stop-timer')).toBeVisible();

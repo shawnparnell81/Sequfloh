@@ -70,7 +70,7 @@ export function TimeCorrections({ recordId, number }: { recordId: string; number
     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Select time that was put on the wrong work order, then move it or remove it. A forgotten clock-off or pause, and the start or end of a finished entry, can be corrected with a reason. Every change is in the audit trail, and chargeback hours are worked out again.</Typography>
     {msg && <Alert severity="success" onClose={() => setMsg(null)} sx={{ mb: 1 }}>{msg}</Alert>}
     {open.length > 0 && <Box sx={{ mb: 2 }} data-testid="open-time-entries">
-      {open.some((e) => e.staleNote) && <Alert severity="warning" sx={{ mb: 1 }} data-testid="open-time-flag">{open.filter((e) => e.staleNote).map((e) => `${e.who}: ${e.staleNote}.`).join(' ')} Nothing is clocked off automatically.</Alert>}
+      {open.some((e) => e.staleNote) && <Alert severity="warning" sx={{ mb: 1 }} data-testid="open-time-flag">{open.filter((e) => e.staleNote).map((e) => `${e.who}: ${e.staleNote}.`).join(' ')} The day clock stops an open job when the day ends.</Alert>}
       <Table size="small">
         <TableHead><TableRow><TableCell>Who</TableCell><TableCell>Start</TableCell><TableCell>Clock-off</TableCell><TableCell align="right">Worked</TableCell><TableCell /></TableRow></TableHead>
         <TableBody>{open.map((e) => <TableRow key={e.id} data-testid="open-time-row">

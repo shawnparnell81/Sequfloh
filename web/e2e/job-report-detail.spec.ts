@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { clockInDay, settledShot, signIn, view } from './support';
 
 /** Made-up records only. Per-person time with pause, findings, evidence, cost lines and the report section options. */
 test('time detail, findings and report options', async ({ page }) => {
@@ -23,6 +23,7 @@ test('time detail, findings and report options', async ({ page }) => {
 
   // Time tab: start, pause, resume, stop
   { const sv = (await ok(rq.get(`/api/sequfloh/tracking/${wo}`))).stateVersion; await ok(rq.post(`/api/sequfloh/tracking/${wo}/actions/start`, { data: { operationId: crypto.randomUUID(), stateVersion: sv } })); } // clocking on needs a started work order
+  await clockInDay(page);
   await page.goto(`/sequfloh/record/${wo}?tab=time`);
   await view(page).getByTestId('start-timer').click();
   await view(page).getByTestId('pause-lunch').click();

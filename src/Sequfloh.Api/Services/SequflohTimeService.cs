@@ -13,17 +13,20 @@ namespace Sequfloh.Tracking;
 /// people can be clocked on the same work order at once. A pause records why (break or lunch) and is not counted in man hours.
 /// This is time on the job only; it is not a payroll clock.
 /// </summary>
-public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me, ModuleSupport m)
+public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me, ModuleSupport m, SequflohDayClockService day)
 {
     Guid UserId => me.UserId ?? throw new ForbiddenException();
+    /// <summary>Shown when a job or indirect task is started without a day clock, so the screen can offer Clock in and start.</summary>
+    public const string ClockInFirstMessage = "Clock in for the day before clocking on to a job.";
 
     Task<DateTimeOffset> NowAsync(CancellationToken ct) => db.Database.SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"").SingleAsync(ct);
 
     async Task<SequflohTrackingRecord> RecordAsync(Guid id, CancellationToken ct) =>
         await db.SequflohTrackingRecords.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Work order");
 
-    public async Task StartAsync(Guid id, CancellationToken ct)
+    public async Task StartAsync(Guid id, bool clockIn, CancellationToken ct)
     {
+        await day.SweepAsync(null, ct);
         var rec = await RecordAsync(id, ct);
         SequflohTrackingService.RequireStarted(rec);
         if (rec.UseCrewTime) throw new ConflictException(SequflohCrewService.NamedBlockedMessage);
@@ -37,9 +40,11 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me, Module
             throw new ConflictException($"You're already clocked on to {other}. Clock off there first.");
         var name = await db.Users.Where(u => u.Id == UserId).Select(u => u.DisplayName).FirstOrDefaultAsync(ct) ?? me.UserName ?? "";
         var at = await NowAsync(ct);
+        await day.PrepareJobStartAsync(clockIn, at, ct);
         var entry = new SequflohTimeEntry { TrackingRecordId = id, TrackingNumber = rec.Number, UserId = UserId, UserName = name, StartedAt = at };
         AddEvent(entry, "Start", at);
         db.SequflohTimeEntries.Add(entry);
+        await day.AddJobSegmentAsync(rec, entry, at, ct);
         try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException) { throw new ConflictException("You are already clocked on this job."); }
     }
@@ -65,7 +70,52 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me, Module
         return e.StoppedAt is { } s ? [new("Start", e.StartedAt), new("Stop", s)] : [new("Start", e.StartedAt)];
     }
     static List<TimeEvent> Stored(SequflohTimeEntry e) => JsonSerializer.Deserialize<List<TimeEvent>>(e.Events, SequflohJson.Options) ?? [];
-    static void AddEvent(SequflohTimeEntry e, string kind, DateTimeOffset at, string? reason = null)
+    public static void ApplyPause(SequflohTimeEntry e, string reason, DateTimeOffset at)
+    {
+        if (e.StoppedAt is not null) throw new ConflictException("You are not clocked on this job.");
+        if (e.PausedAt is not null) throw new ConflictException("This job is already paused.");
+        e.PausedAt = at;
+        AddEvent(e, "Pause", at, reason);
+    }
+
+    public static void ResumeEntry(SequflohTimeEntry e, DateTimeOffset at)
+    {
+        if (e.PausedAt is not { } p) throw new ConflictException("This job is not paused.");
+        e.PausedSeconds += Math.Max(0, (long)(at - p).TotalSeconds);
+        e.PausedAt = null;
+        AddEvent(e, "Resume", at);
+    }
+
+    /// <summary>Stops an open entry at <paramref name="at"/> (a late sweep uses the scheduled end, not the moment the sweep runs).</summary>
+    public static void Finish(SequflohTimeEntry e, DateTimeOffset at)
+    {
+        if (e.StoppedAt is not null) return;
+        if (at < e.StartedAt) at = e.StartedAt;
+        if (e.PausedAt is { } p)
+        {
+            var pauseEnd = at < p ? p : at;
+            e.PausedSeconds += Math.Max(0, (long)(pauseEnd - p).TotalSeconds);
+            e.PausedAt = null;
+            AddEvent(e, "Resume", pauseEnd);
+        }
+        e.StoppedAt = at;
+        e.Seconds = Math.Max(0, (long)(at - e.StartedAt).TotalSeconds - e.PausedSeconds);
+        AddEvent(e, "Stop", at);
+    }
+
+    public static void RewriteInterval(SequflohTimeEntry e, DateTimeOffset start, DateTimeOffset end)
+    {
+        e.Events = "[]";
+        e.StartedAt = start;
+        e.StoppedAt = end;
+        e.PausedAt = null;
+        e.PausedSeconds = 0;
+        e.Seconds = Math.Max(0, (long)(end - start).TotalSeconds);
+        AddEvent(e, "Start", start);
+        AddEvent(e, "Stop", end);
+    }
+
+    public static void AddEvent(SequflohTimeEntry e, string kind, DateTimeOffset at, string? reason = null)
     {
         var list = Stored(e);
         if (list.Count == 0 && kind != "Start") list.Add(new("Start", e.StartedAt));
@@ -98,32 +148,39 @@ public sealed class SequflohTimeService(AppDbContext db, ICurrentUser me, Module
 
     public async Task PauseAsync(Guid id, string? reason, CancellationToken ct)
     {
+        await day.SweepAsync(null, ct);
         var why = PauseReasons.FirstOrDefault(r => string.Equals(r, reason?.Trim(), StringComparison.OrdinalIgnoreCase))
             ?? throw new AppException("Choose why you are pausing: Break or Lunch.");
         var e = await RunningAsync(id, ct) ?? throw new ConflictException("You are not clocked on this job.");
-        if (e.PausedAt is not null) throw new ConflictException("This job is already paused.");
         var now = await NowAsync(ct);
-        e.PausedAt = now; AddEvent(e, "Pause", now, why);
+        ApplyPause(e, why, now);
+        await day.RecordJobPauseAsync(e, why, now, ct);
         await db.SaveChangesAsync(ct);
     }
 
     public async Task ResumeAsync(Guid id, CancellationToken ct)
     {
+        await day.SweepAsync(null, ct);
         SequflohTrackingService.RequireOpen(await RecordAsync(id, ct));
         var e = await RunningAsync(id, ct) ?? throw new ConflictException("You are not clocked on this job.");
-        if (e.PausedAt is not { } p) throw new ConflictException("This job is not paused.");
         var now = await NowAsync(ct);
-        e.PausedSeconds += Math.Max(0, (long)(now - p).TotalSeconds); e.PausedAt = null; AddEvent(e, "Resume", now);
+        ResumeEntry(e, now);
+        await day.RecordJobResumeAsync(e, now, ct);
         await db.SaveChangesAsync(ct);
     }
 
     public async Task StopAsync(Guid id, CancellationToken ct)
     {
-        var e = await RunningAsync(id, ct) ?? throw new ConflictException("You are not clocked on this job.");
+        await day.SweepAsync(null, ct);
+        var e = await RunningAsync(id, ct);
+        if (e is null)
+        {
+            if (!await day.IsInAsync(UserId, ct)) return;
+            throw new ConflictException("You are not clocked on this job.");
+        }
         var now = await NowAsync(ct);
-        if (e.PausedAt is { } p) { e.PausedSeconds += Math.Max(0, (long)(now - p).TotalSeconds); e.PausedAt = null; AddEvent(e, "Resume", now); }
-        e.Seconds = Worked(e, now);
-        e.StoppedAt = now; AddEvent(e, "Stop", now);
+        Finish(e, now);
+        await day.RecordJobStopAsync(e, now, ct);
         await db.SaveChangesAsync(ct);
     }
 

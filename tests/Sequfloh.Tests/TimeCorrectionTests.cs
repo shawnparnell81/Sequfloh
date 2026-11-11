@@ -50,7 +50,7 @@ public sealed class TimeCorrectionTests(TestApp app)
         var start = new DateTimeOffset(DateTimeOffset.UtcNow.AddDays(-1).Date.AddHours(13), TimeSpan.Zero);
         var w = await WorkerAsync(c, a, "Made-up Adi");
         await c.PostOkAsync($"{T}/{a}/crew/sessions", new { crewSize = 1, workerId = w, start, stop = start.AddHours(3), pauses = new[] { new { from = start.AddHours(1), to = start.AddHours(1.5) } }, note = "made-up note" });
-        await c.PostOkAsync($"{T}/{a}/time/start"); await c.PostOkAsync($"{T}/{a}/time/stop");
+        await c.PostOkAsync($"{T}/{a}/time/start", new { clockIn = true }); await c.PostOkAsync($"{T}/{a}/time/stop");
         await CrewOnAsync(a, aNo, start);
         var cb = (await (await c.PostOkAsync("/api/sequfloh/chargebacks", new { workOrderNumber = "WO-MADEUP-TC", trackingRecordId = a })).JsonAsync()).Id();
 

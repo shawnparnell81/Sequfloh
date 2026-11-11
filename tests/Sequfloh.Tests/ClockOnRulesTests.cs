@@ -46,7 +46,7 @@ public sealed class ClockOnRulesTests(TestApp app)
         await c.PostOkAsync($"{T}/{id}/crew/start", new { crewSize = 2 });
         await c.PostOkAsync($"{T}/{id}/crew/stop");
         await c.UseCrewTimeAsync(id, false);
-        await c.PostOkAsync($"{T}/{id}/time/start");
+        await c.PostOkAsync($"{T}/{id}/time/start", new { clockIn = true });
         await c.PostOkAsync($"{T}/{id}/time/stop");
     }
 
@@ -70,7 +70,7 @@ public sealed class ClockOnRulesTests(TestApp app)
     {
         var (id, c) = await NewAsync();
         Assert.True((await Act(c, id, "start")).IsSuccessStatusCode);
-        await c.PostOkAsync($"{T}/{id}/time/start");
+        await c.PostOkAsync($"{T}/{id}/time/start", new { clockIn = true });
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

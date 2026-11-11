@@ -17,6 +17,7 @@ import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import GroupOutlined from '@mui/icons-material/GroupOutlined';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import ForumOutlined from '@mui/icons-material/ForumOutlined';
+import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 
 /**
  * A menu entry. Top-level entries are the sections shown down the left; a section's children are its pages,
@@ -36,6 +37,11 @@ export const sequfloh: ModuleDef = {
     permissions: ['sequfloh.access'],
     sidebar: [
       { label: 'SEQUFLOH Home', path: '/sequfloh', permission: 'sequfloh.view_dashboard', icon: <HomeOutlined fontSize="small" /> },
+      { label: 'Day Clock', path: '/sequfloh/day-clock', icon: <AccessTimeOutlined fontSize="small" />, match: ['/sequfloh/day-clock'], children: [
+        { label: 'Today', path: '/sequfloh/day-clock' },
+        { label: 'This week', path: '/sequfloh/day-clock/week' },
+        { label: 'Team', path: '/sequfloh/day-clock/team' },
+      ] },
       { label: 'Messages', path: '/messages', icon: <ForumOutlined fontSize="small" />, match: ['/messages'], children: [
         { label: 'Inbox', path: '/messages', permission: 'messages.use' },
         { label: 'All conversations', path: '/messages/all', permission: 'messages.admin' },
@@ -125,18 +131,19 @@ export const sequfloh: ModuleDef = {
         { label: 'Dropdown Management', path: '/sequfloh/admin/dropdowns', permission: 'sequfloh.manage_dropdowns' },
         { label: 'Application Configuration', path: '/sequfloh/admin/configuration', permission: 'sequfloh.manage_settings' },
       ] },
-      { label: 'SEQUFLOH Settings', path: '/sequfloh/settings/general', permission: 'sequfloh.manage_settings', icon: <TuneOutlined fontSize="small" />, match: ['/sequfloh/settings'], children: [
-        { label: 'General Settings', path: '/sequfloh/settings/general' },
-        { label: 'Work Instruction Settings', path: '/sequfloh/settings/workInstructions' },
-        { label: 'Validation / FAI Settings', path: '/sequfloh/settings/validation' },
-        { label: 'Repair / Rework Settings', path: '/sequfloh/settings/repair' },
-        { label: 'Tracking Settings', path: '/sequfloh/settings/tracking' },
-        { label: 'Notification Settings', path: '/sequfloh/settings/notifications' },
-        { label: 'Revision Settings', path: '/sequfloh/settings/numbering' },
-        { label: 'Display Preferences', path: '/sequfloh/settings/display' },
-        { label: 'Validation forms by product and test', path: '/sequfloh/settings/validation-forms' },
-        { label: 'Export Settings', path: '/sequfloh/settings/export' },
-        { label: 'Security Settings', path: '/sequfloh/settings/security' },
+      { label: 'SEQUFLOH Settings', path: '/sequfloh/settings/general', icon: <TuneOutlined fontSize="small" />, match: ['/sequfloh/settings'], children: [
+        { label: 'General Settings', path: '/sequfloh/settings/general', permission: 'sequfloh.manage_settings' },
+        { label: 'Work Instruction Settings', path: '/sequfloh/settings/workInstructions', permission: 'sequfloh.manage_settings' },
+        { label: 'Validation / FAI Settings', path: '/sequfloh/settings/validation', permission: 'sequfloh.manage_settings' },
+        { label: 'Repair / Rework Settings', path: '/sequfloh/settings/repair', permission: 'sequfloh.manage_settings' },
+        { label: 'Tracking Settings', path: '/sequfloh/settings/tracking', permission: 'sequfloh.manage_settings' },
+        { label: 'Notification Settings', path: '/sequfloh/settings/notifications', permission: 'sequfloh.manage_settings' },
+        { label: 'Revision Settings', path: '/sequfloh/settings/numbering', permission: 'sequfloh.manage_settings' },
+        { label: 'Display Preferences', path: '/sequfloh/settings/display', permission: 'sequfloh.manage_settings' },
+        { label: 'Validation forms by product and test', path: '/sequfloh/settings/validation-forms', permission: 'sequfloh.manage_settings' },
+        { label: 'Export Settings', path: '/sequfloh/settings/export', permission: 'sequfloh.manage_settings' },
+        { label: 'Security Settings', path: '/sequfloh/settings/security', permission: 'sequfloh.manage_settings' },
+        { label: 'Day Clock', path: '/sequfloh/settings/dayClock', permission: 'sequfloh.manage_day_clock' },
       ] },
     ],
   };
