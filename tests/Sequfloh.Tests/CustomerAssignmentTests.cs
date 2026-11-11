@@ -155,9 +155,19 @@ public sealed class CustomerAssignmentTests(TestApp app)
         Assert.Equal("Customer", head[4]);
         Assert.Equal("O'Reilly", csv.Split("\r\n")[1].Split(',')[4]);
 
-        var second = await (await admin.PostOkAsync($"{S}/parts/customers/assignment", new { assignClear = true, q = pn, skipPartIds = Array.Empty<Guid>(), exceptions = Array.Empty<object>() })).JsonAsync();
-        Assert.Equal(0, second.GetProperty("assigned").GetInt32());
-        Assert.True(second.GetProperty("unchanged").GetInt32() >= 1);
+        var savedRow = await Row(admin, pn);
+        Assert.Equal("Assigned", savedRow.Str("outcome"));
+        Assert.Equal("O'Reilly", savedRow.Str("customerName"));
+        Assert.Equal(JsonValueKind.Null, savedRow.GetProperty("proposedCustomer").ValueKind);
+        Assert.Contains("Already O'Reilly", savedRow.Str("reason"));
+        var counts = await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(pn)}");
+        Assert.Equal(0, counts.GetProperty("clear").GetInt32());
+        Assert.Equal(0, counts.GetProperty("unassigned").GetInt32());
+        Assert.Equal(0, counts.GetProperty("ambiguous").GetInt32());
+        Assert.Equal(1, counts.GetProperty("assigned").GetInt32());
+
+        var second = await admin.PostAsync($"{S}/parts/customers/assignment", new { assignClear = true, q = pn, skipPartIds = Array.Empty<Guid>(), exceptions = Array.Empty<object>() });
+        Assert.Equal(HttpStatusCode.BadRequest, second.StatusCode);
         var again = await Snapshot(id);
         Assert.Equal(after.CustomerId, again.CustomerId);
         Assert.Equal(after.PartNumber, again.PartNumber);
@@ -349,6 +359,64 @@ public sealed class CustomerAssignmentTests(TestApp app)
                 db.SequflohDeletedSeedValues.Add(new SequflohDeletedSeedValue { ListKey = "customers", Code = "NISSAN" });
             await db.SaveChangesAsync();
         }
+    }
+
+    [Fact]
+    public async Task A_saved_customer_is_not_unassigned_and_a_different_suggestion_is_not_overwritten()
+    {
+        var site = await app.CreateSiteAsync();
+        var admin = await app.AdminAsync();
+        var fam = await Family(admin);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var autozone = await Customer(admin, "AutoZone");
+        var oreilly = await Customer(admin, "O'Reilly");
+
+        var plainPn = "PLAIN-" + tag;
+        var plain = (await (await admin.PostOkAsync($"{S}/parts", Part(plainPn, site, fam))).JsonAsync()).Id();
+        await admin.PostOkAsync($"{S}/parts/customers/assignment", new { assignClear = false, exceptions = new[] { new { partId = plain, customerId = autozone } } });
+        var plainRow = await Row(admin, plainPn);
+        Assert.Equal("Assigned", plainRow.Str("outcome"));
+        Assert.Equal("AutoZone", plainRow.Str("customerName"));
+        Assert.Equal(JsonValueKind.Null, plainRow.GetProperty("proposedCustomerId").ValueKind);
+        var plainPreview = await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(plainPn)}");
+        Assert.Equal(1, plainPreview.GetProperty("assigned").GetInt32());
+        Assert.Equal(0, plainPreview.GetProperty("unassigned").GetInt32());
+        Assert.Equal(0, plainPreview.GetProperty("ambiguous").GetInt32());
+        Assert.Equal(0, plainPreview.GetProperty("clear").GetInt32());
+        Assert.Equal(0, (await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(plainPn)}&outcome=Unassigned")).GetProperty("total").GetInt32());
+        Assert.Equal(0, (await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(plainPn)}&outcome=Ambiguous")).GetProperty("total").GetInt32());
+        var assignedTab = await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(plainPn)}&outcome=Assigned");
+        Assert.Equal(plainPn, assignedTab.GetProperty("rows").EnumerateArray().Single().Str("partNumber"));
+
+        var bothPn = "BOTH-" + tag;
+        var both = (await (await admin.PostOkAsync($"{S}/parts", Part(bothPn, site, fam, new Dictionary<string, string?> { ["orNumber"] = bothPn, ["napaUs"] = bothPn }))).JsonAsync()).Id();
+        await admin.PostOkAsync($"{S}/parts/customers/assignment", new { assignClear = false, exceptions = new[] { new { partId = both, customerId = autozone } } });
+        Assert.Equal("Assigned", (await Row(admin, bothPn)).Str("outcome"));
+        Assert.Equal(0, (await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(bothPn)}&outcome=Ambiguous")).GetProperty("total").GetInt32());
+        Assert.Equal(0, (await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(bothPn)}&outcome=Unassigned")).GetProperty("total").GetInt32());
+
+        var diffPn = "DIFF-" + tag;
+        var diff = (await (await admin.PostOkAsync($"{S}/parts", Part(diffPn, site, fam, new Dictionary<string, string?> { ["orNumber"] = diffPn }))).JsonAsync()).Id();
+        await admin.PostOkAsync($"{S}/parts/customers/assignment", new { assignClear = false, exceptions = new[] { new { partId = diff, customerId = autozone } } });
+        var diffRow = await Row(admin, diffPn);
+        Assert.Equal("Different", diffRow.Str("outcome"));
+        Assert.Equal("AutoZone", diffRow.Str("customerName"));
+        Assert.Equal("O'Reilly", diffRow.Str("proposedCustomer"));
+        Assert.Equal(0, (await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(diffPn)}&outcome=Unassigned")).GetProperty("total").GetInt32());
+        Assert.Equal(0, (await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(diffPn)}&outcome=Clear")).GetProperty("total").GetInt32());
+        Assert.Equal(1, (await admin.GetElAsync($"{S}/parts/customers/assignment?q={Uri.EscapeDataString(diffPn)}&outcome=Assigned")).GetProperty("total").GetInt32());
+
+        var leftAlone = await admin.PostAsync($"{S}/parts/customers/assignment", new { assignClear = true, q = diffPn, skipPartIds = Array.Empty<Guid>(), exceptions = Array.Empty<object>() });
+        Assert.Equal(HttpStatusCode.BadRequest, leftAlone.StatusCode);
+        Assert.Equal(autozone, (await Snapshot(diff)).CustomerId);
+
+        var chosen = await (await admin.PostOkAsync($"{S}/parts/customers/assignment", new { assignClear = false, exceptions = new[] { new { partId = diff, customerId = oreilly } } })).JsonAsync();
+        Assert.Equal(1, chosen.GetProperty("assigned").GetInt32());
+        Assert.Equal(oreilly, (await Snapshot(diff)).CustomerId);
+        var switched = await Row(admin, diffPn);
+        Assert.Equal("Assigned", switched.Str("outcome"));
+        Assert.Equal("O'Reilly", switched.Str("customerName"));
+        Assert.Equal(JsonValueKind.Null, switched.GetProperty("proposedCustomer").ValueKind);
     }
 
     [Fact]

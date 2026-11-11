@@ -57,7 +57,7 @@ test('assign a clear customer and leave an ambiguous part unassigned', async ({ 
 
   await page.goto(`/sequfloh/parts/${clearId}`);
   await expect(v.getByTestId('part-customer')).toHaveText("O'Reilly");
-  await expect(v.getByText(drawing)).toBeVisible();
+  await expect(v.getByText(drawing).first()).toBeVisible();
   await shot('05-part-detail-assigned');
 
   await page.goto('/sequfloh/admin/reference');

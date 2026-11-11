@@ -29,7 +29,7 @@ public sealed record CustomerAssignmentRow(
     string? WorkOrderNumbers);
 
 public sealed record CustomerAssignmentPreview(
-    int Total, int Clear, int Ambiguous, int Unassigned, int Page, int PageSize,
+    int Total, int Clear, int Ambiguous, int Unassigned, int Assigned, int Page, int PageSize,
     List<CustomerAssignmentCustomer> Customers, List<CustomerAssignmentRow> Rows);
 
 public sealed record CustomerAssignmentResult(int Assigned, int Unchanged, int Cleared);
@@ -43,6 +43,9 @@ public sealed class CustomerAssignmentService(AppDbContext db, ModuleSupport m, 
     public const string Clear = "Clear";
     public const string Ambiguous = "Ambiguous";
     public const string Unassigned = "Unassigned";
+    public const string Assigned = "Assigned";
+    /// <summary>A saved customer, and a clear suggestion that names a different customer. Not applied by Assign clear suggestions.</summary>
+    public const string Different = "Different";
 
     /// <summary>
     /// CSA columns that hold one customer's own number, keyed by the code the Customers list assigns to that name.
@@ -165,19 +168,46 @@ public sealed class CustomerAssignmentService(AppDbContext db, ModuleSupport m, 
         var sources = await query.Select(p => new Source(p.Id, p.PartNumber, p.Name, p.ProductFamily, p.DrawingNumber, p.DrawingRevision, p.Attributes, p.CustomerId, p.SiteId)).ToListAsync(ct);
         var customers = await CustomersByCodeAsync(ct);
         var byCode = customers.ToDictionary(kv => kv.Key, kv => (kv.Value.Label, kv.Value.IsActive), StringComparer.OrdinalIgnoreCase);
+        var nameById = customers.Values.GroupBy(c => c.Id).ToDictionary(g => g.Key, g => g.First().Label);
         var want = string.IsNullOrWhiteSpace(outcome) ? null : outcome.Trim();
         var drafts = new List<Draft>();
         foreach (var p in sources)
         {
             var attrs = PartAttributes.Read(p.Attributes);
             var (result, code, reason) = Classify(p.PartNumber, attrs, p.DrawingNumber, byCode);
-            if (want is not null && !string.Equals(result, want, StringComparison.OrdinalIgnoreCase)) continue;
             CustomerRow? proposed = null;
             if (result == Clear && code is not null) customers.TryGetValue(code, out proposed);
+            var outcomeName = result;
+            Guid? proposedId = proposed?.Id;
+            string? proposedLabel = proposed?.Label;
+            if (p.CustomerId is { } savedId)
+            {
+                var savedName = nameById.TryGetValue(savedId, out var n) ? n : "the saved customer";
+                if (proposed is not null && proposed.Id == savedId)
+                {
+                    outcomeName = Assigned;
+                    proposedId = null;
+                    proposedLabel = null;
+                    reason = $"Already {savedName}. The saved customer matches the suggestion, so it is not proposed again.";
+                }
+                else if (proposed is not null)
+                {
+                    outcomeName = Different;
+                    reason = $"Saved customer is {savedName}. The primary number suggests {proposed.Label}. Assign clear suggestions will not change the saved customer. Choose {proposed.Label} on this row to switch.";
+                }
+                else
+                {
+                    outcomeName = Assigned;
+                    proposedId = null;
+                    proposedLabel = null;
+                    reason = $"Assigned to {savedName}.";
+                }
+            }
+            if (want is not null && !Matches(outcomeName, want)) continue;
             var aliases = new Dictionary<string, string>();
             foreach (var key in AliasKeys)
                 if (attrs.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) aliases[key] = v;
-            drafts.Add(new Draft { Part = p, Aliases = aliases, Outcome = result, ProposedCustomerId = proposed?.Id, ProposedCustomer = proposed?.Label, Reason = reason });
+            drafts.Add(new Draft { Part = p, Aliases = aliases, Outcome = outcomeName, ProposedCustomerId = proposedId, ProposedCustomer = proposedLabel, Reason = reason });
         }
         drafts.Sort((a, b) =>
         {
@@ -192,7 +222,7 @@ public sealed class CustomerAssignmentService(AppDbContext db, ModuleSupport m, 
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
         var all = await DraftsAsync(q, null, ct);
-        var filtered = string.IsNullOrWhiteSpace(outcome) ? all : all.Where(d => string.Equals(d.Outcome, outcome.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        var filtered = string.IsNullOrWhiteSpace(outcome) ? all : all.Where(d => Matches(d.Outcome, outcome.Trim())).ToList();
         var slice = filtered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         var deps = await DepsAsync(slice.Select(d => d.Part.Id).ToList(), ct);
         var names = await CustomerNamesAsync(ct);
@@ -202,6 +232,7 @@ public sealed class CustomerAssignmentService(AppDbContext db, ModuleSupport m, 
         var active = new HashSet<Guid>(activeIds);
         return new CustomerAssignmentPreview(
             filtered.Count, all.Count(d => d.Outcome == Clear), all.Count(d => d.Outcome == Ambiguous), all.Count(d => d.Outcome == Unassigned),
+            all.Count(d => d.Outcome is Assigned or Different),
             page, pageSize, customers.Where(c => active.Contains(c.Id)).ToList(),
             slice.Select(d => d.ToRow(d.Part.CustomerId is { } id && names.TryGetValue(id, out var n) ? n : null, deps.GetValueOrDefault(d.Part.Id) ?? Deps.Empty)).ToList());
     }
@@ -360,6 +391,10 @@ public sealed class CustomerAssignmentService(AppDbContext db, ModuleSupport m, 
         }
         return map;
     }
+
+    /// <summary>The Assigned tab includes a saved customer whose suggestion names someone else. Unassigned and Ambiguous are only parts with no saved customer.</summary>
+    static bool Matches(string outcome, string want) =>
+        want.Equals(Assigned, StringComparison.OrdinalIgnoreCase) ? outcome is Assigned or Different : outcome.Equals(want, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A CSV cell. A value a spreadsheet would run as a formula is prefixed with an apostrophe.</summary>
     static string Csv(string? v)
