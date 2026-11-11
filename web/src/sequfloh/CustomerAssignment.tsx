@@ -10,10 +10,17 @@ interface Row {
   id: string; partNumber: string; name: string; family?: string | null; drawingNumber?: string | null;
   customerName?: string | null; outcome: string; proposedCustomer?: string | null; reason: string;
 }
-interface Preview { total: number; clear: number; ambiguous: number; unassigned: number; page: number; pageSize: number; customers: Customer[]; rows: Row[] }
+interface Preview { total: number; clear: number; ambiguous: number; unassigned: number; assigned: number; page: number; pageSize: number; customers: Customer[]; rows: Row[] }
 interface Result { assigned: number; unchanged: number; cleared: number }
 
-const outcomes = ['', 'Clear', 'Ambiguous', 'Unassigned'] as const;
+const outcomes = ['', 'Clear', 'Ambiguous', 'Unassigned', 'Assigned'] as const;
+
+function suggestion(r: Row) {
+  if (r.outcome === 'Clear') return r.proposedCustomer ?? 'Clear';
+  if (r.outcome === 'Assigned') return `Assigned: ${r.customerName ?? 'customer'}`;
+  if (r.outcome === 'Different') return `Different: ${r.proposedCustomer ?? 'another customer'}`;
+  return r.outcome;
+}
 
 /**
  * Preview which existing parts have one clear customer, then confirm. Only the customer is saved.
@@ -81,7 +88,8 @@ export function CustomerAssignmentDialog({ open, onClose }: { open: boolean; onC
         assignClear: clearCount > 0, q: search || null, skipPartIds: skip,
         exceptions: chosen.map(([partId, customerId]) => ({ partId, customerId: customerId === 'clear' ? null : customerId })),
       });
-      const bits = [`${r.assigned} assigned`, `${r.unchanged} already set`];
+      const bits = [`${r.assigned} assigned`];
+      if (r.unchanged) bits.push(`${r.unchanged} already set`);
       if (r.cleared) bits.push(`${r.cleared} cleared`);
       setDone(`${bits.join(', ')}. Part numbers and links were not changed.`);
       setSkip([]); setChoices({});
@@ -108,7 +116,9 @@ export function CustomerAssignmentDialog({ open, onClose }: { open: boolean; onC
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
         Only the customer is saved. Part numbers, drawings, work orders and every other link stay on the same part.
         A shared drawing, including a front right and a front left part, is not a conflict.
-        A part whose primary number matches more than one customer, or only an alias, stays unassigned unless you choose a customer on that row.
+        A part that already has a customer is assigned, and is not counted as unassigned or ambiguous.
+        A suggestion that names a different customer is shown and is not applied unless you choose it on that row.
+        Choosing a customer on a row ticks that row.
         Customers are added and edited under Reference Data.
       </Typography>
       {done && <Alert severity="success" sx={{ mb: 1 }} data-testid="assign-done">{done}</Alert>}
@@ -117,9 +127,10 @@ export function CustomerAssignmentDialog({ open, onClose }: { open: boolean; onC
         <Typography variant="body2"><b>{preview.clear}</b> clear</Typography>
         <Typography variant="body2"><b>{preview.ambiguous}</b> ambiguous</Typography>
         <Typography variant="body2"><b>{preview.unassigned}</b> unassigned</Typography>
+        <Typography variant="body2"><b>{preview.assigned}</b> assigned</Typography>
       </Stack>}
       <Tabs value={outcome} onChange={(_, v) => { setOutcome(v); setPage(1); void refresh({ q: search, outcome: v, page: 1 }); }} sx={{ mb: 1 }}>
-        {outcomes.map((o) => <Tab key={o || 'all'} value={o} label={o || 'All'} />)}
+        {outcomes.map((o) => <Tab key={o || 'all'} value={o} label={o || 'All'} data-testid={`assign-tab-${o || 'all'}`} />)}
       </Tabs>
       <Stack direction="row" gap={1} sx={{ mb: 1 }}>
         <TextField size="small" label="Search parts" value={q} onChange={(e) => setQ(e.target.value)}
@@ -139,14 +150,14 @@ export function CustomerAssignmentDialog({ open, onClose }: { open: boolean; onC
           <TableBody>
             {(preview?.rows ?? []).map((r) => <TableRow key={r.id} data-testid="assign-row">
               <TableCell padding="checkbox">
-                <Checkbox size="small" checked={included(r)} disabled={r.outcome !== 'Clear' && !choiceOf(r.id)} inputProps={{ 'aria-label': `Include ${r.partNumber}` }}
+                <Checkbox size="small" checked={included(r)} disabled={r.outcome !== 'Clear' && !choiceOf(r.id)} inputProps={{ 'aria-label': `Include ${r.partNumber}`, 'data-testid': `assign-include-${r.partNumber}` }}
                   onChange={(_, on) => toggle(r, on)} />
               </TableCell>
               <TableCell><Mono>{r.partNumber}</Mono></TableCell>
               <TableCell>{r.family ?? '—'}</TableCell>
               <TableCell>{r.drawingNumber ?? '—'}</TableCell>
               <TableCell>{r.customerName ?? 'Unassigned'}</TableCell>
-              <TableCell>{r.outcome === 'Clear' ? r.proposedCustomer : r.outcome}</TableCell>
+              <TableCell data-testid={`assign-suggestion-${r.partNumber}`}>{suggestion(r)}</TableCell>
               <TableCell sx={{ fontSize: 12, whiteSpace: 'normal', minWidth: 220 }}>{r.reason}</TableCell>
               <TableCell>
                 <TextField select size="small" value={choiceOf(r.id)} onChange={(e) => setChoice(r, e.target.value)} sx={{ minWidth: 170 }} inputProps={{ 'aria-label': `Customer for ${r.partNumber}` }}>
