@@ -52,6 +52,8 @@ public class Part : Entity, IAudited, ISiteScoped, ISoftDeletable
     public Guid? TypeId { get; set; }
     /// <summary>Customer from the Customers list. Null means the part is unassigned. Existing parts stay null until an administrator confirms an assignment.</summary>
     public Guid? CustomerId { get; set; }
+    /// <summary>Brand from the Brands list. Null when the part has no brand.</summary>
+    public Guid? BrandId { get; set; }
     /// <summary>Trimmed lower-case part number, stored for lookup. Not unique: legacy repeats stay.</summary>
     public string PartNumberKey { get; set; } = "";
     /// <summary>Drawing number with spaces and punctuation removed, stored for the cross-reference lookup. Empty drawings stay null.</summary>

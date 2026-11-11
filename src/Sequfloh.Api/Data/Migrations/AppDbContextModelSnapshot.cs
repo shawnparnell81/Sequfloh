@@ -3237,6 +3237,9 @@ namespace Sequfloh.Data.Migrations
                     b.Property<string>("Attributes")
                         .HasColumnType("jsonb");
 
+                    b.Property<Guid?>("BrandId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3383,6 +3386,8 @@ namespace Sequfloh.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BrandId");
 
                     b.HasIndex("CustomerId");
 
@@ -4609,6 +4614,11 @@ namespace Sequfloh.Data.Migrations
 
             modelBuilder.Entity("Sequfloh.Domain.MasterData.Part", b =>
                 {
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohReferenceValue", null)
+                        .WithMany()
+                        .HasForeignKey("BrandId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sequfloh.Domain.Execution.SequflohReferenceValue", null)
                         .WithMany()
                         .HasForeignKey("CustomerId")

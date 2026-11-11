@@ -357,7 +357,7 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
     public async Task<ValueUses> ValueUsesAsync(Guid id, CancellationToken ct)
     {
         await RequireOrgAsync(Permissions.SequflohManageDropdowns, ct);
-        var parts = await db.Parts.IgnoreQueryFilters().AsNoTracking().Where(p => p.TypeId == id || p.CustomerId == id)
+        var parts = await db.Parts.IgnoreQueryFilters().AsNoTracking().Where(p => p.TypeId == id || p.CustomerId == id || p.BrandId == id)
             .GroupBy(p => p.PartNumber).Select(g => new { PartNumber = g.Key, Id = g.Min(x => x.Id.ToString()), Name = g.Max(x => x.Name), Rows = g.Count() })
             .OrderBy(x => x.PartNumber).ToListAsync(ct);
         var files = await db.ImportedFiles.IgnoreQueryFilters().AsNoTracking().Where(f => f.FamilyId == id).OrderBy(f => f.Number)
