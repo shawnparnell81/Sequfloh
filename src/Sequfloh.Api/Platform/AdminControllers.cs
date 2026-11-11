@@ -11,8 +11,8 @@ using Sequfloh.Infrastructure.Persistence;
 
 namespace Sequfloh.Platform;
 
-public sealed record CreateUserRequest(string Email, string DisplayName, string Password, bool MustChangePassword = true, string? JobTitle = null, Guid? DefaultSiteId = null, Guid[]? RoleIds = null);
-public sealed record UpdateUserRequest(string DisplayName, string? JobTitle, Guid? DefaultSiteId, bool IsActive);
+public sealed record CreateUserRequest(string Email, string DisplayName, string Password, bool MustChangePassword = true, string? JobTitle = null, Guid? DefaultSiteId = null, Guid[]? RoleIds = null, Guid? ManagerId = null);
+public sealed record UpdateUserRequest(string DisplayName, string? JobTitle, Guid? DefaultSiteId, bool IsActive, Guid? ManagerId = null, bool SetManager = false);
 public sealed record ResetPasswordRequest(string Password, bool MustChangePassword = true);
 public sealed record AssignRoleRequest(Guid RoleId, Guid? SiteId, Guid? DepartmentId);
 public sealed record SaveRoleRequest(string Name, string? Description, string[] Permissions);
@@ -34,8 +34,9 @@ public sealed class UsersController(AppDbContext db, IPasswordHasher<Application
     public async Task<object> List(CancellationToken ct)
     {
         var users = await db.Users.AsNoTracking().OrderBy(u => u.DisplayName).ToListAsync(ct);
+        var names = users.ToDictionary(u => u.Id, u => u.DisplayName);
         var roles = await db.UserRoleAssignments.AsNoTracking().Join(db.QmsRoles, a => a.RoleId, r => r.Id, (a, r) => new { a.Id, a.UserId, a.RoleId, Role = r.Name, a.SiteId, a.DepartmentId }).ToListAsync(ct);
-        return users.Select(u => new { u.Id, u.Email, u.DisplayName, u.JobTitle, u.IsActive, u.DefaultSiteId, u.LastSignInAt, u.LastSeenAt, u.MustChangePassword, u.CreatedAt,
+        return users.Select(u => new { u.Id, u.Email, u.DisplayName, u.JobTitle, u.IsActive, u.DefaultSiteId, u.ManagerId, ManagerName = u.ManagerId is { } m && names.TryGetValue(m, out var n) ? n : null, u.LastSignInAt, u.LastSeenAt, u.MustChangePassword, u.CreatedAt,
             Roles = roles.Where(r => r.UserId == u.Id).Select(r => new { r.Id, r.RoleId, r.Role, r.SiteId, r.DepartmentId }) });
     }
 
@@ -47,16 +48,40 @@ public sealed class UsersController(AppDbContext db, IPasswordHasher<Application
         if (string.IsNullOrWhiteSpace(r.DisplayName)) throw new AppException("Name is required.");
         AuthController.CheckPassword(r.Password);
         if (await db.Users.AnyAsync(u => u.NormalizedEmail == email.ToUpperInvariant(), ct)) throw new ConflictException("Someone already uses this email address.");
+        var managerName = await ManagerNameAsync(Guid.Empty, r.ManagerId, ct);
         var u = new ApplicationUser { Email = email, UserName = email, NormalizedEmail = email.ToUpperInvariant(), DisplayName = r.DisplayName.Trim(), JobTitle = r.JobTitle?.Trim(),
-            DefaultSiteId = r.DefaultSiteId, CreatedAt = DateTimeOffset.UtcNow, MustChangePassword = r.MustChangePassword };
+            DefaultSiteId = r.DefaultSiteId, ManagerId = r.ManagerId, CreatedAt = DateTimeOffset.UtcNow, MustChangePassword = r.MustChangePassword };
         u.PasswordHash = hasher.HashPassword(u, r.Password);
         db.Users.Add(u);
         foreach (var roleId in r.RoleIds ?? [])
             db.UserRoleAssignments.Add(new UserRoleAssignment { UserId = u.Id, RoleId = roleId, SiteId = r.DefaultSiteId });
-        AuditWriter.Write(db, me, "Created", "User", u.Id, $"Created user {u.DisplayName} ({u.Email})");
+        AuditWriter.Write(db, me, "Created", "User", u.Id, managerName is null
+            ? $"Created user {u.DisplayName} ({u.Email})"
+            : $"{me.UserName} created {u.DisplayName} ({u.Email}) and assigned {managerName} as their manager at {When()}.");
         await db.SaveChangesAsync(ct);
         return u.Id;
     }
+
+    /// <summary>The chosen manager must be another active person, and the reporting line must not circle back.</summary>
+    async Task<string?> ManagerNameAsync(Guid userId, Guid? managerId, CancellationToken ct)
+    {
+        if (managerId is null) return null;
+        if (managerId == userId) throw new AppException("A person cannot be their own manager.");
+        var manager = await db.Users.AsNoTracking().Where(u => u.Id == managerId).Select(u => new { u.DisplayName, u.IsActive }).FirstOrDefaultAsync(ct)
+            ?? throw new AppException("Choose a person who has an account.");
+        if (!manager.IsActive) throw new AppException("Choose an active person as the manager.");
+        var chain = await db.Users.AsNoTracking().Where(u => u.ManagerId != null).Select(u => new { u.Id, u.ManagerId }).ToListAsync(ct);
+        var up = chain.ToDictionary(x => x.Id, x => x.ManagerId);
+        var at = managerId;
+        for (var guard = 0; at is { } step && guard < 100; guard++)
+        {
+            if (step == userId) throw new AppException("That choice makes a circle: a person would report, through their managers, back to themselves.");
+            at = up.TryGetValue(step, out var next) ? next : null;
+        }
+        return manager.DisplayName;
+    }
+
+    static string When() => DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
 
     [HttpPut("{id:guid}"), RequirePermission(Permissions.AdminUsers)]
     public async Task<IActionResult> Update(Guid id, UpdateUserRequest r, CancellationToken ct)
@@ -69,8 +94,22 @@ public sealed class UsersController(AppDbContext db, IPasswordHasher<Application
         if (u.IsActive != r.IsActive) { changes.Add(r.IsActive ? "reactivated" : "deactivated"); u.TokenVersion++; }
         if (u.JobTitle != r.JobTitle) changes.Add("job title");
         if (u.DefaultSiteId != r.DefaultSiteId) changes.Add("default site");
+        string? managerAudit = null;
+        if (r.SetManager && u.ManagerId != r.ManagerId)
+        {
+            var nextName = await ManagerNameAsync(u.Id, r.ManagerId, ct);
+            var previous = u.ManagerId is { } old ? await db.Users.AsNoTracking().Where(x => x.Id == old).Select(x => x.DisplayName).FirstOrDefaultAsync(ct) : null;
+            var person = r.DisplayName.Trim();
+            u.ManagerId = r.ManagerId;
+            managerAudit = r.ManagerId is null
+                ? $"{me.UserName} cleared the manager of {person} (was {previous ?? "nobody"}) at {When()}."
+                : previous is null
+                    ? $"{me.UserName} assigned {nextName} as the manager of {person} at {When()}."
+                    : $"{me.UserName} changed the manager of {person} from {previous} to {nextName} at {When()}.";
+        }
         u.DisplayName = r.DisplayName.Trim(); u.JobTitle = r.JobTitle?.Trim(); u.DefaultSiteId = r.DefaultSiteId; u.IsActive = r.IsActive;
         if (changes.Count > 0) AuditWriter.Write(db, me, "Updated", "User", u.Id, $"Updated user {u.DisplayName}: {string.Join(", ", changes)}");
+        if (managerAudit is not null) AuditWriter.Write(db, me, "ManagerAssigned", "User", u.Id, managerAudit);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
