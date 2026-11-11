@@ -8,6 +8,7 @@ using Sequfloh.Domain.Common;
 using Sequfloh.Domain.Drawings;
 using Sequfloh.Domain.Execution;
 using Sequfloh.Domain.MasterData;
+using Sequfloh.Domain.Organization;
 using Sequfloh.Domain.Security;
 using Sequfloh.Infrastructure.Modules.Execution;
 using Sequfloh.Infrastructure.Persistence;
@@ -852,7 +853,7 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         { throw new ConflictException($"{what} is still used by other records, so it can't be deleted. Archive it instead."); }
     }
 
-    /// <summary>Deletes a site nothing uses yet (set up by mistake). Sites in use are archived instead.</summary>
+    /// <summary>Deletes a site nothing uses yet (set up by mistake). A site stays when records still require it: the site link is not optional, so it is not cleared.</summary>
     public async Task SiteAsync(Guid id, CancellationToken ct)
     {
         var s = await db.Sites.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Site");
@@ -862,16 +863,122 @@ public sealed class DeletionService(AppDbContext db, IFileStorage storage, IAcce
         await SaveOrInUseAsync($"Site {s.Code}", ct);
     }
 
-    /// <summary>Deletes a department nothing uses yet. Departments in use are archived instead.</summary>
+    /// <summary>What still names a department, and whether this user may delete it anyway.</summary>
+    public async Task<DepartmentUses> DepartmentUsesAsync(Guid id, CancellationToken ct)
+    {
+        var d = await db.Departments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Department");
+        var refs = await DepartmentRefsAsync(id, ct);
+        var blocked = refs.Any(r => r.Blocks);
+        var canForce = blocked && me.UserId is { } user && await access.HasPermissionAsync(user, Permissions.AdminDeleteDepartmentsInUse, ct);
+        return new DepartmentUses(d.Code, d.Name, blocked, canForce, refs.Select(r => new DepartmentReference(r.Text, r.Count)).ToList());
+    }
+
+    /// <summary>Deletes a department nothing uses yet. Departments in use are archived instead, unless an administrator deletes them anyway.</summary>
     public async Task DepartmentAsync(Guid id, CancellationToken ct)
     {
         var d = await db.Departments.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Department");
-        var uses = await SiteUsesAsync(null, id, ct);
-        if (uses.Count > 0) throw new ConflictException($"Department {d.Code} has {string.Join(", ", uses)}, so it can't be deleted. Archive it instead.");
+        var refs = await DepartmentRefsAsync(id, ct);
+        var blocking = refs.Where(r => r.Blocks).Select(r => r.Text).ToList();
+        if (blocking.Count > 0) throw new ConflictException($"Department {d.Code} has {string.Join(", ", blocking)}, so it can't be deleted. Archive it instead.");
+        await UnlinkDepartmentAsync(d, ct);
         db.Departments.Remove(d);
         await SaveOrInUseAsync($"Department {d.Code}", ct);
     }
+
+    /// <summary>Deletes a department that is still in use. Records that name it stay; the department link is cleared and any stored department name is kept.</summary>
+    public async Task DepartmentForceAsync(Guid id, string? confirm, CancellationToken ct)
+    {
+        var d = await db.Departments.FirstOrDefaultAsync(x => x.Id == id, ct) ?? throw new NotFoundException("Department");
+        var refs = await DepartmentRefsAsync(id, ct);
+        if (!refs.Any(r => r.Blocks))
+        {
+            await UnlinkDepartmentAsync(d, ct);
+            db.Departments.Remove(d);
+            await SaveOrInUseAsync($"Department {d.Code}", ct);
+            return;
+        }
+        if (me.UserId is not { } user || !await access.HasPermissionAsync(user, Permissions.AdminDeleteDepartmentsInUse, ct))
+            throw new ForbiddenException("You do not have permission to delete a department that is still in use.");
+        if (!string.Equals(confirm?.Trim(), d.Code, StringComparison.OrdinalIgnoreCase))
+            throw new AppException($"Type {d.Code} to delete this department.");
+        await UnlinkDepartmentAsync(d, ct);
+        AuditInterceptor.Note(d, $"Records that used it were kept ({string.Join(", ", refs.Select(r => r.Text))}). The department link on them was cleared.");
+        db.Departments.Remove(d);
+        await SaveOrInUseAsync($"Department {d.Code}", ct);
+    }
+
+    async Task<List<DeptRef>> DepartmentRefsAsync(Guid id, CancellationToken ct)
+    {
+        var refs = new List<DeptRef>();
+        async Task Add(bool blocks, Task<int> n, string one, string many)
+        {
+            var c = await n;
+            if (c <= 0) return;
+            refs.Add(new DeptRef(Count(c, one, many), c, blocks));
+        }
+        var orders = await db.SequflohTrackingRecords.AsNoTracking().Where(x => x.DepartmentId == id)
+            .GroupBy(x => x.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct);
+        if (orders.Count > 0)
+        {
+            var detail = string.Join(", ", orders.OrderBy(g => g.Status == TrackingStatus.Canceled ? 0 : 1).ThenByDescending(g => g.Count)
+                .Select(g => $"{g.Count} {StatusWord(g.Status)}"));
+            refs.Add(new DeptRef($"{Count(orders.Sum(g => g.Count), "work order", "work orders")}: {detail}", orders.Sum(g => g.Count), true));
+        }
+        await Add(true, db.SequflohWorkInstructions.CountAsync(x => x.DepartmentId == id, ct), "work instruction", "work instructions");
+        await Add(true, db.Parts.CountAsync(x => x.DepartmentId == id, ct), "part", "parts");
+        await Add(true, db.Drawings.CountAsync(x => x.DepartmentId == id, ct), "drawing", "drawings");
+        await Add(true, db.DrawingFolders.CountAsync(x => x.DepartmentId == id, ct), "drawing folder", "drawing folders");
+        await Add(true, db.ImportedFiles.CountAsync(x => x.DepartmentId == id, ct), "imported file", "imported files");
+        await Add(true, db.UserRoleAssignments.CountAsync(x => x.DepartmentId == id, ct), "role assignment", "role assignments");
+        await Add(false, db.SequflohInspectionRequests.CountAsync(x => x.DepartmentId == id, ct), "inspection request", "inspection requests");
+        await Add(false, db.Users.CountAsync(x => x.DepartmentId == id, ct), "person", "people");
+        return refs;
+    }
+
+    /// <summary>Clears the department on every record that names it. Stored department name text is left as it is, and filled in only where none was stored.</summary>
+    async Task UnlinkDepartmentAsync(Department d, CancellationToken ct)
+    {
+        var id = d.Id;
+        var name = d.Name;
+        await db.SequflohTrackingRecords.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s
+            .SetProperty(x => x.DepartmentName, x => x.DepartmentName == null || x.DepartmentName == "" ? name : x.DepartmentName)
+            .SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        await db.SequflohWorkInstructions.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s
+            .SetProperty(x => x.DepartmentName, x => x.DepartmentName == null || x.DepartmentName == "" ? name : x.DepartmentName)
+            .SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        await db.Parts.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        await db.Drawings.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        await db.DrawingFolders.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        await db.ImportedFiles.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        await db.SequflohInspectionRequests.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        await db.Users.Where(x => x.DepartmentId == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.DepartmentId, (Guid?)null), ct);
+        var wider = db.UserRoleAssignments.Where(b => b.DepartmentId == null);
+        var clash = await db.UserRoleAssignments.Where(a => a.DepartmentId == id && wider.Any(b => b.Id != a.Id && b.UserId == a.UserId && b.RoleId == a.RoleId && b.SiteId == a.SiteId)).Select(a => a.Id).ToListAsync(ct);
+        if (clash.Count > 0) await db.UserRoleAssignments.Where(a => clash.Contains(a.Id)).ExecuteDeleteAsync(ct);
+        await db.UserRoleAssignments.Where(a => a.DepartmentId == id).ExecuteUpdateAsync(s => s.SetProperty(a => a.DepartmentId, (Guid?)null), ct);
+    }
+
+    static string StatusWord(TrackingStatus s) => s switch
+    {
+        TrackingStatus.NotStarted => "not started",
+        TrackingStatus.Assigned => "assigned",
+        TrackingStatus.InProgress => "in progress",
+        TrackingStatus.Paused => "paused",
+        TrackingStatus.OnHold => "on hold",
+        TrackingStatus.Completed => "completed",
+        TrackingStatus.Failed => "failed",
+        TrackingStatus.Canceled => "cancelled",
+        _ => s.ToString().ToLowerInvariant()
+    };
+
+    sealed record DeptRef(string Text, int Count, bool Blocks);
 }
+
+/// <summary>One kind of record that still names a department.</summary>
+public sealed record DepartmentReference(string Text, int Count);
+
+/// <summary>Whether a department can be deleted, what still names it, and whether this user may delete it anyway.</summary>
+public sealed record DepartmentUses(string Code, string Name, bool Blocked, bool CanForce, IReadOnlyList<DepartmentReference> References);
 
 /// <summary>One part a family delete left in place, and why.</summary>
 public sealed record FamilyPartSkip(string PartNumber, int WorkOrders, int Instructions, int PartsLists, string Reason);

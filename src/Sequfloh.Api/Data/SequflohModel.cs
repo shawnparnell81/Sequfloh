@@ -164,6 +164,7 @@ public partial class AppDbContext
             e.HasIndex(x => x.UpdatedAt);
             e.HasOne<Domain.Organization.Site>().WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Domain.Organization.Department>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.DepartmentName).HasMaxLength(200);
             e.HasOne<Part>().WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<SequflohPartsList>().WithMany().HasForeignKey(x => x.SourcePartsListId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne<SequflohWorkInstruction>().WithMany().HasForeignKey(x => x.PreviousRevisionId).OnDelete(DeleteBehavior.Restrict);
@@ -236,6 +237,7 @@ public partial class AppDbContext
             e.HasOne<Part>().WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Domain.Organization.Site>().WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Domain.Organization.Department>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+            e.Property(x => x.DepartmentName).HasMaxLength(200);
             foreach (var u in new[] { nameof(SequflohTrackingRecord.OwnerId), nameof(SequflohTrackingRecord.AssignedUserId), nameof(SequflohTrackingRecord.ActiveOperatorId), nameof(SequflohTrackingRecord.CompletedById) })
                 e.HasOne<ApplicationUser>().WithMany().HasForeignKey(u).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.Number).HasMaxLength(40);

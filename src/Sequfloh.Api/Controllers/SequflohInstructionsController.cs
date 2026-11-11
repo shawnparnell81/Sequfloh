@@ -105,7 +105,7 @@ public sealed class SequflohInstructionsController(AppDbContext db, ModuleSuppor
                 Owner = Name(x.OwnerId), Author = Name(x.AuthorId),
                 ReleasedBy = Name(x.ReleasedById), CreatedBy = Name(x.CreatedById), UpdatedBy = Name(x.UpdatedById),
                 Site = db.Sites.Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefault(),
-                Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
+                Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault() ?? x.DepartmentName
             },
             Transitions = transitions, Revisions = revisions, CanEdit = canEdit,
             Actions = await wi.AvailableActionsAsync(x, ct),

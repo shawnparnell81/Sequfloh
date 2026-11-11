@@ -127,7 +127,7 @@ internal static class SequflohTrackingQuery
                 PausedAt = x.Status == TrackingStatus.Paused ? x.CurrentStateStartedAt : null, HeldAt = x.Status == TrackingStatus.OnHold ? x.CurrentStateStartedAt : null,
                 Owner = U(x.OwnerId), AssignedUser = U(x.AssignedUserId),
                 Assignees = (team.TryGetValue(x.Id, out var tm) ? tm : x.AssignedUserId is { } lu ? [lu] : []).Select(u => U(u)).OfType<string>().ToList(), CompletedBy = U(x.CompletedById), ActiveOperator = U(x.ActiveOperatorId),
-                Department = x.DepartmentId is { } d && depts.TryGetValue(d, out var dn) ? dn : null, Site = sites.TryGetValue(x.SiteId, out var sc) ? sc : null,
+                Department = x.DepartmentId is { } d && depts.TryGetValue(d, out var dn) ? dn : x.DepartmentName, Site = sites.TryGetValue(x.SiteId, out var sc) ? sc : null,
                 ElapsedSeconds = active, PausedSeconds = paused, HoldSeconds = hold,
                 DurationSeconds = active + paused + hold,
                 OverdueSeconds = x.DueAt is { } due && due < now && SequflohTrackingService.Open.Contains(x.Status) ? (long)(now - due).TotalSeconds : 0,
