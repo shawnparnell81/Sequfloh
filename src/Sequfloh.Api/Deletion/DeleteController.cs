@@ -72,8 +72,17 @@ public sealed class DeleteController(DeletionService delete) : ControllerBase
     [HttpDelete("api/organization/sites/{id:guid}"), RequirePermission(Permissions.AdminOrganization)]
     public async Task<IActionResult> Site(Guid id, CancellationToken ct) { await delete.SiteAsync(id, ct); return NoContent(); }
 
+    [HttpGet("api/organization/departments/{id:guid}/uses"), RequirePermission(Permissions.AdminOrganization)]
+    public Task<DepartmentUses> DepartmentUses(Guid id, CancellationToken ct) => delete.DepartmentUsesAsync(id, ct);
+
     [HttpDelete("api/organization/departments/{id:guid}"), RequirePermission(Permissions.AdminOrganization)]
     public async Task<IActionResult> Department(Guid id, CancellationToken ct) { await delete.DepartmentAsync(id, ct); return NoContent(); }
+
+    /// <summary>Deletes a department that is still in use. Needs "Delete departments even when in use", and the department code typed back.</summary>
+    [HttpPost("api/organization/departments/{id:guid}/force-delete"), RequirePermission(Permissions.AdminOrganization)]
+    public async Task<IActionResult> ForceDepartment(Guid id, ForceDepartmentDelete body, CancellationToken ct) { await delete.DepartmentForceAsync(id, body.Confirm, ct); return NoContent(); }
 }
 
 public sealed record PermanentDeleteInput(string? ConfirmNumber);
+
+public sealed record ForceDepartmentDelete(string? Confirm);

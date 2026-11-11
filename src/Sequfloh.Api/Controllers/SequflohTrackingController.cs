@@ -78,7 +78,7 @@ public sealed class SequflohTrackingController(AppDbContext db, ModuleSupport m,
                 CreatedBy = Name(x.CreatedById), UpdatedBy = Name(x.UpdatedById),
                 x.ProjectId, ProjectLabel = db.SequflohProjects.Where(p => p.Id == x.ProjectId).Select(p => p.Number + " " + p.Name).FirstOrDefault(),
                 Site = db.Sites.Where(s => s.Id == x.SiteId).Select(s => s.Code + " · " + s.Name).FirstOrDefault(),
-                Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault()
+                Department = db.Departments.Where(d => d.Id == x.DepartmentId).Select(d => d.Name).FirstOrDefault() ?? x.DepartmentName
             },
             Events = events, CanViewTaskEvents = canEvents, ClockedSeconds = clocked.Seconds, ClockedPersonnel = clocked.Personnel, FirstClockOn = clocked.FirstClockOn, ServerTime = now, CanEnter = canEnter,
             Instruction = x.WorkInstructionId is { } wiId ? new

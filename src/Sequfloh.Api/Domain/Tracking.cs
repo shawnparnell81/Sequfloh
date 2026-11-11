@@ -64,6 +64,9 @@ public class SequflohTrackingRecord : Entity, IAudited, ISiteScoped, ISoftDeleta
     public Guid? OwnerId { get; set; }
     public Guid? AssignedUserId { get; set; }
     public Guid? DepartmentId { get; set; }
+    /// <summary>Department name kept on the work order. A later rename of the department does not change it, and it stays when the department is deleted.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(200)]
+    public string? DepartmentName { get; set; }
     public Guid SiteId { get; set; }
     public TrackingStatus Status { get; set; }
     public string Priority { get; set; } = "Normal";

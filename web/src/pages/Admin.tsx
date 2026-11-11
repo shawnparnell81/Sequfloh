@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
+import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
   TableContainer, TableHead, TablePagination, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,6 +19,63 @@ interface UserRow { id: string; email: string; displayName: string; jobTitle: st
 interface PermInfo { code: string; group: string; label: string }
 
 const crumbsFor = (label: string) => [{ label: 'Administration' }, { label }];
+
+interface DeptUse { text: string; count: number }
+interface DeptUses { code: string; name: string; blocked: boolean; canForce: boolean; references: DeptUse[] }
+
+/** Delete a department. When records still name it, the dialog lists them and, with permission, offers a typed Delete anyway. */
+function DepartmentDelete({ dept, onDone }: { dept: { id: string; code: string; name: string }; onDone: (message: string) => void }) {
+  const { can } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [uses, setUses] = useState<DeptUses | null>(null);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!can('admin.organization')) return null;
+  const start = async () => {
+    setError(null); setTyped('');
+    setUses(await get<DeptUses>(`/api/organization/departments/${dept.id}/uses`));
+    setOpen(true);
+  };
+  const close = () => { if (!busy) setOpen(false); };
+  const matches = typed.trim().toLowerCase() === dept.code.trim().toLowerCase();
+  const run = async () => {
+    setBusy(true); setError(null);
+    try {
+      if (uses?.blocked) await post(`/api/organization/departments/${dept.id}/force-delete`, { confirm: typed.trim() });
+      else await del(`/api/organization/departments/${dept.id}`);
+      setOpen(false);
+      onDone(uses?.blocked ? `Department ${dept.code} was deleted. The records that used it were kept.` : `Department ${dept.code} was deleted.`);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <>
+      <Button size="small" color="error" data-testid={`delete-department-${dept.code}`} onClick={() => { void start().catch((e) => setError((e as Error).message)); }}>Delete</Button>
+      {error && !open && <Alert severity="error" sx={{ py: 0 }}>{error}</Alert>}
+      <Dialog open={open} onClose={close} fullWidth maxWidth="sm" data-testid="department-delete-dialog">
+        <DialogTitle>Delete department {dept.code}?</DialogTitle>
+        <DialogContent>
+          {uses?.blocked ? <>
+            <Typography variant="body2" sx={{ mb: 1 }}>Department {dept.code} is still in use, so it can't be deleted as it is.</Typography>
+            <Stack component="ul" data-testid="department-delete-uses" sx={{ m: 0, mb: 2, pl: 2.5 }}>
+              {uses.references.map((r) => <Typography key={r.text} component="li" variant="body2">{r.text}</Typography>)}
+            </Stack>
+            {uses.canForce ? <>
+              <Typography variant="body2" sx={{ mb: 1.5 }}>Delete anyway clears the department on these records and then deletes the department. The records stay, including a work order's stored department name.</Typography>
+              <TextField fullWidth label={`Type ${dept.code} to confirm`} value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" inputProps={{ 'data-testid': 'department-delete-confirm' }} />
+            </> : <Alert severity="warning">You don't have permission to delete a department that is still in use.</Alert>}
+          </> : <Typography variant="body2">This can't be undone.</Typography>}
+          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={close} disabled={busy}>Cancel</Button>
+          {(!uses?.blocked || uses.canForce) && <Button variant="contained" color="error" disabled={busy || (uses?.blocked && !matches)} data-testid={uses?.blocked ? 'department-delete-anyway' : 'delete-button'} onClick={() => { void run(); }}>{uses?.blocked ? 'Delete anyway' : 'Delete'}</Button>}
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}
 
 function Denied({ what }: { what: string }) {
   return <Alert severity="warning">You do not have permission to manage {what}. Ask an administrator.</Alert>;
@@ -242,6 +299,7 @@ export function SitesPage() {
   const [site, setSite] = useState({ code: '', name: '' });
   const [dept, setDept] = useState<{ siteId: string; code: string; name: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ['sites'] });
   const run = async (fn: () => Promise<unknown>) => { setError(null); try { await fn(); refresh(); } catch (e) { setError((e as Error).message); } };
   const [storage, setStorage] = useState<{ ok: boolean; message: string } | null>(null);
@@ -249,6 +307,7 @@ export function SitesPage() {
     <ModuleWorkspace crumbs={crumbsFor('Sites and Departments')} title="Sites and Departments">
       {!can('admin.organization') ? <Denied what="sites" /> : <>
         <ErrorLine error={error} />
+        {notice && <Alert severity="success" sx={{ mb: 2 }} data-testid="department-delete-result">{notice}</Alert>}
         <Paper sx={{ p: 2, mb: 2 }}>
           <Stack direction="row" alignItems="center" gap={2}>
             <Typography variant="h3">File storage</Typography>
@@ -275,7 +334,7 @@ export function SitesPage() {
               </Stack>
               <Stack direction="row" gap={1} flexWrap="wrap">
                 {s.departments.length === 0 ? <Typography variant="body2" color="text.secondary">No departments.</Typography> : s.departments.map((d) => <Stack key={d.id} direction="row" alignItems="center" gap={0.5}><Chip variant="outlined" label={`${d.code} · ${d.name}`} />
-                  <DeleteButton size="small" perm="admin.organization" what={`department ${d.code}`} url={`/api/organization/departments/${d.id}`} extra="Departments in use can't be deleted; archive them instead." /></Stack>)}
+                  <DepartmentDelete dept={d} onDone={(message) => { setError(null); setNotice(message); refresh(); }} /></Stack>)}
               </Stack>
               {dept?.siteId === s.id && <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} sx={{ mt: 2 }}>
                 <TextField size="small" label="Code" value={dept.code} onChange={(e) => setDept({ ...dept, code: e.target.value })} />

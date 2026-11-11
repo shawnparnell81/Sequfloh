@@ -37,6 +37,9 @@ public class SequflohWorkInstruction : Entity, IAudited, ISiteScoped, ISoftDelet
     public WorkInstructionStatus Status { get; set; }
     public Guid SiteId { get; set; }
     public Guid? DepartmentId { get; set; }
+    /// <summary>Department name kept on the instruction. It stays when the department is deleted.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(200)]
+    public string? DepartmentName { get; set; }
     public Guid? OwnerId { get; set; }
     public Guid? AuthorId { get; set; }
     public Guid? PartId { get; set; }

@@ -283,6 +283,7 @@ public static class PermissionText
             "admin.users" => "Manage people",
             "admin.roles" => "Manage roles and permissions",
             "admin.organization" => "Manage organization and sites",
+            "admin.delete_departments_in_use" => "Delete departments even when in use",
             "audittrail.view" => "View the full audit trail",
             "parts.view" => "View parts",
             "parts.edit" => "Add and edit parts",

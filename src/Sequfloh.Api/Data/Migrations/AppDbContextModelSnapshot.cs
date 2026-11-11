@@ -2287,6 +2287,10 @@ namespace Sequfloh.Data.Migrations
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DepartmentName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("Details")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -2767,6 +2771,10 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("DepartmentName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("DevelopmentLine")
                         .HasMaxLength(40)

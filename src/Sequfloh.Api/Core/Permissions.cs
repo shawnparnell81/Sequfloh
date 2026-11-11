@@ -8,6 +8,8 @@ public static class Permissions
     public const string AdminUsers = "admin.users";
     public const string AdminRoles = "admin.roles";
     public const string AdminOrganization = "admin.organization";
+    /// <summary>Delete a department that other records still name. Those records stay; only the department link is cleared.</summary>
+    public const string AdminDeleteDepartmentsInUse = "admin.delete_departments_in_use";
     public const string AuditTrailView = "audittrail.view";
     public const string MasterDataView = "parts.view";
     public const string MasterDataEdit = "parts.edit";
@@ -91,5 +93,5 @@ public static class Permissions
         .ToArray();
 
     /// <summary>Permissions that only make sense organization-wide (never site-scoped).</summary>
-    public static readonly IReadOnlySet<string> GlobalOnly = new HashSet<string> { AdminUsers, AdminRoles, AdminOrganization };
+    public static readonly IReadOnlySet<string> GlobalOnly = new HashSet<string> { AdminUsers, AdminRoles, AdminOrganization, AdminDeleteDepartmentsInUse };
 }
