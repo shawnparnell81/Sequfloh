@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post } from '../api';
@@ -47,6 +47,7 @@ interface Status {
   clockedIn: boolean; startedAt?: string | null; workingLate: boolean; scheduledEnd?: string | null; hardCapAt?: string | null; offerLate: boolean; endLabel: string; serverTime: string;
   activity?: Activity | null; tasks: Task[];
   can: { own: boolean; team: boolean; all: boolean; correct: boolean; manage: boolean };
+  reports?: { id: string; displayName: string }[];
 }
 interface Seg { id: string; kind: string; name: string; note?: string | null; startedAt: string; endedAt?: string | null; seconds: number; endKind?: string | null }
 interface Day {
@@ -56,6 +57,7 @@ interface Day {
 }
 interface Sheet { userId: string; userName: string; from: string; to: string; days: Day[]; workSeconds: number; indirectSeconds: number; breakSeconds: number; lunchSeconds: number; unaccountedSeconds: number }
 interface TeamPerson { userId: string; name: string; department?: string | null; since: string; activity: string; activitySince: string; kind: string; workingLate: boolean }
+interface ReportLive { userId: string; name: string; clockedIn: boolean; activity: string; since?: string | null }
 
 const useStatus = () => useQuery({ queryKey: ['day-clock'], queryFn: () => get<Status>(`${S}/day-clock`), refetchInterval: 20_000 });
 
@@ -132,32 +134,47 @@ function Cards({ day }: { day: Day }) {
 }
 
 export function DayClockPage({ view = 'today' }: { view?: 'today' | 'week' | 'team' }) {
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const status = useStatus();
+  const [params, setParams] = useSearchParams();
   const today = etToday();
   const from = view === 'week' ? weekStart(today) : today;
   const to = view === 'week' ? addDays(from, 6) : today;
+  const reports = status.data?.reports ?? [];
   const mine = can('sequfloh.view_own_day_clock') || can('sequfloh.view_team_day_clock') || can('sequfloh.view_all_day_clock');
-  const teamOk = can('sequfloh.view_team_day_clock') || can('sequfloh.view_all_day_clock');
-  const sheet = useQuery({ queryKey: ['day-clock-sheet', from, to], queryFn: () => get<Sheet>(`${S}/day-clock/timesheet?from=${from}&to=${to}`), enabled: mine && view !== 'team' });
-  const team = useQuery({ queryKey: ['day-clock-team'], queryFn: () => get<{ serverTime: string; people: TeamPerson[] }>(`${S}/day-clock/team`), enabled: teamOk && view === 'team', refetchInterval: 20_000 });
+  const asked = params.get('person') ?? '';
+  const person = asked || (!mine && reports[0] ? reports[0].id : '');
+  const viewingReport = reports.some((r) => r.id === person);
+  const canSheet = mine || viewingReport;
+  const teamOk = can('sequfloh.view_team_day_clock') || can('sequfloh.view_all_day_clock') || reports.length > 0;
+  const canCorrect = can('sequfloh.correct_day_clock') || viewingReport;
+  const qs = `from=${from}&to=${to}${person ? `&userId=${person}` : ''}`;
+  const sheet = useQuery({ queryKey: ['day-clock-sheet', from, to, person], queryFn: () => get<Sheet>(`${S}/day-clock/timesheet?${qs}`), enabled: canSheet && view !== 'team' && !status.isLoading });
+  const team = useQuery({ queryKey: ['day-clock-team'], queryFn: () => get<{ serverTime: string; people: TeamPerson[]; reports: ReportLive[] }>(`${S}/day-clock/team`), enabled: teamOk && view === 'team' && !status.isLoading, refetchInterval: 20_000 });
   const [correct, setCorrect] = useState<{ segment?: Seg; day?: Day } | null>(null);
   const day = sheet.data?.days[0];
   return (
     <SqfPage title="Day clock" description="When you arrived, what you worked on, and the time that was not on a task. Salaried staff: this is not a payroll clock. Times are America/New_York."
       crumbs={[{ label: 'Day clock', to: '/sequfloh/day-clock' }, { label: view === 'team' ? 'Team' : view === 'week' ? 'This week' : 'Today' }]}
       actions={<>
-        {mine && <Button component="a" href={`${S}/day-clock/export.csv?from=${from}&to=${to}`} data-testid="day-clock-csv">Export CSV</Button>}
-        {can('sequfloh.correct_day_clock') && <Button variant="outlined" data-testid="correction-open" onClick={() => setCorrect({})}>Correct time</Button>}
+        {canSheet && <Button component="a" href={`${S}/day-clock/export.csv?${view === 'team' ? `from=${from}&to=${to}` : qs}`} data-testid="day-clock-csv">Export CSV</Button>}
+        {canCorrect && <Button variant="outlined" data-testid="correction-open" onClick={() => setCorrect({})}>Correct time</Button>}
         {can('sequfloh.manage_day_clock') && <Button component={RouterLink} to="/sequfloh/settings/dayClock">Day clock settings</Button>}
       </>}>
-      {!mine && view !== 'team' && <Alert severity="info">An administrator can grant “view your own day clock” so this timesheet is available. Clocking in does not need that permission.</Alert>}
-      {view === 'team' && !teamOk && <Alert severity="info">Team status needs the department or all-day clock permission.</Alert>}
+      {!canSheet && view !== 'team' && !status.isLoading && <Alert severity="info">An administrator can grant “view your own day clock” so this timesheet is available. Clocking in does not need that permission.</Alert>}
+      {view === 'team' && !teamOk && !status.isLoading && <Alert severity="info">Team status needs the department or all-day clock permission, or people who report to you.</Alert>}
+      {view !== 'team' && reports.length > 0 && (
+        <TextField select label="Person" value={person} data-testid="timesheet-person" sx={{ maxWidth: 360, mb: 2 }}
+          onChange={(e) => { const id = e.target.value; setParams(id ? { person: id } : {}, { replace: true }); }}>
+          {mine && <MenuItem value="">My timesheet</MenuItem>}
+          {reports.map((r) => <MenuItem key={r.id} value={r.id}>{r.displayName}</MenuItem>)}
+        </TextField>
+      )}
       {view !== 'team' && sheet.data && (
         <Stack gap={2} data-testid={view === 'week' ? 'timesheet-weekly' : 'timesheet-daily'}>
-          <Typography variant="body2" color="text.secondary">{sheet.data.userName} · {from} to {to}</Typography>
+          <Typography variant="body2" color="text.secondary" data-testid="timesheet-who">{sheet.data.userName} · {from} to {to}</Typography>
           {view === 'today' && day && <Cards day={day} />}
-          {view === 'today' && day && <SegmentTable day={day} onCorrect={can('sequfloh.correct_day_clock') ? (s) => setCorrect({ segment: s, day }) : undefined} />}
+          {view === 'today' && day && <SegmentTable day={day} onCorrect={canCorrect ? (s) => setCorrect({ segment: s, day }) : undefined} />}
           {view === 'week' && <Table size="small" data-testid="week-table"><TableHead><TableRow>
             <TableCell>Day</TableCell><TableCell>Arrived</TableCell><TableCell>Clocked out</TableCell><TableCell align="right">Work orders</TableCell><TableCell align="right">Indirect</TableCell><TableCell align="right">Break</TableCell><TableCell align="right">Lunch</TableCell><TableCell align="right">Unaccounted</TableCell>
           </TableRow></TableHead><TableBody>
@@ -173,6 +190,17 @@ export function DayClockPage({ view = 'today' }: { view?: 'today' | 'week' | 'te
           </Paper>}
         </Stack>
       )}
+      {view === 'team' && team.data && (team.data.reports?.length ?? 0) > 0 && (
+        <Stack gap={1} sx={{ mb: 3 }} data-testid="my-team">
+          <Typography variant="h3">My team</Typography>
+          <Typography variant="body2" color="text.secondary">People who report to you. Open a name to see that person's timesheet.</Typography>
+          <Table size="small"><TableHead><TableRow><TableCell>Person</TableCell><TableCell>Status</TableCell><TableCell>Since</TableCell></TableRow></TableHead>
+            <TableBody>{team.data.reports.map((r) => <TableRow key={r.userId} data-testid="my-team-row">
+              <TableCell><Button component={RouterLink} to={`/sequfloh/day-clock?person=${r.userId}`}>{r.name}</Button></TableCell>
+              <TableCell>{r.activity}</TableCell><TableCell>{r.since ? fmtEt(r.since) : '—'}</TableCell>
+            </TableRow>)}</TableBody></Table>
+        </Stack>
+      )}
       {view === 'team' && team.data && (
         <Stack gap={1} data-testid="team-live">
           <Typography variant="body2" color="text.secondary">As of {fmtEt(team.data.serverTime)}. People who are clocked in right now.</Typography>
@@ -184,8 +212,8 @@ export function DayClockPage({ view = 'today' }: { view?: 'today' | 'week' | 'te
       )}
       {sheet.error && <Alert severity="error">{(sheet.error as Error).message}</Alert>}
       {team.error && <Alert severity="error">{(team.error as Error).message}</Alert>}
-      <History />
-      {correct && status.data && <CorrectionDialog tasks={status.data.tasks} initial={correct} onClose={() => setCorrect(null)} />}
+      {canSheet && view !== 'team' && <History userId={person || undefined} />}
+      {correct && status.data && <CorrectionDialog tasks={status.data.tasks} reports={reports} personId={person || me?.id} wide={can('sequfloh.correct_day_clock')} initial={correct} onClose={() => setCorrect(null)} />}
     </SqfPage>
   );
 }
@@ -205,8 +233,8 @@ function SegmentTable({ day, onCorrect }: { day: Day; onCorrect?: (s: Seg) => vo
   );
 }
 
-function History() {
-  const q = useQuery({ queryKey: ['day-clock-history'], queryFn: () => get<{ entries: { occurredAt: string; userName?: string | null; description: string; reason?: string | null }[] }>(`${S}/day-clock/history`) });
+function History({ userId }: { userId?: string }) {
+  const q = useQuery({ queryKey: ['day-clock-history', userId ?? ''], queryFn: () => get<{ entries: { occurredAt: string; userName?: string | null; description: string; reason?: string | null }[] }>(`${S}/day-clock/history${userId ? `?userId=${userId}` : ''}`) });
   const rows = q.data?.entries ?? [];
   if (rows.length === 0) return null;
   return (
@@ -218,11 +246,14 @@ function History() {
   );
 }
 
-function CorrectionDialog({ tasks, initial, onClose }: { tasks: Task[]; initial: { segment?: Seg; day?: Day }; onClose: () => void }) {
+function CorrectionDialog({ tasks, reports, personId, wide, initial, onClose }: { tasks: Task[]; reports: { id: string; displayName: string }[]; personId?: string; wide: boolean; initial: { segment?: Seg; day?: Day }; onClose: () => void }) {
   const qc = useQueryClient();
   const users = useUsers();
   const me = useAuth().me;
-  const [userId, setUserId] = useState(me?.id ?? '');
+  const [userId, setUserId] = useState(personId || me?.id || '');
+  const people = wide
+    ? (users.data ?? [{ id: me?.id ?? '', displayName: me?.displayName ?? 'Me' }])
+    : [{ id: me?.id ?? '', displayName: me?.displayName ?? 'Me' }, ...reports.filter((r) => r.id !== me?.id)];
   const [action, setAction] = useState(initial.segment ? 'adjust-segment' : 'add-clock');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
@@ -267,7 +298,7 @@ function CorrectionDialog({ tasks, initial, onClose }: { tasks: Task[]; initial:
           {err && <Alert severity="error">{err}</Alert>}
           <Typography variant="body2">Every correction needs a reason and is written to the audit trail in plain language. This does not change payroll.</Typography>
           <TextField select label="Person" value={userId} onChange={(e) => setUserId(e.target.value)}>
-            {(users.data ?? [{ id: me?.id ?? '', displayName: me?.displayName ?? 'Me' }]).map((u) => <MenuItem key={u.id} value={u.id}>{u.displayName}</MenuItem>)}
+            {people.map((u) => <MenuItem key={u.id} value={u.id}>{u.displayName}</MenuItem>)}
           </TextField>
           <TextField select label="What to correct" value={action} onChange={(e) => setAction(e.target.value)} data-testid="correction-action">
             {actions.map(([k, label]) => <MenuItem key={k} value={k}>{label}</MenuItem>)}

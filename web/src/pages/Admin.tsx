@@ -14,7 +14,7 @@ import { PersonLabel } from '../components/UserAvatar';
 import { DeleteButton } from '../sequfloh/common';
 
 interface RoleRow { id: string; name: string; description: string | null; isSystem: boolean; permissions: string[]; users: number }
-interface UserRow { id: string; email: string; displayName: string; jobTitle: string | null; isActive: boolean; defaultSiteId: string | null; lastSignInAt: string | null; lastSeenAt?: string | null; mustChangePassword: boolean;
+interface UserRow { id: string; email: string; displayName: string; jobTitle: string | null; isActive: boolean; defaultSiteId: string | null; managerId?: string | null; managerName?: string | null; lastSignInAt: string | null; lastSeenAt?: string | null; mustChangePassword: boolean;
   roles: { id: string; roleId: string; role: string; siteId: string | null; departmentId: string | null }[] }
 interface PermInfo { code: string; group: string; label: string }
 
@@ -106,12 +106,13 @@ export function UsersPage() {
         <FormControlLabel control={<Switch checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />} label="Show inactive people" sx={{ mb: 1 }} />
         <TableContainer component={Paper}>
           <Table>
-            <TableHead><TableRow><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Roles</TableCell><TableCell>Last sign-in</TableCell><TableCell>Status</TableCell><TableCell /></TableRow></TableHead>
+            <TableHead><TableRow><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Manager</TableCell><TableCell>Roles</TableCell><TableCell>Last sign-in</TableCell><TableCell>Status</TableCell><TableCell /></TableRow></TableHead>
             <TableBody>
               {rows.map((u) => (
                 <TableRow key={u.id} hover>
                   <TableCell><PersonLabel id={u.id} name={u.displayName} lastSeenAt={u.lastSeenAt} online={!!u.lastSeenAt && Date.now() - new Date(u.lastSeenAt).getTime() < 120_000} />{u.jobTitle && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pl: 4 }}>{u.jobTitle}</Typography>}</TableCell>
                   <TableCell>{u.email}</TableCell>
+                  <TableCell>{u.managerName ?? '—'}</TableCell>
                   <TableCell><Stack direction="row" gap={0.5} flexWrap="wrap">{u.roles.map((r) => <Chip key={r.id} size="small" variant="outlined" label={`${r.role} · ${siteCode(r.siteId)}`} />)}</Stack></TableCell>
                   <TableCell>{u.lastSignInAt ? fmtDateTime(u.lastSignInAt) : 'Never'}</TableCell>
                   <TableCell>{u.isActive ? <Chip size="small" color="success" variant="outlined" label="Active" /> : <Chip size="small" label="Inactive" />}{u.mustChangePassword && <Chip size="small" color="warning" variant="outlined" label="Temporary password" sx={{ ml: 0.5 }} />}</TableCell>
@@ -121,21 +122,32 @@ export function UsersPage() {
           </Table>
         </TableContainer>
       </>}
-      {adding && <AddUserDialog roles={roles.data ?? []} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh(); }} />}
-      {editing && <EditUserDialog user={(users.data ?? []).find((u) => u.id === editing.id) ?? editing} roles={roles.data ?? []} self={editing.id === me?.id} onClose={() => setEditing(null)} onSaved={refresh} />}
+      {adding && <AddUserDialog roles={roles.data ?? []} people={users.data ?? []} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh(); }} />}
+      {editing && <EditUserDialog user={(users.data ?? []).find((u) => u.id === editing.id) ?? editing} people={users.data ?? []} roles={roles.data ?? []} self={editing.id === me?.id} onClose={() => setEditing(null)} onSaved={refresh} />}
     </ModuleWorkspace>
   );
 }
 
-function AddUserDialog({ roles, onClose, onSaved }: { roles: RoleRow[]; onClose: () => void; onSaved: () => void }) {
+function ManagerPicker({ value, onChange, people, except }: { value: string; onChange: (id: string) => void; people: UserRow[]; except?: string }) {
+  const choices = people.filter((u) => u.id !== except && (u.isActive || u.id === value));
+  return (
+    <TextField select label="Manager" value={value} onChange={(e) => onChange(e.target.value)} data-testid="user-manager"
+      helperText="Any active person. Their manager can see and correct this person's day clock, without a department or all-wide permission. Leave blank for no manager.">
+      <MenuItem value="">No manager</MenuItem>
+      {choices.map((u) => <MenuItem key={u.id} value={u.id}>{u.displayName}</MenuItem>)}
+    </TextField>
+  );
+}
+
+function AddUserDialog({ roles, people, onClose, onSaved }: { roles: RoleRow[]; people: UserRow[]; onClose: () => void; onSaved: () => void }) {
   const sites = useSites();
-  const [f, setF] = useState({ displayName: '', email: '', jobTitle: '', password: '', defaultSiteId: '', roleId: '' });
+  const [f, setF] = useState({ displayName: '', email: '', jobTitle: '', password: '', defaultSiteId: '', roleId: '', managerId: '' });
   const [error, setError] = useState<string | null>(null);
   const save = async () => {
     setError(null);
     try {
       await post('/api/admin/users', { displayName: f.displayName, email: f.email, jobTitle: f.jobTitle || null, password: f.password, mustChangePassword: true,
-        defaultSiteId: f.defaultSiteId || null, roleIds: f.roleId ? [f.roleId] : [] });
+        defaultSiteId: f.defaultSiteId || null, roleIds: f.roleId ? [f.roleId] : [], managerId: f.managerId || null });
       onSaved();
     } catch (e) { setError((e as Error).message); }
   };
@@ -156,6 +168,7 @@ function AddUserDialog({ roles, onClose, onSaved }: { roles: RoleRow[]; onClose:
             <MenuItem value="">No role yet</MenuItem>
             {roles.map((r) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
           </TextField>
+          <ManagerPicker value={f.managerId} people={people} onChange={(managerId) => setF({ ...f, managerId })} />
         </Stack>
       </DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save}>Add person</Button></DialogActions>
@@ -163,11 +176,12 @@ function AddUserDialog({ roles, onClose, onSaved }: { roles: RoleRow[]; onClose:
   );
 }
 
-function EditUserDialog({ user, roles, self, onClose, onSaved }: { user: UserRow; roles: RoleRow[]; self: boolean; onClose: () => void; onSaved: () => void }) {
+function EditUserDialog({ user, people, roles, self, onClose, onSaved }: { user: UserRow; people: UserRow[]; roles: RoleRow[]; self: boolean; onClose: () => void; onSaved: () => void }) {
   const sites = useSites();
   const [name, setName] = useState(user.displayName);
   const [title, setTitle] = useState(user.jobTitle ?? '');
   const [active, setActive] = useState(user.isActive);
+  const [managerId, setManagerId] = useState(user.managerId ?? '');
   const [temp, setTemp] = useState('');
   const [grant, setGrant] = useState({ roleId: '', siteId: '' });
   const [error, setError] = useState<string | null>(null);
@@ -188,8 +202,9 @@ function EditUserDialog({ user, roles, self, onClose, onSaved }: { user: UserRow
           <Stack direction="row" gap={2} alignItems="center">
             <FormControlLabel control={<Switch checked={active} disabled={self} onChange={(e) => setActive(e.target.checked)} />} label={active ? 'Active' : 'Inactive (cannot sign in)'} />
             <Box sx={{ flex: 1 }} />
-            <Button variant="outlined" onClick={() => run(() => put(`/api/admin/users/${user.id}`, { displayName: name, jobTitle: title || null, defaultSiteId: user.defaultSiteId, isActive: active }), 'Saved.')}>Save details</Button>
+            <Button variant="outlined" onClick={() => run(() => put(`/api/admin/users/${user.id}`, { displayName: name, jobTitle: title || null, defaultSiteId: user.defaultSiteId, isActive: active, managerId: managerId || null, setManager: true }), 'Saved.')}>Save details</Button>
           </Stack>
+          <ManagerPicker value={managerId} people={people} except={user.id} onChange={setManagerId} />
           <Typography variant="h3">Roles</Typography>
           <Stack direction="row" gap={1} flexWrap="wrap">
             {user.roles.length === 0 && <Typography variant="body2" color="text.secondary">No roles yet. This person can sign in but cannot open anything.</Typography>}

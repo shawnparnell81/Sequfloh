@@ -58,6 +58,8 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : DbCo
             e.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
             e.Property(x => x.JobTitle).HasMaxLength(200);
             e.Property(x => x.PasswordHash).HasMaxLength(500);
+            e.HasIndex(x => x.ManagerId);
+            e.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.ManagerId).OnDelete(DeleteBehavior.Restrict);
         });
         b.Entity<OrganizationSettings>(e =>
         {

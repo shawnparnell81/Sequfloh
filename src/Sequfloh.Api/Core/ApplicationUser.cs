@@ -13,6 +13,8 @@ public class ApplicationUser
     public bool IsActive { get; set; } = true;
     public Guid? DefaultSiteId { get; set; }
     public Guid? DepartmentId { get; set; }
+    /// <summary>The person who can see and correct this person's day clock. Chosen by an administrator; not a role.</summary>
+    public Guid? ManagerId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastSignInAt { get; set; }
     /// <summary>Last authenticated activity. A person is shown online while this is within the last couple of minutes.</summary>

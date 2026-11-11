@@ -451,6 +451,8 @@ public sealed class SequflohDayClockService(AppDbContext db, ICurrentUser me, IA
             },
             Tasks = tasks,
             Can = can,
+            Reports = await db.Users.AsNoTracking().Where(u => u.ManagerId == Me && u.IsActive).OrderBy(u => u.DisplayName)
+                .Select(u => new { u.Id, u.DisplayName }).ToListAsync(ct),
         };
     }
 
@@ -479,6 +481,7 @@ public sealed class SequflohDayClockService(AppDbContext db, ICurrentUser me, IA
             if (await ScopeAsync(ct) == "none") throw new ForbiddenException("You do not have permission to view day-clock timesheets.");
             return;
         }
+        if (await IsDirectReportAsync(userId, ct)) return;
         var scope = await ScopeAsync(ct);
         if (scope == "all") return;
         if (scope == "team")
@@ -489,6 +492,14 @@ public sealed class SequflohDayClockService(AppDbContext db, ICurrentUser me, IA
         }
         throw new ForbiddenException("You do not have permission to view this person's day clock.");
     }
+
+    /// <summary>The signed-in person is this user's assigned manager. Direct reports only; the line does not walk upward.</summary>
+    Task<bool> IsDirectReportAsync(Guid userId, CancellationToken ct) =>
+        db.Users.AsNoTracking().AnyAsync(u => u.Id == userId && u.ManagerId == Me, ct);
+
+    async Task<List<(Guid Id, string Name)>> DirectReportsAsync(CancellationToken ct) =>
+        (await db.Users.AsNoTracking().Where(u => u.ManagerId == Me && u.IsActive).OrderBy(u => u.DisplayName).Select(u => new { u.Id, u.DisplayName }).ToListAsync(ct))
+        .Select(u => (u.Id, u.DisplayName)).ToList();
 
     public async Task<object> TimesheetAsync(Guid? userId, DateOnly? from, DateOnly? to, CancellationToken ct)
     {
@@ -509,9 +520,12 @@ public sealed class SequflohDayClockService(AppDbContext db, ICurrentUser me, IA
     {
         await SweepAsync(null, ct);
         var scope = await ScopeAsync(ct);
-        if (scope is not ("team" or "all")) throw new ForbiddenException("You do not have permission to view the team day clock.");
+        var reports = await DirectReportsAsync(ct);
+        if (scope is not ("team" or "all") && reports.Count == 0) throw new ForbiddenException("You do not have permission to view the team day clock.");
         var now = await NowAsync(ct);
         var clocks = await db.SequflohDayClocks.AsNoTracking().Where(c => c.EndedAt == null).OrderBy(c => c.UserName).ToListAsync(ct);
+        if (scope is not ("team" or "all"))
+            clocks = clocks.Where(c => reports.Any(r => r.Id == c.UserId)).ToList();
         HashSet<Guid>? mine = null;
         if (scope == "team")
         {
@@ -553,16 +567,35 @@ public sealed class SequflohDayClockService(AppDbContext db, ICurrentUser me, IA
                 c.WorkingLate,
             };
         }).ToList();
-        return new { ServerTime = now, People = people };
+        var reportIds = reports.Select(r => r.Id).ToList();
+        var reportClocks = await db.SequflohDayClocks.AsNoTracking().Where(c => reportIds.Contains(c.UserId) && c.EndedAt == null).ToListAsync(ct);
+        var reportSegs = await db.SequflohDaySegments.AsNoTracking().Where(s => reportIds.Contains(s.UserId) && s.EndedAt == null).ToListAsync(ct);
+        var mineTeam = reports.Select(r =>
+        {
+            var clock = reportClocks.FirstOrDefault(c => c.UserId == r.Id);
+            var seg = reportSegs.FirstOrDefault(s => s.UserId == r.Id);
+            var activity = clock is null ? "Not clocked in" : seg is null ? "Clocked in, not on a task" : seg.Kind switch
+            {
+                "WorkOrder" => seg.TrackingNumber ?? seg.TaskName ?? "Work order",
+                "Indirect" => seg.TaskName ?? "Indirect task",
+                "Break" => "Break",
+                "Lunch" => "Lunch",
+                _ => seg.TaskName ?? seg.Kind,
+            };
+            return new { UserId = r.Id, Name = r.Name, ClockedIn = clock is not null, Activity = activity, Since = clock?.StartedAt };
+        }).ToList();
+        return new { ServerTime = now, People = people, Reports = mineTeam };
     }
 
     public async Task<string> CsvAsync(Guid? userId, DateOnly? from, DateOnly? to, CancellationToken ct)
     {
         var settings = await foundation.GetSettingsAsync(ct);
-        if (settings.Security.ExportsRequirePermission && !await access.HasPermissionAsync(Me, Permissions.SequflohExportRecords, ct))
-            throw new ForbiddenException("Exporting requires the export permission.");
         var scope = await ScopeAsync(ct);
-        if (scope == "none") throw new ForbiddenException("You do not have permission to view day-clock timesheets.");
+        var managesOne = userId is { } report && await IsDirectReportAsync(report, ct);
+        var ownReports = scope == "none" && userId is null ? await DirectReportsAsync(ct) : [];
+        if (settings.Security.ExportsRequirePermission && !managesOne && ownReports.Count == 0 && !await access.HasPermissionAsync(Me, Permissions.SequflohExportRecords, ct))
+            throw new ForbiddenException("Exporting requires the export permission.");
+        if (scope == "none" && !managesOne && userId is not null) throw new ForbiddenException("You do not have permission to view day-clock timesheets.");
         var today = DayClockTime.LocalDate(await NowAsync(ct));
         var start = from ?? today;
         var end = to ?? start;
@@ -572,6 +605,11 @@ public sealed class SequflohDayClockService(AppDbContext db, ICurrentUser me, IA
         {
             await EnsureCanSeeAsync(one, ct);
             ids = [one];
+        }
+        else if (scope == "none")
+        {
+            ids = ownReports.Select(r => r.Id).ToList();
+            if (ids.Count == 0) throw new ForbiddenException("You do not have permission to view day-clock timesheets.");
         }
         else if (scope == "own") ids = [Me];
         else if (scope == "all")
@@ -713,7 +751,9 @@ public sealed class SequflohDayClockService(AppDbContext db, ICurrentUser me, IA
 
     public async Task<object> CorrectAsync(CorrectionInput input, CancellationToken ct)
     {
-        if (!await access.HasPermissionAsync(Me, Permissions.SequflohCorrectDayClock, ct))
+        var target = input.UserId ?? Me;
+        var manages = target != Me && await IsDirectReportAsync(target, ct);
+        if (!manages && !await access.HasPermissionAsync(Me, Permissions.SequflohCorrectDayClock, ct))
             throw new ForbiddenException("You do not have permission to correct the day clock.");
         var reason = input.Reason?.Trim() ?? "";
         if (reason.Length < 3) throw new AppException("Enter a reason for the correction.");
