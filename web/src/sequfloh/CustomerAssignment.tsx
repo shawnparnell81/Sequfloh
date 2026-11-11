@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type InputHTMLAttributes } from 'react';
 import { FormDialogTitle } from '../components/FullScreen';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
@@ -150,7 +150,7 @@ export function CustomerAssignmentDialog({ open, onClose }: { open: boolean; onC
           <TableBody>
             {(preview?.rows ?? []).map((r) => <TableRow key={r.id} data-testid="assign-row">
               <TableCell padding="checkbox">
-                <Checkbox size="small" checked={included(r)} disabled={r.outcome !== 'Clear' && !choiceOf(r.id)} inputProps={{ 'aria-label': `Include ${r.partNumber}`, 'data-testid': `assign-include-${r.partNumber}` }}
+                <Checkbox size="small" checked={included(r)} disabled={r.outcome !== 'Clear' && !choiceOf(r.id)} inputProps={{ 'aria-label': `Include ${r.partNumber}`, 'data-testid': `assign-include-${r.partNumber}` } as InputHTMLAttributes<HTMLInputElement>}
                   onChange={(_, on) => toggle(r, on)} />
               </TableCell>
               <TableCell><Mono>{r.partNumber}</Mono></TableCell>
