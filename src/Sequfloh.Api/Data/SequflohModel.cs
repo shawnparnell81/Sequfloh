@@ -8,6 +8,10 @@ namespace Sequfloh.Infrastructure.Persistence;
 
 public partial class AppDbContext
 {
+    public DbSet<CustomDropdown> CustomDropdowns => Set<CustomDropdown>();
+    public DbSet<CustomDropdownValue> CustomDropdownValues => Set<CustomDropdownValue>();
+    public DbSet<CustomDropdownPlacement> CustomDropdownPlacements => Set<CustomDropdownPlacement>();
+    public DbSet<CustomFieldValue> CustomFieldValues => Set<CustomFieldValue>();
     public DbSet<SequflohSettings> SequflohSettings => Set<SequflohSettings>();
     public DbSet<SequflohReferenceValue> SequflohReferenceValues => Set<SequflohReferenceValue>();
     public DbSet<SequflohDeletedSeedValue> SequflohDeletedSeedValues => Set<SequflohDeletedSeedValue>();
@@ -521,6 +525,37 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.Status, x.PartNumber });
             e.HasOne<SequflohReferenceValue>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<SequflohReferenceValue>().WithMany().HasForeignKey(x => x.BrandId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<CustomDropdown>(e =>
+        {
+            e.ToTable("custom_dropdowns");
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.HasIndex(x => x.Name).IsUnique();
+        });
+        b.Entity<CustomDropdownValue>(e =>
+        {
+            e.ToTable("custom_dropdown_values");
+            e.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            e.HasIndex(x => new { x.DropdownId, x.Code }).IsUnique();
+            e.HasOne<CustomDropdown>().WithMany().HasForeignKey(x => x.DropdownId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<CustomDropdownPlacement>(e =>
+        {
+            e.ToTable("custom_dropdown_placements");
+            e.Property(x => x.Screen).HasMaxLength(80).IsRequired();
+            e.HasIndex(x => new { x.DropdownId, x.Screen }).IsUnique();
+            e.HasOne<CustomDropdown>().WithMany().HasForeignKey(x => x.DropdownId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<CustomFieldValue>(e =>
+        {
+            e.ToTable("custom_field_values");
+            e.Property(x => x.RecordType).HasMaxLength(40).IsRequired();
+            e.HasIndex(x => new { x.DropdownId, x.RecordType, x.RecordId }).IsUnique();
+            e.HasIndex(x => new { x.RecordType, x.RecordId });
+            e.HasOne<CustomDropdown>().WithMany().HasForeignKey(x => x.DropdownId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<CustomDropdownValue>().WithMany().HasForeignKey(x => x.ValueId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

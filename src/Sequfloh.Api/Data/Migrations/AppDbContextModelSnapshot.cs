@@ -400,6 +400,181 @@ namespace Sequfloh.Data.Migrations
                     b.ToTable("tracking_record_drawings", "sqf");
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.Execution.CustomDropdown", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("custom_dropdowns", "sqf");
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.CustomDropdownPlacement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DropdownId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Filterable")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IncludeInCsv")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("Required")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Screen")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<bool>("ShowInList")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DropdownId", "Screen")
+                        .IsUnique();
+
+                    b.ToTable("custom_dropdown_placements", "sqf");
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.CustomDropdownValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DropdownId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DropdownId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("custom_dropdown_values", "sqf");
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.CustomFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DropdownId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RecordType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ValueId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ValueId");
+
+                    b.HasIndex("RecordType", "RecordId");
+
+                    b.HasIndex("DropdownId", "RecordType", "RecordId")
+                        .IsUnique();
+
+                    b.ToTable("custom_field_values", "sqf");
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.Execution.MonthlyQualityReport", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4455,6 +4630,38 @@ namespace Sequfloh.Data.Migrations
                         .HasForeignKey("TrackingRecordId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.CustomDropdownPlacement", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.CustomDropdown", null)
+                        .WithMany()
+                        .HasForeignKey("DropdownId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.CustomDropdownValue", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.CustomDropdown", null)
+                        .WithMany()
+                        .HasForeignKey("DropdownId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.CustomFieldValue", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.CustomDropdown", null)
+                        .WithMany()
+                        .HasForeignKey("DropdownId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Sequfloh.Domain.Execution.CustomDropdownValue", null)
+                        .WithMany()
+                        .HasForeignKey("ValueId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Sequfloh.Domain.Execution.MonthlyQualityReport", b =>

@@ -12,6 +12,7 @@ import { otherNumbers, usePartSearch } from './partSearch';
 import { usePartFieldScan } from '../scan/ScanProvider';
 import { useAuth } from '../auth';
 import { Facts, useSites, useUsers } from '../components/Kit';
+import { CustomFieldDetails, CustomFieldInputs, saveCustomFields } from './CustomFields';
 import { FilesPanel } from '../components/Files';
 import { PriorityTag, fmtDateTime } from '../components/Status';
 import { PersonLabel } from '../components/UserAvatar';
@@ -86,6 +87,7 @@ export function InspectionRequestDialog({ open, onClose, initial, id, include8D 
   const [linkProject, setLinkProject] = useState(false);
   const [with8D, setWith8D] = useState(false);
   const [files8D, setFiles8D] = useState<File[]>([]);
+  const [customIr, setCustomIr] = useState<Record<string, string>>({});
   useEffect(() => { if (open) { setF(initial ?? blank); setErr(null); setLinkProject(!!initial?.projectId); setWith8D(!!include8D); setFiles8D([]); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const [auto, setAuto] = useState('');
   useEffect(() => {
@@ -108,6 +110,7 @@ export function InspectionRequestDialog({ open, onClose, initial, id, include8D 
       const r = id ? await put<InspectionRequest>(`${A}/${id}`, body(f)) : await post<InspectionRequest>(A, { ...body(f), include8D: with8D });
       if (id && with8D !== !!include8D) await put(`${S}/8d/inspection-requests/${id}/include`, { include: with8D });
       if (!id && with8D) for (const x of files8D) { try { await uploadEightD('inspection-requests', r.id, x); } catch (e) { window.alert(`The request was saved, but ${x.name} was not added: ${(e as Error).message}`); } }
+      await saveCustomFields('inspection-requests', r.id, customIr, `inspection request ${r.number}`);
       await qc.invalidateQueries({ queryKey: ['sqf-8d'] });
       await qc.invalidateQueries({ queryKey: ['sqf-ir'] }); onClose();
       if (!id) nav(`/sequfloh/inspection-request/${r.id}`);
@@ -120,6 +123,7 @@ export function InspectionRequestDialog({ open, onClose, initial, id, include8D 
         {!id && <NumberField fullWidth sx={{ mt: 1, mb: 2 }} value={f.number ?? ''} onChange={(e) => setF({ ...f, number: e.target.value })} inputProps={{ 'data-testid': 'ir-number', maxLength: 40 }} />}
         <RequestForm value={f} onChange={setF} />
         <Box sx={{ mt: 2 }}><ProjectLink value={f.projectId ?? ''} onChange={(v) => setF({ ...f, projectId: v })} yes={linkProject} onYes={setLinkProject} testId="ir-project" /></Box>
+        <Stack sx={{ mt: 2 }}><CustomFieldInputs screen="inspection-requests" recordId={id} value={customIr} onChange={setCustomIr} /></Stack>
         <Box sx={{ mt: 2 }}>{id ? <EightDAsk yes={with8D} onYes={setWith8D} /> : <EightDCreate yes={with8D} onYes={setWith8D} files={files8D} onFiles={setFiles8D} />}</Box></DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={busy}>{id ? 'Save' : 'Submit request'}</Button></DialogActions>
     </Dialog>
@@ -301,6 +305,7 @@ export function InspectionRequestPage() {
         <Paper sx={{ p: 2 }}><Typography variant="subtitle2" gutterBottom>Inspection requirement</Typography>
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{r.requirement || '—'}</Typography></Paper>
       </Box>
+      <Box sx={{ mt: 2 }}><CustomFieldDetails screen="inspection-requests" recordId={r.id} /></Box>
       <Box sx={{ mt: 3 }}><EightDBlock kind="inspection-requests" id={r.id} /></Box>
       <Box sx={{ mt: 3 }}><Typography variant="h6" gutterBottom>Attachments</Typography><FilesPanel surface="inspection-request-files" type="SequflohInspectionRequest" id={r.id} canEdit={!closed && can('sequfloh.access')} /></Box>
       <InspectionRequestDialog open={edit} onClose={() => setEdit(false)} initial={initial} id={r.id} include8D={!!r.include8D} />

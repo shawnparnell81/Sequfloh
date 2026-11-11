@@ -12,6 +12,7 @@ import { otherNumbers, usePartSearch } from './partSearch';
 import { fmtDateTime } from '../components/Status';
 import { PersonLabel } from '../components/UserAvatar';
 import { Confirm, DeleteButton, Empty, ErrorState, Loading, Mono, SqfPage, qs } from './common';
+import { CustomFieldDetails, CustomFieldInputs, saveCustomFields } from './CustomFields';
 import { partOption } from './partLabel';
 import { SimpleTable } from './Parts';
 import { ImportButtons } from '../components/ImportButtons';
@@ -403,9 +404,14 @@ function FolderDialog({ open, edit, parentId, onClose, onSaved }: { open: boolea
 
 function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open: boolean; folderId: string; defaultParts: Opt[]; onClose: () => void; onSaved: (id: string) => void }) {
   const [f, setF] = useState(blankDrawing()); const [parts, setParts] = useState<Opt[]>([]); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const [custom, setCustom] = useState<Record<string, string>>({});
   const save = async () => {
     setErr(null); setBusy(true);
-    try { const r = await post<{ id: string }>(`${D}/folders/${folderId}/drawings`, drawingForm(f, { partIds: parts.map((p) => p.id).join(',') })); onSaved(r.id); onClose(); }
+    try {
+      const r = await post<{ id: string }>(`${D}/folders/${folderId}/drawings`, drawingForm(f, { partIds: parts.map((p) => p.id).join(',') }));
+      await saveCustomFields('drawings', r.id, custom, `drawing ${f.title}`);
+      onSaved(r.id); onClose();
+    }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setF(blankDrawing()); setParts(defaultParts); setErr(null); } }}>
@@ -414,6 +420,7 @@ function UploadDialog({ open, folderId, defaultParts, onClose, onSaved }: { open
       {err && <Alert severity="error">{err}</Alert>}
       <DrawingFileFields f={f} set={setF} />
       <PartsPicker value={parts} onChange={setParts} />
+      <CustomFieldInputs screen="drawings" value={custom} onChange={setCustom} />
     </Stack></DialogContent>
     <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={busy || !f.file || !f.title.trim() || !f.revision.trim()}>Upload</Button></DialogActions>
   </Dialog>;
@@ -475,6 +482,7 @@ export function DrawingPage() {
             <Button size="small" component="a" href={fileUrl(d.id, r.revision)}>Download</Button>
             {d.canRelease && r.status === 'Pending' && <Button size="small" variant="contained" data-testid="release-revision" onClick={() => setReleaseRev(r.revision)}>Release</Button>}
             <DeleteButton size="small" show={d.revisions.length > 1} what={`revision ${r.revision}`} url={`${D}/${d.id}/revisions/${encodeURIComponent(r.revision)}`} extra="The file is removed and the removal is recorded. A released file cannot be replaced in place." /></Stack>])} /></Box>}
+        <Box sx={{ mt: 2 }}><CustomFieldDetails screen="drawings" recordId={d.id} /></Box>
         <RevisionDialog open={dlg === 'rev'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <EditDialog open={dlg === 'edit'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
         <LinkPartsDialog open={dlg === 'parts'} d={d} onClose={() => setDlg(null)} onSaved={refresh} />
@@ -514,7 +522,8 @@ function RevisionDialog({ open, d, onClose, onSaved }: { open: boolean; d: Drawi
 
 function EditDialog({ open, d, onClose, onSaved }: { open: boolean; d: DrawingDetail; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({ title: '', drawingNumber: '', notes: '' }); const [err, setErr] = useState<string | null>(null);
-  const save = async () => { setErr(null); try { await put(`${D}/${d.id}`, { ...f, revision: null }); onSaved(); onClose(); } catch (e) { setErr((e as Error).message); } };
+  const [custom, setCustom] = useState<Record<string, string>>({});
+  const save = async () => { setErr(null); try { await put(`${D}/${d.id}`, { ...f, revision: null }); await saveCustomFields('drawings', d.id, custom, `drawing ${f.title}`); onSaved(); onClose(); } catch (e) { setErr((e as Error).message); } };
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onEnter: () => { setF({ title: d.title, drawingNumber: d.drawingNumber ?? '', notes: d.notes ?? '' }); setErr(null); } }}>
     <FormDialogTitle>Edit drawing</FormDialogTitle>
     <DialogContent><Stack gap={2} sx={{ pt: 1 }}>
@@ -522,6 +531,7 @@ function EditDialog({ open, d, onClose, onSaved }: { open: boolean; d: DrawingDe
       <TextField label="Title" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
       <TextField label="Drawing number" value={f.drawingNumber} onChange={(e) => setF({ ...f, drawingNumber: e.target.value })} />
       <TextField label="Notes" multiline minRows={3} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+      <CustomFieldInputs screen="drawings" recordId={d.id} value={custom} onChange={setCustom} />
     </Stack></DialogContent>
     <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={!f.title.trim()}>Save</Button></DialogActions>
   </Dialog>;
