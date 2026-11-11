@@ -91,7 +91,7 @@ public sealed class CrewTimeSettingTests(TestApp app)
         Assert.Equal(HttpStatusCode.Forbidden, (await plain.PutAsync($"{T}/{id}/crew/setting", new { useCrewTime = true })).StatusCode);
 
         // named time exists: turning crew time on is refused
-        await plain.PostOkAsync($"{T}/{id}/time/start");
+        await plain.PostOkAsync($"{T}/{id}/time/start", new { clockIn = true });
         await plain.PostOkAsync($"{T}/{id}/time/stop");
         var on = await lead.PutAsync($"{T}/{id}/crew/setting", new { useCrewTime = true });
         Assert.Equal(HttpStatusCode.Conflict, on.StatusCode);
@@ -135,7 +135,7 @@ public sealed class CrewTimeSettingTests(TestApp app)
         await AddCrewRowAsync(auto.Id, auto.No, 1, start, 0.2, "Creating the work order");
         await AddCrewRowAsync(manual.Id, manual.No, 2, start, 3);
         await AddCrewRowAsync(mixed.Id, mixed.No, 2, start, 3);
-        await mixed.Plain.PostOkAsync($"{T}/{mixed.Id}/time/start");
+        await mixed.Plain.PostOkAsync($"{T}/{mixed.Id}/time/start", new { clockIn = true });
         await mixed.Plain.PostOkAsync($"{T}/{mixed.Id}/time/stop");
 
         using var s = app.Services.CreateScope();

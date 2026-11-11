@@ -798,6 +798,211 @@ namespace Sequfloh.Data.Migrations
                     b.ToTable("sequfloh_crew_sessions", "sqf");
                 });
 
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDayClock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EndKind")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("WorkingLate")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.HasIndex("UserId", "StartedAt");
+
+                    b.HasIndex(new[] { "UserId" }, "IX_sequfloh_day_clocks_open")
+                        .IsUnique()
+                        .HasFilter("\"EndedAt\" IS NULL");
+
+                    b.ToTable("sequfloh_day_clocks", "sqf");
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDaySegment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdjustReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("AdjustedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AdjustedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DayClockId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EndKind")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("IndirectValueId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTimeOffset?>("OriginalEndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("OriginalStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResumeIndirectValueId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResumeKind")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ResumeNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ResumeTaskName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ResumeTimeEntryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResumeTrackingNumber")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("ResumeTrackingRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<long>("Seconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TaskName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("TimeEntryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TrackingNumber")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("TrackingRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VoidedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndirectValueId");
+
+                    b.HasIndex("TimeEntryId");
+
+                    b.HasIndex("TrackingRecordId");
+
+                    b.HasIndex("DayClockId", "StartedAt");
+
+                    b.HasIndex("UserId", "StartedAt");
+
+                    b.HasIndex(new[] { "UserId" }, "IX_sequfloh_day_segments_open")
+                        .IsUnique()
+                        .HasFilter("\"EndedAt\" IS NULL AND \"VoidedAt\" IS NULL");
+
+                    b.ToTable("sequfloh_day_segments", "sqf");
+                });
+
             modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDayWorker", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1708,6 +1913,10 @@ namespace Sequfloh.Data.Migrations
 
                     b.Property<Guid?>("CreatedById")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("DayClock")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("Display")
                         .IsRequired()
@@ -4283,6 +4492,50 @@ namespace Sequfloh.Data.Migrations
                     b.HasOne("Sequfloh.Domain.Execution.SequflohTrackingRecord", null)
                         .WithMany()
                         .HasForeignKey("TrackingRecordId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDayClock", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Organization.Department", null)
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sequfloh.Domain.Execution.SequflohDaySegment", b =>
+                {
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohDayClock", null)
+                        .WithMany()
+                        .HasForeignKey("DayClockId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohReferenceValue", null)
+                        .WithMany()
+                        .HasForeignKey("IndirectValueId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohTimeEntry", null)
+                        .WithMany()
+                        .HasForeignKey("TimeEntryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Sequfloh.Domain.Execution.SequflohTrackingRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TrackingRecordId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sequfloh.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

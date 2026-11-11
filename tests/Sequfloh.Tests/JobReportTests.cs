@@ -63,7 +63,7 @@ public sealed class JobReportTests(TestApp app)
         var start = await Act(plain, id, "start", await Ver(plain, id));
         Assert.True(start.IsSuccessStatusCode, await start.Content.ReadAsStringAsync());
         Assert.True((await plain.GetElAsync($"{U}/{id}")).GetProperty("canEnter").GetBoolean());
-        await plain.PostOkAsync($"{U}/{id}/time/start");
+        await plain.PostOkAsync($"{U}/{id}/time/start", new { clockIn = true });
         Assert.True((await Act(plain, id, "pause", await Ver(plain, id), "Break")).IsSuccessStatusCode);
         Assert.True((await Act(plain, id, "resume", await Ver(plain, id))).IsSuccessStatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Act(plain, id, "complete", await Ver(plain, id))).StatusCode);

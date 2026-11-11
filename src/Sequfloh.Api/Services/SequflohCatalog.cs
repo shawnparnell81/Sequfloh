@@ -18,6 +18,9 @@ public static class SequflohCatalog
 
     public const string InspectionSubTypes = "inspection-sub-types";
 
+    /// <summary>Indirect tasks a person clocks onto when they are not on a work order. Administered with the other reference lists.</summary>
+    public const string IndirectTasks = "indirect-tasks";
+
     public const string Module = "sequfloh";
 
     public static readonly ReferenceListDef[] Lists =
@@ -58,6 +61,8 @@ public static class SequflohCatalog
         new("lifecycle-actions", "Lifecycle actions", "Display labels of work instruction actions.", ["Release", "Create revision", "Mark obsolete"]),
         new("document-types", "Document types", "Kinds of referenced documents (drawings, specifications, procedures).", ["Drawing", "Specification", "Procedure", "Test standard", "Protocol", "Engineering document", "Change record"]),
         new("evidence-types", "Evidence types", "Kinds of evidence references.", ["Photo", "Measurement record", "Test report", "Certificate", "Data file"]),
+        new(IndirectTasks, "Indirect tasks", "Tasks a person clocks onto when they are not on a work order. Admin Work is paperwork and writing processes or work instructions. Add, rename, deactivate or reorder tasks here. The day clock offers only the active ones, and a deactivated task stays on time already recorded.",
+            ["Lab Setup", "Training", "Lab Cleaning", "Admin Work (paperwork, writing processes / work instructions)", "Meetings", "Equipment Maintenance / Calibration", "Waiting on Parts / Material"], NoDefault: true),
     ];
 
     /// <summary>Monthly quality reports are ticked on by an administrator. The built-in Administrator role still receives them with every other permission.</summary>
@@ -70,9 +75,9 @@ public static class SequflohCatalog
 
     public static List<RoleSuggestion> DefaultRoleSuggestions() =>
     [
-        new() { Name = "Operator", Description = "Runs assigned production tasks at a station.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "start_task", "pause_task", "resume_task", "complete_task")] },
-        new() { Name = "Technician", Description = "Performs validation, FAI and repair work.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "start_task", "pause_task", "resume_task", "complete_task", "fail_task", "create_repair_record")] },
-        new() { Name = "Supervisor", Description = "Dispatches and reassigns work, creates tracking records.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "dispatch_task", "start_task", "pause_task", "resume_task", "complete_task", "fail_task", "reassign_task", "cancel_task", "create_validation_record", "create_fai_record", "create_repair_record", "create_production_task", "view_reports", "export_records", "manage_crew_time", "manage_chargebacks")] },
+        new() { Name = "Operator", Description = "Runs assigned production tasks at a station.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "start_task", "pause_task", "resume_task", "complete_task", "view_own_day_clock")] },
+        new() { Name = "Technician", Description = "Performs validation, FAI and repair work.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "start_task", "pause_task", "resume_task", "complete_task", "fail_task", "create_repair_record", "view_own_day_clock")] },
+        new() { Name = "Supervisor", Description = "Dispatches and reassigns work, creates tracking records.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "dispatch_task", "start_task", "pause_task", "resume_task", "complete_task", "fail_task", "reassign_task", "cancel_task", "create_validation_record", "create_fai_record", "create_repair_record", "create_production_task", "view_reports", "export_records", "manage_crew_time", "manage_chargebacks", "view_own_day_clock", "view_team_day_clock", "correct_day_clock")] },
         new() { Name = "Quality", Description = "Releases instructions and checks results.", Permissions = [.. P("access", "view_dashboard", "view_live_execution", "release_work_instruction", "obsolete_work_instruction", "view_quality_folder", "edit_quality_folder", "view_imported_files", "import_files", "view_drawings", "view_reports", "export_records", "view_audit_trail", "create_fai_record", "create_validation_record")] },
         new() { Name = "Engineering", Description = "Develops and revises work instructions, parts lists and operation steps.", Permissions = [.. P("access", "view_dashboard", "create_work_instruction", "edit_draft_work_instruction", "revise_work_instruction", "view_engineering_folder", "edit_engineering_folder", "view_imported_files", "import_files", "view_drawings", "manage_drawings", "edit_parts", "manage_parts_lists", "manage_operation_steps", "view_reports")] },
         new() { Name = "Document control", Description = "Releases instructions and marks them obsolete.", Permissions = [.. P("access", "view_dashboard", "release_work_instruction", "obsolete_work_instruction", "view_audit_trail", "view_reports", "export_records")] },

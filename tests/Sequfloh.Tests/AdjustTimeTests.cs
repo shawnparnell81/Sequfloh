@@ -64,7 +64,7 @@ public sealed class AdjustTimeTests(TestApp app)
             await db.SequflohTrackingRecords.IgnoreQueryFilters().Where(r => r.Id == a).ExecuteUpdateAsync(u => u.SetProperty(r => r.TrackTimeVariance, true));
         }
 
-        await worker.PostOkAsync($"{T}/{a}/time/start");
+        await worker.PostOkAsync($"{T}/{a}/time/start", new { clockIn = true });
         var openId = (await c.GetElAsync($"{T}/{a}/time")).GetProperty("entries").EnumerateArray().Single().Id();
         var start = DateTimeOffset.UtcNow.AddHours(-20);
         await BackdateAsync(openId, start);
@@ -140,7 +140,7 @@ public sealed class AdjustTimeTests(TestApp app)
         var kept = (await c.GetElAsync($"{T}/{a}/time-corrections")).GetProperty("entries").EnumerateArray().Single(e => e.Id() == openId);
         Assert.Equal(JsonValueKind.Null, kept.GetProperty("originalStoppedAt").ValueKind);
 
-        await worker.PostOkAsync($"{T}/{a}/time/start");
+        await worker.PostOkAsync($"{T}/{a}/time/start", new { clockIn = true });
         var pausedId = (await c.GetElAsync($"{T}/{a}/time")).GetProperty("entries").EnumerateArray().First(e => e.GetProperty("stoppedAt").ValueKind == JsonValueKind.Null).Id();
         var pauseStart = DateTimeOffset.UtcNow.AddHours(-2);
         await BackdateAsync(pausedId, pauseStart);

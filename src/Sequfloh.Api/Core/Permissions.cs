@@ -74,6 +74,16 @@ public static class Permissions
     public const string SequflohManageProjects = "sequfloh.manage_projects";
     public const string SequflohReopenCompleted = "sequfloh.reopen_completed";
     public const string SequflohViewTaskEvents = "sequfloh.view_task_events";
+    /// <summary>See your own day clock and timesheet. Not a payroll clock.</summary>
+    public const string SequflohViewOwnDayClock = "sequfloh.view_own_day_clock";
+    /// <summary>See the day clock and timesheets of people in your department.</summary>
+    public const string SequflohViewTeamDayClock = "sequfloh.view_team_day_clock";
+    /// <summary>See every person's day clock and timesheet.</summary>
+    public const string SequflohViewAllDayClock = "sequfloh.view_all_day_clock";
+    /// <summary>Correct a missed day-clock punch or segment, with a reason. The change is audited.</summary>
+    public const string SequflohCorrectDayClock = "sequfloh.correct_day_clock";
+    /// <summary>Set the automatic clock-out time and how long a Working late extension may run.</summary>
+    public const string SequflohManageDayClock = "sequfloh.manage_day_clock";
 
     public const string MessagesUse = "messages.use";
     /// <summary>Read every conversation in scope, for a compliance review. Assigned on purpose; no role receives it automatically.</summary>

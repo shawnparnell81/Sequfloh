@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { more, settledShot, signIn, view } from './support';
+import { clockInDay, more, settledShot, signIn, view } from './support';
 
 /** Made-up records only. Covers Delete with its confirm, blocked deletes, several people on one work order and per-person timers. */
 test('delete everywhere, several assignees and live time per person', async ({ page }) => {
@@ -58,6 +58,7 @@ test('delete everywhere, several assignees and live time per person', async ({ p
   await ok(rq.post('/api/admin/users', { data: { email: `helper.${stamp}@example.test`, displayName: `Test Helper ${stamp}`, password: `Pw-${stamp}-${Math.random().toString(36).slice(2)}`, mustChangePassword: false, defaultSiteId: site } }));
   const me = (await ok(rq.get('/api/auth/session'))).user;
   const wo = (await ok(rq.post('/api/sequfloh/tracking', { data: { number: `E2E-${Math.random().toString(36).slice(2, 10)}`, type: 'Production', workInstructionId: rel, siteId: site, assignedUserId: me.id } }))).id as string;
+  await clockInDay(page);
   await page.goto(`/sequfloh/record/${wo}`);
   await view(page).getByTestId('edit-assignees').click();
   await dialog().getByLabel('People').fill(`Test Helper ${stamp}`);

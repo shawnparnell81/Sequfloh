@@ -61,7 +61,7 @@ public sealed class DayWorkerReportTests(TestApp app)
         await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, workerId = a, start, stop = start.AddHours(4) });
         await c.PostOkAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, workerId = b, start = start.AddHours(1), stop = start.AddHours(3) });
         // a registered person's clock never clashes with day workers
-        await c.PostOkAsync($"{T}/{id}/time/start");
+        await c.PostOkAsync($"{T}/{id}/time/start", new { clockIn = true });
         await c.PostOkAsync($"{T}/{id}/time/stop");
 
         var r = await c.PostAsync($"{T}/{id}/crew/sessions", new { crewSize = 1, workerId = a, start = start.AddHours(3), stop = start.AddHours(5) });
@@ -95,12 +95,12 @@ public sealed class DayWorkerReportTests(TestApp app)
         var (one, oneNo) = await New();
         var (two, _) = await New();
 
-        await c.PostOkAsync($"{T}/{one}/time/start");
+        await c.PostOkAsync($"{T}/{one}/time/start", new { clockIn = true });
         var r = await c.PostAsync($"{T}/{two}/time/start", new { });
         Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
         Assert.Contains($"You're already clocked on to {oneNo}. Clock off there first.", await r.Content.ReadAsStringAsync());
         await c.PostOkAsync($"{T}/{one}/time/stop");
-        await c.PostOkAsync($"{T}/{two}/time/start");
+        await c.PostOkAsync($"{T}/{two}/time/start", new { clockIn = true });
         await c.PostOkAsync($"{T}/{two}/time/stop");
 
         // the same day worker (same name) on two jobs: one clock at a time, and entered times can't overlap across jobs
@@ -132,6 +132,7 @@ public sealed class DayWorkerReportTests(TestApp app)
             await c.StartAsync(id);
             ids.Add(id);
         }
+        await c.PostOkAsync("/api/sequfloh/day-clock/in");
         var codes = (await System.Threading.Tasks.Task.WhenAll(ids.Select(id => c.PostAsync($"{T}/{id}/time/start", new { })))).Select(r => r.StatusCode).ToList();
         Assert.Equal(1, codes.Count(x => x == HttpStatusCode.OK));
         Assert.Equal(3, codes.Count(x => x == HttpStatusCode.Conflict));

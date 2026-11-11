@@ -63,7 +63,7 @@ public sealed class PastTimeTests(TestApp app)
         // 7:00-13:30 with a 30 minute lunch = 6.00 h for the adder (no userId = yourself)
         await c.PostOkAsync($"{T}/{a}/time/past", new { start, stop = start.AddHours(6.5), pauses = new[] { new { from = start.AddHours(3), to = start.AddHours(3.5), reason = "Lunch" } }, reason = Why });
         // the same person clocks normally too, and another person gets past time
-        await c.PostOkAsync($"{T}/{a}/time/start"); await c.PostOkAsync($"{T}/{a}/time/stop");
+        await c.PostOkAsync($"{T}/{a}/time/start", new { clockIn = true }); await c.PostOkAsync($"{T}/{a}/time/stop");
         await c.PostOkAsync($"{T}/{a}/time/past", new { userId = otherId, start, stop = start.AddHours(2), reason = Why });
 
         var crew = await c.GetElAsync($"{T}/{a}/crew");

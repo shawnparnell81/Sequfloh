@@ -59,6 +59,10 @@ const sections: Record<string, { title: string; description: string; fields: (Fi
     { key: 'includedColumns', label: 'Included columns (report=column,column per line; blank: all)', type: 'lines' }] },
   security: { title: 'Security Settings', description: 'Override reasons, export protection and suggested SEQUFLOH permission sets for existing roles.', fields: [
     { key: 'requireReasonForOverride', label: 'Reason required for administrative overrides', type: 'bool' }, { key: 'exportsRequirePermission', label: 'Exports require sequfloh.export_records', type: 'bool' }] },
+  dayClock: { title: 'Day Clock', description: 'When the shop day ends in America/New_York. Everyone still clocked in is clocked out at that time unless they chose Working late. The hard cap is the latest a late day can run.', fields: [
+    { key: 'endTime', label: 'End of day (HH:mm, Eastern time)', type: 'text', helper: '16:00 is 4:00 PM. A sweep that runs late still closes the day at this clock time.' },
+    { key: 'hardCapMinutes', label: 'Working late limit (minutes after the end)', type: 'number', helper: '240 is four hours. 0 switches Working late off.' },
+    { key: 'warnMinutes', label: 'Offer Working late this many minutes before the end', type: 'number' }] },
 };
 
 type Obj = Record<string, unknown>;
@@ -110,7 +114,7 @@ function SettingsSection({ section }: { section: string }) {
   };
   const siteId = current?.defaultSiteId as string | null;
   return (
-    <SqfPage title={def.title} description={def.description} crumbs={crumbs} permission="sequfloh.manage_settings"
+    <SqfPage title={def.title} description={def.description} crumbs={crumbs} permission={section === 'dayClock' ? 'sequfloh.manage_day_clock' : 'sequfloh.manage_settings'}
       actions={<>{draft && <Button onClick={() => guard(() => setDraft(null))}>Discard changes</Button>}<Button variant="contained" disabled={!draft} onClick={save}>Save settings</Button></>}>
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : current && <Stack gap={2}>
         {error && <Alert severity="error">{error}</Alert>}
@@ -213,7 +217,7 @@ export function ReferenceDataPage() {
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : rows.length === 0 ? <Empty text="No lists match the search." /> :
         <TableContainer component={Paper} variant="outlined"><Table size="small">
           <TableHead><TableRow><TableCell>List</TableCell><TableCell>Purpose</TableCell><TableCell align="right">Active</TableCell><TableCell align="right">Total</TableCell></TableRow></TableHead>
-          <TableBody>{rows.map((l) => <TableRow key={l.key} hover><TableCell><Link component={RouterLink} to={`/sequfloh/admin/dropdowns?list=${l.key}`}>{l.label}</Link></TableCell>
+          <TableBody>{rows.map((l) => <TableRow key={l.key} hover data-testid={`ref-list-${l.key}`}><TableCell><Link component={RouterLink} to={`/sequfloh/admin/dropdowns?list=${l.key}`}>{l.label}</Link></TableCell>
             <TableCell>{l.description}</TableCell><TableCell align="right">{l.active}</TableCell><TableCell align="right">{l.total}</TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
     </SqfPage>

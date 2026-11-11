@@ -12,7 +12,7 @@ using Sequfloh.Infrastructure.Persistence;
 namespace Sequfloh.Infrastructure.Modules.Execution;
 
 public sealed record SettingsDto(GeneralSettings General, NumberingSettings Numbering, WorkInstructionSettings WorkInstructions, TrackingSettings Tracking, ValidationSettings Validation,
-    FaiSettings Fai, RepairSettings Repair, DisplaySettings Display, ExportSettings Export, NotificationSettings Notifications, SecuritySettings Security, uint RowVersion);
+    FaiSettings Fai, RepairSettings Repair, DisplaySettings Display, ExportSettings Export, NotificationSettings Notifications, SecuritySettings Security, DayClockSettings DayClock, uint RowVersion);
 public sealed record ReferenceValueInput(string Code, string Label, string? Description, bool IsActive = true, bool IsDefault = false, uint RowVersion = 0);
 public sealed record ReorderInput(List<Guid> Ids);
 public sealed record RoleAccessInput(List<string> Permissions, uint? RowVersion);
@@ -25,7 +25,7 @@ public sealed record UserItemInput(string Kind, string ItemType, Guid? RecordId,
 /// </summary>
 public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, ICurrentUser current, IAccessService access)
 {
-    public static readonly string[] Sections = ["general", "numbering", "workInstructions", "tracking", "validation", "fai", "repair", "display", "export", "notifications", "security"];
+    public static readonly string[] Sections = ["general", "numbering", "workInstructions", "tracking", "validation", "fai", "repair", "display", "export", "notifications", "security", "dayClock"];
 
     // ------------------------------------------------------------------ audit helper
     /// <summary>Writes a SEQUFLOH audit event to the shared audit trail (append-only). Record changes on audited entities are written by the audit interceptor.</summary>
@@ -59,12 +59,12 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
     public static SettingsDto ToDto(SequflohSettings s) => new(SequflohJson.Read<GeneralSettings>(s.General), SequflohJson.Read<NumberingSettings>(s.Numbering),
         SequflohJson.Read<WorkInstructionSettings>(s.WorkInstructions), SequflohJson.Read<TrackingSettings>(s.Tracking), SequflohJson.Read<ValidationSettings>(s.Validation),
         SequflohJson.Read<FaiSettings>(s.Fai), SequflohJson.Read<RepairSettings>(s.Repair), SequflohJson.Read<DisplaySettings>(s.Display), SequflohJson.Read<ExportSettings>(s.Export),
-        SequflohJson.Read<NotificationSettings>(s.Notifications), SequflohJson.Read<SecuritySettings>(s.Security), s.RowVersion);
+        SequflohJson.Read<NotificationSettings>(s.Notifications), SequflohJson.Read<SecuritySettings>(s.Security), SequflohJson.Read<DayClockSettings>(s.DayClock), s.RowVersion);
 
     /// <summary>Saves one settings area. The caller holds sequfloh.manage_settings (checked again here before the write).</summary>
     public async Task SaveSectionAsync(string section, JsonElement body, uint rowVersion, CancellationToken ct)
     {
-        await RequireOrgAsync(Permissions.SequflohManageSettings, ct);
+        await RequireOrgAsync(section == "dayClock" ? Permissions.SequflohManageDayClock : Permissions.SequflohManageSettings, ct);
         var s = await RowAsync(ct);
         if (rowVersion != 0) db.Entry(s).Property(x => x.RowVersion).OriginalValue = rowVersion;
         var raw = body.GetRawText();
@@ -116,6 +116,13 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
                 if (sec.RoleSuggestions.Any(r => string.IsNullOrWhiteSpace(r.Name) || r.Permissions.Any(p => !SequflohCatalog.AllPermissions.Contains(p))))
                     throw new AppException("Each suggested permission set needs a name and may only contain SEQUFLOH permissions.");
                 s.Security = SequflohJson.Write(sec); break;
+            case "dayClock":
+                var day = Parse<DayClockSettings>();
+                if (!DayClockTime.TryParse(day.EndTime, out var end)) throw new AppException("The end of the day must be a time like 16:00 (4:00 PM).");
+                day.EndTime = end.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                if (day.HardCapMinutes is < 0 or > 720) throw new AppException("Working late can run from 0 to 720 minutes after the end of the day.");
+                if (day.WarnMinutes is < 0 or > 180) throw new AppException("The Working late reminder must be between 0 and 180 minutes.");
+                s.DayClock = SequflohJson.Write(day); break;
             default: throw new NotFoundException("Settings area");
         }
         await db.SaveChangesAsync(ct); // audited by the interceptor with the changed settings area
@@ -616,7 +623,8 @@ public sealed class SequflohFoundationService(AppDbContext db, ModuleSupport m, 
                 General = SequflohJson.Write(new GeneralSettings()), Numbering = SequflohJson.Write(new NumberingSettings()), WorkInstructions = SequflohJson.Write(new WorkInstructionSettings()),
                 Tracking = SequflohJson.Write(new TrackingSettings()), Validation = SequflohJson.Write(new ValidationSettings()), Fai = SequflohJson.Write(new FaiSettings()),
                 Repair = SequflohJson.Write(new RepairSettings()), Display = SequflohJson.Write(new DisplaySettings()), Export = SequflohJson.Write(new ExportSettings()),
-                Notifications = SequflohJson.Write(new NotificationSettings()), Security = SequflohJson.Write(new SecuritySettings { RoleSuggestions = SequflohCatalog.DefaultRoleSuggestions() })
+                Notifications = SequflohJson.Write(new NotificationSettings()), Security = SequflohJson.Write(new SecuritySettings { RoleSuggestions = SequflohCatalog.DefaultRoleSuggestions() }),
+                DayClock = SequflohJson.Write(new DayClockSettings())
             });
             added++;
         }

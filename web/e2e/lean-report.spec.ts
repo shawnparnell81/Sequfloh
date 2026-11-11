@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { settledShot, signIn, view } from './support';
+import { clockInDay, settledShot, signIn, view } from './support';
 
 /** Made-up records only. A 3-part Test work order: quantity on the Record tab, clocked time in the header, the lean job report with its two options. */
 test('lean job report: quantity on the record tab, clocked time, one page with test results', async ({ page }) => {
@@ -22,6 +22,7 @@ test('lean job report: quantity on the record tab, clocked time, one page with t
     await ok(rq.post(`/api/sequfloh/tracking/${id}/test/parts`, { data: { values: [{ key: 'shutoffPressure', value: sp }, { key: 'flowRate', value: fr }] } }));
 
   { const sv = (await ok(rq.get(`/api/sequfloh/tracking/${id}`))).stateVersion; await ok(rq.post(`/api/sequfloh/tracking/${id}/actions/start`, { data: { operationId: crypto.randomUUID(), stateVersion: sv } })); } // clocking on needs a started work order
+  await clockInDay(page);
   await page.goto(`/sequfloh/record/${id}`);
   await view(page).getByTestId('start-timer').click();
   await expect(view(page).getByTestId('stop-timer')).toBeVisible();

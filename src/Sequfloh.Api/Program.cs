@@ -97,7 +97,9 @@ builder.Services.AddScoped<Sequfloh.Drawings.DrawingService>();
 builder.Services.AddScoped<Sequfloh.Drawings.DrawingImportService>();
 builder.Services.AddScoped<Sequfloh.Drawings.DrawingPartMatcher>();
 builder.Services.AddScoped<Sequfloh.Deletion.DeletionService>();
+builder.Services.AddScoped<Sequfloh.Tracking.SequflohDayClockService>();
 builder.Services.AddScoped<Sequfloh.Tracking.SequflohTimeService>();
+builder.Services.AddHostedService<DayClockSweepHostedService>();
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddSingleton<IPasswordHasher<ApplicationUser>, PasswordHasher<ApplicationUser>>();
 

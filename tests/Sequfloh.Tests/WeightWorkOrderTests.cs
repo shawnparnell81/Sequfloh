@@ -71,7 +71,7 @@ public sealed class WeightWorkOrderTests(TestApp app)
         static async Task<int> Ver(ApiClient c, Guid id) => (await c.GetElAsync($"{T}/{id}")).GetProperty("record").GetProperty("stateVersion").GetInt32();
         async Task Act(string a) { var r = await c.PostAsync($"{T}/{id}/actions/{a}", new { operationId = Guid.NewGuid(), stateVersion = await Ver(c, id) }); Assert.True(r.IsSuccessStatusCode, await r.Content.ReadAsStringAsync()); }
         await Act("start");
-        await c.PostOkAsync($"{T}/{id}/time/start");
+        await c.PostOkAsync($"{T}/{id}/time/start", new { clockIn = true });
         await c.PostOkAsync($"{T}/{id}/time/stop");
         await Act("complete");
         Assert.Equal("Completed", (await c.GetElAsync($"{T}/{id}")).GetProperty("record").GetProperty("status").GetString());

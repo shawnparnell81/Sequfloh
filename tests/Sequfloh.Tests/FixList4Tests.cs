@@ -175,7 +175,7 @@ public sealed class FixList4Tests(TestApp app)
         Assert.Equal([id], Ids(await c.GetElAsync($"{T}?folder=salt-spray&site={site}")));
         Assert.Equal([id], Ids(await c.GetElAsync($"{T}?folder=open&type=SaltSpray&site={site}")));
         // the same clock as every other work order
-        await c.PostOkAsync($"{T}/{id}/time/start");
+        await c.PostOkAsync($"{T}/{id}/time/start", new { clockIn = true });
         await c.PostOkAsync($"{T}/{id}/time/stop");
         Assert.Single((await c.GetElAsync($"{T}/{id}/time")).GetProperty("people").EnumerateArray());
         // the report type filter offers it and labels it

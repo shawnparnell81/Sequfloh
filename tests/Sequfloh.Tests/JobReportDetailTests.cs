@@ -44,7 +44,7 @@ public sealed class JobReportDetailTests(TestApp app)
     {
         var (id, _, plain) = await JobAsync();
         await plain.StartAsync(id);
-        await plain.PostOkAsync($"{U}/{id}/time/start");
+        await plain.PostOkAsync($"{U}/{id}/time/start", new { clockIn = true });
         Assert.Equal(HttpStatusCode.BadRequest, (await plain.PostAsync($"{U}/{id}/time/pause", new { reason = "Payroll" })).StatusCode);
         await plain.PostOkAsync($"{U}/{id}/time/pause", new { reason = "Lunch" });
         Assert.Equal("Lunch", (await plain.GetElAsync($"{U}/{id}/time")).GetProperty("minePauseReason").GetString());

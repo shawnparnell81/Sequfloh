@@ -43,6 +43,7 @@ test('add past time: permission, counted once, chargeback, audit, overlap', asyn
   await other.ctx.close();
 
   // the admin clocks on and off normally first (so the same person must be counted once)
+  await ok(rq.post('/api/sequfloh/day-clock/in'));
   await ok(rq.post(`/api/sequfloh/tracking/${wo}/time/start`)); await ok(rq.post(`/api/sequfloh/tracking/${wo}/time/stop`));
 
   await page.goto(`/sequfloh/record/${wo}`);
