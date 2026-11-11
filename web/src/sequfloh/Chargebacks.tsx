@@ -13,6 +13,7 @@ import { partNo } from './partLabel';
 import { useFamilies } from './Imports';
 import { useSites } from '../components/Kit';
 import { useProjects, type ProjectDetail } from './Projects';
+import { CustomFieldDetails, CustomFieldInputs, saveCustomFields } from './CustomFields';
 
 interface Period { kind: string; from?: string | null; to?: string | null; person?: string | null; type?: string | null; subType?: string | null; familyId?: string | null; siteId?: string | null; projectId?: string | null }
 const WO_TYPES: [string, string][] = [['Validation', 'Validation / FAI'], ['Repair', 'Repair / Rework'], ['Inspection', 'Inspection'], ['Warranty', 'Warranty'], ['SaltSpray', 'Salt Spray Test'], ['Development', 'Development'], ['Rebox', 'Rebox'], ['Test', 'Test'], ['Weight', 'Weight'], ['Research', 'Research'], ['Production', 'Production']];
@@ -140,6 +141,7 @@ export function ChargebackEditPage() {
   const [partText, setPartText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [custom, setCustom] = useState<Record<string, string>>({});
   const [hydrated, setHydrated] = useState(false);
   const [sections, setSections] = useState<string[] | null>(null);
   const [photoDefault, setPhotoDefault] = useState(false);
@@ -207,7 +209,7 @@ export function ChargebackEditPage() {
     setPhotoDefault(!!r.hasPhotos);
     setSections(r.sections); setPeriod(r.period ?? null); setLinked((r.linkedWorkOrders ?? []).map((w) => w.id)); setBase(null); setHydrated(true);
   }, [existing.data]);
-  const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections, period, linked]);
+  const snap = JSON.stringify([f, parts, lines, wo?.id ?? null, sections, period, linked, custom]);
   const [base, setBase] = useState<string | null>(null);
   useEffect(() => { if (base === null && (isNew || hydrated)) setBase(snap); }, [snap, base, isNew, hydrated]);
   const toggle = (wid: string, on: boolean) => setLinked((cur) => { const c = cur ?? []; return on ? [...c.filter((x) => x !== wid), wid] : c.filter((x) => x !== wid); });
@@ -227,6 +229,7 @@ export function ChargebackEditPage() {
     };
     try {
       const r = isNew ? await post<Report>(`${S}/chargebacks`, body) : await put<Report>(`${S}/chargebacks/${id}`, body);
+      await saveCustomFields('chargebacks', r.id, custom, `chargeback ${r.workOrderNumber}`);
       await qc.invalidateQueries();
       nav(`/sequfloh/chargebacks/${r.id}/view`);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
@@ -239,6 +242,7 @@ export function ChargebackEditPage() {
       <Button variant="contained" disabled={busy || !dirty} onClick={() => void save()} data-action="save" data-testid="save-chargeback">Save</Button>
     </RecordActions>}>
     <Stack gap={2} sx={{ maxWidth: 1100 }} data-testid="chargeback-form">
+      <CustomFieldInputs screen="chargebacks" recordId={isNew ? undefined : id} value={custom} onChange={setCustom} />
       {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
       {existing.data?.timeChangedAt && <Alert severity="warning" data-testid="cb-time-changed"
         action={(many || wo) && <Button color="inherit" size="small" onClick={() => void (many ? totals.refetch() : prefill(wo!.id))} data-testid="cb-refresh-hours">Refresh hours</Button>}>
@@ -383,6 +387,7 @@ export function ChargebackViewPage() {
       <Button variant="outlined" href={`${S}/chargebacks/${r.id}/xlsx`} data-testid="cb-xlsx">Export Excel</Button>
     </RecordActions>}>
     {r.timeChangedAt && <Alert severity="warning" sx={{ mb: 2 }} data-testid="cb-time-changed">Time changed after this chargeback was created ({r.timeChangedNote}). Edit the report, refresh the hours and save to regenerate it.</Alert>}
+    <CustomFieldDetails screen="chargebacks" recordId={r.id} />
     <ReportBlocks id={r.id} title={`Chargeback Report: ${r.partNumber ?? r.workOrderNumber}`} supplier={r.supplier} />
   </SqfPage>;
 }

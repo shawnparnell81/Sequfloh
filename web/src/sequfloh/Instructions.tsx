@@ -18,6 +18,7 @@ import { ImportButtons } from '../components/ImportButtons';
 import { RecordActions } from '../components/RecordActions';
 import { NumberField, useNumberPrompt } from '../components/RecordNumber';
 import { ViewDrawingButton } from './Drawings';
+import { CustomFieldDetails, CustomFieldInputs, saveCustomFields } from './CustomFields';
 import { InventoryNote } from './Job';
 import { ATTACHMENT_TYPES } from '../components/Files';
 import { api } from '../api';
@@ -218,6 +219,7 @@ export function NewInstructionPage() {
   const [templateId, setTemplateId] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [customWi, setCustomWi] = useState<Record<string, string>>({});
   useEffect(() => { if (!siteId && sites.data?.length) setSiteId(sites.data[0].id); }, [sites.data, siteId]);
   const site = sites.data?.find((s) => s.id === siteId);
   const schema = schemas.data?.find((s) => s.type === type);
@@ -225,6 +227,7 @@ export function NewInstructionPage() {
     setBusy(true); setErr(null);
     try {
       const r = await post<{ id: string }>(`${S}/instructions`, { number: number.trim(), type, title, siteId, departmentId: nul(departmentId), partId: part?.id ?? null, partNumber: part?.partNumber ?? null, templateId: nul(templateId), developmentLine: sp.get('line') || null });
+      await saveCustomFields('work-instructions', r.id, customWi, `work instruction ${number.trim()}`);
       nav(`/sequfloh/instruction/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -248,6 +251,7 @@ export function NewInstructionPage() {
             <MenuItem value=""><em>None</em></MenuItem>{(site?.departments ?? []).map((d) => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}{site && setupOptions('department', site.departments)}</TextField>
           <Box sx={{ gridColumn: '1 / -1' }}><TemplatePicker type={type || undefined} value={templateId} onChange={setTemplateId} disabled={!type} /></Box>
           <Box sx={{ gridColumn: '1 / -1' }}><PartPicker label={type === 'RepairWork' ? 'Part being repaired' : 'Part (optional)'} value={part} onChange={setPart} disabled={!type} repairable={type === 'RepairWork'} /></Box>
+          <Box sx={{ gridColumn: '1 / -1' }}><CustomFieldInputs screen="work-instructions" value={customWi} onChange={setCustomWi} /></Box>
         </Grid>
         <Stack direction="row" gap={1} sx={{ mt: 3 }}>
           <Button variant="contained" disabled={!type || !number.trim() || !title.trim() || !siteId || busy} onClick={create}>Create and open designer</Button>
@@ -328,6 +332,7 @@ export function InstructionPage() {
   const [busy, setBusy] = useState(false);
   const [act, setAct] = useState<WiResponse['actions'][number] | null>(null);
   const [typeOpen, setTypeOpen] = useState(false);
+  const [customWi, setCustomWi] = useState<Record<string, string>>({});
   useEffect(() => { if (q.data) { setDoc(q.data.instruction); setSaved(JSON.stringify(q.data.instruction)); } }, [q.data]);
   const dirty = !!doc && JSON.stringify(doc) !== saved;
   const guard = useUnsaved(dirty);
@@ -353,7 +358,7 @@ export function InstructionPage() {
   });
   const save = async (quiet = false) => {
     setBusy(true); setMsg(null);
-    try { await put(`${S}/instructions/${id}`, body(doc)); await refresh(); if (!quiet) setMsg({ sev: 'success', text: 'Draft saved.' }); return true; }
+    try { await put(`${S}/instructions/${id}`, body(doc)); await saveCustomFields('work-instructions', id, customWi, `work instruction ${doc.number}`); await refresh(); if (!quiet) setMsg({ sev: 'success', text: 'Draft saved.' }); return true; }
     catch (e) { setMsg({ sev: 'error', text: (e as Error).message }); return false; } finally { setBusy(false); }
   };
   /** Saves pending edits first (library copies and transitions work on the stored record), then runs the call. */
@@ -389,6 +394,7 @@ export function InstructionPage() {
         {q.data.canDuplicate && <Button disabled={busy} onClick={() => guard(async () => { const n = await np.ask(`Duplicate ${doc.number}`); if (n) await withSave(async () => { const r = await post<{ id: string }>(`${S}/instructions/${id}/duplicate`, { number: n }); nav(`/sequfloh/instruction/${r.id}`); }, 'Duplicated.'); })}>Duplicate</Button>}
         {np.dialog}
       </RecordActions>}>
+      {q.data.canEdit ? <CustomFieldInputs screen="work-instructions" recordId={id} value={customWi} onChange={setCustomWi} /> : <CustomFieldDetails screen="work-instructions" recordId={id} />}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{typeLabels[doc.type]} designer · {doc.site ?? ''}{doc.department ? ` · ${doc.department}` : ''}
         {!q.data.canEdit && doc.status === 'Released' && ' · Released revisions are read-only. Use Create revision to change this instruction.'}
         {!q.data.canEdit && doc.status !== 'Released' && ` · Read-only while ${words(doc.status).toLowerCase()}.`}</Typography>

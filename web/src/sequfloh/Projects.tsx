@@ -7,6 +7,7 @@ import { Empty, ErrorState, Loading, S, SqfPage, qs, useSqf } from './common';
 import { useSites } from '../components/Kit';
 import { fmtDateTime } from '../components/Status';
 import { EightDAsk, EightDBlock, EightDCreate, uploadEightD } from './EightD';
+import { CustomFieldDetails, CustomFieldInputs, saveCustomFields } from './CustomFields';
 
 export type ProjectWorkOrder = ProjectDetail['workOrders'][number];
 export interface ProjectRow { id: string; number: string; name: string; description?: string | null; siteId?: string | null; site?: string | null; status: string; workOrders: number; inspectionRequests: number }
@@ -57,15 +58,17 @@ function ProjectDialog({ open, onClose, initial }: { open: boolean; onClose: (id
   const [with8D, setWith8D] = useState(!!(initial as ProjectDetail | undefined)?.include8D);
   const [files8D, setFiles8D] = useState<File[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [custom, setCustom] = useState<Record<string, string>>({});
   const next = useQuery({ queryKey: ['sqf-project-next'], queryFn: () => get<{ number: string }>(`${S}/projects/next-number`), enabled: open && !initial, staleTime: 0 });
   useEffect(() => { if (!initial && next.data?.number) setF((cur) => (cur.number ? cur : { ...cur, number: next.data.number })); }, [next.data?.number]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
     setErr(null);
     const body = { number: f.number.trim() || null, name: f.name.trim(), description: f.description.trim() || null, siteId: f.siteId || null, include8D: with8D };
     try {
-      if (initial) { await put(`${S}/projects/${initial.id}`, body); onClose(initial.id); }
+      if (initial) { await put(`${S}/projects/${initial.id}`, body); await saveCustomFields('projects', initial.id, custom, `project ${f.name}`); onClose(initial.id); }
       else {
         const r = await post<{ id: string }>(`${S}/projects`, body);
+        await saveCustomFields('projects', r.id, custom, `project ${f.name}`);
         for (const x of files8D) { try { await uploadEightD('projects', r.id, x); } catch (e) { window.alert(`The project was created, but ${x.name} was not added: ${(e as Error).message}`); } }
         onClose(r.id);
       }
@@ -78,6 +81,7 @@ function ProjectDialog({ open, onClose, initial }: { open: boolean; onClose: (id
       <TextField label="Project number" required={!!initial} value={f.number} onChange={(e) => setF({ ...f, number: e.target.value })} helperText={initial ? 'The project number' : 'Filled in with the next number. You can change it; left blank, the next number is given when you save.'} inputProps={{ 'data-testid': 'project-number' }} />
       <TextField label="Project name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} inputProps={{ 'data-testid': 'project-name' }} />
       <TextField label="Description (optional)" multiline minRows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
+      <CustomFieldInputs screen="projects" recordId={initial?.id} value={custom} onChange={setCustom} />
       <TextField select label="Site (optional)" value={f.siteId} onChange={(e) => setF({ ...f, siteId: e.target.value })}>
         <MenuItem value="">Any site</MenuItem>{(sites.data ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
       </TextField>
@@ -148,6 +152,7 @@ export function ProjectPage() {
     <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
       <Typography variant="h6">{p.name}</Typography>
       <Typography variant="body2" color="text.secondary">Status: {p.status}{p.description ? ` · ${p.description}` : ''}</Typography>
+      <CustomFieldDetails screen="projects" recordId={p.id} />
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 2, mt: 2 }} data-testid="project-totals">
         {([['Total man hours', t.hours.toFixed(2)], ['Signed-in people', t.userHours.toFixed(2)], ['Day workers', t.dayWorkerHours.toFixed(2)], ['Crew', t.crewHours.toFixed(2)],
           ['Cost lines', money(t.costLines)], ['Chargebacks', `${money(t.chargebackTotal)} (${t.chargebackReports})`], ['Total cost', money(t.totalCost)], ['Qty good / bad', `${t.qtyGood} / ${t.qtyBad}`],

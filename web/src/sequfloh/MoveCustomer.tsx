@@ -28,7 +28,7 @@ export function MoveCustomerDialog({ open, onClose, onDone, allMatching, ticked,
     toUnassigned: customerId === '',
     ...(allMatching ? {} : { partIds: ticked }),
     q: filters.q || null, view: filters.view || null, family: filters.family || null, status: filters.status || null,
-    partType: filters.partType || null, customer: filters.customer || null, type: filters.type || null, brand: filters.brand || null,
+    partType: filters.partType || null, customer: filters.customer || null, type: filters.type || null, brand: filters.brand || null, custom: filters.custom || null,
   });
   const run = async (apply: boolean) => {
     setBusy(true); setErr('');

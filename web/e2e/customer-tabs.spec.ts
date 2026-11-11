@@ -74,7 +74,9 @@ test('customer tabs, also sold as, and search open the right customer', async ({
   await shot('screenshot_search_ambiguous_matches');
 
   await v.getByTestId('customer-card-Unassigned').locator('a').click();
-  await v.getByLabel('Search').first().fill(loose); await v.getByLabel('Search').first().press('Enter');
+  const listSearch = v.getByRole('textbox', { name: 'Search', exact: true });
+  await listSearch.fill(loose);
+  await v.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(v.locator('span').filter({ hasText: new RegExp(`^${loose}$`) })).toBeVisible();
   await shot('screenshot_unassigned_parts');
 });

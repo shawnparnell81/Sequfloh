@@ -13,7 +13,7 @@ namespace Sequfloh.Infrastructure.Modules.Execution;
 /// Mode "filter" uses every part matching the Part Master list (customer tab, product line, search and the other filters), so a whole product line moves in one request.
 /// </summary>
 public sealed record MoveCustomerRequest(string Mode, Guid? CustomerId = null, bool ToUnassigned = false, List<Guid>? PartIds = null,
-    string? Q = null, string? View = null, string? Family = null, string? Status = null, string? PartType = null, string? Customer = null, string? Type = null, string? Brand = null);
+    string? Q = null, string? View = null, string? Family = null, string? Status = null, string? PartType = null, string? Customer = null, string? Type = null, string? Brand = null, string? Custom = null);
 
 public sealed record MoveConflict(Guid Id, string PartNumber, string? Line, string Reason);
 public sealed record MoveFrom(string Customer, int Count);
@@ -97,6 +97,21 @@ public sealed class PartCustomerMoveService(AppDbContext db, ModuleSupport m, Se
             var status = Enum.TryParse<MasterStatus>(r.Status, true, out var st) ? st : (MasterStatus?)null;
             var type = Enum.TryParse<PartType>(r.Type, true, out var pt) ? pt : (PartType?)null;
             var filtered = await parts.PartsQueryAsync(r.Q, r.View, r.Family, status, type, ct, r.PartType, r.Customer, r.Brand);
+            if (!string.IsNullOrWhiteSpace(r.Custom))
+            {
+                foreach (var piece in r.Custom.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var bits = piece.Split(':', 2);
+                    if (!Guid.TryParse(bits[0], out var drop) || bits.Length != 2) continue;
+                    var dropId = drop;
+                    if (bits[1] == "none") filtered = filtered.Where(p => !db.CustomFieldValues.Any(v => v.RecordType == "Part" && v.RecordId == p.Id && v.DropdownId == dropId && v.ValueId != null));
+                    else if (Guid.TryParse(bits[1], out var val))
+                    {
+                        var valueId = val;
+                        filtered = filtered.Where(p => db.CustomFieldValues.Any(v => v.RecordType == "Part" && v.RecordId == p.Id && v.DropdownId == dropId && v.ValueId == valueId));
+                    }
+                }
+            }
             q = q.Where(p => filtered.Select(x => x.Id).Contains(p.Id));
         }
         else throw new AppException("Choose the ticked parts, or all parts matching the list.");

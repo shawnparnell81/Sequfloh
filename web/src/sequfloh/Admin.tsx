@@ -1,6 +1,6 @@
 import { setupOptions } from '../components/SetupLink';
 import { FormDialogTitle } from '../components/FullScreen';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type InputHTMLAttributes } from 'react';
 import { Link as RouterLink, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, Link, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
@@ -206,13 +206,104 @@ interface ListInfo { key: string; label: string; description: string; total: num
 interface RefValue { id: string; listKey: string; code: string; label: string; description: string | null; sortOrder: number; isActive: boolean; isDefault: boolean; isSeeded: boolean; rowVersion: number; updatedAt: string; hiddenFields?: string | null; numberCode?: string | null; testTemplate?: string | null; shownFields?: string | null }
 const useLists = () => useQuery({ queryKey: ['sqf-lists'], queryFn: () => get<ListInfo[]>(`${S}/reference`) });
 
+interface DropScreen { key: string; group: string; label: string; recordType: string }
+interface DropValue { id?: string; label: string; isActive: boolean; isDefault: boolean }
+interface DropPlace { screen: string; required: boolean; showInList: boolean; includeInCsv: boolean; filterable: boolean }
+interface CustomDrop { id: string; name: string; description?: string | null; usedBy: number; screens: string[] }
+
+function NewDropdownDialog({ open, existing, onClose }: { open: boolean; existing: CustomDrop | null; onClose: (saved: boolean) => void }) {
+  const screens = useQuery({ queryKey: ['custom-screens'], queryFn: () => get<DropScreen[]>(`${S}/custom-dropdowns/screens`), enabled: open });
+  const current = useQuery({ queryKey: ['custom-drop', existing?.id], queryFn: () => get<{ name: string; description?: string | null; used: number; values: { id: string; label: string; isActive: boolean; isDefault: boolean }[]; placements: DropPlace[] }>(`${S}/custom-dropdowns/${existing!.id}`), enabled: open && !!existing });
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [values, setValues] = useState<DropValue[]>([{ label: '', isActive: true, isDefault: false }]);
+  const [places, setPlaces] = useState<Record<string, DropPlace>>({});
+  const [confirm, setConfirm] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setErr(null); setConfirm('');
+    if (!existing) { setName(''); setDescription(''); setValues([{ label: '', isActive: true, isDefault: false }]); setPlaces({}); return; }
+    if (!current.data) return;
+    setName(current.data.name); setDescription(current.data.description ?? '');
+    setValues(current.data.values.map((v) => ({ id: v.id, label: v.label, isActive: v.isActive, isDefault: v.isDefault })));
+    setPlaces(Object.fromEntries(current.data.placements.map((p) => [p.screen, p])));
+  }, [open, existing, current.data]);
+  const toggle = (key: string, on: boolean) => setPlaces((p) => { const n = { ...p }; if (on) n[key] = n[key] ?? { screen: key, required: false, showInList: true, includeInCsv: false, filterable: true }; else delete n[key]; return n; });
+  const opt = (key: string, field: keyof DropPlace, on: boolean) => setPlaces((p) => ({ ...p, [key]: { ...p[key], [field]: on } }));
+  const save = async () => {
+    setBusy(true); setErr(null);
+    const body = { name, description, values: values.filter((v) => v.label.trim()), placements: Object.values(places) };
+    try {
+      if (existing) await put(`${S}/custom-dropdowns/${existing.id}`, body); else await post(`${S}/custom-dropdowns`, body);
+      onClose(true);
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    setBusy(true); setErr(null);
+    try { await post(`${S}/custom-dropdowns/${existing!.id}/delete`, { confirm }); onClose(true); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const used = current.data?.used ?? existing?.usedBy ?? 0;
+  return <Dialog open={open} onClose={() => onClose(false)} fullWidth maxWidth="md" data-testid="new-dropdown-dialog">
+    <FormDialogTitle>{existing ? `Edit dropdown ${existing.name}` : 'New dropdown'}</FormDialogTitle>
+    <DialogContent>
+      {err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
+      <Stack gap={2} sx={{ mt: 1 }}>
+        <TextField label="Name" required value={name} onChange={(e) => setName(e.target.value)} inputProps={{ 'data-testid': 'dropdown-name' }} />
+        <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} inputProps={{ 'data-testid': 'dropdown-description' }} />
+        <Typography variant="subtitle2">Values</Typography>
+        {values.map((v, i) => <Stack key={i} direction="row" gap={1} alignItems="center">
+          <TextField size="small" label="Value" value={v.label} onChange={(e) => setValues(values.map((x, k) => k === i ? { ...x, label: e.target.value } : x))} sx={{ flex: 1 }} inputProps={{ 'data-testid': `dropdown-value-${i}` }} />
+          <FormControlLabel control={<Checkbox size="small" checked={v.isDefault} onChange={(e) => setValues(values.map((x, k) => ({ ...x, isDefault: k === i ? e.target.checked : false })))} />} label="Default" />
+          <FormControlLabel control={<Checkbox size="small" checked={v.isActive} onChange={(e) => setValues(values.map((x, k) => k === i ? { ...x, isActive: e.target.checked } : x))} />} label="Active" />
+          <Button size="small" onClick={() => i > 0 && setValues(values.map((x, k) => k === i - 1 ? values[i] : k === i ? values[i - 1] : x))}>Up</Button>
+          <Button size="small" color="error" onClick={() => setValues(values.filter((_, k) => k !== i))}>Remove</Button>
+        </Stack>)}
+        <Button size="small" onClick={() => setValues([...values, { label: '', isActive: true, isDefault: false }])} data-testid="dropdown-add-value">Add value</Button>
+        <Typography variant="subtitle2">Where it appears</Typography>
+        <Stack data-testid="dropdown-placements" gap={1}>
+          {(screens.data ?? []).map((s) => {
+            const on = !!places[s.key]; const p = places[s.key];
+            return <Paper key={s.key} variant="outlined" sx={{ p: 1 }}>
+              <FormControlLabel control={<Checkbox size="small" checked={on} onChange={(e) => toggle(s.key, e.target.checked)} inputProps={{ 'data-testid': `place-${s.key}` } as InputHTMLAttributes<HTMLInputElement>} />} label={`${s.group} · ${s.label}`} />
+              {on && <Stack direction="row" flexWrap="wrap" gap={1}>
+                <FormControlLabel control={<Checkbox size="small" checked={p.required} onChange={(e) => opt(s.key, 'required', e.target.checked)} />} label="Required" />
+                <FormControlLabel control={<Checkbox size="small" checked={p.showInList} onChange={(e) => opt(s.key, 'showInList', e.target.checked)} />} label="Show in list" />
+                <FormControlLabel control={<Checkbox size="small" checked={p.includeInCsv} onChange={(e) => opt(s.key, 'includeInCsv', e.target.checked)} />} label="CSV export and import" />
+                <FormControlLabel control={<Checkbox size="small" checked={p.filterable} onChange={(e) => opt(s.key, 'filterable', e.target.checked)} />} label="Filterable" />
+              </Stack>}
+            </Paper>;
+          })}
+        </Stack>
+        {existing && <Paper variant="outlined" sx={{ p: 2 }} data-testid="delete-dropdown-box">
+          <Typography variant="subtitle2">Delete this dropdown</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>{used === 0 ? 'No records use it.' : `Used on ${used} ${used === 1 ? 'record' : 'records'}. Type ${existing.name} to delete it. Saved values are removed.`}</Typography>
+          {used > 0 && <TextField size="small" label={`Type ${existing.name}`} value={confirm} onChange={(e) => setConfirm(e.target.value)} inputProps={{ 'data-testid': 'delete-dropdown-confirm' }} sx={{ mr: 1 }} />}
+          <Button color="error" disabled={busy || (used > 0 && confirm.trim() !== existing.name)} onClick={remove} data-testid="delete-dropdown">Delete dropdown</Button>
+        </Paper>}
+      </Stack>
+    </DialogContent>
+    <DialogActions>
+      <Button onClick={() => onClose(false)} disabled={busy}>Cancel</Button>
+      <Button variant="contained" disabled={busy || !name.trim()} onClick={save} data-testid="dropdown-save">Save dropdown</Button>
+    </DialogActions>
+  </Dialog>;
+}
+
 export function ReferenceDataPage() {
   const q = useLists();
+  const qc = useQueryClient();
+  const custom = useQuery({ queryKey: ['custom-dropdowns'], queryFn: () => get<CustomDrop[]>(`${S}/custom-dropdowns`) });
   const [filter, setFilter] = useState('');
+  const [editing, setEditing] = useState<CustomDrop | null | 'new'>(null);
   const rows = (q.data ?? []).filter((l) => !filter || (l.label + ' ' + l.description).toLowerCase().includes(filter.toLowerCase()));
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['custom-dropdowns'] }); void qc.invalidateQueries({ queryKey: ['custom-fields'] }); };
   return (
-    <SqfPage title="Reference Data" description="SEQUFLOH reference lists that feed every controlled dropdown. Open a list to create, edit, activate, deactivate, reorder and mark defaults."
-      crumbs={[{ label: 'SEQUFLOH Administration' }, { label: 'Reference Data' }]} permission="sequfloh.manage_dropdowns">
+    <SqfPage title="Reference Data" description="SEQUFLOH reference lists that feed every controlled dropdown. Open a list to create, edit, activate, deactivate, reorder and mark defaults. New dropdown adds a list of your own and chooses where it appears."
+      crumbs={[{ label: 'SEQUFLOH Administration' }, { label: 'Reference Data' }]} permission="sequfloh.manage_dropdowns"
+      actions={<Button variant="contained" data-testid="new-dropdown" onClick={() => setEditing('new')}>New dropdown</Button>}>
       <TextField size="small" label="Search lists" value={filter} onChange={(e) => setFilter(e.target.value)} sx={{ mb: 2, width: 320 }} />
       {q.isLoading ? <Loading /> : q.error ? <ErrorState error={q.error} retry={q.refetch} /> : rows.length === 0 ? <Empty text="No lists match the search." /> :
         <TableContainer component={Paper} variant="outlined"><Table size="small">
@@ -220,6 +311,13 @@ export function ReferenceDataPage() {
           <TableBody>{rows.map((l) => <TableRow key={l.key} hover data-testid={`ref-list-${l.key}`}><TableCell><Link component={RouterLink} to={`/sequfloh/admin/dropdowns?list=${l.key}`}>{l.label}</Link></TableCell>
             <TableCell>{l.description}</TableCell><TableCell align="right">{l.active}</TableCell><TableCell align="right">{l.total}</TableCell></TableRow>)}</TableBody>
         </Table></TableContainer>}
+      <Typography variant="h3" sx={{ mt: 3, mb: 1 }}>Your dropdowns</Typography>
+      {(custom.data ?? []).length === 0 ? <Typography variant="body2" color="text.secondary">No dropdowns yet. New dropdown adds one and chooses the screens that show it.</Typography>
+        : <Stack gap={1}>{custom.data!.map((d) => <Paper key={d.id} variant="outlined" sx={{ p: 1.5 }} data-testid={`custom-dropdown-${d.name}`}>
+          <Stack direction="row" alignItems="center" gap={1}><Typography fontWeight={600}>{d.name}</Typography><Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>{d.description}</Typography>
+            <Typography variant="caption">{d.usedBy} in use</Typography><Button size="small" onClick={() => setEditing(d)}>Edit</Button></Stack>
+        </Paper>)}</Stack>}
+      <NewDropdownDialog open={editing !== null} existing={editing && editing !== 'new' ? editing : null} onClose={(saved) => { setEditing(null); if (saved) refresh(); }} />
     </SqfPage>
   );
 }

@@ -1,6 +1,7 @@
 import { setupOptions } from '../components/SetupLink';
 import { PICK_PROJECT, ProjectField, ProjectLink } from './Projects';
 import { EightDBlock, EightDCreate, noEightD, uploadEightD } from './EightD';
+import { CustomFieldDetails, CustomFieldInputs, saveCustomFields } from './CustomFields';
 import { FormDialogTitle } from '../components/FullScreen';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -183,6 +184,7 @@ export function NewTrackingPage() {
     get<{ part: { id: string; partNumber: string; name: string } }>(`${S}/parts/${pid}`).then((r) => setPart({ id: r.part.id, partNumber: r.part.partNumber, name: r.part.name })).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = useState<Record<string, string>>({ priority: 'Normal' });
+  const [customWo, setCustomWo] = useState<Record<string, string>>({});
   const [siteId, setSiteId] = useState(''); const [departmentId, setDepartmentId] = useState(''); const [assigned, setAssigned] = useState('');
   // "Transfer to a new work order": start from the source order's details, and move the selected time once it is created
   const fromId = sp.get('from');
@@ -251,6 +253,8 @@ export function NewTrackingPage() {
           sessionStorage.removeItem(MOVE_KEY);
         } catch (e) { window.alert(`The work order was created, but the time was not moved from ${move.fromNumber}: ${(e as Error).message}`); }
       }
+      if (type) await saveCustomFields(`work-orders:${type}`, r.id, customWo, `work order ${f.number}`);
+      if (type === 'Fai' || type === 'Validation') await saveCustomFields('fai-validation', r.id, customWo, `work order ${f.number}`);
       nav(`/sequfloh/record/${r.id}`, { replace: true });
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -334,6 +338,8 @@ export function NewTrackingPage() {
           {fld('plannedStart', 'Expected start date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}{fld('dueAt', 'Expected completion date', { type: 'datetime-local', InputLabelProps: { shrink: true } })}
           {fld('min', 'Minimum benchmark (minutes)', { type: 'number' })}{fld('max', 'Maximum benchmark (minutes)', { type: 'number' })}
           {type === 'Repair' && <Box sx={{ gridColumn: '1 / -1' }}>{fld('reportedCondition', 'Reported condition', { multiline: true, minRows: 2, fullWidth: true })}</Box>}
+          {type && <CustomFieldInputs screen={`work-orders:${type}`} value={customWo} onChange={setCustomWo} />}
+          {(type === 'Fai' || type === 'Validation') && <CustomFieldInputs screen="fai-validation" value={customWo} onChange={setCustomWo} />}
         </Grid>
         <Stack direction="row" gap={1} sx={{ mt: 3 }}>
           <Button variant="contained" disabled={!type || !siteId || busy} onClick={create} data-testid="new-wo-create">Create work order</Button>
@@ -483,6 +489,9 @@ export function TrackingRecordPage() {
             ['Updated', `${fmtDateTime(s(rec.updatedAt))}${rec.updatedBy ? ' · ' + s(rec.updatedBy) : ''}`],
             ...(rec.repairDescription ? [['Repair description', s(rec.repairDescription)] as [string, ReactNode]] : []),
             ...(['pauseReason', 'failureReason', 'cancelReason'].filter((k) => rec[k]).map((k) => [words(k.replace(/^./, (c) => c.toUpperCase())), s(rec[k])] as [string, ReactNode]))]} />
+          <CustomFieldDetails screen={`work-orders:${rec.type}`} recordId={rec.id} />
+          {(rec.type === 'Fai' || rec.type === 'Validation') && <CustomFieldDetails screen="fai-validation" recordId={rec.id} />}
+          <CustomFieldDetails screen="ncr" recordId={rec.id} />
         </Paper>
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-label="Timing">
           <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap" sx={{ mb: 1.5 }}>
