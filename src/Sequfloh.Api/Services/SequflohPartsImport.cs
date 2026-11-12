@@ -337,10 +337,7 @@ public sealed class SequflohPartsImport(AppDbContext db, ModuleSupport m, Sequfl
             // the drawing revision is its own column. A trailing letter on the drawing number is left on the number (some drawings have no revision suffix).
             string? dwgRev = null;
             if (Get("drawingRevision") is { Length: > 0 } rawRev)
-            {
-                try { dwgRev = Sequfloh.Drawings.DrawingService.Revision(rawRev); }
-                catch (AppException ex) { errors.Add(ex.Message); }
-            }
+                dwgRev = Sequfloh.Drawings.DrawingService.Revision(rawRev);
             // UPC / Barcode: digits only, a UPC-E, UPC-A, EAN-13 or GTIN-14 length, with a right check digit
             var upc = Raw("upc") is { Length: > 0 } uv && !PartFields.IsBlank(uv) ? uv : null;
             if (upc is not null && (!Gtin.IsBarcode(upc) || !Gtin.CheckDigitOk(upc))) { errors.Add($"UPC / Barcode \"{upc}\" must be 8, 12, 13 or 14 digits with a right check digit."); upc = null; }

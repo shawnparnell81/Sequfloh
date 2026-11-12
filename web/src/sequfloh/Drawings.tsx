@@ -138,12 +138,12 @@ export function DrawingFileFields({ f, set }: { f: NewDrawing; set: (f: NewDrawi
     <Typography variant="caption" color="text.secondary">PDF, PNG, JPG, TIF, DWG, DXF, STEP, IGES, SolidWorks or Word (DOCX, DOC) files up to 50 MB. PDF and images open in the browser; other files download.</Typography>
     <TextField label="Title" required value={f.title} onChange={(e) => set({ ...f, title: e.target.value })} />
     <Stack direction="row" gap={2}><TextField label="Drawing number" value={f.drawingNumber} onChange={(e) => set({ ...f, drawingNumber: e.target.value })} sx={{ flex: 2 }} helperText="Kept whole. A trailing letter stays part of the number." />
-      <TextField label="Revision" required value={f.revision} onChange={(e) => set({ ...f, revision: e.target.value.toUpperCase() })} sx={{ flex: 1 }} helperText="From the Part Master when that number already has one. Not read from the file name." /></Stack>
+      <TextField label="Revision" value={f.revision} onChange={(e) => set({ ...f, revision: e.target.value.length <= 20 ? e.target.value : e.target.value.slice(0, 20) })} sx={{ flex: 1 }} helperText="Optional. Leave blank to use the Part Master value when this drawing number has one, or to store no revision. Not read from the file name." /></Stack>
     <TextField label="Notes" multiline minRows={2} value={f.notes} onChange={(e) => set({ ...f, notes: e.target.value })} />
   </Stack>;
 }
 export interface NewDrawing { file: File | null; title: string; drawingNumber: string; revision: string; notes: string }
-export const blankDrawing = (): NewDrawing => ({ file: null, title: '', drawingNumber: '', revision: 'A', notes: '' });
+export const blankDrawing = (): NewDrawing => ({ file: null, title: '', drawingNumber: '', revision: '', notes: '' });
 export function drawingForm(f: NewDrawing, extra: Record<string, string> = {}) {
   const fd = new FormData();
   fd.append('file', f.file!); fd.append('title', f.title); fd.append('drawingNumber', f.drawingNumber); fd.append('revision', f.revision); fd.append('notes', f.notes);
@@ -512,11 +512,11 @@ function RevisionDialog({ open, d, onClose, onSaved }: { open: boolean; d: Drawi
         ? `Revision ${d.currentRevision} stays current until this one is released. The earlier file is kept.`
         : `Revision ${d.currentRevision} is marked superseded and stays in the history. The earlier file is kept.`}</Typography>
       <Button variant="outlined" component="label">{file ? file.name : 'Choose file'}<input hidden type="file" accept={ACCEPT} data-testid="revision-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button>
-      <TextField label="Revision" required value={rev} onChange={(e) => setRev(e.target.value.toUpperCase())} helperText="Entered here. It is not read from the file name. The earlier file is kept." />
+      <TextField label="Revision" value={rev} onChange={(e) => setRev(e.target.value.length <= 20 ? e.target.value : e.target.value.slice(0, 20))} helperText="Optional. The earlier file is kept. It is not read from the file name." />
       <TextField label="Reason for change" required multiline minRows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
       <TextField label="Change reference" value={ecn} onChange={(e) => setEcn(e.target.value)} helperText="Optional. An ECN or other change number." />
     </Stack></DialogContent>
-    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={!file || !rev.trim() || !reason.trim()}>{d.approvalRequired ? 'Submit for release' : 'Upload revision'}</Button></DialogActions>
+    <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={save} disabled={!file || !reason.trim()}>{d.approvalRequired ? 'Submit for release' : 'Upload revision'}</Button></DialogActions>
   </Dialog>;
 }
 

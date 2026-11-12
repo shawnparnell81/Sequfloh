@@ -318,8 +318,8 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         var title = DrawingService.Clean(Title(t.FileName), 300, "a title");
         var chosen = DrawingRevisionRules.Resolve(r.Revision, await RevisionsForNamesAsync((r.MatchNames ?? []).Append(title), ct), title, partMasterWins: true);
         rev = chosen.Revision;
-        var notes = chosen.Note ?? (chosen.FromPartMaster ? "Bulk import. Revision taken from the Part Master." : "Bulk import");
-        var reason = chosen.Note ?? (chosen.FromPartMaster ? "Revision recorded in the Part Master" : "Bulk import");
+        var notes = chosen.FromPartMaster ? "Bulk import. Revision taken from the Part Master." : "Bulk import";
+        var reason = chosen.FromPartMaster ? "Revision recorded in the Part Master" : "Bulk import";
         var d = new Drawing { Id = t.Drawing, FolderId = folder.Id, Title = title, CurrentRevision = rev, SiteId = folder.SiteId, DepartmentId = folder.DepartmentId };
         db.Drawings.Add(d);
         db.DrawingRevisions.Add(new DrawingRevision { Id = t.Revision, DrawingId = d.Id, Revision = rev, DrawingNumber = null, FileName = t.FileName, ContentType = DrawingService.TypeOf(t.Ext), StorageKey = t.StorageKey,
@@ -347,7 +347,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Uploaded revision", EntityType = nameof(Drawing), EntityId = d.Id, SiteId = d.SiteId,
             CorrelationId = me.CorrelationId,
             Description = AuditText.Fit($"Imported {d.AuditLabel} revision {rev} ({t.FileName}) into folder {folder.Name}. " +
-                (chosen.Note ?? (chosen.FromPartMaster ? "The revision is the one recorded in the Part Master. It was not taken from the file name." : "The revision was entered for this import. It was not taken from the file name.")) +
+                (chosen.FromPartMaster ? "The revision is the one recorded in the Part Master. It was not taken from the file name." : (rev.Length > 0 ? "The revision was entered for this import. It was not taken from the file name." : "No revision was entered.")) +
                 " The file is stored on its own and does not replace another revision."),
         });
         await db.SaveChangesAsync(ct);
