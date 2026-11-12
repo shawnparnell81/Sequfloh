@@ -35,6 +35,24 @@ export function pickedPath(file: File, folderPick: boolean, top: boolean, preset
 }
 
 const main = (i: { kind: string }) => i.kind === 'pdf' || i.kind === 'word';
+/** Compared like part numbers on the server: upper case, without spaces, dashes, underscores or slashes. */
+const norm = (s: string) => s.toUpperCase().replace(/[\s\-_/\\]/g, '');
+const stem = (n: string) => n.replace(/\.[^./]+$/, '').trim();
+
+/**
+ * The picked files that are their folder's primary drawing: named like the folder (ignoring case, spaces, dashes and underscores), or the only PDF or
+ * Word file in it. Only these are linked to the part a folder is named for; the other files go into the same folder for reference.
+ */
+export function primaryPaths(items: { path: string; kind: string }[]) {
+  const byDir = new Map<string, string[]>();
+  for (const i of items) if (main(i)) { const d = dirOf(i.path); byDir.set(d, [...(byDir.get(d) ?? []), i.path]); }
+  const out = new Set<string>();
+  for (const [dir, paths] of byDir) {
+    const folder = norm(dir.split('/').pop() ?? '');
+    for (const p of paths) if ((folder && norm(stem(p.split('/').pop() ?? '')) === folder) || paths.length === 1) out.add(p);
+  }
+  return out;
+}
 interface Item { file: File; path: string; kind: 'pdf' | 'word' | 'other' | 'unsupported'; exists?: boolean; conflict?: boolean; rejected?: boolean; reason?: string | null; parts?: string[] }
 interface Plan { files: { path: string; exists: boolean; conflict?: boolean; rejected?: boolean; reason?: string | null; parts: string[] }[]; folders: { path: string; exists: boolean; conflict?: boolean; rejected?: boolean; reason?: string | null; parts: string[] }[] }
 interface Start { token: string; url?: string; uploadId?: string; partSize: number; partUrls: string[]; direct: boolean; contentType: string }
@@ -139,6 +157,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       const dirs = [...new Set(todo.map((i) => dirOf(i.path)).filter(Boolean))];
       const ids: Record<string, string> = folderId ? { '': folderId } : {};
       for (let n = 0; n < dirs.length; n += BATCH) Object.assign(ids, await post<Record<string, string>>(`${D}/folders`, { folderId, linkParts, paths: dirs.slice(n, n + BATCH) }));
+      const primary = primaryPaths(items);
       const queue = [...todo];
       const one = async (i: Item) => {
         const dir = dirOf(i.path);
@@ -156,7 +175,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
               parts.push({ partNumber: n + 1, eTag: tag });
             }
           } else await putBlob(s.url!, i.file, s.contentType, add, ac.signal);
-          const r = await post<{ skipped: boolean; linked: number }>(`${D}/finish`, { token: s.token, uploadId: s.uploadId ?? null, parts, revision, linkParts, matchNames: dir.split('/').filter(Boolean) });
+          const r = await post<{ skipped: boolean; linked: number }>(`${D}/finish`, { token: s.token, uploadId: s.uploadId ?? null, parts, revision, linkParts, matchNames: dir.split('/').filter(Boolean), primary: primary.has(i.path) });
           parts = [];
           if (r.skipped) p.skipped++; else { p.done++; p.doneBytes += i.file.size; p.linked += r.linked; }
         } catch (e) {

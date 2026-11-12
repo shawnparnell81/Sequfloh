@@ -527,10 +527,16 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
             Viewable = Viewable.Contains(Path.GetExtension(r.FileName ?? "").ToLowerInvariant()) }).ToList();
     }
 
-    /// <summary>Drawings for a set of parts: linked directly or kept in a folder linked to the part. Archived drawings and folders are left out.</summary>
+    /// <summary>
+    /// Drawings for a set of parts: the drawings linked to the part directly. A part with no drawing linked directly falls back to every drawing kept in a
+    /// folder linked to it, so a folder of reference copies does not put every copy on a work order once its primary drawing is linked. Archived drawings
+    /// and folders are left out.
+    /// </summary>
     internal static IQueryable<Drawing> PartDrawings(AppDbContext db, ICollection<Guid> parts)
     {
-        var folders = db.DrawingFolders.Where(f => !f.IsArchived && f.PartId != null && parts.Contains(f.PartId.Value)).Select(f => f.Id);
+        var folders = db.DrawingFolders.Where(f => !f.IsArchived && f.PartId != null && parts.Contains(f.PartId.Value)
+            && !db.DrawingPartLinks.Any(l => l.PartId == f.PartId && db.Drawings.Any(d => d.Id == l.DrawingId && !d.IsArchived && db.DrawingFolders.Any(x => x.Id == d.FolderId && !x.IsArchived))))
+            .Select(f => f.Id);
         return db.Drawings.Where(d => !d.IsArchived && db.DrawingFolders.Any(f => f.Id == d.FolderId && !f.IsArchived)
             && (db.DrawingPartLinks.Any(l => l.DrawingId == d.Id && parts.Contains(l.PartId)) || folders.Contains(d.FolderId)));
     }
