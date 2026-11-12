@@ -32,7 +32,7 @@ public static class DrawingRevisionRules
         {
             if (!partMasterWins)
                 throw new AppException($"Drawing {label} is recorded at more than one revision in the Part Master ({string.Join(", ", fromParts)}). Nothing was stored. The file name was not used. Make those parts agree, then try again.");
-            return Fallback(typedClean, label, $"The Part Master records more than one revision ({string.Join(", ", fromParts)}), so the revision entered for this import was used. The Part Master was not changed.");
+            return Fallback(typedClean, $"The Part Master records more than one revision ({string.Join(", ", fromParts)})");
         }
         if (fromParts.Count == 1)
         {
@@ -44,18 +44,28 @@ public static class DrawingRevisionRules
             }
             if (!partMasterWins)
                 throw new AppException("Use letters, numbers, '-' or '.' for the revision (up to 20).");
-            return Fallback(typedClean, label, $"The Part Master revision '{fromParts[0]}' is not a usable revision, so the revision entered for this import was used. The Part Master was not changed.");
+            return Fallback(typedClean, $"The Part Master revision '{fromParts[0]}' is not a usable revision");
         }
+        if (partMasterWins)
+            return DrawingService.TryRevision(typedClean, out var typedRev)
+                ? new Resolved(typedRev, false)
+                : Fallback(typedClean, "The Part Master has no drawing revision");
         if (typedClean.Length == 0)
             throw new AppException($"Enter the revision for {label}. It is not taken from the file name, and the Part Master has no drawing revision for it.");
         return new Resolved(DrawingService.Revision(typedClean), false);
     }
 
-    static Resolved Fallback(string typed, string label, string note)
+    /// <summary>
+    /// A bulk import always stores a usable revision: the typed one when it is valid, otherwise A. The Part Master is not changed.
+    /// </summary>
+    static Resolved Fallback(string typed, string why)
     {
-        if (typed.Length == 0)
-            throw new AppException($"Enter the revision for {label}. It is not taken from the file name, and the Part Master has no usable drawing revision for it.");
-        return new Resolved(DrawingService.Revision(typed), false, note);
+        if (DrawingService.TryRevision(typed, out var rev))
+            return new Resolved(rev, false, $"{why}, so the revision entered for this import was used. The Part Master was not changed.");
+        var entered = typed.Length == 0
+            ? "and no revision was entered for this import"
+            : $"and the revision entered for this import ('{typed}') is not a usable revision";
+        return new Resolved("A", false, $"{why}, {entered}, so A was used. The Part Master was not changed.");
     }
 
     /// <summary>A row that would replace a recorded drawing revision with a different one. Blank values fill in; they do not conflict.</summary>

@@ -215,7 +215,26 @@ public sealed class DrawingRevisionControlTests(TestApp app)
 
         Assert.Contains("Use letters, numbers", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("A", ["N/A"], "3212-0226-SH51807", partMasterWins: false)).Message);
         Assert.Contains("more than one revision", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("A", ["B", "C"], "BWS4401A", partMasterWins: false)).Message);
-        Assert.Contains("Enter the revision", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("", ["N/A"], "3212-0226-SH51807", partMasterWins: true)).Message);
+
+        var noTyped = DrawingRevisionRules.Resolve("", ["N/A"], "3212-0226-SH51807", partMasterWins: true);
+        Assert.Equal("A", noTyped.Revision);
+        Assert.False(noTyped.FromPartMaster);
+        Assert.Contains("no revision was entered", noTyped.Note);
+        Assert.Contains("so A was used", noTyped.Note);
+        Assert.Contains("The Part Master was not changed", noTyped.Note);
+
+        foreach (var raw in new[] { "A (2)", "REV A", "A/B", new string('X', 21) })
+        {
+            var fallback = DrawingRevisionRules.Resolve("A", [raw], "1214-0687", partMasterWins: true);
+            Assert.Equal("A", fallback.Revision);
+            Assert.Contains(raw, fallback.Note);
+            Assert.Contains("not a usable revision", fallback.Note);
+
+            var badTyped = DrawingRevisionRules.Resolve(raw, [raw], "1214-0687", partMasterWins: true);
+            Assert.Equal("A", badTyped.Revision);
+            Assert.Contains($"the revision entered for this import ('{raw}') is not a usable revision", badTyped.Note);
+            Assert.Contains("so A was used", badTyped.Note);
+        }
     }
 
     [Fact]
@@ -275,6 +294,52 @@ public sealed class DrawingRevisionControlTests(TestApp app)
         Assert.Contains("Use letters, numbers", await stillRejected.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task Bulk_import_finish_stores_a_usable_revision_when_the_part_master_value_cannot_be_stored_and_parts_are_not_linked()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync(Drawings, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var cases = new (string Number, string File, string Master, string Typed)[]
+        {
+            ($"3213-{tag}", $"3213-{tag} drawing.pdf", "A (2)", "A"),
+            ($"1214-{tag}A", $"Revised 1214-{tag}A drawing.pdf", "REV A", "A"),
+            ($"1214-{tag}B", $"1214-{tag}B.pdf", "A/B", "REV A"),
+            ($"1214-{tag}C", $"1214-{tag}C.pdf", "SEE DWG A/B REV 2", "A (2)"),
+        };
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            foreach (var row in cases)
+                db.Parts.Add(new Part { PartNumber = row.Number, Name = "Example shock", Revision = "A", UnitOfMeasure = "Each", SiteId = site, DrawingNumber = row.Number, DrawingRevision = row.Master });
+            await db.SaveChangesAsync();
+        }
+        var root = (await (await c.PostOkAsync($"{D}/folders", new { name = "Turkey " + tag, siteId = site })).JsonAsync()).Id();
+        var leaf = (await (await c.PostOkAsync($"{D}/folders", new { name = "3213-0327", parentId = root, siteId = site })).JsonAsync()).Id();
+
+        foreach (var row in cases)
+        {
+            var matchNames = new[] { "Shock Drawings", "SENSEN Drawings", "Turkey Drawings", row.Number };
+            var done = await ImportAsync(c, leaf, row.File, Pdf(row.Number), row.Typed, matchNames, linkParts: false);
+            Assert.False(done.GetProperty("skipped").GetBoolean());
+            Assert.Equal(0, done.Int("linked"));
+            var drawing = await c.GetElAsync($"{D}/{done.Id()}");
+            Assert.Equal("A", drawing.Str("currentRevision"));
+            var rev = drawing.GetProperty("revisions")[0];
+            Assert.Equal("A", rev.Str("revision"));
+            Assert.Contains(row.Master, rev.Str("notes"));
+            Assert.Contains("The Part Master was not changed", rev.Str("notes"));
+            Assert.Contains("The Part Master was not changed", rev.Str("reason"));
+            using var scope = app.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Equal(row.Master, (await db.Parts.SingleAsync(p => p.PartNumber == row.Number)).DrawingRevision);
+            var audit = await db.AuditEntries.SingleAsync(a => a.EntityId == done.Id() && a.Action == "Uploaded revision");
+            Assert.False(string.IsNullOrEmpty(audit.UserName));
+            Assert.Contains(row.Master, audit.Description);
+            Assert.Contains("The Part Master was not changed", audit.Description);
+        }
+    }
+
     static MultipartFormDataContent Form(byte[] bytes, string fileName, params (string Key, string Value)[] fields)
     {
         var f = new MultipartFormDataContent();
@@ -299,11 +364,11 @@ public sealed class DrawingRevisionControlTests(TestApp app)
         @fixed = new Dictionary<string, string> { ["name"] = "Fuel Pump" },
     };
 
-    static async Task<JsonElement> ImportAsync(ApiClient c, Guid folder, string name, byte[] bytes, string revision = "A", string[]? matchNames = null)
+    static async Task<JsonElement> ImportAsync(ApiClient c, Guid folder, string name, byte[] bytes, string revision = "A", string[]? matchNames = null, bool linkParts = true)
     {
         var s = await (await c.PostOkAsync($"{I}/start", new { folderId = folder, fileName = name, size = bytes.LongLength })).JsonAsync();
         Assert.Equal(HttpStatusCode.NoContent, (await c.Http.PutAsync(s.Str("url"), new ByteArrayContent(bytes))).StatusCode);
-        var r = await c.PostOkAsync($"{I}/finish", new { token = s.Str("token"), revision, linkParts = true, matchNames = matchNames ?? Array.Empty<string>() });
+        var r = await c.PostOkAsync($"{I}/finish", new { token = s.Str("token"), revision, linkParts, matchNames = matchNames ?? Array.Empty<string>() });
         return await r.JsonAsync();
     }
 }

@@ -39,6 +39,13 @@ const main = (i: { kind: string }) => i.kind === 'pdf' || i.kind === 'word';
 const norm = (s: string) => s.toUpperCase().replace(/[\s\-_/\\]/g, '');
 const stem = (n: string) => n.replace(/\.[^./]+$/, '').trim();
 
+/** A revision the import can store: letters, numbers, '-' or '.', up to 20 characters. Anything else, including a blank, becomes A. */
+export function importRevision(value: string | undefined | null) {
+  const rev = (value ?? '').trim().toUpperCase();
+  return /^[A-Z0-9.-]{1,20}$/.test(rev) ? rev : 'A';
+}
+
+
 /**
  * The picked files that are their folder's primary drawing: named like the folder (ignoring case, spaces, dashes and underscores), or the only PDF or
  * Word file in it. Only these are linked to the part a folder is named for; the other files go into the same folder for reference.
@@ -151,6 +158,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     const conflicts = items.filter((i) => i.conflict).length;
     const p: Progress = { done: 0, total: todo.length, bytes: 0, totalBytes: todo.reduce((s, i) => s + i.file.size, 0), skipped: 0, failed: [], linked: 0, doneBytes: 0, cancelled: false, conflicts, folders: folders.filter((f) => !f.exists && !f.rejected).length };
     const tick = () => setProg({ ...p, failed: [...p.failed] });
+    const revisionToStore = importRevision(revision);
     tick();
     try {
       // folders first, parents before children, so files can go up side by side
@@ -175,7 +183,8 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
               parts.push({ partNumber: n + 1, eTag: tag });
             }
           } else await putBlob(s.url!, i.file, s.contentType, add, ac.signal);
-          const r = await post<{ skipped: boolean; linked: number }>(`${D}/finish`, { token: s.token, uploadId: s.uploadId ?? null, parts, revision, linkParts, matchNames: dir.split('/').filter(Boolean), primary: primary.has(i.path) });
+          const leaf = dir.split('/').filter(Boolean).pop();
+          const r = await post<{ skipped: boolean; linked: number }>(`${D}/finish`, { token: s.token, uploadId: s.uploadId ?? null, parts, revision: revisionToStore, linkParts, matchNames: leaf ? [leaf] : [], primary: primary.has(i.path) });
           parts = [];
           if (r.skipped) p.skipped++; else { p.done++; p.doneBytes += i.file.size; p.linked += r.linked; }
         } catch (e) {
@@ -185,7 +194,16 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
         }
         tick();
       };
-      await Promise.all(Array.from({ length: PARALLEL }, async () => { while (queue.length && !ac.signal.aborted) await one(queue.shift()!); }));
+      await Promise.all(Array.from({ length: PARALLEL }, async () => {
+        try {
+          for (;;) {
+            if (ac.signal.aborted) return;
+            const next = queue.shift();
+            if (!next) return;
+            await one(next);
+          }
+        } catch (e) { if ((e as Error).name !== 'AbortError') { p.failed.push(fail(e)); tick(); } }
+      }));
     } catch (e) { if ((e as Error).name !== 'AbortError') setErr(fail(e)); }
     finally {
       await post(`${D}/summary`, { folderId, imported: p.done, folders: p.folders, bytes: p.doneBytes,
@@ -217,7 +235,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
             <input type="file" multiple data-testid="import-files-input" style={offscreen} onChange={(e) => { const input = e.currentTarget; const files = input.files ? Array.from(input.files) : []; input.value = ''; void pick(files, false); }} /></Button>}
         </Stack>
         <Stack direction="row" gap={2} alignItems="center" flexWrap="wrap">
-          <TextField size="small" label="Revision when the Part Master has none" required value={revision} onChange={(e) => setRevision(e.target.value.toUpperCase())} sx={{ width: 280 }} helperText="Used only if the Part Master has no drawing revision. Never read from the file name." />
+          <TextField size="small" label="Revision when the Part Master has none" required value={revision} autoComplete="off" onChange={(e) => { const v = e.target.value.toUpperCase().trim(); if (/^[A-Z0-9.-]{0,20}$/.test(v)) setRevision(v); }} sx={{ width: 280 }} helperText="Used only if the Part Master has no usable drawing revision. Letters, numbers, '-' or '.' only. Never read from the file name." />
           <FormControlLabel control={<Checkbox checked={linkParts} disabled={!!busy} onChange={(_, c) => { setLinkParts(c); if (items.length) { setBusy('reading'); plan(items, c).then((planned) => { setItems(planned.items); setFolders(planned.folders); }).catch((e) => setErr(fail(e))).finally(() => setBusy('')); } }} />}
             label="Link to parts by matching name" />
         </Stack>
@@ -252,7 +270,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
       </>}
       {prog && <Box data-testid="import-progress">
         <Typography variant="body2" sx={{ mb: 1 }}>{finished ? (prog.cancelled ? 'Stopped. ' : 'Finished. ') : 'Importing… '}
-          {prog.done.toLocaleString('en-US')} of {prog.total.toLocaleString('en-US')} files · {gb(prog.bytes)} of {gb(prog.totalBytes)}</Typography>
+          {(prog.done + prog.skipped + prog.failed.length).toLocaleString('en-US')} of {prog.total.toLocaleString('en-US')} files · {gb(prog.bytes)} of {gb(prog.totalBytes)}</Typography>
         <LinearProgress variant="determinate" value={pct} />
         <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>{prog.folders} new folders · {prog.linked} part links · {prog.skipped} already here · {prog.conflicts} left in place · {prog.failed.length} failed</Typography>
         {prog.failed.length > 0 && <Alert severity="error" sx={{ mt: 1 }}>{prog.failed.slice(0, 10).map((f) => <div key={f}>{f}</div>)}{prog.failed.length > 10 && <div>…and {prog.failed.length - 10} more. Choose the folder again to retry them.</div>}</Alert>}
