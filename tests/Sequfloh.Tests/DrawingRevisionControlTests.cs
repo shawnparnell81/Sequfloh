@@ -34,7 +34,7 @@ public sealed class DrawingRevisionControlTests(TestApp app)
         Assert.NotEqual(DrawingPartMatcher.Normalize("BWS4401"), DrawingPartMatcher.Normalize("BWS4401A.pdf"));
         Assert.Equal("C", DrawingRevisionRules.Resolve("A", ["C"], "BWS4401A", partMasterWins: true).Revision);
         Assert.True(DrawingRevisionRules.Resolve(null, ["C"], "BWS4401A", partMasterWins: false).FromPartMaster);
-        Assert.Contains("more than one revision", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("A", ["B", "C"], "BWS4401A", true)).Message);
+        Assert.Contains("more than one revision", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("A", ["B", "C"], "BWS4401A", false)).Message);
         Assert.Contains("already recorded", DrawingRevisionRules.Conflict("C", "D"));
         Assert.Null(DrawingRevisionRules.Conflict("C", "c"));
         Assert.Null(DrawingRevisionRules.Conflict(null, "C"));
@@ -193,6 +193,86 @@ public sealed class DrawingRevisionControlTests(TestApp app)
         var drawing = await c.GetElAsync($"{D}/{done.Id()}");
         Assert.Equal("C", drawing.Str("currentRevision"));
         Assert.Contains("Part Master", drawing.GetProperty("revisions")[0].Str("reason"));
+    }
+
+    [Fact]
+    public void Bulk_import_uses_the_typed_revision_when_the_part_master_revision_cannot_be_stored()
+    {
+        var invalid = DrawingRevisionRules.Resolve("A", ["N/A"], "3212-0226-SH51807", partMasterWins: true);
+        Assert.Equal("A", invalid.Revision);
+        Assert.False(invalid.FromPartMaster);
+        Assert.Equal("The Part Master revision 'N/A' is not a usable revision, so the revision entered for this import was used. The Part Master was not changed.", invalid.Note);
+
+        var several = DrawingRevisionRules.Resolve("A", ["B", "C"], "BWS4401A", partMasterWins: true);
+        Assert.Equal("A", several.Revision);
+        Assert.False(several.FromPartMaster);
+        Assert.Equal("The Part Master records more than one revision (B, C), so the revision entered for this import was used. The Part Master was not changed.", several.Note);
+
+        var usable = DrawingRevisionRules.Resolve("A", ["C"], "BWS4401A", partMasterWins: true);
+        Assert.Equal("C", usable.Revision);
+        Assert.True(usable.FromPartMaster);
+        Assert.Null(usable.Note);
+
+        Assert.Contains("Use letters, numbers", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("A", ["N/A"], "3212-0226-SH51807", partMasterWins: false)).Message);
+        Assert.Contains("more than one revision", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("A", ["B", "C"], "BWS4401A", partMasterWins: false)).Message);
+        Assert.Contains("Enter the revision", Assert.Throws<AppException>(() => DrawingRevisionRules.Resolve("", ["N/A"], "3212-0226-SH51807", partMasterWins: true)).Message);
+    }
+
+    [Fact]
+    public async Task Bulk_import_keeps_the_typed_revision_when_the_part_master_value_is_not_usable()
+    {
+        var site = await app.CreateSiteAsync();
+        var (_, c) = await app.CreateUserAsync(Drawings, site);
+        var tag = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        var number = $"3212-{tag}";
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Parts.Add(new Part { PartNumber = number, Name = "Example shock", Revision = "A", UnitOfMeasure = "Each", SiteId = site, DrawingNumber = number, DrawingRevision = "N/A" });
+            db.Parts.Add(new Part { PartNumber = $"SN-{tag}B", Name = "Example sensor B", Revision = "A", UnitOfMeasure = "Each", SiteId = site, DrawingNumber = $"SN-{tag}", DrawingRevision = "B" });
+            db.Parts.Add(new Part { PartNumber = $"SN-{tag}C", Name = "Example sensor C", Revision = "A", UnitOfMeasure = "Each", SiteId = site, DrawingNumber = $"SN-{tag}", DrawingRevision = "C" });
+            await db.SaveChangesAsync();
+        }
+        var root = (await (await c.PostOkAsync($"{D}/folders", new { name = "Fallback " + tag, siteId = site })).JsonAsync()).Id();
+
+        var unusable = await ImportAsync(c, root, $"{number}-SH51807.pdf", Pdf("unusable master"), "A", [number]);
+        var unusableDrawing = await c.GetElAsync($"{D}/{unusable.Id()}");
+        Assert.Equal("A", unusableDrawing.Str("currentRevision"));
+        var unusableRev = unusableDrawing.GetProperty("revisions")[0];
+        Assert.Equal("A", unusableRev.Str("revision"));
+        Assert.Contains("N/A", unusableRev.Str("notes"));
+        Assert.Contains("not a usable revision", unusableRev.Str("notes"));
+        Assert.Contains("The Part Master was not changed", unusableRev.Str("notes"));
+        Assert.Contains("The Part Master was not changed", unusableRev.Str("reason"));
+
+        var clash = await ImportAsync(c, root, $"SN-{tag}.pdf", Pdf("several masters"), "A", [$"SN-{tag}B", $"SN-{tag}C"]);
+        var clashDrawing = await c.GetElAsync($"{D}/{clash.Id()}");
+        Assert.Equal("A", clashDrawing.Str("currentRevision"));
+        var clashRev = clashDrawing.GetProperty("revisions")[0];
+        Assert.Contains("more than one revision", clashRev.Str("notes"));
+        Assert.Contains("The Part Master was not changed", clashRev.Str("notes"));
+        Assert.Contains("The Part Master was not changed", clashRev.Str("reason"));
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Equal("N/A", (await db.Parts.SingleAsync(p => p.PartNumber == number)).DrawingRevision);
+            Assert.Equal("B", (await db.Parts.SingleAsync(p => p.PartNumber == $"SN-{tag}B")).DrawingRevision);
+            Assert.Equal("C", (await db.Parts.SingleAsync(p => p.PartNumber == $"SN-{tag}C")).DrawingRevision);
+            var unusableAudit = await db.AuditEntries.SingleAsync(a => a.EntityId == unusable.Id() && a.Action == "Uploaded revision");
+            Assert.False(string.IsNullOrEmpty(unusableAudit.UserName));
+            Assert.Contains("N/A", unusableAudit.Description);
+            Assert.Contains("not a usable revision", unusableAudit.Description);
+            Assert.Contains("The Part Master was not changed", unusableAudit.Description);
+            var clashAudit = await db.AuditEntries.SingleAsync(a => a.EntityId == clash.Id() && a.Action == "Uploaded revision");
+            Assert.False(string.IsNullOrEmpty(clashAudit.UserName));
+            Assert.Contains("more than one revision", clashAudit.Description);
+            Assert.Contains("The Part Master was not changed", clashAudit.Description);
+        }
+
+        var stillRejected = await c.Http.PostAsync($"{D}/folders/{root}/drawings", Form(Pdf("single upload"), $"{number} single.pdf", ("title", "Shock"), ("drawingNumber", number), ("revision", "A")));
+        Assert.Equal(HttpStatusCode.BadRequest, stillRejected.StatusCode);
+        Assert.Contains("Use letters, numbers", await stillRejected.Content.ReadAsStringAsync());
     }
 
     static MultipartFormDataContent Form(byte[] bytes, string fileName, params (string Key, string Value)[] fields)
