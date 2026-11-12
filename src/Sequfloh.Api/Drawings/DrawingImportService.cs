@@ -318,10 +318,12 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         var title = DrawingService.Clean(Title(t.FileName), 300, "a title");
         var chosen = DrawingRevisionRules.Resolve(r.Revision, await RevisionsForNamesAsync((r.MatchNames ?? []).Append(title), ct), title, partMasterWins: true);
         rev = chosen.Revision;
+        var notes = chosen.Note ?? (chosen.FromPartMaster ? "Bulk import. Revision taken from the Part Master." : "Bulk import");
+        var reason = chosen.Note ?? (chosen.FromPartMaster ? "Revision recorded in the Part Master" : "Bulk import");
         var d = new Drawing { Id = t.Drawing, FolderId = folder.Id, Title = title, CurrentRevision = rev, SiteId = folder.SiteId, DepartmentId = folder.DepartmentId };
         db.Drawings.Add(d);
         db.DrawingRevisions.Add(new DrawingRevision { Id = t.Revision, DrawingId = d.Id, Revision = rev, DrawingNumber = null, FileName = t.FileName, ContentType = DrawingService.TypeOf(t.Ext), StorageKey = t.StorageKey,
-            SizeBytes = t.Size, Sha256 = "", Notes = chosen.FromPartMaster ? "Bulk import. Revision taken from the Part Master." : "Bulk import", Reason = chosen.FromPartMaster ? "Revision recorded in the Part Master" : "Bulk import", CreatedByName = me.UserName,
+            SizeBytes = t.Size, Sha256 = "", Notes = notes, Reason = reason, CreatedByName = me.UserName,
             Status = DrawingRevisionStatus.Current, ReleasedAt = DateTimeOffset.UtcNow, ReleasedByName = me.UserName });
         var linked = 0;
         if (r.LinkParts)
@@ -345,7 +347,7 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             OccurredAt = DateTimeOffset.UtcNow, UserId = me.UserId, UserName = me.UserName, Action = "Uploaded revision", EntityType = nameof(Drawing), EntityId = d.Id, SiteId = d.SiteId,
             CorrelationId = me.CorrelationId,
             Description = AuditText.Fit($"Imported {d.AuditLabel} revision {rev} ({t.FileName}) into folder {folder.Name}. " +
-                (chosen.FromPartMaster ? "The revision is the one recorded in the Part Master. It was not taken from the file name." : "The revision was entered for this import. It was not taken from the file name.") +
+                (chosen.Note ?? (chosen.FromPartMaster ? "The revision is the one recorded in the Part Master. It was not taken from the file name." : "The revision was entered for this import. It was not taken from the file name.")) +
                 " The file is stored on its own and does not replace another revision."),
         });
         await db.SaveChangesAsync(ct);
@@ -442,7 +444,9 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         var paths = await FolderPathsAsync(ct);
         var all = (await db.Drawings.AsNoTracking().Where(d => !d.IsArchived)
             .Select(d => new { d.Id, d.FolderId, d.Title, d.DrawingNumber, d.SiteId, d.DepartmentId,
-                Imported = db.DrawingRevisions.Where(v => v.DrawingId == d.Id).All(v => v.Reason == "Bulk import" || v.Reason == "Revision recorded in the Part Master") })
+                Imported = db.DrawingRevisions.Where(v => v.DrawingId == d.Id).All(v =>
+                    v.Reason == "Bulk import" || v.Reason == "Revision recorded in the Part Master"
+                    || (v.Reason != null && v.Reason.Contains("The Part Master was not changed."))) })
             .ToListAsync(ct)).Where(d => paths.ContainsKey(d.FolderId)).ToList();
         var have = (await db.DrawingPartLinks.AsNoTracking().Select(l => new { l.DrawingId, l.PartId }).ToListAsync(ct)).ToLookup(l => l.DrawingId, l => l.PartId);
         var partNumbers = index.Values.SelectMany(x => x).DistinctBy(x => x.Id).ToDictionary(x => x.Id, x => x.PartNumber);
@@ -498,4 +502,5 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
             UnlinkedDrawings = removed.Select(x => new { x.Folder, x.Title, Parts = Numbers(x.Parts) }),
         };
     }
+
 }
