@@ -39,10 +39,10 @@ const main = (i: { kind: string }) => i.kind === 'pdf' || i.kind === 'word';
 const norm = (s: string) => s.toUpperCase().replace(/[\s\-_/\\]/g, '');
 const stem = (n: string) => n.replace(/\.[^./]+$/, '').trim();
 
-/** A revision the import can store: letters, numbers, '-' or '.', up to 20 characters. Anything else, including a blank, becomes A. */
+/** The revision as written, trimmed and limited to 20 characters. Blank is allowed. */
 export function importRevision(value: string | undefined | null) {
-  const rev = (value ?? '').trim().toUpperCase();
-  return /^[A-Z0-9.-]{1,20}$/.test(rev) ? rev : 'A';
+  const rev = (value ?? '').trim();
+  return rev.length <= 20 ? rev : rev.slice(0, 20);
 }
 
 
@@ -89,7 +89,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
   /** Files already picked with Import file or Import folder on the page. paths are read at pick time, before the input is cleared. */ initial?: { files: File[]; paths?: string[]; folder: boolean } | null }) {
   const [items, setItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Plan['folders']>([]);
-  const [revision, setRevision] = useState('A');
+  const [revision, setRevision] = useState('');
   const [linkParts, setLinkParts] = useState(true);
   const [others, setOthers] = useState(false);
   const [busy, setBusy] = useState<'' | 'reading' | 'importing'>('');
@@ -101,7 +101,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
   const openedAt = useRef(0);
 
   const top = folderId === null;
-  const reset = () => { setItems([]); setFolders([]); setRevision('A'); setLinkParts(true); setOthers(false); setErr(null); setProg(null); setBusy(''); };
+  const reset = () => { setItems([]); setFolders([]); setRevision(''); setLinkParts(true); setOthers(false); setErr(null); setProg(null); setBusy(''); };
   const close = () => { gen.current++; setBusy(''); onClose(); };
 
   const pick = async (list: FileList | File[] | null, folderPick: boolean, presets?: string[]) => {
@@ -235,7 +235,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
             <input type="file" multiple data-testid="import-files-input" style={offscreen} onChange={(e) => { const input = e.currentTarget; const files = input.files ? Array.from(input.files) : []; input.value = ''; void pick(files, false); }} /></Button>}
         </Stack>
         <Stack direction="row" gap={2} alignItems="center" flexWrap="wrap">
-          <TextField size="small" label="Revision when the Part Master has none" required value={revision} autoComplete="off" onChange={(e) => { const v = e.target.value.toUpperCase().trim(); if (/^[A-Z0-9.-]{0,20}$/.test(v)) setRevision(v); }} sx={{ width: 280 }} helperText="Used only if the Part Master has no usable drawing revision. Letters, numbers, '-' or '.' only. Never read from the file name." />
+          <TextField size="small" label="Revision" value={revision} autoComplete="off" onChange={(e) => setRevision(e.target.value.length <= 20 ? e.target.value : e.target.value.slice(0, 20))} sx={{ width: 280 }} helperText="Optional. Leave blank to use the Part Master value when a matched part has one, or to store no revision. Never read from the file name." />
           <FormControlLabel control={<Checkbox checked={linkParts} disabled={!!busy} onChange={(_, c) => { setLinkParts(c); if (items.length) { setBusy('reading'); plan(items, c).then((planned) => { setItems(planned.items); setFolders(planned.folders); }).catch((e) => setErr(fail(e))).finally(() => setBusy('')); } }} />}
             label="Link to parts by matching name" />
         </Stack>
@@ -278,7 +278,7 @@ export function ImportDrawingsDialog({ open, folderId, folderName, onClose, onDo
     </Stack></DialogContent>
     <DialogActions>
       {busy === 'importing' ? <Button color="error" onClick={() => stop.current?.abort()}>Cancel import</Button> : <Button onClick={close}>{finished ? 'Close' : 'Cancel'}</Button>}
-      {!prog && <Button variant="contained" disabled={!!busy || todo.length === 0 || !revision.trim()} onClick={run}>Import {todo.length.toLocaleString('en-US')} drawing{todo.length === 1 ? '' : 's'}</Button>}
+      {!prog && <Button variant="contained" disabled={!!busy || todo.length === 0} onClick={run}>Import {todo.length.toLocaleString('en-US')} drawing{todo.length === 1 ? '' : 's'}</Button>}
     </DialogActions>
   </Dialog>;
 }

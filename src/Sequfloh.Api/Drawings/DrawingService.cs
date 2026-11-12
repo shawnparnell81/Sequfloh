@@ -376,23 +376,13 @@ public sealed class DrawingService(AppDbContext db, IFileStorage storage, IAcces
         foreach (var row in rows) row.Status = DrawingRevisionStatus.Superseded;
     }
 
-    /// <summary>True when <paramref name="r"/> can be stored as a revision: letters, numbers, '-' or '.', up to 20 characters, after trimming.</summary>
-    internal static bool TryRevision(string? r, out string revision)
-    {
-        var rev = (r ?? "").Trim().ToUpperInvariant();
-        if (rev.Length == 0 || rev.Length > 20 || rev.Any(ch => !char.IsLetterOrDigit(ch) && ch is not '-' and not '.'))
-        {
-            revision = "";
-            return false;
-        }
-        revision = rev;
-        return true;
-    }
+    const int RevisionLimit = 20;
 
+    /// <summary>The revision as written, with surrounding spaces removed and trimmed to {RevisionLimit} characters. Blank is allowed.</summary>
     internal static string Revision(string? r)
     {
-        if (TryRevision(r, out var rev)) return rev;
-        throw new AppException((r ?? "").Trim().Length == 0 ? "Enter the revision letter." : "Use letters, numbers, '-' or '.' for the revision (up to 20).");
+        var rev = (r ?? "").Trim();
+        return rev.Length <= RevisionLimit ? rev : rev[..RevisionLimit];
     }
 
     async Task<(byte[] Bytes, string Name, string Ext)> ReadFileAsync(Stream content, string fileName, CancellationToken ct)
