@@ -31,6 +31,14 @@ public sealed class DrawingsController(DrawingService drawings, DrawingImportSer
     [HttpPost("relink"), RequirePermission(Permissions.SequflohManageDrawings)]
     public Task<object> Relink(CancellationToken ct) => imports.RelinkAsync(ct);
 
+    /// <summary>Every drawing with its folder path, file and linked parts, to compare against the drive it was imported from.</summary>
+    [HttpGet("import/inventory"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public Task<List<object>> ImportInventory(CancellationToken ct) => imports.InventoryAsync(ct);
+
+    /// <summary>Lists, or with apply saves, the part link changes that make each part folder's primary drawing the one linked.</summary>
+    [HttpPost("import/primary-links"), RequirePermission(Permissions.SequflohManageDrawings)]
+    public Task<object> PrimaryLinks(DrawingImportService.PrimaryLinksRequest r, CancellationToken ct) => imports.PrimaryLinksAsync(r, ct);
+
     [HttpPost("import/summary"), RequirePermission(Permissions.SequflohManageDrawings)]
     public async Task<IActionResult> ImportSummary(DrawingImportService.SummaryRequest r, CancellationToken ct) { await imports.SummaryAsync(r, ct); return NoContent(); }
 

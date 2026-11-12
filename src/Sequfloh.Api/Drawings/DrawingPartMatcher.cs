@@ -10,7 +10,8 @@ namespace Sequfloh.Drawings;
 /// <summary>
 /// Links drawings to parts by name. A folder or file name (without its extension) links to every part whose OR #, SENSEN # or family drawing number field
 /// (see PartAttributes.DrawingNumberFields, for example the JH PN of fuel pumps) is the same, ignoring case, spaces, dashes and underscores. One drawing can
-/// link to many parts. Links are only ever added here, never removed, so links made by hand are kept.
+/// link to many parts. In a folder named for a part only the folder's primary drawing links (see IsPrimary). Links are only ever added here, never removed,
+/// so links made by hand are kept.
 /// </summary>
 public sealed class DrawingPartMatcher(AppDbContext db, ICurrentUser me)
 {
@@ -53,15 +54,38 @@ public sealed class DrawingPartMatcher(AppDbContext db, ICurrentUser me)
     public static List<PartHit> Match(Dictionary<string, List<PartHit>> index, IEnumerable<string?> names) =>
         names.Select(Normalize).Where(n => n.Length > 0).Distinct().SelectMany(n => index.GetValueOrDefault(n) ?? []).DistinctBy(x => x.Id).ToList();
 
-    sealed record Candidate(Guid Id, Guid SiteId, Guid? DepartmentId, string Title, string? DrawingNumber, string? FolderName);
+    /// <summary>
+    /// The drawing a part folder stands for: the file named exactly like its folder (ignoring case, spaces, dashes and underscores), or the only drawing in
+    /// the folder. Other files in a part folder (old copies, supplier copies, drawings of other parts kept for reference) stay in the folder but are not linked.
+    /// </summary>
+    public static bool IsPrimary(string? title, string? folderName, int drawingsInFolder)
+    {
+        var f = Normalize(folderName);
+        return (f.Length > 0 && Normalize(title) == f) || drawingsInFolder == 1;
+    }
+
+    /// <summary>
+    /// The parts one drawing links to. In a folder named for a part, only the folder's primary drawing links (to that part and to any part its own name
+    /// matches); the other files link to nothing. In any other folder a drawing links to the parts its own name or drawing number matches.
+    /// </summary>
+    public static List<PartHit> Targets(Dictionary<string, List<PartHit>> index, Dictionary<string, List<PartHit>> fullIndex, string title, string? drawingNumber, string? folderName, bool primary)
+    {
+        var partFolder = fullIndex.ContainsKey(Normalize(folderName));
+        if (partFolder && !primary) return [];
+        return Match(index, partFolder ? [title, drawingNumber, folderName] : [title, drawingNumber]);
+    }
+
+    sealed record Candidate(Guid Id, Guid SiteId, Guid? DepartmentId, string Title, string? DrawingNumber, Guid FolderId, string? FolderName, int InFolder);
 
     IQueryable<Candidate> Candidates() => db.Drawings.AsNoTracking().Where(d => !d.IsArchived)
-        .Select(d => new Candidate(d.Id, d.SiteId, d.DepartmentId, d.Title, d.DrawingNumber, db.DrawingFolders.Where(f => f.Id == d.FolderId).Select(f => f.Name).FirstOrDefault()));
+        .Select(d => new Candidate(d.Id, d.SiteId, d.DepartmentId, d.Title, d.DrawingNumber, d.FolderId, db.DrawingFolders.Where(f => f.Id == d.FolderId).Select(f => f.Name).FirstOrDefault(),
+            db.Drawings.Count(o => o.FolderId == d.FolderId && !o.IsArchived)));
 
     /// <summary>Adds the missing links between the drawings and the parts (all parts when partIds is null). Returns drawings checked and links added.</summary>
     public async Task<(int Checked, int Added, List<(Guid DrawingId, Guid SiteId, string Title, int Added)> PerDrawing)> LinkAsync(IReadOnlyCollection<Guid>? drawingIds, IReadOnlyCollection<Guid>? partIds, CancellationToken ct, Func<Guid, Guid?, bool>? allow = null)
     {
         var index = await IndexAsync(ct, partIds);
+        var fullIndex = partIds is null ? index : await IndexAsync(ct);
         var per = new List<(Guid, Guid, string, int)>();
         if (index.Count == 0) return (0, 0, per);
         var q = Candidates();
@@ -76,7 +100,7 @@ public sealed class DrawingPartMatcher(AppDbContext db, ICurrentUser me)
         foreach (var d in drawings)
         {
             var n = 0;
-            foreach (var p in Match(index, [d.Title, d.DrawingNumber, d.FolderName]))
+            foreach (var p in Targets(index, fullIndex, d.Title, d.DrawingNumber, d.FolderName, IsPrimary(d.Title, d.FolderName, d.InFolder)))
                 if (have.Add((d.Id, p.Id))) { db.DrawingPartLinks.Add(new DrawingPartLink { DrawingId = d.Id, PartId = p.Id, CreatedAt = DateTimeOffset.UtcNow }); n++; }
             if (n > 0) { per.Add((d.Id, d.SiteId, d.Title, n)); added += n; }
         }

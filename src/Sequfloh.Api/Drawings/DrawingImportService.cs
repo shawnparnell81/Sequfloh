@@ -28,7 +28,9 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
     public sealed record PlanRequest(Guid? FolderId, List<FileItem>? Files, List<string>? Folders, bool LinkParts);
     public sealed record FoldersRequest(Guid? FolderId, List<string>? Paths, bool LinkParts);
     public sealed record StartRequest(Guid FolderId, string FileName, long Size);
-    public sealed record FinishRequest(string Token, string? UploadId, List<UploadedPart>? Parts, string? Revision, bool LinkParts, List<string>? MatchNames);
+    /// <param name="Primary">Whether the browser found this file to be its folder's primary drawing (named like the folder, or the only PDF or Word file in it).
+    /// In a folder named for a part only the primary drawing is linked; the others are kept in the folder for reference. Left out, every file links as before.</param>
+    public sealed record FinishRequest(string Token, string? UploadId, List<UploadedPart>? Parts, string? Revision, bool LinkParts, List<string>? MatchNames, bool? Primary = null);
     public sealed record AbortRequest(string Token, string? UploadId);
     public sealed record SummaryRequest(Guid? FolderId, int Imported, int Folders, long Bytes, int Skipped, int Failed, int Linked, bool Cancelled, int Conflicts = 0);
 
@@ -324,8 +326,14 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         var linked = 0;
         if (r.LinkParts)
         {
-            var hits = await PartsByNameAsync((r.MatchNames ?? []).Append(title), ct);
-            foreach (var p in hits.Values.SelectMany(x => x).Select(x => x.Id).Distinct())
+            IEnumerable<Guid> targets;
+            if (r.Primary is bool primary)
+            {
+                var index = await matcher.IndexAsync(ct);
+                targets = DrawingPartMatcher.Targets(index, index, title, null, folder.Name, primary).Select(x => x.Id);
+            }
+            else targets = (await PartsByNameAsync((r.MatchNames ?? []).Append(title), ct)).Values.SelectMany(x => x).Select(x => x.Id);
+            foreach (var p in targets.Distinct())
             {
                 db.DrawingPartLinks.Add(new DrawingPartLink { DrawingId = d.Id, PartId = p, CreatedAt = DateTimeOffset.UtcNow });
                 linked++;
@@ -383,5 +391,111 @@ public sealed class DrawingImportService(AppDbContext db, IFileStorage storage, 
         });
         await db.SaveChangesAsync(ct);
         return new { Checked = checkedCount, Added = added, Drawings = per.Count };
+    }
+
+    /// <summary>Folder paths ("Family/Sub/Name") for every folder, by id.</summary>
+    async Task<Dictionary<Guid, string>> FolderPathsAsync(CancellationToken ct)
+    {
+        var rows = await db.DrawingFolders.AsNoTracking().Where(f => !f.IsArchived).Select(f => new { f.Id, f.ParentId, f.Name }).ToListAsync(ct);
+        var byId = rows.ToDictionary(x => x.Id);
+        var paths = new Dictionary<Guid, string>();
+        string PathOf(Guid id, int depth)
+        {
+            if (paths.TryGetValue(id, out var known)) return known;
+            var f = byId[id];
+            var up = f.ParentId is Guid p && byId.ContainsKey(p) && depth < 50 ? PathOf(p, depth + 1) + "/" : "";
+            return paths[id] = up + f.Name;
+        }
+        foreach (var f in rows) PathOf(f.Id, 0);
+        return paths;
+    }
+
+    /// <summary>Every drawing the user can manage with its folder path, current file and linked parts, to compare against the source drive.</summary>
+    public async Task<List<object>> InventoryAsync(CancellationToken ct)
+    {
+        var scope = await access.GetScopeAsync(UserId, Permissions.SequflohManageDrawings, ct);
+        if (scope.IsEmpty) throw new ForbiddenException();
+        var paths = await FolderPathsAsync(ct);
+        var rows = (await db.Drawings.AsNoTracking().Where(d => !d.IsArchived)
+            .Select(d => new { d.Id, d.FolderId, d.Title, d.CurrentRevision, d.SiteId, d.DepartmentId,
+                File = db.DrawingRevisions.Where(v => v.DrawingId == d.Id && v.Revision == d.CurrentRevision).Select(v => new { v.FileName, v.SizeBytes }).FirstOrDefault() })
+            .ToListAsync(ct)).Where(d => scope.Allows(d.SiteId, d.DepartmentId) && paths.ContainsKey(d.FolderId)).ToList();
+        var links = (await db.DrawingPartLinks.AsNoTracking().Join(db.Parts, l => l.PartId, p => p.Id, (l, p) => new { l.DrawingId, p.PartNumber }).ToListAsync(ct))
+            .GroupBy(x => x.DrawingId).ToDictionary(g => g.Key, g => g.Select(x => x.PartNumber).OrderBy(x => x, StringComparer.Ordinal).ToList());
+        return rows.Select(d => (object)new { d.Id, Folder = paths[d.FolderId], d.Title, d.CurrentRevision, FileName = d.File?.FileName, Size = d.File?.SizeBytes,
+            Parts = links.GetValueOrDefault(d.Id) ?? [] }).ToList();
+    }
+
+    public sealed record PrimaryLinksRequest(bool Apply = false);
+
+    /// <summary>
+    /// Brings part links in line with the primary-drawing rule (see DrawingPartMatcher.IsPrimary) for folders named for a part: the primary drawing gets
+    /// any missing link, and links on the other bulk-imported files in that folder are removed so they stay as reference only. Drawings added by hand,
+    /// file names, revisions, files and work orders already created are not touched. A folder with several files and none named for it is only reported.
+    /// Without Apply nothing is saved and the changes are only listed.
+    /// </summary>
+    public async Task<object> PrimaryLinksAsync(PrimaryLinksRequest r, CancellationToken ct)
+    {
+        var scope = await access.GetScopeAsync(UserId, Permissions.SequflohManageDrawings, ct);
+        if (scope.IsEmpty) throw new ForbiddenException();
+        var index = await matcher.IndexAsync(ct);
+        var paths = await FolderPathsAsync(ct);
+        var all = (await db.Drawings.AsNoTracking().Where(d => !d.IsArchived)
+            .Select(d => new { d.Id, d.FolderId, d.Title, d.DrawingNumber, d.SiteId, d.DepartmentId,
+                Imported = db.DrawingRevisions.Where(v => v.DrawingId == d.Id).All(v => v.Reason == "Bulk import" || v.Reason == "Revision recorded in the Part Master") })
+            .ToListAsync(ct)).Where(d => paths.ContainsKey(d.FolderId)).ToList();
+        var have = (await db.DrawingPartLinks.AsNoTracking().Select(l => new { l.DrawingId, l.PartId }).ToListAsync(ct)).ToLookup(l => l.DrawingId, l => l.PartId);
+        var partNumbers = index.Values.SelectMany(x => x).DistinctBy(x => x.Id).ToDictionary(x => x.Id, x => x.PartNumber);
+        var added = new List<(Guid Drawing, Guid Site, string Title, string Folder, List<Guid> Parts)>();
+        var removed = new List<(Guid Drawing, Guid Site, string Title, string Folder, List<Guid> Parts)>();
+        var choose = new List<object>();
+        foreach (var g in all.GroupBy(d => d.FolderId))
+        {
+            var path = paths[g.Key];
+            var name = path[(path.LastIndexOf('/') + 1)..];
+            if (!index.ContainsKey(DrawingPartMatcher.Normalize(name))) continue;
+            var list = g.ToList();
+            if (!list.All(d => scope.Allows(d.SiteId, d.DepartmentId))) continue;
+            var primaries = list.Where(d => DrawingPartMatcher.IsPrimary(d.Title, name, list.Count)).ToList();
+            if (primaries.Count == 0) { choose.Add(new { Folder = path, Files = list.Select(d => d.Title).OrderBy(x => x).ToList() }); continue; }
+            foreach (var d in primaries)
+            {
+                var missing = DrawingPartMatcher.Targets(index, index, d.Title, d.DrawingNumber, name, true).Select(x => x.Id).Where(p => !have[d.Id].Contains(p)).Distinct().ToList();
+                if (missing.Count > 0) added.Add((d.Id, d.SiteId, d.Title, path, missing));
+            }
+            foreach (var d in list.Except(primaries).Where(d => d.Imported))
+            {
+                var extra = have[d.Id].Distinct().ToList();
+                if (extra.Count > 0) removed.Add((d.Id, d.SiteId, d.Title, path, extra));
+            }
+        }
+        string Numbers(List<Guid> ids) => string.Join(", ", ids.Select(p => partNumbers.GetValueOrDefault(p) ?? p.ToString()).OrderBy(x => x, StringComparer.Ordinal));
+        if (r.Apply && (added.Count > 0 || removed.Count > 0))
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var a in added)
+            {
+                foreach (var p in a.Parts) db.DrawingPartLinks.Add(new DrawingPartLink { DrawingId = a.Drawing, PartId = p, CreatedAt = now });
+                db.AuditEntries.Add(new AuditEntry { OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Linked drawing to parts", EntityType = nameof(Drawing), EntityId = a.Drawing, SiteId = a.Site,
+                    CorrelationId = me.CorrelationId, Description = AuditText.Fit($"Primary drawing check: drawing {a.Title} in folder {a.Folder} is the drawing named for its folder, so it was linked to part {Numbers(a.Parts)}") });
+            }
+            foreach (var x in removed)
+            {
+                var ids = x.Parts;
+                await db.DrawingPartLinks.Where(l => l.DrawingId == x.Drawing && ids.Contains(l.PartId)).ExecuteDeleteAsync(ct);
+                db.AuditEntries.Add(new AuditEntry { OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Unlinked drawing from parts", EntityType = nameof(Drawing), EntityId = x.Drawing, SiteId = x.Site,
+                    CorrelationId = me.CorrelationId, Description = AuditText.Fit($"Primary drawing check: drawing {x.Title} in folder {x.Folder} is a reference copy, not the drawing named for its folder, so its link to part {Numbers(x.Parts)} was removed. The file, its name and its revision were not changed and it stays in the folder") });
+            }
+            db.AuditEntries.Add(new AuditEntry { OccurredAt = now, UserId = me.UserId, UserName = me.UserName, Action = "Checked primary drawings", EntityType = nameof(DrawingFolder), EntityId = Guid.Empty,
+                SiteId = await drawings.TopLevelSiteAsync(null, ct), CorrelationId = me.CorrelationId,
+                Description = AuditText.Fit($"Primary drawing check linked {added.Count} primary drawings and removed the part links of {removed.Count} reference copies. {choose.Count} folders have several files and none named for the folder, and were left as they are") });
+            await db.SaveChangesAsync(ct);
+        }
+        return new
+        {
+            Applied = r.Apply, Linked = added.Count, Unlinked = removed.Count, NeedsChoice = choose,
+            LinkedDrawings = added.Select(a => new { a.Folder, a.Title, Parts = Numbers(a.Parts) }),
+            UnlinkedDrawings = removed.Select(x => new { x.Folder, x.Title, Parts = Numbers(x.Parts) }),
+        };
     }
 }
